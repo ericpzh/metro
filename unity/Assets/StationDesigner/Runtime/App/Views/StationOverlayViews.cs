@@ -34,8 +34,27 @@ namespace Metro.App.Views {
     /// `StationVisibilityRules` treats as editing furniture (hidden by 隐藏UI), and none of
     /// it is ever written into the station document.
     /// </summary>
-    public sealed class StationOverlayRenderer : IStationViewRenderer {
+    public sealed class StationOverlayRenderer : IStationViewRenderer, IStationLocalViewRenderer {
         public const string RoleName = "overlay";
+
+        sealed class StagedOverlayDelta : IStationLocalRendererStage {
+            readonly OverlayState state;
+            readonly StationDocument nextDoc;
+            readonly bool cellsChanged;
+
+            public StagedOverlayDelta(OverlayState state, StationDocument nextDoc, bool cellsChanged) {
+                this.state = state;
+                this.nextDoc = nextDoc;
+                this.cellsChanged = cellsChanged;
+            }
+
+            public void Commit(StationWorldView world, StationLocalViewCommit commit) {
+                state.Document = nextDoc;
+                if (cellsChanged) state.ZoneDirty = true;
+            }
+
+            public void Dispose() { }
+        }
 
         /// <summary>Zone tints, in `ZONE_PAINT_LIST` order (the palette the labels border with).</summary>
         public static readonly Color32[] ZonePalette = BuildZonePalette();
@@ -180,6 +199,25 @@ namespace Metro.App.Views {
             // written into the document and no edit path reads it.
             var host = UnityEngine.Object.FindAnyObjectByType<StationGameHost>();
             if (host != null) host.RegisterStateContributor(new StationOverlayStateContributor());
+        }
+
+        OverlayState StateOf(StationWorldView world) {
+            for (var i = states.Count - 1; i >= 0; i--) {
+                if (states[i].World == world) return states[i];
+            }
+            return null;
+        }
+
+        public bool TryStageLocalDelta(
+            StationLocalDeltaContext context,
+            out IStationLocalRendererStage stage,
+            out string fallbackReason) {
+            stage = null;
+            fallbackReason = null;
+            var state = StateOf(context.World);
+            if (state == null) return true;
+            stage = new StagedOverlayDelta(state, context.NextDocument, context.CellsChanged);
+            return true;
         }
 
         public void Release() => Purge();

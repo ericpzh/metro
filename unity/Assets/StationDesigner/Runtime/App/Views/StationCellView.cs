@@ -177,12 +177,17 @@ namespace Metro.App.Views {
     /// </summary>
     public sealed class StationCellView : IDisposable {
         readonly List<StationCellGroupView> groups = new List<StationCellGroupView>();
+        readonly Dictionary<StationCellMeshWorkspace.ChunkBandKey, List<StationCellGroupView>> groupsByChunk =
+            new Dictionary<StationCellMeshWorkspace.ChunkBandKey, List<StationCellGroupView>>();
         readonly Dictionary<StationSurfaceRole, Transform> roleRoots = new Dictionary<StationSurfaceRole, Transform>();
         readonly Dictionary<int, Transform> storeyRoots = new Dictionary<int, Transform>();
         readonly List<StationCellFaceRecord> faces;
         StationCellMeshResult mesh;
+        StationCellViewRequest buildRequest;
         Transform root;
         Func<Vector3, Vector3> toWorld;
+        int totalTriangles;
+        bool facesDirty;
         bool disposed;
 
         StationCellView() { faces = new List<StationCellFaceRecord>(); }
@@ -190,16 +195,65 @@ namespace Metro.App.Views {
         public Transform Root => root;
         public IReadOnlyList<StationCellGroupView> Groups => groups;
         /// <summary>Every painted surface the mesh presents (`cellKey` + face + finish).</summary>
-        public IReadOnlyList<StationCellFaceRecord> Faces => faces;
+        public IReadOnlyList<StationCellFaceRecord> Faces {
+            get {
+                if (facesDirty) RebuildFacesList();
+                return faces;
+            }
+        }
         public StationCellMeshResult MeshData => mesh;
-        public int Triangles => mesh?.Triangles ?? 0;
-        public int MeshGroups => mesh?.GroupCount ?? 0;
+        public int Triangles => totalTriangles;
+        public int MeshGroups => groups.Count;
+        public int ChunkCount => groupsByChunk.Count;
         /// <summary>Finish ids the mesher drew, with their triangle counts.</summary>
-        public IReadOnlyDictionary<string, int> TrianglesByFinish => mesh?.TrianglesByFinish();
+        public IReadOnlyDictionary<string, int> TrianglesByFinish => BuildTrianglesByFinish();
         /// <summary>Cells whose finish id the library could not resolve, by name.</summary>
         public IReadOnlyCollection<string> UnknownFinishes => unknownFinishes;
 
         readonly HashSet<string> unknownFinishes = new HashSet<string>(StringComparer.Ordinal);
+
+        public sealed class StagedCellChunkSwap : IDisposable {
+            readonly StationCellView owner;
+            readonly StationCellMeshWorkspace.StagedChunkMesh stagedMesh;
+            readonly Dictionary<StationCellMeshWorkspace.ChunkBandKey, List<StationCellGroupView>> stagedGroups;
+            bool committed;
+            bool disposed;
+
+            internal StagedCellChunkSwap(
+                StationCellView owner,
+                StationCellMeshWorkspace.StagedChunkMesh stagedMesh,
+                Dictionary<StationCellMeshWorkspace.ChunkBandKey, List<StationCellGroupView>> stagedGroups) {
+                this.owner = owner;
+                this.stagedMesh = stagedMesh;
+                this.stagedGroups = stagedGroups;
+            }
+
+            public void Commit(
+                out List<GameObject> retiredViews,
+                out List<Mesh> retiredMeshes,
+                out List<StationCellGroupView> addedGroups) {
+                if (disposed) throw new ObjectDisposedException(nameof(StagedCellChunkSwap));
+                committed = true;
+                stagedMesh.Commit();
+                owner.CommitChunkSwap(stagedMesh.DirtyKeys, stagedGroups, out retiredViews, out retiredMeshes, out addedGroups);
+            }
+
+            public void Dispose() {
+                if (disposed) return;
+                disposed = true;
+                if (committed) return;
+                stagedMesh?.Rollback();
+                if (stagedGroups != null) {
+                    foreach (var list in stagedGroups.Values) {
+                        for (int i = 0; i < list.Count; i++) {
+                            var entry = list[i];
+                            if (entry.Mesh != null) Destroy(entry.Mesh);
+                            if (entry.GameObject != null) Destroy(entry.GameObject);
+                        }
+                    }
+                }
+            }
+        }
 
         /// <summary>
         /// Build the cell view under `parent`. The parent is the station's placement
@@ -213,7 +267,15 @@ namespace Metro.App.Views {
             return view;
         }
 
+        static StationCellMeshWorkspace.ChunkBandKey ChunkKeyOf(StationCellMeshGroup group) =>
+            new StationCellMeshWorkspace.ChunkBandKey(
+                group.ChunkX,
+                group.ChunkY,
+                group.Storey,
+                group.Role == StationSurfaceRole.Ground);
+
         void BuildInternal(StationCellViewRequest request, Transform parent) {
+            buildRequest = request;
             toWorld = request.ToWorld ?? StationCoordinates.Point;
             var rootObject = new GameObject(string.IsNullOrEmpty(request.Name) ? "Station cells" : request.Name);
             root = rootObject.transform;
@@ -224,31 +286,157 @@ namespace Metro.App.Views {
 
             mesh = StationCellMesher.Mesh(request.Mesh);
             faces.AddRange(mesh.Faces);
+            totalTriangles = mesh.Triangles;
 
             foreach (var group in mesh.Groups) {
-                var material = Resolve(request, group.FinishId);
-                var child = new GameObject(group.GroupKey);
-                var transform = child.transform;
-                transform.SetParent(RoleRoot(group.Role), false);
-                transform.localPosition = Vector3.zero;
-                transform.localRotation = Quaternion.identity;
-                transform.localScale = Vector3.one;
-                var filter = child.AddComponent<MeshFilter>();
-                var renderer = child.AddComponent<MeshRenderer>();
-                renderer.shadowCastingMode = ShadowCastingMode.Off;
-                renderer.receiveShadows = true;
-                renderer.sharedMaterial = material;
-                var mesh = BuildMesh(group, out var worldVertices, out var worldIndices);
-                filter.sharedMesh = mesh;
-                var entry = new StationCellGroupView {
-                    Data = group, GameObject = child, Filter = filter, Renderer = renderer,
-                    Mesh = mesh, Material = material,
-                    WorldVertices = worldVertices, WorldIndices = worldIndices,
-                    Wall = group.Role == StationSurfaceRole.Wall ||
-                        (request.Finishes != null && !string.IsNullOrEmpty(group.FinishId) && request.Finishes.IsWall(group.FinishId)),
-                };
+                var entry = CreateGroupView(request, group, RoleRoot(group.Role));
                 groups.Add(entry);
-                if (request.Finishes != null && !request.Finishes.IsKnown(group.FinishId)) unknownFinishes.Add(group.FinishId);
+                var ck = ChunkKeyOf(group);
+                if (!groupsByChunk.TryGetValue(ck, out var bucket)) groupsByChunk[ck] = bucket = new List<StationCellGroupView>(4);
+                bucket.Add(entry);
+            }
+        }
+
+        StationCellGroupView CreateGroupView(StationCellViewRequest request, StationCellMeshGroup group, Transform parentTransform) {
+            var material = Resolve(request, group.FinishId);
+            var child = new GameObject(group.GroupKey);
+            var transform = child.transform;
+            transform.SetParent(parentTransform, false);
+            transform.localPosition = Vector3.zero;
+            transform.localRotation = Quaternion.identity;
+            transform.localScale = Vector3.one;
+            var filter = child.AddComponent<MeshFilter>();
+            var renderer = child.AddComponent<MeshRenderer>();
+            renderer.shadowCastingMode = ShadowCastingMode.Off;
+            renderer.receiveShadows = true;
+            renderer.sharedMaterial = material;
+            var builtMesh = BuildMesh(group, out var worldVertices, out var worldIndices);
+            filter.sharedMesh = builtMesh;
+            if (request.Finishes != null && !request.Finishes.IsKnown(group.FinishId)) unknownFinishes.Add(group.FinishId);
+            return new StationCellGroupView {
+                Data = group, GameObject = child, Filter = filter, Renderer = renderer,
+                Mesh = builtMesh, Material = material,
+                WorldVertices = worldVertices, WorldIndices = worldIndices,
+                Wall = group.Role == StationSurfaceRole.Wall ||
+                    (request.Finishes != null && !string.IsNullOrEmpty(group.FinishId) && request.Finishes.IsWall(group.FinishId)),
+            };
+        }
+
+        public StagedCellChunkSwap StageChunkSwap(StationCellMeshWorkspace.StagedChunkMesh stagedMesh, Transform stagingParent) {
+            if (disposed) throw new ObjectDisposedException(nameof(StationCellView));
+            if (stagedMesh == null) throw new ArgumentNullException(nameof(stagedMesh));
+            var staged = new Dictionary<StationCellMeshWorkspace.ChunkBandKey, List<StationCellGroupView>>(stagedMesh.GroupsByChunk.Count);
+            try {
+                foreach (var kv in stagedMesh.GroupsByChunk) {
+                    var list = new List<StationCellGroupView>(kv.Value.Count);
+                    for (int i = 0; i < kv.Value.Count; i++) {
+                        list.Add(CreateGroupView(buildRequest, kv.Value[i], stagingParent));
+                    }
+                    staged[kv.Key] = list;
+                }
+                return new StagedCellChunkSwap(this, stagedMesh, staged);
+            } catch {
+                foreach (var list in staged.Values) {
+                    for (int i = 0; i < list.Count; i++) {
+                        if (list[i].Mesh != null) Destroy(list[i].Mesh);
+                        if (list[i].GameObject != null) Destroy(list[i].GameObject);
+                    }
+                }
+                stagedMesh.Rollback();
+                throw;
+            }
+        }
+
+        void CommitChunkSwap(
+            IReadOnlyList<StationCellMeshWorkspace.ChunkBandKey> dirtyKeys,
+            Dictionary<StationCellMeshWorkspace.ChunkBandKey, List<StationCellGroupView>> stagedGroups,
+            out List<GameObject> retiredViews,
+            out List<Mesh> retiredMeshes,
+            out List<StationCellGroupView> addedGroups) {
+            retiredViews = new List<GameObject>();
+            retiredMeshes = new List<Mesh>();
+            addedGroups = new List<StationCellGroupView>();
+            var retiredSet = new HashSet<StationCellGroupView>();
+
+            for (int k = 0; k < dirtyKeys.Count; k++) {
+                var ck = dirtyKeys[k];
+                if (groupsByChunk.TryGetValue(ck, out var oldBucket)) {
+                    for (int i = 0; i < oldBucket.Count; i++) {
+                        var oldEntry = oldBucket[i];
+                        retiredSet.Add(oldEntry);
+                        totalTriangles -= oldEntry.Triangles;
+                        if (oldEntry.GameObject != null) retiredViews.Add(oldEntry.GameObject);
+                        if (oldEntry.Mesh != null) retiredMeshes.Add(oldEntry.Mesh);
+                    }
+                    groupsByChunk.Remove(ck);
+                }
+            }
+
+            if (retiredSet.Count > 0) {
+                groups.RemoveAll(g => retiredSet.Contains(g));
+            }
+
+            for (int k = 0; k < dirtyKeys.Count; k++) {
+                var ck = dirtyKeys[k];
+                if (!stagedGroups.TryGetValue(ck, out var newBucket) || newBucket.Count == 0) continue;
+                groupsByChunk[ck] = newBucket;
+                for (int i = 0; i < newBucket.Count; i++) {
+                    var entry = newBucket[i];
+                    var parentRoleRoot = RoleRoot(entry.Role);
+                    entry.GameObject.transform.SetParent(parentRoleRoot, false);
+                    entry.GameObject.transform.localPosition = Vector3.zero;
+                    entry.GameObject.transform.localRotation = Quaternion.identity;
+                    entry.GameObject.transform.localScale = Vector3.one;
+                    groups.Add(entry);
+                    addedGroups.Add(entry);
+                    totalTriangles += entry.Triangles;
+                }
+            }
+
+            if (totalTriangles < 0) totalTriangles = 0;
+            facesDirty = true;
+            if (mesh != null) {
+                mesh.Triangles = totalTriangles;
+                mesh.Groups.Clear();
+                for (int i = 0; i < groups.Count; i++) mesh.Groups.Add(groups[i].Data);
+            }
+        }
+
+        Dictionary<string, int> BuildTrianglesByFinish() {
+            var dict = new Dictionary<string, int>(StringComparer.Ordinal);
+            for (int i = 0; i < groups.Count; i++) {
+                var g = groups[i];
+                dict.TryGetValue(g.FinishId, out int count);
+                dict[g.FinishId] = count + g.Triangles;
+            }
+            return dict;
+        }
+
+        void RebuildFacesList() {
+            facesDirty = false;
+            faces.Clear();
+            var dedup = new Dictionary<(int X, int Y, int Z, StationFace Face, string FinishId, StationSurfaceRole Role, bool Slope), int>();
+            for (int g = 0; g < groups.Count; g++) {
+                var data = groups[g].Data;
+                if (data?.LocalFaces == null || data.LocalTriangleFaces == null) continue;
+                var remapped = new int[data.LocalTriangleFaces.Length];
+                for (int t = 0; t < data.LocalTriangleFaces.Length; t++) {
+                    int li = data.LocalTriangleFaces[t];
+                    if (li < 0 || li >= data.LocalFaces.Length) { remapped[t] = -1; continue; }
+                    var rec = data.LocalFaces[li];
+                    var key = (rec.X, rec.Y, rec.Z, rec.Face, rec.FinishId ?? "", rec.Role, rec.Slope);
+                    if (!dedup.TryGetValue(key, out int gi)) {
+                        gi = faces.Count;
+                        faces.Add(rec);
+                        dedup[key] = gi;
+                    }
+                    remapped[t] = gi;
+                }
+                data.TriangleFaces = remapped;
+            }
+            if (mesh != null) {
+                mesh.Faces.Clear();
+                mesh.Faces.AddRange(faces);
             }
         }
 
@@ -392,8 +580,15 @@ namespace Metro.App.Views {
                     }
                     best = distance;
                     found = true;
-                    var faceIndex = data.TriangleFaces != null && t / 3 < data.TriangleFaces.Length ? data.TriangleFaces[t / 3] : -1;
-                    var record = faceIndex >= 0 && faceIndex < faces.Count ? faces[faceIndex] : default;
+                    StationCellFaceRecord record;
+                    int triIdx = t / 3;
+                    if (data.LocalFaces != null && data.LocalTriangleFaces != null && triIdx < data.LocalTriangleFaces.Length) {
+                        int localIdx = data.LocalTriangleFaces[triIdx];
+                        record = localIdx >= 0 && localIdx < data.LocalFaces.Length ? data.LocalFaces[localIdx] : default;
+                    } else {
+                        var faceIndex = data.TriangleFaces != null && triIdx < data.TriangleFaces.Length ? data.TriangleFaces[triIdx] : -1;
+                        record = faceIndex >= 0 && faceIndex < faces.Count ? faces[faceIndex] : default;
+                    }
                     hit = new StationCellPickHit(record.X, record.Y, record.Z, record.Face, record.FinishId, record.Role,
                         record.Slope, worldPoint, normal, distance, group);
                 }
@@ -493,56 +688,137 @@ namespace Metro.App.Views {
                 if (destroyObjects && group.GameObject != null) Destroy(group.GameObject);
             }
             groups.Clear();
+            groupsByChunk.Clear();
             if (destroyObjects && root != null) Destroy(root.gameObject);
             root = null;
             faces.Clear();
             roleRoots.Clear();
             storeyRoots.Clear();
             mesh = null;
+            buildRequest = null;
         }
     }
 
-    /// <summary>
-    /// Packet E's registration with packet A's renderer registry: the station's cell
-    /// surfaces as one renderer family (`Role = "cells"`).
-    ///
-    /// It projects the committed <see cref="StationDocument"/> into the mesher's plain
-    /// input, builds the surfaces under `context.RoleRoot("cells")`, registers one
-    /// record per emitted group (chunk  storey  role  finish) with the world, and
-    /// reports what it could not derive **by name** instead of inventing it:
-    ///   * `finish-library-missing`  the exported finish library is not staged, so no
-    ///     cell surface is drawn (a solid-colour stand-in is never a finish);
-    ///   * `finish-unknown`  a finish id outside the export, drawn with the documented
-    ///     `floor.concrete` fallback and kept in the document (E2's rule);
-    ///   * `ramp-slope-applied` / `ramp-openings-applied` — module-derived underside
-    ///     slope cuts, fills, thinned panels and grade corridor openings (`StationRampOpenings`).
-    ///     The platform-edge floor inset is reported as `platform-inset-applied`.
-    ///
-    /// The built <see cref="View"/> is the paint adapter's pick source:
-    /// `view.TryPick(worldRay, out hit)` resolves one pointer hit once and hands back the
-    /// same `cellKey + face + finish` for hover and commit.
-    /// </summary>
-    public sealed class StationCellRenderer : IStationViewRenderer {
+    public sealed class StationCellRenderer : IStationViewRenderer, IStationLocalViewRenderer {
         public const string RoleName = "cells";
 
         /// <summary>Override how the finish library is acquired (tests stage a fixture).</summary>
         public static Func<Shader, StationFinishLibrary> FinishLibraryFactory;
 
-        /// <summary>
-        /// One built world's cell surfaces. The host reuses renderer **singletons**
-        /// across staged worlds, and the old world's `Dispose -> Release()` runs *after*
-        /// the candidate world's `Build()`, so state is per world and never a shared
-        /// field: `Release` drops only the entries whose world reports `IsDisposed`
-        /// (the disposing world sets that flag before calling it), which keeps the
-        /// newest live world - the committed one after a successful install.
-        /// </summary>
         public sealed class CellState {
             public StationWorldView World;
             public StationCellView View;
             public StationPaintSnapshot Snapshot;
             public StationFinishLibrary Finishes;
+            public StationCellMeshWorkspace Workspace;
             public int Groups;
             public int Triangles;
+        }
+
+        public sealed class StagedCellRendererDelta : IStationLocalRendererStage {
+            readonly CellState state;
+            readonly StationDocument nextDoc;
+            readonly StationIndexDelta delta;
+            readonly StationCellMeshWorkspace.StagedChunkMesh stagedMesh;
+            readonly StationCellView.StagedCellChunkSwap stagedSwap;
+            bool committed;
+
+            internal StagedCellRendererDelta(
+                CellState state,
+                StationDocument nextDoc,
+                StationIndexDelta delta,
+                StationCellMeshWorkspace.StagedChunkMesh stagedMesh,
+                StationCellView.StagedCellChunkSwap stagedSwap) {
+                this.state = state;
+                this.nextDoc = nextDoc;
+                this.delta = delta;
+                this.stagedMesh = stagedMesh;
+                this.stagedSwap = stagedSwap;
+            }
+
+            public void Commit(
+                out List<GameObject> retiredViews,
+                out List<Mesh> retiredMeshes,
+                out List<StationViewRecord> addedRecords) {
+                committed = true;
+                stagedSwap.Commit(out retiredViews, out retiredMeshes, out var addedGroups);
+                state.Groups = state.View.Groups.Count;
+                state.Triangles = state.View.Triangles;
+                state.Snapshot?.ApplyLocalDelta(
+                    nextDoc,
+                    delta,
+                    stagedMesh.GroundHolesSnapshot,
+                    stagedMesh.HasGroundWindow,
+                    stagedMesh.GroundX0,
+                    stagedMesh.GroundX1,
+                    stagedMesh.GroundY0,
+                    stagedMesh.GroundY1,
+                    -1);
+                addedRecords = new List<StationViewRecord>(addedGroups.Count);
+                for (int i = 0; i < addedGroups.Count; i++) {
+                    var group = addedGroups[i];
+                    var data = group.Data;
+                    if (data == null || data.TriangleCount == 0) continue;
+                    StationCellKey anchor;
+                    if (data.HasAnchor) {
+                        anchor = data.Anchor;
+                    } else if (data.LocalFaces != null && data.LocalTriangleFaces != null &&
+                               data.LocalTriangleFaces.Length > 0 && data.LocalTriangleFaces[0] >= 0 &&
+                               data.LocalTriangleFaces[0] < data.LocalFaces.Length) {
+                        anchor = data.LocalFaces[data.LocalTriangleFaces[0]].CellKey;
+                    } else {
+                        continue;
+                    }
+                    addedRecords.Add(new StationViewRecord {
+                        Role = RoleName,
+                        CellKey = anchor.ToString(),
+                        View = group.GameObject,
+                        LevelBands = new[] { group.Storey },
+                    });
+                }
+            }
+
+            void IStationLocalRendererStage.Commit(StationWorldView world, StationLocalViewCommit commit) {
+                Commit(out var retiredViews, out var retiredMeshes, out var addedRecords);
+                if (retiredViews.Count > 0) {
+                    var retiredSet = new HashSet<GameObject>(retiredViews);
+                    world.RetireRecordsWhere(rec => rec.Role == RoleName && retiredSet.Contains(rec.View), commit);
+                    commit.RetiredViews.AddRange(retiredViews);
+                }
+                if (retiredMeshes.Count > 0) {
+                    commit.RetiredMeshes.AddRange(retiredMeshes);
+                }
+                for (int i = 0; i < addedRecords.Count; i++) {
+                    world.AddLocalRecord(addedRecords[i], commit);
+                }
+            }
+
+            public void Dispose() {
+                if (!committed) stagedSwap?.Dispose();
+            }
+        }
+
+        public bool TryStageLocalDelta(
+            StationLocalDeltaContext context,
+            out IStationLocalRendererStage stage,
+            out string fallbackReason) {
+            stage = null;
+            fallbackReason = null;
+            var state = FindState(context.World);
+            if (state == null || state.Workspace == null || state.View == null) {
+                fallbackReason = "no-cell-workspace";
+                return false;
+            }
+            if (!context.CellsChanged && context.TouchedModuleIds.Count == 0) {
+                StationEditTrace.AddRebuiltChunks(0, state.View.ChunkCount);
+                return true;
+            }
+            stage = StageLocalDelta(context.World, context.NextDocument, context.NextIndex, context.Delta, context.StagingRoot);
+            if (stage == null) {
+                fallbackReason = "cell-stage-null";
+                return false;
+            }
+            return true;
         }
 
         static readonly List<CellState> states = new List<CellState>();
@@ -574,19 +850,42 @@ namespace Metro.App.Views {
             StationCommandHandlers.Add(new StationFinishPaintHandler());
         }
 
-        /// <summary>Look up the built cell view belonging to <paramref name="world"/>.</summary>
-        public static bool TryGetView(StationWorldView world, out StationCellView view) {
+        internal static CellState FindState(StationWorldView world) {
             if (world != null && !world.IsDisposed) {
                 for (var i = states.Count - 1; i >= 0; i--) {
                     var state = states[i];
-                    if (state.World == world && state.View != null) {
-                        view = state.View;
-                        return true;
-                    }
+                    if (state.World == world && state.View != null) return state;
                 }
+            }
+            return null;
+        }
+
+        /// <summary>Look up the built cell view belonging to <paramref name="world"/>.</summary>
+        public static bool TryGetView(StationWorldView world, out StationCellView view) {
+            var state = FindState(world);
+            if (state != null) {
+                view = state.View;
+                return true;
             }
             view = null;
             return false;
+        }
+
+        public static StagedCellRendererDelta StageLocalDelta(
+            StationWorldView world,
+            StationDocument nextDoc,
+            StationIndex nextIndex,
+            StationIndexDelta delta,
+            Transform stagingParent) {
+            var state = FindState(world);
+            if (state == null || state.Workspace == null || state.View == null) return null;
+            int totalChunksBefore = state.View.ChunkCount;
+            var stagedMesh = state.Workspace.StageDocumentDelta(nextDoc, nextIndex, delta, world.Index);
+            StationEditTrace.AddRebuiltChunks(
+                stagedMesh.RebuiltChunkCount,
+                Math.Max(0, totalChunksBefore - stagedMesh.RebuiltChunkCount));
+            var stagedSwap = state.View.StageChunkSwap(stagedMesh, stagingParent);
+            return new StagedCellRendererDelta(state, nextDoc, delta, stagedMesh, stagedSwap);
         }
 
         /// <summary>Pick against the cell view registered for <paramref name="world"/>.</summary>
@@ -618,7 +917,7 @@ namespace Metro.App.Views {
                     "The exported finish library is not staged: run `node tools/unity-assets/export-station-finishes.mjs --stage unity/Assets/Resources/StationFinishes` (or keep unity/asset-recipes/finishes next to Assets) and rebuild. No cell surface is drawn.");
             }
             var notes = new List<string>();
-            var input = BuildInput(context, finishes, notes);
+            var input = BuildInputCore(context.Document, context.Index, finishes, notes, null, out var unthinnedShapes, out var preparedRamps);
             var request = new StationCellViewRequest {
                 Mesh = input,
                 Finishes = finishes,
@@ -632,6 +931,7 @@ namespace Metro.App.Views {
                 View = view,
                 Snapshot = StationPaintSnapshot.FromDocument(context.Document, input.GroundHoles, -1),
                 Finishes = finishes,
+                Workspace = StationCellMeshWorkspace.Create(input, preparedRamps, unthinnedShapes),
                 Groups = view.Groups.Count,
                 Triangles = view.Triangles,
             };
@@ -650,19 +950,11 @@ namespace Metro.App.Views {
                         "Finish '" + id + "' is not in the exported library; drawn with '" + finishes.FallbackId + "' and kept in the document.");
                 }
             }
-            // One record per emitted group, keyed by a cell the group actually draws:
-            // cell-level picking and painting go through `view.TryPick`, which knows
-            // every triangle's own face record; the registered record is the world's
-            // visibility/debug handle for the group. The **anchor** is the cell the old
-            // unsplit group's level span came from: a role split must draw on the same
-            // storey the whole group drew on, never on the storey of its own first face.
             var registered = 0;
             foreach (var group in view.Groups) {
                 var triangleFaces = group.Data?.TriangleFaces;
                 if (triangleFaces == null || triangleFaces.Length == 0) continue;
                 var faceIndex = triangleFaces[0];
-                // A group without a resident face record cannot be registered (and a bad
-                // record index must never take the whole station build down in IL2CPP).
                 if (faceIndex < 0 || faceIndex >= view.Faces.Count) continue;
                 var record = view.Faces[faceIndex];
                 var anchor = group.Data.HasAnchor ? group.Data.Anchor : record.CellKey;
@@ -687,6 +979,7 @@ namespace Metro.App.Views {
                 state.Finishes?.Dispose();
                 state.View = null;
                 state.Finishes = null;
+                state.Workspace = null;
             }
         }
 
@@ -700,28 +993,27 @@ namespace Metro.App.Views {
             state.Finishes?.Dispose();
             state.View = null;
             state.Finishes = null;
+            state.Workspace = null;
         }
 
-        /// <summary>
-        /// Project the committed document into the mesher's plain input. The ground rule
-        /// is the document's own: the street plane at z = 0 outside every record, minus
-        /// the module-derived holes packet A can answer exactly (track beds, exit
-        /// floors). Ramp openings, slope cuts and platform insets are reported, not
-        /// guessed.
-        /// </summary>
         public static StationCellMeshInput BuildInput(StationViewBuildContext context, StationFinishLibrary library, List<string> notes) =>
-            BuildInput(context.Document, library, notes, null);
+            BuildInputCore(context.Document, context.Index, library, notes, null, out _, out _);
 
-        /// <summary>
-        /// Project a <see cref="StationDocument"/> into <see cref="StationCellMeshInput"/>, optionally
-        /// applying a <see cref="StationCellViewerPolicy"/> for the standalone exploded viewer while
-        /// preserving original-coordinate voids and platform insets.
-        /// </summary>
         public static StationCellMeshInput BuildInput(
             StationDocument document,
             StationFinishLibrary library,
             List<string> notes,
-            StationCellViewerPolicy viewerPolicy) {
+            StationCellViewerPolicy viewerPolicy) =>
+            BuildInputCore(document, null, library, notes, viewerPolicy, out _, out _);
+
+        static StationCellMeshInput BuildInputCore(
+            StationDocument document,
+            StationIndex stationIndex,
+            StationFinishLibrary library,
+            List<string> notes,
+            StationCellViewerPolicy viewerPolicy,
+            out Dictionary<StationCellKey, StationCellShape> unthinnedShapes,
+            out StationRampOpenings.PreparedRampOpenings preparedRamps) {
             if (document == null) throw new ArgumentNullException(nameof(document));
             bool isViewer = viewerPolicy != null;
             var retained = viewerPolicy?.RetainedCells;
@@ -741,6 +1033,7 @@ namespace Metro.App.Views {
             };
             var cellIndices = new Dictionary<StationCellKey, int>(document.Cells.Count);
             var solidKeys = new HashSet<StationCellKey>();
+            unthinnedShapes = isViewer ? null : new Dictionary<StationCellKey, StationCellShape>(document.Cells.Count);
             foreach (var cell in document.Cells) {
                 if (!cell.IsSolid) { input.Voids.Add(cell.Key); continue; }
                 if (retained != null && !retained.Contains(cell.Key)) continue;
@@ -750,11 +1043,13 @@ namespace Metro.App.Views {
                 if (cell.HasTag("suspended-ceiling")) flags |= StationMeshCellFlags.SuspendedCeiling;
                 if (cell.HasTag("opening-ceiling")) flags |= StationMeshCellFlags.OpeningCeiling;
                 if (cell.HasTag("painted-ground")) flags |= StationMeshCellFlags.PaintedGround;
+                var rawShape = StationCellRules.ShapeOf(tags);
                 cellIndices[cell.Key] = input.Cells.Count;
                 solidKeys.Add(cell.Key);
+                if (unthinnedShapes != null) unthinnedShapes[cell.Key] = rawShape;
                 input.Cells.Add(new StationMeshCell {
                     X = cell.X, Y = cell.Y, Z = cell.Z, Solid = true,
-                    Shape = StationCellRules.ShapeOf(tags),
+                    Shape = rawShape,
                     Flags = flags,
                     Finish = StationFinishSet.FromRecord(cell),
                 });
@@ -763,9 +1058,6 @@ namespace Metro.App.Views {
             var ramps = 0;
             var rampGroundHoles = 0;
             var wellway = 0;
-            // RCA 15 §6.2: one opening description per saved head-house, shared with the exit pad
-            // (`StationStreetModuleRenderer.BuildExit`) and the paver exclusion
-            // (`StationSurfaceModuleRenderer`), so ground, pavers and pad cannot disagree.
             var exits = new List<StationExitOpenings>();
             foreach (var module in document.Modules) {
                 if (module?.Facts == null || module.Facts.Type != "exit") continue;
@@ -781,7 +1073,6 @@ namespace Metro.App.Views {
                                 if (input.GroundHoles.Add(CellKeyAt(point))) holes++;
                         break;
                     case "exit": {
-                        // `exitFloorAt`: the whole plate is a ground hole (the pad is the floor there).
                         var openings = ExitOpeningsFor(exits, module);
                         if (module.Z == StationPaintSnapshot.GroundZ)
                             foreach (var point in StationFootprints.ExitFootprint(module))
@@ -795,20 +1086,14 @@ namespace Metro.App.Views {
                         ramps++;
                         break;
                     case "platform-edge":
-                        // The screen's own floor base is a mesher input, not a note: the
-                        // mask is derived below from the same records (`StationPlatformInsets`,
-                        // port of render/platformBlockInsets.ts), so a platform cell stops
-                        // behind the PSD plinth instead of running under its threshold.
                         break;
                 }
             }
-            // RCA 24 §2/§3: derive exact ramp underside slope cuts, fill keys, thinned side
-            // panels and grade corridor openings from the committed modules without mutating
-            // the document. Retained solid blocks keep their walkable volume and graph support.
             var moduleFacts = StationRampOpenings.ExtractFacts(document.Modules);
             var slopeCuts = StationRampOpenings.RampSlopeCuts(moduleFacts);
             input.SlopeCuts = slopeCuts;
             input.SlopeFills = StationRampOpenings.RampFillKeys(solidKeys, slopeCuts);
+            preparedRamps = stationIndex != null ? StationRampOpenings.PrepareOpenings(stationIndex) : null;
             var thinCells = StationRampOpenings.RampThinCells(input.Cells, moduleFacts);
             for (int i = 0; i < thinCells.Count; i++) {
                 var thin = thinCells[i];
@@ -817,16 +1102,15 @@ namespace Metro.App.Views {
                 meshCell.Shape = StationCellShape.Half(thin.Side);
                 input.Cells[idx] = meshCell;
             }
-            var derivedRampHoles = StationRampOpenings.RampOpeningsAtLevel(moduleFacts, StationPaintSnapshot.GroundZ);
+            var derivedRampHoles = preparedRamps != null
+                ? preparedRamps.AtLevel(StationPaintSnapshot.GroundZ)
+                : StationRampOpenings.RampOpeningsAtLevel(moduleFacts, StationPaintSnapshot.GroundZ);
             foreach (var hole in derivedRampHoles) {
                 if (input.GroundHoles.Add(hole)) {
                     holes++;
                     rampGroundHoles++;
                 }
             }
-            // RCA 16 §3.3: `platformBlockInsets` — the track-facing strip of every
-            // platform-edge cell belongs to the PSD base. Applying it removes the
-            // coplanar cell top under `psd-threshold` and exposes the source foundation.
             var platformInsets = StationPlatformInsets.For(document.Modules);
             foreach (var pair in platformInsets) input.Insets[pair.Key] = pair.Value;
             if (notes != null) {

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Metro.App.Views;
 using Metro.Build;
 using Metro.Persistence;
 using Metro.View;
@@ -53,12 +54,15 @@ namespace Metro.App {
             DocumentRevision = documentRevision; Buttons = buttons;
         }
 
+        public static int LastClientDocumentRevision { get; private set; } = -1;
+
         public static bool TryDecode(JObject payload, out StationPointerEvent pointer, out string code) {
             pointer = default;
             code = null;
             if (payload == null) { code = "bad-payload"; return false; }
             var pointerEvent = new StationPointerEvent(payload);
             if (!(pointerEvent.Width > 0) || !(pointerEvent.Height > 0)) { code = "bad-payload"; return false; }
+            if (pointerEvent.DocumentRevision >= 0) LastClientDocumentRevision = pointerEvent.DocumentRevision;
             pointer = pointerEvent;
             return true;
         }
@@ -287,7 +291,8 @@ namespace Metro.App {
             StationCellTool.HasGesture ? !StationCellTool.Gesture.Remove : false;
 
         /// <summary>Handle one `pointer.*` command. Returns false only for an unusable event.</summary>
-        public static bool Handle(StationGameHost host, string type, JObject payload, JObject reply, out string code, out string reason) {
+        public static bool Handle(StationGameHost host, string type, JObject payload, JObject reply,
+            out string code, out string reason, string commandId = null) {
             code = null;
             reason = null;
             if (host == null || !host.IsLoaded) { code = "no-session"; return false; }
@@ -338,6 +343,7 @@ namespace Metro.App {
             }
 
             if (!StationPointerEvent.TryDecode(payload, out var pointer, out code)) return false;
+            StationEditProfiling.NoteClientPointerTime(pointer.TimeMs);
             var tool = StationToolSelection.Active;
             // Chord and ownership arbitration (plan 29 §2). The shell cancels its own chord,
             // but the host must not trust it: both build buttons held at once, a move whose
@@ -467,7 +473,7 @@ namespace Metro.App {
                         // must resolve the same empty-air cell its ghost drew (plan 29 §1).
                         var releaseHit = StationEditScene.PickRay(host, host.Coordinator?.World, camera, ray,
                             activeLevel, visibility, ReleaseNeedsWorkPlane(), out var releaseContext, out _);
-                        committed = StationCellTool.Finish(host, releaseHit, pointer, out code, out reason);
+                        committed = StationCellTool.Finish(host, releaseHit, pointer, out code, out reason, commandId);
                         if (committed) {
                             editHost.Bind(host);
                             AfterCommit(host, editHost, "");
@@ -516,6 +522,25 @@ namespace Metro.App {
             var world = host.Coordinator?.World;
             var hit = StationEditScene.PickRay(host, world, camera, ray, activeLevel, visibility,
                 NeedsWorkPlane(tool, ActiveGestureButton(pointer)), out var pickContext, out code);
+            if (tool == "select" && type == "pointer.down" && pointer.Button == 0 &&
+                PassengerCrowdRenderer.Current != null &&
+                PassengerCrowdRenderer.Current.TryPick(world, ray,
+                    hit == null ? float.PositiveInfinity : Mathf.Min(hit.CellDistance, hit.ModuleDistance),
+                    pickContext, out int passengerId)) {
+                ForgetPress();
+                StationEditSession.Picked = null;
+                StationEditSession.SelectPassenger(passengerId);
+                ClearCellLayer(editHost);
+                editHost.Preview?.ClearGhost();
+                editHost.Preview?.ClearHover();
+                ClearSelectionHighlight(editHost);
+                reply["edit"] = StationEditSession.ToJson();
+                StationEditSession.Trace(type, tool, null, null,
+                    revisionBefore, host.CurrentRevision, StationScenePicker.PickCount - picksBefore);
+                return true;
+            }
+            if (tool == "select" && type == "pointer.down" && pointer.Button == 0 &&
+                StationEditSession.SelectionKind == "agent") StationEditSession.ClearSelection();
             if (hit == null) {
                 // A miss: no surface under the pointer. The reference draws nothing there, so the
                 // owning layer is cleared rather than left showing the previous aim (plan 28 §1).
@@ -1680,7 +1705,7 @@ namespace Metro.App {
             var host = StationEditHost.Host;
             if (host == null) { rejectCode = "no-session"; rejectReason = "No station host is in the scene."; return false; }
             if (command.Type.StartsWith("pointer.", StringComparison.Ordinal)) {
-                return StationPointerRouter.Handle(host, command.Type, payload, payload, out rejectCode, out rejectReason);
+                return StationPointerRouter.Handle(host, command.Type, payload, payload, out rejectCode, out rejectReason, command.Id);
             }
             switch (command.Type) {
                 case "edit.select": {
@@ -1730,10 +1755,6 @@ namespace Metro.App {
                     return StationPointerRouter.ConfirmMove(host, payload, out rejectCode, out rejectReason);
                 case "edit.undo": {
                     if (!StationEditSession.TryUndo(host, out _, out rejectCode)) { rejectReason = rejectCode; return false; }
-                    StationEditSession.ClearSelection();
-                    // The committed geometry is a different document now: any cached world and
-                    // ghost belong to the revision that was just replaced.
-                    StationCellTool.ForgetWorld();
                     StationCellTool.Cancel();
                     StationEditHost.Ensure().Bind(host);
                     host.RequestHoverRefresh();
@@ -1741,8 +1762,6 @@ namespace Metro.App {
                 }
                 case "edit.redo": {
                     if (!StationEditSession.TryRedo(host, out _, out rejectCode)) { rejectReason = rejectCode; return false; }
-                    StationEditSession.ClearSelection();
-                    StationCellTool.ForgetWorld();
                     StationCellTool.Cancel();
                     StationEditHost.Ensure().Bind(host);
                     host.RequestHoverRefresh();
@@ -1784,7 +1803,7 @@ namespace Metro.App {
                         rejectReason = rejectCode;
                         return false;
                     }
-                    StationCellTool.ForgetWorld();
+                    StationCellTool.World(host);
                     StationCellTool.Cancel();
                     StationEditHost.Ensure().Bind(host);
                     StationEditSession.ClearSelection();
@@ -1824,6 +1843,8 @@ namespace Metro.App {
             new Vector2(0f, -8f), new Vector2(0f, 8f), new Vector2(-8f, 0f), new Vector2(8f, 0f),
             new Vector2(0f, -18f), new Vector2(0f, 18f), new Vector2(-18f, 0f), new Vector2(18f, 0f),
             new Vector2(-12f, -12f), new Vector2(12f, 12f), new Vector2(-12f, 12f), new Vector2(12f, -12f),
+            new Vector2(0f, -26f), new Vector2(0f, 26f), new Vector2(-26f, 0f), new Vector2(26f, 0f),
+            new Vector2(-20f, -20f), new Vector2(20f, 20f), new Vector2(-20f, 20f), new Vector2(20f, -20f),
         };
 
         /// <summary>
@@ -1838,6 +1859,110 @@ namespace Metro.App {
             var world = host.Coordinator?.World;
             if (camera == null || world == null) { code = "no-camera"; return false; }
             string kind = String(payload, "kind");
+
+            if (kind == "coord") {
+                var cellArr = payload["cell"] as JArray;
+                if (cellArr == null || cellArr.Count < 3) { code = "bad-payload"; return false; }
+                int cx = (int)cellArr[0], cy = (int)cellArr[1], cz = (int)cellArr[2];
+                var wantedKey = new StationCellKey(cx, cy, cz);
+                bool doFocus = payload["focus"] != null && payload["focus"].Type == JTokenType.Boolean && (bool)payload["focus"];
+                float focusDist = payload["distance"] != null && (payload["distance"].Type == JTokenType.Float || payload["distance"].Type == JTokenType.Integer)
+                    ? (float)payload["distance"] : 26f;
+                bool aimSolidBody = payload["solidCenter"] != null && payload["solidCenter"].Type == JTokenType.Boolean && (bool)payload["solidCenter"];
+                bool exactCell = payload["exactCell"] != null && payload["exactCell"].Type == JTokenType.Boolean && (bool)payload["exactCell"];
+                float w = Mathf.Max(1f, Screen.width), h = Mathf.Max(1f, Screen.height);
+                var worldPts = aimSolidBody
+                    ? new[] { StationCoordinates.FloorTop(cx, cy, cz), StationCoordinates.Point(new Vector3(cx + 0.5f, cy + 0.5f, cz + 0.5f)) }
+                    : new[] { StationCoordinates.FloorTop(cx, cy, cz) };
+
+                JObject TryMatchCurrentCamera(bool requireHorizontalMargin) {
+                    foreach (var wPt in worldPts) {
+                        var bScreen = Project(camera, wPt);
+                        if (bScreen.z <= 0f) continue;
+                        foreach (var off in ProbeOffsets) {
+                            var scr = new Vector2(bScreen.x + off.x, bScreen.y + off.y);
+                            float uCand = scr.x / w;
+                            float vCand = 1f - scr.y / h;
+                            // Keep probe pixels strictly inside the central viewport stage (clear of left/right
+                            // side rails and any 352px tutorial card at left=24) on both WebGL and Desktop WebView2:
+                            if (uCand < 0.30f || uCand > 0.75f || vCand < 0.14f || vCand > 0.85f) continue;
+                            var hit = StationScenePicker.Pick(world, camera, scr, level, visibility, null, !exactCell);
+                            var anchor = StationCellTool.CellAnchorFor(hit, exactCell, !exactCell);
+                            if (!anchor.HasValue || anchor.Value != wantedKey) continue;
+                            if (requireHorizontalMargin) {
+                                var hitL = StationScenePicker.Pick(world, camera, new Vector2(scr.x - 3.5f, scr.y), level, visibility, null, !exactCell);
+                                var hitR = StationScenePicker.Pick(world, camera, new Vector2(scr.x + 3.5f, scr.y), level, visibility, null, !exactCell);
+                                var ancL = StationCellTool.CellAnchorFor(hitL, exactCell, !exactCell);
+                                var ancR = StationCellTool.CellAnchorFor(hitR, exactCell, !exactCell);
+                                if (ancL != wantedKey || ancR != wantedKey) continue;
+                            }
+                            return new JObject {
+                                ["kind"] = "coord",
+                                ["target"] = new JArray(cx, cy, cz),
+                                ["x"] = cx, ["y"] = cy, ["z"] = cz,
+                                ["u"] = uCand,
+                                ["v"] = vCand,
+                                ["hit"] = hit.ToString(),
+                            };
+                        }
+                    }
+                    return null;
+                }
+
+                if (doFocus && StationViewFeature.Active?.Commands?.Camera != null) {
+                    var camCtrl = StationViewFeature.Active.Commands.Camera;
+                    var docTarget = new Vector3(cx + 0.5f, cy + 0.5f, cz + 0.8f);
+                    var curDir = camCtrl.State.Position - camCtrl.State.Target;
+                    if (curDir.sqrMagnitude < 1e-4f) curDir = new Vector3(-0.58f, -0.58f, 0.57f);
+                    Vector3[] candidateDirs = {
+                        curDir.normalized,
+                        new Vector3(-0.58f, -0.58f, 0.57f).normalized,
+                        new Vector3(0.58f, -0.58f, 0.57f).normalized,
+                        new Vector3(0.58f, 0.58f, 0.57f).normalized,
+                        new Vector3(-0.58f, 0.58f, 0.57f).normalized,
+                        new Vector3(-0.30f, -0.30f, 0.91f).normalized,
+                        new Vector3(0.30f, -0.30f, 0.91f).normalized,
+                        new Vector3(0.30f, 0.30f, 0.91f).normalized,
+                        new Vector3(-0.30f, 0.30f, 0.91f).normalized,
+                        new Vector3(0f, -0.10f, 0.995f).normalized,
+                    };
+                    foreach (bool margin in new[] { !exactCell, false }) {
+                        foreach (var dir in candidateDirs) {
+                            camCtrl.State.Projection = StationProjection.Perspective;
+                            camCtrl.State.Target = docTarget;
+                            camCtrl.State.Position = docTarget + dir * Mathf.Max(8f, focusDist);
+                            StationViewFeature.Active.Commands.Camera.SetFov(camCtrl.State.Fov);
+                            StationViewFeature.Active.Commands.ApplyCamera();
+                            StationEditScene.ResolveView(host, out _, out camera, out level, out visibility);
+                            var matched = TryMatchCurrentCamera(margin);
+                            if (matched != null) {
+                                probe = matched;
+                                return true;
+                            }
+                        }
+                        if (exactCell) break;
+                    }
+                } else {
+                    if (!exactCell) {
+                        var matchedMargin = TryMatchCurrentCamera(true);
+                        if (matchedMargin != null) { probe = matchedMargin; return true; }
+                    }
+                    var matched = TryMatchCurrentCamera(false);
+                    if (matched != null) { probe = matched; return true; }
+                }
+
+                var baseScreen = Project(camera, worldPts[0]);
+                if (baseScreen.z <= 0f) { code = "behind-camera"; return false; }
+                probe = new JObject {
+                    ["kind"] = "coord",
+                    ["target"] = new JArray(cx, cy, cz),
+                    ["x"] = cx, ["y"] = cy, ["z"] = cz,
+                    ["u"] = Mathf.Clamp(baseScreen.x / w, 0.22f, 0.76f),
+                    ["v"] = Mathf.Clamp(1f - baseScreen.y / h, 0.12f, 0.86f),
+                    ["fallbackProjection"] = true,
+                };
+                return true;
+            }
 
             if (kind == "inspect") {
                 string id = String(payload, "moduleId");

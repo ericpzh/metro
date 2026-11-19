@@ -107,6 +107,27 @@ namespace Metro.View {
         readonly Dictionary<long, List<int>> undersides = new Dictionary<long, List<int>>();
         readonly List<ModuleFacts> tracks = new List<ModuleFacts>();
         readonly List<ModuleFacts> hangers = new List<ModuleFacts>();
+        StationIndex backingIndex;
+
+        /// <summary>
+        /// Zero-scan index-backed ceiling mount lookup: queries <see cref="StationIndex.GetCell"/>
+        /// and <see cref="StationIndex.ModulesOfType"/> on demand in O(column height).
+        /// </summary>
+        public static StationCeilingMounts ForIndex(StationIndex index) {
+            if (index == null) return new StationCeilingMounts();
+            var mounts = new StationCeilingMounts { backingIndex = index };
+            var trackRecords = index.ModulesOfType("track");
+            for (int i = 0; i < trackRecords.Count; i++) {
+                var m = trackRecords[i];
+                if (m != null && IsCeilingTrack(m.Facts)) mounts.tracks.Add(m.Facts);
+            }
+            var hangerRecords = index.ModulesOfType("hanger");
+            for (int i = 0; i < hangerRecords.Count; i++) {
+                var m = hangerRecords[i];
+                if (m?.Facts != null) mounts.hangers.Add(m.Facts);
+            }
+            return mounts;
+        }
 
         /// <summary>
         /// Build the lookup once per committed document. Zoo has 14,066 cells, so the
@@ -170,20 +191,17 @@ namespace Metro.View {
         }
 
         /// <summary>True for an explicit solid cell.</summary>
-        public bool SolidAt(int x, int y, int z) => solids.Contains(Key(x, y, z));
+        public bool SolidAt(int x, int y, int z) =>
+            backingIndex != null ? backingIndex.GetCell(x, y, z)?.IsSolid == true : solids.Contains(Key(x, y, z));
 
-        /// <summary>
-        /// Port of `virtualSolidAt`: the generated street at <see cref="GroundZ"/> counts as
-        /// solid unless the document dug a hole there.
-        ///
-        /// The source's hole rule also subtracts ramp and exit openings
-        /// (`ground.ts:groundHoleReader`). Those derivations are not ported by this packet
-        /// (`StationCellRenderer.BuildInput` reports `ramp-opening-not-derived`), so a hole
-        /// under an exit head-house or a ramp reads as street here. That is a named gap, not
-        /// a silent one: it can only *add* support, never move a fixture the authored anchor
-        /// or a solid/track block already answers.
-        /// </summary>
-        public bool VirtualSolidAt(int x, int y, int z) => z == GroundZ && !groundVoids.Contains(Key(x, y, z));
+        public bool VirtualSolidAt(int x, int y, int z) {
+            if (z != GroundZ) return false;
+            if (backingIndex != null) {
+                var c = backingIndex.GetCell(x, y, z);
+                return c == null || c.IsSolid;
+            }
+            return !groundVoids.Contains(Key(x, y, z));
+        }
 
         bool SolidOrStreet(int x, int y, int z) => SolidAt(x, y, z) || VirtualSolidAt(x, y, z);
 
@@ -309,7 +327,18 @@ namespace Metro.View {
             var footprint = BaseCells(candidate);
             var first = footprint.Length > 0 ? footprint[0] : (X: candidate.X, Y: candidate.Y);
             var candidates = new List<double>();
-            if (undersides.TryGetValue(ColumnKey(first.X, first.Y), out var column)) {
+            if (backingIndex != null) {
+                var bounds = backingIndex.Bounds;
+                if (!bounds.IsEmpty) {
+                    int maxZ = bounds.MaxZ;
+                    int minZ = candidate.Z + 2;
+                    for (int zi = minZ; zi <= maxZ; zi++) {
+                        if (SolidAt(first.X, first.Y, zi) && !SolidAt(first.X, first.Y, zi - 1)) {
+                            AddDistinct(candidates, zi);
+                        }
+                    }
+                }
+            } else if (undersides.TryGetValue(ColumnKey(first.X, first.Y), out var column)) {
                 for (int i = 0; i < column.Count; i++) {
                     if (column[i] > candidate.Z + 1) AddDistinct(candidates, column[i]);
                 }

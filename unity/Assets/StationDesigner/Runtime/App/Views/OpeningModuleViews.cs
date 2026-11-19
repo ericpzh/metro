@@ -2869,8 +2869,32 @@ namespace Metro.App {
     /// The `openings` station renderer: it builds every opening module into the staged
     /// world and publishes one <see cref="OpeningModuleSet"/> keyed by module ID.
     /// </summary>
-    public sealed class OpeningModuleRenderer : IStationViewRenderer {
+    public sealed class OpeningModuleRenderer : IStationViewRenderer, IStationLocalViewRenderer {
         public const string RoleName = "openings";
+
+        public bool TryStageLocalDelta(
+            StationLocalDeltaContext context,
+            out IStationLocalRendererStage stage,
+            out string fallbackReason) {
+            stage = null;
+            fallbackReason = null;
+            var delta = context.Delta;
+            for (int i = 0; i < delta.RemovedModules.Count; i++) {
+                if (context.PrevIndex.TryGetModule(delta.RemovedModules[i], out var oldMod) &&
+                    oldMod != null && OpeningModuleViews.Owns(oldMod.Type)) {
+                    fallbackReason = "local-module-family:" + oldMod.Type;
+                    return false;
+                }
+            }
+            for (int i = 0; i < delta.ChangedModules.Count; i++) {
+                var mod = delta.ChangedModules[i];
+                if (mod != null && OpeningModuleViews.Owns(mod.Type)) {
+                    fallbackReason = "local-module-family:" + mod.Type;
+                    return false;
+                }
+            }
+            return true;
+        }
 
         /// <summary>
         /// One built world's openings. The host stages a candidate world while the live

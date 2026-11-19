@@ -3121,13 +3121,15 @@ namespace Metro.App.Views {
     /// The role is <c>vertical</c>: the lead's generic module renderer already claims
     /// <c>modules</c> and <see cref="StationRenderers"/> keeps one renderer per role.
     /// </summary>
-    public sealed class VerticalModuleRenderer : IStationViewRenderer {
+    public sealed class VerticalModuleRenderer : IStationViewRenderer, IStationLocalViewRenderer {
         public const string RoleName = "vertical";
 
         sealed class WorldState {
             public StationWorldView World;
             public readonly List<VerticalModuleView> Views = new List<VerticalModuleView>();
             public readonly Dictionary<string, VerticalModuleView> ById = new Dictionary<string, VerticalModuleView>(StringComparer.Ordinal);
+            public readonly Dictionary<string, HashSet<StationCellKey>> ReadCellsById =
+                new Dictionary<string, HashSet<StationCellKey>>(StringComparer.Ordinal);
             public Material[] Materials;
             public Func<int, Material> MaterialFor;
             /// <summary>
@@ -3156,9 +3158,10 @@ namespace Metro.App.Views {
                 MaterialFor = palette => Materials[Mathf.Clamp(palette, 0, Materials.Length - 1)];
             }
 
-            public void Add(VerticalModuleView view) {
+            public void Add(VerticalModuleView view, HashSet<StationCellKey> readCells) {
                 Views.Add(view);
                 ById[view.ModuleId] = view;
+                if (readCells != null) ReadCellsById[view.ModuleId] = readCells;
             }
 
             public void Reset() {
@@ -3170,6 +3173,7 @@ namespace Metro.App.Views {
                 }
                 Views.Clear();
                 ById.Clear();
+                ReadCellsById.Clear();
                 ClockOrigin = double.NaN;
             }
 
@@ -3185,6 +3189,66 @@ namespace Metro.App.Views {
                     Finishes = null;
                 }
                 FinishFor = null;
+            }
+        }
+
+        sealed class StagedVerticalDelta : IStationLocalRendererStage {
+            readonly WorldState state;
+            readonly HashSet<string> retiredIds;
+            readonly List<(VerticalModuleView View, HashSet<StationCellKey> ReadCells)> staged;
+            bool committed;
+
+            public StagedVerticalDelta(
+                WorldState state,
+                HashSet<string> retiredIds,
+                List<(VerticalModuleView View, HashSet<StationCellKey> ReadCells)> staged) {
+                this.state = state;
+                this.retiredIds = retiredIds;
+                this.staged = staged;
+            }
+
+            public void Commit(StationWorldView world, StationLocalViewCommit commit) {
+                committed = true;
+                if (retiredIds.Count > 0) {
+                    world.RetireRecordsWhere(rec => rec.Role == RoleName && retiredIds.Contains(rec.ModuleId), commit);
+                    for (int i = state.Views.Count - 1; i >= 0; i--) {
+                        var oldView = state.Views[i];
+                        if (oldView == null || !retiredIds.Contains(oldView.ModuleId)) continue;
+                        state.Views.RemoveAt(i);
+                        state.ById.Remove(oldView.ModuleId);
+                        state.ReadCellsById.Remove(oldView.ModuleId);
+                        if (oldView.Root != null) commit.RetiredViews.Add(oldView.Root.gameObject);
+                        oldView.Dispose();
+                    }
+                }
+
+                var roleRoot = world.RoleRoot(RoleName);
+                for (int i = 0; i < staged.Count; i++) {
+                    var (view, readCells) = staged[i];
+                    view.Root.SetParent(roleRoot, false);
+                    state.Add(view, readCells);
+                    world.AddLocalRecord(new StationViewRecord {
+                        Role = RoleName,
+                        ModuleId = view.ModuleId,
+                        View = view.Root.gameObject,
+                        Bounds = new StationBox(view.DocumentBounds.X0, view.DocumentBounds.Y0, view.DocumentBounds.Z0,
+                            view.DocumentBounds.X1, view.DocumentBounds.Y1, view.DocumentBounds.Z1),
+                        HasBounds = true,
+                        LevelMin = view.LevelMin,
+                        LevelMax = view.LevelMax,
+                    }, commit);
+                }
+            }
+
+            public void Dispose() {
+                if (committed) return;
+                for (int i = 0; i < staged.Count; i++) {
+                    var view = staged[i].View;
+                    if (view == null) continue;
+                    if (view.Root != null) VerticalModuleViews.DestroyObject(view.Root.gameObject);
+                    view.Dispose();
+                }
+                staged.Clear();
             }
         }
 
@@ -3213,29 +3277,45 @@ namespace Metro.App.Views {
             Current = this;
             var document = context.Document;
             if (document == null) return;
+            var index = context.Index;
             var catalogue = context.Catalogue;
             var modules = document.Modules;
             var facts = new ModuleFacts[modules.Count];
             for (int i = 0; i < modules.Count; i++) facts[i] = modules[i].Facts;
-            var solids = new HashSet<StationCellKey>();
-            for (int i = 0; i < document.Cells.Count; i++) {
-                var cell = document.Cells[i];
-                if (cell.IsSolid) solids.Add(cell.Key);
+
+            HashSet<StationCellKey> fallbackSolids = null;
+            Dictionary<StationCellKey, string> fallbackTops = null;
+            if (index == null) {
+                fallbackSolids = new HashSet<StationCellKey>();
+                fallbackTops = new Dictionary<StationCellKey, string>();
+                for (int i = 0; i < document.Cells.Count; i++) {
+                    var cell = document.Cells[i];
+                    if (cell.IsSolid) fallbackSolids.Add(cell.Key);
+                    if (cell.FinishTop.Length > 0) fallbackTops[cell.Key] = cell.FinishTop;
+                }
             }
-            Func<int, int, int, bool> solid = (x, y, z) => solids.Contains(new StationCellKey(x, y, z));
-            // A 楼梯块 wears the top finish of the block it stands on when it has no override.
-            var tops = new Dictionary<StationCellKey, string>();
-            for (int i = 0; i < document.Cells.Count; i++) {
-                var cell = document.Cells[i];
-                if (cell.FinishTop.Length > 0) tops[cell.Key] = cell.FinishTop;
-            }
-            Func<int, int, int, string> cellFinish = (x, y, z) =>
-                tops.TryGetValue(new StationCellKey(x, y, z), out var finish) ? finish : null;
+
             try { state.EnsureFinishes(context.Shader); } catch (Exception) { /* a missing finish export falls back to the palette */ }
             var roleRoot = context.RoleRoot(RoleName);
             for (int i = 0; i < modules.Count; i++) {
                 var module = modules[i];
                 if (module == null || !IsVerticalType(module.Type)) continue;
+                var readCells = new HashSet<StationCellKey>();
+                Func<int, int, int, bool> solid = (x, y, z) => {
+                    var key = new StationCellKey(x, y, z);
+                    readCells.Add(key);
+                    if (index != null) return index.GetCell(x, y, z) is StationCellRecord cell && cell.IsSolid;
+                    return fallbackSolids.Contains(key);
+                };
+                Func<int, int, int, string> cellFinish = (x, y, z) => {
+                    var key = new StationCellKey(x, y, z);
+                    readCells.Add(key);
+                    if (index != null) {
+                        var cell = index.GetCell(x, y, z);
+                        return cell != null && cell.FinishTop.Length > 0 ? cell.FinishTop : null;
+                    }
+                    return fallbackTops.TryGetValue(key, out var finish) ? finish : null;
+                };
                 GameObject prefab = null;
                 string prefabKey = null;
                 if (catalogue != null) {
@@ -3259,7 +3339,164 @@ namespace Metro.App.Views {
                     new StationBox(view.DocumentBounds.X0, view.DocumentBounds.Y0, view.DocumentBounds.Z0,
                         view.DocumentBounds.X1, view.DocumentBounds.Y1, view.DocumentBounds.Z1),
                     view.LevelMin, view.LevelMax);
-                state.Add(view);
+                state.Add(view, readCells);
+            }
+        }
+
+        static StationBox VerticalSearchEnvelope(StationModuleRecord module) {
+            double x0 = module.X, x1 = module.X + Math.Max(1, module.Width);
+            double y0 = module.Y, y1 = module.Y + Math.Max(1, module.Depth);
+            double z0 = module.Z, z1 = module.Z + 5;
+            if (module.From.HasValue) {
+                var f = module.From.Value;
+                x0 = Math.Min(x0, f.X); x1 = Math.Max(x1, f.X + 1);
+                y0 = Math.Min(y0, f.Y); y1 = Math.Max(y1, f.Y + 1);
+                z0 = Math.Min(z0, f.Z); z1 = Math.Max(z1, f.Z + 1);
+            }
+            if (module.To.HasValue) {
+                var t = module.To.Value;
+                x0 = Math.Min(x0, t.X); x1 = Math.Max(x1, t.X + 1);
+                y0 = Math.Min(y0, t.Y); y1 = Math.Max(y1, t.Y + 1);
+                z0 = Math.Min(z0, t.Z); z1 = Math.Max(z1, t.Z + 1);
+            }
+            return new StationBox(x0 - 4, y0 - 4, z0 - 6, x1 + 4, y1 + 4, z1 + 6);
+        }
+
+        static bool BoxesOverlap(in StationBox a, double bx0, double by0, double bz0, double bx1, double by1, double bz1) =>
+            a.X0 <= bx1 && a.X1 >= bx0 && a.Y0 <= by1 && a.Y1 >= by0 && a.Z0 <= bz1 && a.Z1 >= bz0;
+
+        static bool CellTouchesVerticalView(VerticalModuleView view, HashSet<StationCellKey> readCells, StationCellKey key) {
+            if (readCells != null && readCells.Contains(key)) return true;
+            var b = view.DocumentBounds;
+            return key.X + 1 >= b.X0 - 1 && key.X <= b.X1 + 1 &&
+                   key.Y + 1 >= b.Y0 - 1 && key.Y <= b.Y1 + 1 &&
+                   key.Z + 1 >= b.Z0 - 2 && key.Z <= b.Z1 + 2;
+        }
+
+        public bool TryStageLocalDelta(
+            StationLocalDeltaContext context,
+            out IStationLocalRendererStage stage,
+            out string fallbackReason) {
+            stage = null;
+            fallbackReason = null;
+            var state = StateOf(context.World);
+            if (state == null) {
+                fallbackReason = "no-vertical-state";
+                return false;
+            }
+
+            var removedIds = new HashSet<string>(StringComparer.Ordinal);
+            var dirtyIds = new HashSet<string>(StringComparer.Ordinal);
+            List<StationBox> rampEnvelopes = null;
+
+            var delta = context.Delta;
+            for (int i = 0; i < delta.RemovedModules.Count; i++) {
+                var id = delta.RemovedModules[i];
+                if (context.PrevIndex.TryGetModule(id, out var oldMod) && IsVerticalType(oldMod.Type)) {
+                    removedIds.Add(id);
+                    (rampEnvelopes ??= new List<StationBox>()).Add(VerticalSearchEnvelope(oldMod));
+                }
+            }
+            for (int i = 0; i < delta.ChangedModules.Count; i++) {
+                var mod = delta.ChangedModules[i];
+                if (mod != null && IsVerticalType(mod.Type)) {
+                    dirtyIds.Add(mod.Id);
+                    (rampEnvelopes ??= new List<StationBox>()).Add(VerticalSearchEnvelope(mod));
+                    if (context.PrevIndex.TryGetModule(mod.Id, out var prevMod)) {
+                        rampEnvelopes.Add(VerticalSearchEnvelope(prevMod));
+                    }
+                }
+            }
+
+            if (rampEnvelopes != null) {
+                for (int i = 0; i < state.Views.Count; i++) {
+                    var view = state.Views[i];
+                    if (view == null || removedIds.Contains(view.ModuleId) || dirtyIds.Contains(view.ModuleId)) continue;
+                    var vb = view.DocumentBounds;
+                    for (int e = 0; e < rampEnvelopes.Count; e++) {
+                        if (BoxesOverlap(rampEnvelopes[e], vb.X0, vb.Y0, vb.Z0, vb.X1, vb.Y1, vb.Z1)) {
+                            dirtyIds.Add(view.ModuleId);
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (context.CellsChanged && state.Views.Count > 0) {
+                for (int i = 0; i < state.Views.Count; i++) {
+                    var view = state.Views[i];
+                    if (view == null || removedIds.Contains(view.ModuleId) || dirtyIds.Contains(view.ModuleId)) continue;
+                    state.ReadCellsById.TryGetValue(view.ModuleId, out var readCells);
+                    bool hit = false;
+                    for (int r = 0; r < delta.RemovedCells.Count; r++) {
+                        if (CellTouchesVerticalView(view, readCells, delta.RemovedCells[r])) { hit = true; break; }
+                    }
+                    if (!hit) {
+                        for (int c = 0; c < delta.ChangedCells.Count; c++) {
+                            if (CellTouchesVerticalView(view, readCells, delta.ChangedCells[c].Key)) { hit = true; break; }
+                        }
+                    }
+                    if (hit) dirtyIds.Add(view.ModuleId);
+                }
+            }
+
+            if (removedIds.Count == 0 && dirtyIds.Count == 0) return true;
+
+            state.EnsureMaterials(context.World.Shader);
+            try { state.EnsureFinishes(context.World.Shader); } catch (Exception) { }
+
+            var rampAndExitFacts = dirtyIds.Count > 0
+                ? context.GetNextFactsOfTypes("stair", "escalator", "walkway", "exit")
+                : Array.Empty<ModuleFacts>();
+            var nextIndex = context.NextIndex;
+            var catalogue = context.World.Catalogue;
+            var retiredIds = new HashSet<string>(removedIds, StringComparer.Ordinal);
+            var stagedViews = new List<(VerticalModuleView View, HashSet<StationCellKey> ReadCells)>(dirtyIds.Count);
+
+            try {
+                foreach (var id in dirtyIds) {
+                    retiredIds.Add(id);
+                    if (!nextIndex.TryGetModule(id, out var module) || module == null || !IsVerticalType(module.Type)) continue;
+                    var readCells = new HashSet<StationCellKey>();
+                    Func<int, int, int, bool> solid = (x, y, z) => {
+                        readCells.Add(new StationCellKey(x, y, z));
+                        return nextIndex.GetCell(x, y, z) is StationCellRecord cell && cell.IsSolid;
+                    };
+                    Func<int, int, int, string> cellFinish = (x, y, z) => {
+                        readCells.Add(new StationCellKey(x, y, z));
+                        var cell = nextIndex.GetCell(x, y, z);
+                        return cell != null && cell.FinishTop.Length > 0 ? cell.FinishTop : null;
+                    };
+                    GameObject prefab = null;
+                    string prefabKey = null;
+                    if (catalogue != null) {
+                        var visual = ModuleViews.Resolve(module.Facts, Array.Empty<ModuleFacts>(), catalogue);
+                        if (visual.HasModel && catalogue.TryGet(visual.Key, out var entry) && entry != null) {
+                            prefab = entry.prefab;
+                            prefabKey = visual.Key;
+                        } else {
+                            context.ReportUnresolved("vertical-key", module.Type, module.Id,
+                                visual.Key.Length > 0 ? "catalogue entry missing: " + visual.Key : visual.Detail);
+                        }
+                    }
+                    var request = VerticalModuleRequest.FromFacts(module.Facts, prefab, prefabKey, solid, state.MaterialFor,
+                        state.FinishFor, cellFinish, rampAndExitFacts);
+                    if (!VerticalModuleViews.TryBuild(request, context.StagingRoot, out var view)) {
+                        context.ReportUnresolved("vertical-build", module.Type, module.Id, "the authored record could not be built");
+                        continue;
+                    }
+                    view.Root.name = module.Id;
+                    StationEditTrace.AddInstantiatedPrefab();
+                    stagedViews.Add((view, readCells));
+                }
+                stage = new StagedVerticalDelta(state, retiredIds, stagedViews);
+                return true;
+            } catch {
+                for (int i = 0; i < stagedViews.Count; i++) {
+                    if (stagedViews[i].View?.Root != null) VerticalModuleViews.DestroyObject(stagedViews[i].View.Root.gameObject);
+                    stagedViews[i].View?.Dispose();
+                }
+                throw;
             }
         }
 
@@ -3275,14 +3512,14 @@ namespace Metro.App.Views {
         /// an uncalled car and packet C publishes no cabin height yet); use
         /// <see cref="Apply"/> with a lift snapshot to move a called car.
         /// </summary>
-        public int ApplyAll(double simTimeSeconds, bool running) {
+        public int ApplyAll(double simTimeSeconds, bool running, bool bandsOnly = false) {
             var world = ActiveState();
             if (world == null) return 0;
             if (double.IsNaN(world.ClockOrigin)) world.ClockOrigin = simTimeSeconds;
             int applied = 0;
             for (int i = 0; i < world.Views.Count; i++) {
                 var view = world.Views[i];
-                if (view == null) continue;
+                if (view == null || bandsOnly && view.Kind == VerticalModuleKind.Lift) continue;
                 var state = new ModuleMotionState {
                     ModuleId = view.ModuleId, Seconds = simTimeSeconds, Running = running, DirectionSign = 1,
                     CabinFraction = float.NaN, DoorFraction = float.NaN, PhaseMeters = double.NaN, CabinHeight = double.NaN,
@@ -3346,7 +3583,7 @@ namespace Metro.App.Views {
     sealed class VerticalFrameSink : IStationFrameSink {
         public void Tick(StationDocument document, StationIndex index, StationFrameClock clock) {
             var renderer = VerticalModuleRenderer.Current;
-            if (renderer != null) renderer.ApplyAll(clock.PresentationSeconds, clock.Playing);
+            if (renderer != null) renderer.ApplyAll(clock.PresentationSeconds, clock.Playing, bandsOnly: true);
         }
     }
 

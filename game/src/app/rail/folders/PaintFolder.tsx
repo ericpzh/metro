@@ -16,7 +16,8 @@ export function PaintFolder({ subMenu, onToggleSubMenu }: { subMenu: SubMenuKey 
   const tool = useStore((s) => s.tool)
   const paintMode = useStore((s) => s.paintMode)
   const paintFinish = useStore((s) => s.paintFinish)
-  const station = useStore((s) => s.station)
+  const openColourMenu = subMenu === 'paint:wall.enamel' || subMenu === 'paint:wall.plaster'
+  const station = useStore((s) => (openColourMenu ? s.station : null))
   const enamelColour = useStore((s) => s.enamelColour)
   const plasterColour = useStore((s) => s.plasterColour)
   const st = useStore.getState
@@ -66,8 +67,8 @@ export function PaintFolder({ subMenu, onToggleSubMenu }: { subMenu: SubMenuKey 
               // colour's own tile is rendered separately under a stable key: keying
               // it by its colour would remount the native input on the first drag
               // event and close the OS picker before the player could confirm.
-              const savedColours = colourMenu ? customPaintColoursInStation(station, anchor).filter((colour) => colour !== currentColour) : []
               const menu = `paint:${anchor}` as const
+              const savedColours = colourMenu ? customPaintColoursInStation(station, anchor).filter((colour) => colour !== currentColour) : []
               return [
                 <InlinePanel key={`${menu}-options`} open={subMenu === menu}>
                   <div className="blockGrid">

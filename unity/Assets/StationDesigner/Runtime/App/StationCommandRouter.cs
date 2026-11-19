@@ -107,13 +107,28 @@ namespace Metro.App {
         }
 
         /// <summary>Decode, dispatch and return exactly one reply envelope as JSON.</summary>
-        public string Handle(string json) => Handle(json, out _);
+        public string Handle(string json) => Handle(json, out _, null);
 
-        internal string Handle(string json, out StationEditProfiling.CommitTrace committedTrace) {
+        internal string Handle(string json, out StationEditProfiling.CommitTrace committedTrace,
+            StationEditProfiling.CommitTrace preStartedTrace = null) {
+            StationEditProfiling.CommitTrace outTrace = null;
+            try {
+                string reply = HandleCore(json, preStartedTrace, out outTrace);
+                committedTrace = outTrace;
+                return reply;
+            } finally {
+                if (outTrace != preStartedTrace) preStartedTrace?.Dispose();
+            }
+        }
+
+        string HandleCore(string json, StationEditProfiling.CommitTrace preStartedTrace,
+            out StationEditProfiling.CommitTrace committedTrace) {
             committedTrace = null;
             StationCommand command;
             try {
-                command = Decode(json);
+                using (StationEditProfiling.Measure("StationCommand.Decode")) {
+                    command = Decode(json);
+                }
             } catch (StationRejectedException rejection) {
                 return Reject("", "", rejection.Rejection.Code, rejection.Rejection.Reason, host.CurrentRevision);
             }
@@ -143,13 +158,17 @@ namespace Metro.App {
                     return CommitOrReject(command, result);
                 }
                 case "station.save": {
+                    bool includeDocument = command.Payload?["includeDocument"] != null &&
+                                           command.Payload["includeDocument"].Type == JTokenType.Boolean &&
+                                           (bool)command.Payload["includeDocument"];
+                    string savedDoc = includeDocument ? host.SaveDocument() : null;
                     var payload = new JObject {
                         ["revision"] = host.CurrentRevision,
                         ["sourceId"] = host.CurrentSourceId,
                         ["sourceHash"] = host.CurrentSourceHash,
                     };
-                    if (command.Payload?.Value<bool?>("includeDocument") == true)
-                        payload["document"] = host.SaveDocument();
+                    if (includeDocument) payload["document"] = savedDoc ?? "";
+                    preStartedTrace?.Dispose();
                     return Ack(command.Id, command.SessionId, payload);
                 }
                 case "station.resync": {
@@ -171,31 +190,40 @@ namespace Metro.App {
                         var handler = handlers[i];
                         if (!handler.Handles(command.Type)) continue;
                         int revisionBefore = host.CurrentRevision;
-                        var trace = StationEditProfiling.ObserveCommit(command, revisionBefore);
+                        var trace = StationEditProfiling.ObserveCommit(command, revisionBefore, preStartedTrace);
+                        preStartedTrace = null;
                         string rejectCode, rejectReason;
                         // The handler reads its command fields from this object and writes the
                         // ack fields back into it. Passing an empty object (as an earlier version
                         // did) made every feature handler see no input and reject with bad-payload.
                         JObject payload = command.Payload != null ? (JObject)command.Payload.DeepClone() : new JObject();
-                        if (handler.TryHandle(command, payload, out rejectCode, out rejectReason)) {
-                            // An edit verb stages a whole normalized document through
-                            // StationGameHost.ApplyDocumentEdit; the transaction bumps the
-                            // revision and the reply becomes its commit.
+                        bool handled;
+                        try {
+                            handled = handler.TryHandle(command, payload, out rejectCode, out rejectReason);
+                        } catch {
+                            trace?.Dispose();
+                            throw;
+                        }
+                        if (handled) {
                             if (host.CurrentRevision != revisionBefore) {
                                 trace?.Commit(host.CurrentRevision);
                                 string reply = CommitOrReject(command, host.CurrentResult());
                                 trace?.Mark("commit-serialized");
+                                trace?.EndCommandScope();
                                 committedTrace = trace;
                                 return reply;
                             }
+                            trace?.Dispose();
                             return Ack(command.Id, command.SessionId, payload);
                         }
+                        trace?.Dispose();
                         if (!string.IsNullOrEmpty(rejectCode)) {
                             return Reject(command.Id, command.SessionId, rejectCode,
                                 rejectReason ?? "The feature handler refused the command.", host.CurrentRevision);
                         }
                         break;
                     }
+                    preStartedTrace?.Dispose();
                     return Reject(command.Id, command.SessionId, "unsupported-command",
                         "No registered handler accepts '" + command.Type + "'.", host.CurrentRevision);
                 }
@@ -251,7 +279,9 @@ namespace Metro.App {
                 var rejection = result.Rejection;
                 return Reject(command.Id, command.SessionId, rejection.Code, rejection.Reason, host.CurrentRevision);
             }
-            return Envelope("commit", command.Id, command.SessionId, true, null, host.BuildCommitPayload());
+            bool forceFullDocument = string.Equals(command.Type, "station.resync", StringComparison.Ordinal);
+            return Envelope("commit", command.Id, command.SessionId, true, null,
+                host.BuildCommitPayload(forceFullDocument, useRawJsonCache: true));
         }
 
         string Ack(string id, string sessionId, JObject payload) =>

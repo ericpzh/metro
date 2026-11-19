@@ -147,12 +147,139 @@ namespace Metro.App {
     }
 
     /// <summary>
+    /// Summary of the scene objects retired, added, and updated by a retained local world commit.
+    /// </summary>
+    public sealed class StationLocalViewCommit {
+        public readonly List<StationViewRecord> RetiredRecords = new List<StationViewRecord>();
+        public readonly List<GameObject> RetiredViews = new List<GameObject>();
+        public readonly List<Mesh> RetiredMeshes = new List<Mesh>();
+        public readonly List<IStationVisibilityTarget> RetiredTargets = new List<IStationVisibilityTarget>();
+        public readonly List<StationViewRecord> AddedRecords = new List<StationViewRecord>();
+        public readonly List<StationViewRecord> UpdatedRecords = new List<StationViewRecord>();
+    }
+
+    /// <summary>
+    /// Shared read-only context passed to <see cref="IStationLocalViewRenderer.TryStageLocalDelta"/>
+    /// during a retained world update.
+    /// </summary>
+    public sealed class StationLocalDeltaContext {
+        ModuleFacts[] nextStationFacts;
+        StationCeilingMounts nextCeilingMounts;
+
+        internal StationLocalDeltaContext(
+            StationWorldView world,
+            StationDocument prevDoc,
+            StationIndex prevIndex,
+            StationDocument nextDoc,
+            StationIndex nextIndex,
+            StationIndexDelta delta,
+            Transform stagingRoot) {
+            World = world;
+            PrevDocument = prevDoc;
+            PrevIndex = prevIndex;
+            NextDocument = nextDoc;
+            NextIndex = nextIndex;
+            Delta = delta;
+            StagingRoot = stagingRoot;
+            CellsChanged = delta.RemovedCells.Count > 0 || delta.ChangedCells.Count > 0;
+
+            TouchedModuleIds = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < delta.RemovedModules.Count; i++) {
+                if (!string.IsNullOrEmpty(delta.RemovedModules[i])) TouchedModuleIds.Add(delta.RemovedModules[i]);
+            }
+            for (int i = 0; i < delta.ChangedModules.Count; i++) {
+                if (delta.ChangedModules[i] != null && !string.IsNullOrEmpty(delta.ChangedModules[i].Id)) {
+                    TouchedModuleIds.Add(delta.ChangedModules[i].Id);
+                }
+            }
+
+            TouchedColumns = new HashSet<long>();
+            for (int i = 0; i < delta.RemovedCells.Count; i++) {
+                var k = delta.RemovedCells[i];
+                TouchedColumns.Add(PackColumn(k.X, k.Y));
+            }
+            for (int i = 0; i < delta.ChangedCells.Count; i++) {
+                var c = delta.ChangedCells[i];
+                TouchedColumns.Add(PackColumn(c.X, c.Y));
+            }
+        }
+
+        public StationWorldView World { get; }
+        public StationDocument PrevDocument { get; }
+        public StationIndex PrevIndex { get; }
+        public StationDocument NextDocument { get; }
+        public StationIndex NextIndex { get; }
+        public StationIndexDelta Delta { get; }
+        public Transform StagingRoot { get; }
+        public bool CellsChanged { get; }
+        public HashSet<string> TouchedModuleIds { get; }
+        public HashSet<long> TouchedColumns { get; }
+        public List<StationDiagnostic> Diagnostics { get; } = new List<StationDiagnostic>();
+
+        public static long PackColumn(int x, int y) => ((long)(x + 32768) << 20) | (uint)(y + 32768);
+
+        public ModuleFacts[] GetNextStationFacts() {
+            if (nextStationFacts != null) return nextStationFacts;
+            var modules = NextDocument.Modules;
+            nextStationFacts = new ModuleFacts[modules.Count];
+            for (int i = 0; i < nextStationFacts.Length; i++) nextStationFacts[i] = modules[i].Facts;
+            return nextStationFacts;
+        }
+
+        public ModuleFacts[] GetNextFactsOfTypes(params string[] types) {
+            if (NextIndex == null || types == null || types.Length == 0) return Array.Empty<ModuleFacts>();
+            int total = 0;
+            for (int t = 0; t < types.Length; t++) total += NextIndex.ModulesOfType(types[t]).Count;
+            if (total == 0) return Array.Empty<ModuleFacts>();
+            var arr = new ModuleFacts[total];
+            int k = 0;
+            for (int t = 0; t < types.Length; t++) {
+                var list = NextIndex.ModulesOfType(types[t]);
+                for (int i = 0; i < list.Count; i++) {
+                    var rec = list[i];
+                    if (rec?.Facts != null) arr[k++] = rec.Facts;
+                }
+            }
+            if (k < arr.Length) Array.Resize(ref arr, k);
+            return arr;
+        }
+
+        public StationCeilingMounts GetNextCeilingMounts() =>
+            nextCeilingMounts ??= StationCeilingMounts.ForIndex(NextIndex);
+
+        public void ReportUnresolved(string code, string recordType, string recordId, string message) {
+            Diagnostics.Add(new StationDiagnostic(code ?? "unresolved", StationDiagnosticSeverity.Warning,
+                recordType ?? "", recordId ?? "", message ?? ""));
+        }
+    }
+
+    /// <summary>One renderer family's staged local update; Dispose rolls back if Commit was not called.</summary>
+    public interface IStationLocalRendererStage : IDisposable {
+        void Commit(StationWorldView world, StationLocalViewCommit commit);
+    }
+
+    /// <summary>
+    /// Optional retained-update seam implemented by production <see cref="IStationViewRenderer"/>s.
+    /// Returning false causes <see cref="StationWorldView.StageLocalWorld"/> to abort all staged
+    /// renderers and fall back cleanly to a full candidate world build.
+    /// </summary>
+    public interface IStationLocalViewRenderer {
+        bool TryStageLocalDelta(
+            StationLocalDeltaContext context,
+            out IStationLocalRendererStage stage,
+            out string fallbackReason);
+    }
+
+    /// <summary>
     /// The renderer registry of one station world. It is built **staged** (inactive)
     /// and only activated when the load transaction commits, so a render failure
     /// cannot show half a station. It also owns the pick/visibility records: a
     /// renderer registers each module/cell view by stable id, never by object name.
     /// </summary>
     public sealed class StationWorldView : IDisposable {
+        /// <summary>Test seam: inject an exception before staging a named renderer role on the local path.</summary>
+        public static Func<string, Exception> LocalStageFailureInjector;
+
         readonly List<IStationViewRenderer> renderers;
         readonly List<StationViewRecord> records = new List<StationViewRecord>();
         readonly List<StationDiagnostic> unresolved = new List<StationDiagnostic>();
@@ -217,91 +344,205 @@ namespace Metro.App {
             IsBuilt = true;
         }
 
-        /// <summary>A staged, prefab-only local replacement. It owns no generated materials,
-        /// artwork or meshes. Unknown dependencies and all cell edits keep the full path.</summary>
-        public sealed class LocalModuleStage : IDisposable {
+        /// <summary>
+        /// Staged retained update across all registered renderers. If any renderer refuses or throws,
+        /// <see cref="Dispose"/> rolls back every staged workspace and destroys inactive staged Unity objects.
+        /// </summary>
+        public sealed class LocalWorldStage : IDisposable {
             internal StationWorldView World;
             internal StationDocument Document;
             internal StationIndex Index;
-            internal readonly HashSet<string> Ids = new HashSet<string>(StringComparer.Ordinal);
-            internal readonly List<StationViewRecord> Records = new List<StationViewRecord>();
+            internal StationLocalDeltaContext Context;
+            internal readonly List<IStationLocalRendererStage> Stages = new List<IStationLocalRendererStage>();
             internal GameObject Root;
+            bool committed;
+
+            internal void MarkCommitted() {
+                committed = true;
+                if (Root != null) {
+                    DestroyView(Root);
+                    Root = null;
+                }
+            }
+
             public void Dispose() {
-                if (Root == null) return;
-                DestroyView(Root); Root = null;
+                if (!committed) {
+                    for (int i = Stages.Count - 1; i >= 0; i--) {
+                        try { Stages[i]?.Dispose(); } catch (Exception) { }
+                    }
+                    Stages.Clear();
+                }
+                if (Root != null) {
+                    DestroyView(Root);
+                    Root = null;
+                }
             }
         }
 
-        static bool IndependentPrefab(StationModuleRecord module) {
-            if (module == null) return true;
-            if (module.Facts.CeilingAnchored || StationFootprints.IsCeilingHung(module.Facts)) return false;
-            switch (module.Type) {
-                case "bin": case "tvm": case "vending": case "bench": case "shelf": case "extinguisher": return true;
-                default: return false;
+        static bool SameLines(IReadOnlyList<StationLineRecord> a, IReadOnlyList<StationLineRecord> b) {
+            int ac = a?.Count ?? 0;
+            int bc = b?.Count ?? 0;
+            if (ac != bc) return false;
+            for (int i = 0; i < ac; i++) {
+                var la = a[i];
+                var lb = b[i];
+                if (ReferenceEquals(la, lb)) continue;
+                if (la == null || lb == null) return false;
+                if (!string.Equals(la.Id, lb.Id, StringComparison.Ordinal) ||
+                    !string.Equals(la.Name, lb.Name, StringComparison.Ordinal) ||
+                    !string.Equals(la.NameEn, lb.NameEn, StringComparison.Ordinal) ||
+                    !string.Equals(la.Colour, lb.Colour, StringComparison.Ordinal) ||
+                    !string.Equals(la.Stock, lb.Stock, StringComparison.Ordinal) ||
+                    !string.Equals(la.Power, lb.Power, StringComparison.Ordinal) ||
+                    la.Cars != lb.Cars ||
+                    la.Direction != lb.Direction) return false;
             }
+            return true;
         }
 
-        public LocalModuleStage StageLocalModules(StationDocument next, StationIndex nextIndex, StationIndexDelta delta) {
-            using var editSample = StationEditProfiling.Measure("StationEdit.StageLocalModules");
-            if (delta == null || delta.RemovedCells.Count > 0 || delta.ChangedCells.Count > 0 || Catalogue == null) return null;
-            StationEditClassifier.GroundWindow(document, out var x0, out var y0, out var x1, out var y1);
-            StationEditClassifier.GroundWindow(next, out var nx0, out var ny0, out var nx1, out var ny1);
-            if (x0 != nx0 || y0 != ny0 || x1 != nx1 || y1 != ny1) return null;
-            var ids = new HashSet<string>(delta.RemovedModules, StringComparer.Ordinal);
-            foreach (var module in delta.ChangedModules) ids.Add(module.Id);
-            if (ids.Count == 0) return null;
-            foreach (var id in ids) {
-                if (!IndependentPrefab(index.GetModule(id)) || !IndependentPrefab(nextIndex.GetModule(id))) return null;
-                // Refuse unexpected batched or generated records rather than deleting a shared view.
-                foreach (var record in records)
-                    if (record.SourceIds != null && Array.IndexOf(record.SourceIds, id) >= 0) return null;
+        public LocalWorldStage StageLocalWorld(StationDocument next, StationIndex nextIndex, StationIndexDelta delta) {
+            using var editSample = StationEditProfiling.Measure("StationEdit.StageLocalWorld");
+            if (!IsBuilt || IsDisposed || delta == null || document == null || index == null || next == null || nextIndex == null) {
+                return null;
             }
-            var stage = new LocalModuleStage { World = this, Document = next, Index = nextIndex, Root = new GameObject("staged local modules") };
+            if (document.LevelBase != next.LevelBase ||
+                document.StoreyHeight != next.StoreyHeight ||
+                document.Seed != next.Seed ||
+                !string.Equals(document.City, next.City, StringComparison.Ordinal) ||
+                !string.Equals(document.Name, next.Name, StringComparison.Ordinal) ||
+                !string.Equals(document.NameEn, next.NameEn, StringComparison.Ordinal) ||
+                !SameLines(document.Lines, next.Lines)) {
+                StationEditTrace.NoteViewFallback("global-station-metadata");
+                return null;
+            }
+
+            for (int i = 0; i < renderers.Count; i++) {
+                var renderer = renderers[i];
+                if (renderer == null) continue;
+                if (!(renderer is IStationLocalViewRenderer)) {
+                    StationEditTrace.NoteViewFallback("non-local-renderer:" + (renderer.Role ?? renderer.GetType().Name));
+                    return null;
+                }
+            }
+
+            var stage = new LocalWorldStage {
+                World = this,
+                Document = next,
+                Index = nextIndex,
+                Root = new GameObject("staged local world"),
+            };
             stage.Root.transform.SetParent(Root, false);
             stage.Root.SetActive(false);
-            foreach (var id in ids) stage.Ids.Add(id);
+            stage.Context = new StationLocalDeltaContext(this, document, index, next, nextIndex, delta, stage.Root.transform);
+
             try {
-                var facts = new ModuleFacts[next.ModuleCount];
-                for (int i = 0; i < facts.Length; i++) facts[i] = next.Modules[i].Facts;
-                foreach (var id in ids) {
-                    var module = nextIndex.GetModule(id);
-                    if (module == null) continue;
-                    var visual = ModuleViews.Resolve(module.Facts, facts, Catalogue);
-                    if (!visual.HasModel || !Catalogue.TryGet(visual.Key, out var entry) || entry.prefab == null || entry.kind == "generated") {
-                        stage.Dispose(); return null;
+                for (int i = 0; i < renderers.Count; i++) {
+                    var renderer = renderers[i];
+                    if (renderer == null) continue;
+                    var roleName = renderer.Role ?? renderer.GetType().Name;
+                    var localRenderer = (IStationLocalViewRenderer)renderer;
+                    using var familySample = StationEditProfiling.Measure("StationEdit.StageLocal." + roleName);
+                    var injected = LocalStageFailureInjector?.Invoke(roleName);
+                    if (injected != null) throw injected;
+                    if (!localRenderer.TryStageLocalDelta(stage.Context, out var rendererStage, out var fallbackReason)) {
+                        StationEditTrace.NoteViewFallback(string.IsNullOrEmpty(fallbackReason)
+                            ? "renderer-refused:" + roleName
+                            : fallbackReason);
+                        stage.Dispose();
+                        return null;
                     }
-                    var go = UnityEngine.Object.Instantiate(entry.prefab, stage.Root.transform, false);
-                    go.name = id + " " + module.Type;
-                    go.transform.SetPositionAndRotation(ModulePlacement.Resolve(module, entry, nextIndex), ModulePlacement.Rotation(module.Rotation));
-                    stage.Records.Add(new StationViewRecord { Role = StationModuleClaims.Equipment, ModuleId = id, View = go,
-                        LevelMin = module.Z, LevelMax = module.Z + 1 });
+                    if (rendererStage != null) stage.Stages.Add(rendererStage);
                 }
                 return stage;
-            } catch { stage.Dispose(); throw; }
+            } catch (StationViewBuildException) {
+                stage.Dispose();
+                throw;
+            } catch (Exception error) {
+                stage.Dispose();
+                throw new StationViewBuildException("local-world", error);
+            }
         }
 
-        public void CommitLocalModules(LocalModuleStage stage) {
-            using var editSample = StationEditProfiling.Measure("StationEdit.CommitLocalModules");
+        public StationLocalViewCommit CommitLocalWorld(LocalWorldStage stage) {
+            using var editSample = StationEditProfiling.Measure("StationEdit.CommitLocalWorld");
             if (stage == null || stage.World != this) throw new ArgumentException("Wrong local view stage.");
+            StationEditTrace.NoteRetainedView();
+            var commit = new StationLocalViewCommit();
+            document = stage.Document;
+            index = stage.Index;
+            modulesById = null;
+
+            for (int i = 0; i < stage.Stages.Count; i++) {
+                stage.Stages[i].Commit(this, commit);
+            }
+
+            var retiredIds = stage.Context.TouchedModuleIds;
+            if (retiredIds.Count > 0 || commit.RetiredRecords.Count > 0) {
+                var rebuiltModuleIds = new HashSet<string>(retiredIds, StringComparer.Ordinal);
+                for (int i = 0; i < commit.RetiredRecords.Count; i++) {
+                    var mid = commit.RetiredRecords[i].ModuleId;
+                    if (!string.IsNullOrEmpty(mid)) rebuiltModuleIds.Add(mid);
+                }
+                if (rebuiltModuleIds.Count > 0) {
+                    unresolved.RemoveAll(d => !string.IsNullOrEmpty(d.RecordId) && rebuiltModuleIds.Contains(d.RecordId));
+                }
+            }
+            if (stage.Context.Diagnostics.Count > 0) {
+                unresolved.AddRange(stage.Context.Diagnostics);
+            }
+
+            var seenViews = new HashSet<GameObject>();
+            for (int i = 0; i < commit.RetiredViews.Count; i++) {
+                var go = commit.RetiredViews[i];
+                if (go == null || !seenViews.Add(go)) continue;
+                var targets = go.GetComponentsInChildren<StationVisibilityTarget>(true);
+                for (int t = 0; t < targets.Length; t++) {
+                    if (targets[t] != null) commit.RetiredTargets.Add(targets[t]);
+                }
+                go.SetActive(false);
+                DestroyView(go);
+            }
+            var seenMeshes = new HashSet<Mesh>();
+            for (int i = 0; i < commit.RetiredMeshes.Count; i++) {
+                var mesh = commit.RetiredMeshes[i];
+                if (mesh == null || !seenMeshes.Add(mesh)) continue;
+                DestroyUnityObject(mesh);
+            }
+
+            stage.MarkCommitted();
+            return commit;
+        }
+
+        public void RetireRecordsWhere(Predicate<StationViewRecord> match, StationLocalViewCommit commit, bool retireViewObjects = false) {
+            if (match == null) return;
             for (int i = records.Count - 1; i >= 0; i--) {
                 var record = records[i];
-                if (!stage.Ids.Contains(record.ModuleId)) continue;
-                if (record.View != null) { record.View.SetActive(false); DestroyView(record.View); }
-                roleCounts[record.Role]--;
+                if (!match(record)) continue;
                 records.RemoveAt(i);
+                if (roleCounts.TryGetValue(record.Role, out var count) && count > 0) {
+                    roleCounts[record.Role] = count - 1;
+                }
+                commit?.RetiredRecords.Add(record);
+                if (retireViewObjects && record.View != null) {
+                    commit?.RetiredViews.Add(record.View);
+                }
             }
-            document = stage.Document; index = stage.Index; modulesById = null;
-            foreach (var record in stage.Records) {
-                record.View.transform.SetParent(RoleRoot(record.Role), true);
-                Add(record);
-            }
-            foreach (var renderer in renderers)
-                if (renderer is StationEquipmentModuleRenderer equipment) equipment.AdoptLocalModules(this, stage.Ids, stage.Records);
-            stage.Dispose();
         }
 
-        static void DestroyView(GameObject view) {
+        public void AddLocalRecord(StationViewRecord record, StationLocalViewCommit commit) {
+            if (record == null) return;
+            Add(record);
+            commit?.AddedRecords.Add(record);
+        }
+
+        internal static void DestroyView(GameObject view) {
+            if (view == null) return;
             if (Application.isPlaying) UnityEngine.Object.Destroy(view); else UnityEngine.Object.DestroyImmediate(view);
+        }
+
+        internal static void DestroyUnityObject(UnityEngine.Object obj) {
+            if (obj == null) return;
+            if (Application.isPlaying) UnityEngine.Object.Destroy(obj); else UnityEngine.Object.DestroyImmediate(obj);
         }
 
         /// <summary>Activate the staged root. Called by the load transaction at commit.</summary>

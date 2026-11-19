@@ -373,23 +373,33 @@ namespace Metro.Build {
         /// </summary>
         public static bool IsGroundHole(StationIndex index, int x, int y) {
             if (index == null) return false;
-            foreach (var cell in index.Document.Cells) {
-                if (cell.X != x || cell.Y != y || cell.Z != 0) continue;
-                if (!cell.IsSolid) return true;
+            var groundCell = index.GetCell(x, y, 0);
+            if (groundCell != null && !groundCell.IsSolid) return true;
+            var tracks = index.ModulesOfType("track");
+            for (int i = 0; i < tracks.Count; i++) {
+                var module = tracks[i];
+                if (module.Z != 0) continue;
+                var cfg = module.Config;
+                if (cfg.Bool("tunnel") || cfg.Bool("bridge")) continue;
+                foreach (var cell in TrackCells(module))
+                    if (cell.Z == 0 && cell.X == x && cell.Y == y) return true;
             }
-            foreach (var module in index.Document.Modules) {
-                if (module.Type == "track") {
-                    var cfg = module.Config;
-                    if (cfg.Bool("tunnel") || cfg.Bool("bridge")) continue;
-                    foreach (var cell in TrackCells(module))
-                        if (cell.Z == 0 && cell.X == x && cell.Y == y) return true;
-                } else if (module.Type == "stair" || module.Type == "escalator" || module.Type == "walkway" || module.Type == "lift") {
-                    foreach (var cell in Footprint(module))
-                        if (cell.Z == 0 && cell.X == x && cell.Y == y) return true;
-                } else if (module.Type == "exit" && module.Config.Text("style") != "doorway" && module.Config.Text("style") != "virtual") {
-                    foreach (var cell in ExitFootprint(module))
+            string[] runTypes = { "stair", "escalator", "walkway", "lift" };
+            for (int t = 0; t < runTypes.Length; t++) {
+                var runs = index.ModulesOfType(runTypes[t]);
+                for (int i = 0; i < runs.Count; i++) {
+                    foreach (var cell in Footprint(runs[i]))
                         if (cell.Z == 0 && cell.X == x && cell.Y == y) return true;
                 }
+            }
+            var exits = index.ModulesOfType("exit");
+            for (int i = 0; i < exits.Count; i++) {
+                var module = exits[i];
+                if (module.Z != 0) continue;
+                var style = module.Config.Text("style");
+                if (style == "doorway" || style == "virtual") continue;
+                foreach (var cell in ExitFootprint(module))
+                    if (cell.Z == 0 && cell.X == x && cell.Y == y) return true;
             }
             return false;
         }

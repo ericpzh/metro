@@ -383,6 +383,16 @@ namespace Metro.View {
             return phase < 0 ? 0 : phase > 1 ? 1 : phase;
         }
 
+        /// <summary>Map a ride onto one six-frame handrail variant inside the imported clip.</summary>
+        public static double RailTimeline(double elapsed, double total, int variant) {
+            double remaining = total - elapsed;
+            double frame;
+            if (elapsed < 1.5) frame = 2 * Math.Max(0, Math.Min(1, elapsed / 1.5));
+            else if (remaining < 1.5) frame = 5 - 2 * Math.Max(0, Math.Min(1, remaining / 1.5));
+            else frame = 2 + Math.Max(0, Math.Min(1, (elapsed - 1.5) / Math.Max(1, total - 3)));
+            return (variant * 6 + frame) / (ActivitySamples - 1) * 10;
+        }
+
         /// <summary>The seconds into the activity clip to sample.</summary>
         public static double ActivitySampleTime(PassengerActivity activity, double seconds, double clipLength) {
             double duration = clipLength > 0 ? clipLength : ActivityDurations[(int)activity];

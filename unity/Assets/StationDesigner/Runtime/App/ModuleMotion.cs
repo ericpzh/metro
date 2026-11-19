@@ -601,6 +601,10 @@ namespace Metro.App {
                         float cabin = sample.StopCount > 1
                             ? Mathf.Clamp01(sample.Stop / (float)(sample.StopCount - 1))
                             : 0f;
+                        if (binding.Vertical != null && sample.HasCarElevation) {
+                            var stops = binding.Vertical.Stops;
+                            if (stops.Count > 1) cabin = Mathf.Clamp01((float)((sample.Z - stops[0]) / (stops[stops.Count - 1] - stops[0])));
+                        }
                         PushRanges(binding, cabin, (float)sample.DoorFraction, playing, tick);
                         DriveLift(binding, alpha);
                         applied++;
@@ -1119,8 +1123,12 @@ namespace Metro.App {
         public void Tick(StationDocument stationDocument, StationIndex index, StationFrameClock clock) {
             if (Suspended || stationDocument == null) return;
             try {
-                if (!ReferenceEquals(stationDocument, document)) Rebuild(stationDocument);
-                var host = UnityEngine.Object.FindAnyObjectByType<StationGameHost>();
+                if (document == null || !ReferenceEquals(stationDocument.ModulePages, document.ModulePages)) {
+                    Rebuild(stationDocument);
+                } else {
+                    document = stationDocument;
+                }
+                var host = StationGameHost.ResolveActive();
                 if (host == null) return;
                 var live = (host.Simulation as StationSimulationHost)?.Session;
                 if (live == null) return;
@@ -1154,9 +1162,11 @@ namespace Metro.App {
             hasFrame = false;
             frame = default;
             document = stationDocument;
+            var vertical = VerticalModuleRenderer.Current;
+            if (vertical != null) foreach (var view in vertical.Views)
+                if (view.Kind == VerticalModuleKind.Lift) dispatch.Bind(view);
             var openings = StationOpeningRenderers.Current;
-            if (openings == null) return;
-            foreach (var view in openings.Views.Views) dispatch.Bind(view);
+            if (openings != null) foreach (var view in openings.Views.Views) dispatch.Bind(view);
         }
     }
 

@@ -689,6 +689,143 @@ namespace Metro.App {
             }
         }
 
+        public static void ApplyLocalCommit(StationWorldView world, StationLocalViewCommit localCommit, StationIndexDelta delta) {
+            if (localCommit != null && localCommit.RetiredMeshes.Count > 0) {
+                for (int i = 0; i < localCommit.RetiredMeshes.Count; i++) {
+                    var mesh = localCommit.RetiredMeshes[i];
+                    if (mesh != null) meshCache.Remove(mesh);
+                }
+            }
+            if (index == null || index.World != world || world == null || world.Document == null) return;
+
+            if (delta != null && index.Modules != null) {
+                for (int i = 0; i < delta.RemovedModules.Count; i++) {
+                    index.Modules.Remove(delta.RemovedModules[i]);
+                }
+                for (int i = 0; i < delta.ChangedModules.Count; i++) {
+                    var m = delta.ChangedModules[i];
+                    if (m != null) index.Modules[m.Id] = m;
+                }
+            }
+            index.Grid = StationLevelGrid.FromDocument(world.Document.LevelBase, world.Document.StoreyHeight);
+
+            if (localCommit == null) {
+                index.Document = world.Document;
+                return;
+            }
+
+            HashSet<StationViewRecord> retiredOrUpdated = null;
+            for (int i = 0; i < localCommit.RetiredRecords.Count; i++) {
+                var rec = localCommit.RetiredRecords[i];
+                if (rec != null && !UnpickableRoles.Contains(rec.Role)) {
+                    (retiredOrUpdated ??= new HashSet<StationViewRecord>()).Add(rec);
+                }
+            }
+            for (int i = 0; i < localCommit.UpdatedRecords.Count; i++) {
+                var rec = localCommit.UpdatedRecords[i];
+                if (rec != null && !UnpickableRoles.Contains(rec.Role)) {
+                    (retiredOrUpdated ??= new HashSet<StationViewRecord>()).Add(rec);
+                }
+            }
+
+            bool hasAddedPickable = false;
+            for (int i = 0; i < localCommit.AddedRecords.Count; i++) {
+                var rec = localCommit.AddedRecords[i];
+                if (rec != null && !UnpickableRoles.Contains(rec.Role)) {
+                    hasAddedPickable = true;
+                    break;
+                }
+            }
+
+            if (retiredOrUpdated == null && !hasAddedPickable) {
+                if (delta != null && delta.ChangedModules.Count > 0 && index.Bodies != null) {
+                    for (int i = 0; i < index.Bodies.Length; i++) {
+                        var body = index.Bodies[i];
+                        if (body?.Module != null && index.Modules.TryGetValue(body.Module.Id, out var updated)) {
+                            body.Module = updated;
+                        }
+                    }
+                }
+                index.Document = world.Document;
+                return;
+            }
+
+            var rebuilt = new List<Body>(index.Bodies != null ? index.Bodies.Length + localCommit.AddedRecords.Count : localCommit.AddedRecords.Count);
+            if (index.Bodies != null) {
+                for (int i = 0; i < index.Bodies.Length; i++) {
+                    var body = index.Bodies[i];
+                    if (body == null) continue;
+                    if (retiredOrUpdated != null && retiredOrUpdated.Contains(body.Record)) continue;
+                    if (body.Module != null && index.Modules.TryGetValue(body.Module.Id, out var updated)) {
+                        body.Module = updated;
+                    }
+                    rebuilt.Add(body);
+                }
+            }
+            for (int i = 0; i < localCommit.UpdatedRecords.Count; i++) {
+                AppendRecordBodies(localCommit.UpdatedRecords[i], index.Modules, rebuilt);
+            }
+            for (int i = 0; i < localCommit.AddedRecords.Count; i++) {
+                AppendRecordBodies(localCommit.AddedRecords[i], index.Modules, rebuilt);
+            }
+            index.Bodies = rebuilt.ToArray();
+            index.Document = world.Document;
+        }
+
+        static void AppendRecordBodies(StationViewRecord record, Dictionary<string, StationModuleRecord> modules, List<Body> bodies) {
+            if (record == null || record.View == null) return;
+            if (UnpickableRoles.Contains(record.Role)) return;
+            if (string.Equals(record.Part, "hidden", StringComparison.Ordinal)) return;
+
+            var parts = CollectRenderParts(record.View);
+            if (parts.Length == 0) return;
+            bool hasMeshBox = TryMeasureMeshBounds(parts, out var meshBox);
+
+            if (!string.IsNullOrEmpty(record.ModuleId)) {
+                if (!modules.TryGetValue(record.ModuleId, out var module)) return;
+                bool hasRecordBox = record.HasBounds && !record.Bounds.IsEmpty;
+                if (!hasMeshBox && !hasRecordBox) return;
+                var box = hasMeshBox && hasRecordBox
+                    ? UnionBoxes(PadBox(record.Bounds), meshBox)
+                    : hasMeshBox ? meshBox : PadBox(record.Bounds);
+                bodies.Add(new Body {
+                    Module = module,
+                    Record = record,
+                    Box = box,
+                    Parts = parts,
+                    IsBatched = false,
+                });
+                return;
+            }
+
+            if (record.SourceIds == null || record.SourceIds.Length == 0) return;
+            var spansBySource = GroupSpansBySource(record.SourceIds.Length, record.SourceSpans);
+            for (int i = 0; i < record.SourceIds.Length; i++) {
+                var id = record.SourceIds[i];
+                if (string.IsNullOrEmpty(id) || !modules.TryGetValue(id, out var module)) continue;
+                StationBox box;
+                if (record.SourceBounds != null && i < record.SourceBounds.Length) {
+                    box = PadBox(record.SourceBounds[i]);
+                    if (box.IsEmpty && hasMeshBox) box = meshBox;
+                } else if (hasMeshBox) {
+                    box = meshBox;
+                } else if (record.HasBounds && !record.Bounds.IsEmpty) {
+                    box = PadBox(record.Bounds);
+                } else {
+                    continue;
+                }
+                if (box.IsEmpty) continue;
+                bodies.Add(new Body {
+                    Module = module,
+                    Record = record,
+                    Box = box,
+                    Parts = parts,
+                    IsBatched = true,
+                    BatchSpans = spansBySource != null ? spansBySource[i] : null,
+                });
+            }
+        }
+
         static Body[] Bodies(StationWorldView world) {
             if (index != null && index.World == world && ReferenceEquals(index.Document, world.Document)) return index.Bodies;
             var modules = new Dictionary<string, StationModuleRecord>(StringComparer.Ordinal);
@@ -704,59 +841,7 @@ namespace Metro.App {
                 world.Document != null ? world.Document.StoreyHeight : StationCoordinates.StoreyHeight);
             var bodies = new List<Body>(world.Records.Count);
             foreach (var record in world.Records) {
-                if (record.View == null) continue;
-                if (UnpickableRoles.Contains(record.Role)) continue;
-                if (string.Equals(record.Part, "hidden", StringComparison.Ordinal)) continue;
-
-                var parts = CollectRenderParts(record.View);
-                if (parts.Length == 0) continue;
-                bool hasMeshBox = TryMeasureMeshBounds(parts, out var meshBox);
-
-                if (!string.IsNullOrEmpty(record.ModuleId)) {
-                    if (!modules.TryGetValue(record.ModuleId, out var module)) continue;
-                    bool hasRecordBox = record.HasBounds && !record.Bounds.IsEmpty;
-                    if (!hasMeshBox && !hasRecordBox) continue;
-                    var box = hasMeshBox && hasRecordBox
-                        ? UnionBoxes(PadBox(record.Bounds), meshBox)
-                        : hasMeshBox ? meshBox : PadBox(record.Bounds);
-                    bodies.Add(new Body {
-                        Module = module,
-                        Record = record,
-                        Box = box,
-                        Parts = parts,
-                        IsBatched = false,
-                    });
-                    continue;
-                }
-
-                // Combined surface batch: expand one body per authored tile with its exact
-                // triangle spans (`SourceSpans`) and padded document bounds.
-                if (record.SourceIds == null || record.SourceIds.Length == 0) continue;
-                var spansBySource = GroupSpansBySource(record.SourceIds.Length, record.SourceSpans);
-                for (int i = 0; i < record.SourceIds.Length; i++) {
-                    var id = record.SourceIds[i];
-                    if (string.IsNullOrEmpty(id) || !modules.TryGetValue(id, out var module)) continue;
-                    StationBox box;
-                    if (record.SourceBounds != null && i < record.SourceBounds.Length) {
-                        box = PadBox(record.SourceBounds[i]);
-                        if (box.IsEmpty && hasMeshBox) box = meshBox;
-                    } else if (hasMeshBox) {
-                        box = meshBox;
-                    } else if (record.HasBounds && !record.Bounds.IsEmpty) {
-                        box = PadBox(record.Bounds);
-                    } else {
-                        continue;
-                    }
-                    if (box.IsEmpty) continue;
-                    bodies.Add(new Body {
-                        Module = module,
-                        Record = record,
-                        Box = box,
-                        Parts = parts,
-                        IsBatched = true,
-                        BatchSpans = spansBySource != null ? spansBySource[i] : null,
-                    });
-                }
+                AppendRecordBodies(record, modules, bodies);
             }
             index = new Index { Document = world.Document,
                 World = world, Bodies = bodies.ToArray(), Modules = modules, Grid = grid,

@@ -13,10 +13,98 @@ namespace Metro.App {
     /// opened save. A renderer draws only its own family, draws nothing for a record
     /// it cannot resolve, and reports the diagnostic instead of inventing geometry.
     /// </summary>
-    public sealed class OutdoorModuleRenderer : IStationViewRenderer {
-        public string Role => "modules";
+    public sealed class OutdoorModuleRenderer : IStationViewRenderer, IStationLocalViewRenderer {
+        public const string RoleName = "modules";
+        public string Role => RoleName;
+
+        sealed class OutdoorWorldState {
+            public StationWorldView World;
+            public readonly Dictionary<string, GameObject> HoldersById = new Dictionary<string, GameObject>(StringComparer.Ordinal);
+            public readonly Dictionary<(int X, int Y, int Z), string> FencesByCell = new Dictionary<(int X, int Y, int Z), string>();
+        }
+
+        sealed class StagedOutdoorDelta : IStationLocalRendererStage {
+            readonly OutdoorWorldState state;
+            readonly HashSet<string> retiredIds;
+            readonly List<(ModuleFacts Module, GameObject Holder, GameObject Instance)> staged;
+            readonly StationIndex prevIndex;
+            bool committed;
+
+            public StagedOutdoorDelta(
+                OutdoorWorldState state,
+                HashSet<string> retiredIds,
+                List<(ModuleFacts Module, GameObject Holder, GameObject Instance)> staged,
+                StationIndex prevIndex) {
+                this.state = state;
+                this.retiredIds = retiredIds;
+                this.staged = staged;
+                this.prevIndex = prevIndex;
+            }
+
+            public void Commit(StationWorldView world, StationLocalViewCommit commit) {
+                committed = true;
+                if (retiredIds.Count > 0) {
+                    world.RetireRecordsWhere(rec => rec.Role == RoleName && retiredIds.Contains(rec.ModuleId), commit);
+                    foreach (var id in retiredIds) {
+                        if (state.HoldersById.TryGetValue(id, out var oldHolder)) {
+                            state.HoldersById.Remove(id);
+                            if (oldHolder != null) commit.RetiredViews.Add(oldHolder);
+                        }
+                        if (prevIndex != null && prevIndex.TryGetModule(id, out var oldMod) &&
+                            oldMod != null && oldMod.Type == "fence") {
+                            var cellKey = (oldMod.X, oldMod.Y, oldMod.Z);
+                            if (state.FencesByCell.TryGetValue(cellKey, out var curId) &&
+                                string.Equals(curId, id, StringComparison.Ordinal)) {
+                                state.FencesByCell.Remove(cellKey);
+                            }
+                        }
+                    }
+                }
+
+                var roleRoot = world.RoleRoot(RoleName);
+                for (int i = 0; i < staged.Count; i++) {
+                    var (module, holder, instance) = staged[i];
+                    holder.transform.SetParent(roleRoot, false);
+                    state.HoldersById[module.Id] = holder;
+                    if (module.Type == "fence") state.FencesByCell[(module.X, module.Y, module.Z)] = module.Id;
+                    world.AddLocalRecord(new StationViewRecord {
+                        Role = RoleName,
+                        ModuleId = module.Id,
+                        View = instance,
+                        LevelMin = module.Z,
+                        LevelMax = module.Z + 1,
+                    }, commit);
+                }
+            }
+
+            public void Dispose() {
+                if (committed) return;
+                for (int i = 0; i < staged.Count; i++) {
+                    if (staged[i].Holder != null) StationWorldView.DestroyView(staged[i].Holder);
+                }
+                staged.Clear();
+            }
+        }
+
+        readonly List<OutdoorWorldState> states = new List<OutdoorWorldState>();
+
+        OutdoorWorldState StateOf(StationWorldView world) {
+            for (int i = states.Count - 1; i >= 0; i--) {
+                if (states[i].World == world) return states[i];
+            }
+            return null;
+        }
+
+        void Purge() {
+            for (int i = states.Count - 1; i >= 0; i--) {
+                if (states[i].World == null || states[i].World.IsDisposed) states.RemoveAt(i);
+            }
+        }
 
         public void Build(StationViewBuildContext context) {
+            Purge();
+            var state = new OutdoorWorldState { World = context.World };
+            states.Add(state);
             if (context.Catalogue == null) {
                 context.ReportUnresolved("missing-asset", "renderer", Role, "No RuntimeCatalogue on the station host.");
                 return;
@@ -24,12 +112,165 @@ namespace Metro.App {
             var records = context.Document.Modules;
             var facts = new ModuleFacts[records.Count];
             for (int i = 0; i < facts.Length; i++) facts[i] = records[i].Facts;
-            OutdoorModuleViews.BuildAll(facts, context.Catalogue, context.RoleRoot(Role),
-                (module, view) => context.World.RegisterModule(Role, module.Id, view.Instance, "", null, module.Z, module.Z + 1),
+            var roleRoot = context.RoleRoot(Role);
+            OutdoorModuleViews.BuildAll(facts, context.Catalogue, roleRoot,
+                (module, view) => {
+                    context.World.RegisterModule(Role, module.Id, view.Instance, "", null, module.Z, module.Z + 1);
+                    if (!string.IsNullOrEmpty(module.Id) && view.Instance != null) {
+                        var holder = view.Instance.transform.parent != null && view.Instance.transform.parent != roleRoot
+                            ? view.Instance.transform.parent.gameObject
+                            : view.Instance;
+                        state.HoldersById[module.Id] = holder;
+                        if (module.Type == "fence") state.FencesByCell[(module.X, module.Y, module.Z)] = module.Id;
+                    }
+                },
                 (module, diagnostic) => context.ReportUnresolved("outdoor", module.Type, module.Id, diagnostic));
         }
 
-        public void Release() { }
+        static bool AffectsFenceConnectivity(string type) =>
+            type == "fence" || type == "gate" || type == "stair" || type == "escalator" || type == "walkway";
+
+        static void MarkAdjacentFences(
+            OutdoorWorldState state,
+            StationModuleRecord module,
+            HashSet<string> removedIds,
+            HashSet<string> dirtyIds,
+            StationIndex nextIndex) {
+            if (module == null) return;
+            int x0 = module.X - 1, x1 = module.X + Math.Max(1, module.Width);
+            int y0 = module.Y - 1, y1 = module.Y + Math.Max(1, module.Depth);
+            int z0 = module.Z, z1 = module.Z;
+            if (module.From.HasValue) {
+                var f = module.From.Value;
+                x0 = Math.Min(x0, (int)Math.Floor(f.X) - 1); x1 = Math.Max(x1, (int)Math.Ceiling(f.X) + 1);
+                y0 = Math.Min(y0, (int)Math.Floor(f.Y) - 1); y1 = Math.Max(y1, (int)Math.Ceiling(f.Y) + 1);
+                z0 = Math.Min(z0, (int)Math.Round(f.Z)); z1 = Math.Max(z1, (int)Math.Round(f.Z));
+            }
+            if (module.To.HasValue) {
+                var t = module.To.Value;
+                x0 = Math.Min(x0, (int)Math.Floor(t.X) - 1); x1 = Math.Max(x1, (int)Math.Ceiling(t.X) + 1);
+                y0 = Math.Min(y0, (int)Math.Floor(t.Y) - 1); y1 = Math.Max(y1, (int)Math.Ceiling(t.Y) + 1);
+                z0 = Math.Min(z0, (int)Math.Round(t.Z)); z1 = Math.Max(z1, (int)Math.Round(t.Z));
+            }
+            for (int y = y0; y <= y1; y++) {
+                for (int x = x0; x <= x1; x++) {
+                    if (state.FencesByCell.TryGetValue((x, y, z0), out var fid) &&
+                        !removedIds.Contains(fid) && nextIndex.TryGetModule(fid, out _)) {
+                        dirtyIds.Add(fid);
+                    }
+                    if (z1 != z0 && state.FencesByCell.TryGetValue((x, y, z1), out var fid2) &&
+                        !removedIds.Contains(fid2) && nextIndex.TryGetModule(fid2, out _)) {
+                        dirtyIds.Add(fid2);
+                    }
+                }
+            }
+        }
+
+        public bool TryStageLocalDelta(
+            StationLocalDeltaContext context,
+            out IStationLocalRendererStage stage,
+            out string fallbackReason) {
+            stage = null;
+            fallbackReason = null;
+            var state = StateOf(context.World);
+            if (state == null) {
+                fallbackReason = "no-outdoor-state";
+                return false;
+            }
+            if (context.TouchedModuleIds.Count == 0) return true;
+
+            var removedIds = new HashSet<string>(StringComparer.Ordinal);
+            var dirtyIds = new HashSet<string>(StringComparer.Ordinal);
+            var delta = context.Delta;
+
+            for (int i = 0; i < delta.RemovedModules.Count; i++) {
+                var id = delta.RemovedModules[i];
+                if (!context.PrevIndex.TryGetModule(id, out var oldMod) || oldMod == null) continue;
+                if (OutdoorModuleViews.Owns(oldMod.Type)) removedIds.Add(id);
+                if (AffectsFenceConnectivity(oldMod.Type)) {
+                    MarkAdjacentFences(state, oldMod, removedIds, dirtyIds, context.NextIndex);
+                }
+            }
+            for (int i = 0; i < delta.ChangedModules.Count; i++) {
+                var mod = delta.ChangedModules[i];
+                if (mod == null) continue;
+                if (OutdoorModuleViews.Owns(mod.Type)) dirtyIds.Add(mod.Id);
+                if (AffectsFenceConnectivity(mod.Type)) {
+                    MarkAdjacentFences(state, mod, removedIds, dirtyIds, context.NextIndex);
+                    if (context.PrevIndex.TryGetModule(mod.Id, out var prevMod) && prevMod != null) {
+                        MarkAdjacentFences(state, prevMod, removedIds, dirtyIds, context.NextIndex);
+                    }
+                }
+            }
+
+            if (removedIds.Count == 0 && dirtyIds.Count == 0) return true;
+
+            var catalogue = context.World.Catalogue;
+            if (dirtyIds.Count > 0 && catalogue == null) {
+                fallbackReason = "outdoor-no-catalogue";
+                return false;
+            }
+
+            var retiredIds = new HashSet<string>(removedIds, StringComparer.Ordinal);
+            var staged = new List<(ModuleFacts Module, GameObject Holder, GameObject Instance)>(dirtyIds.Count);
+            var fenceFacts = dirtyIds.Count > 0 && string.Equals(Role, "fences", StringComparison.Ordinal)
+                ? context.GetNextFactsOfTypes("fence", "gate")
+                : null;
+            var connections = fenceFacts != null ? StationFenceConnections.For(fenceFacts) : null;
+
+            try {
+                foreach (var id in dirtyIds) {
+                    retiredIds.Add(id);
+                    if (!context.NextIndex.TryGetModule(id, out var record) || record == null) continue;
+                    var module = record.Facts;
+                    var visual = ModuleViews.Resolve(module, Array.Empty<ModuleFacts>(), catalogue);
+                    if (!visual.HasModel) {
+                        context.ReportUnresolved("outdoor", module.Type, module.Id,
+                            "unresolved:" + (visual.Detail.Length > 0 ? visual.Detail : "no-view"));
+                        continue;
+                    }
+                    if (!catalogue.TryGet(visual.Key, out var entry) || entry.prefab == null) {
+                        context.ReportUnresolved("outdoor", module.Type, module.Id, "unresolved:no-prefab:" + visual.Key);
+                        continue;
+                    }
+                    var holder = new GameObject(string.IsNullOrEmpty(module.Id) ? "outdoor pivot" : module.Id + " pivot");
+                    holder.transform.SetParent(context.StagingRoot, false);
+                    holder.transform.SetPositionAndRotation(ModulePlacement.Position(module, entry), ModulePlacement.Rotation(module.Rotation));
+                    var request = new OutdoorModuleRequest {
+                        ModuleId = module.Id,
+                        Type = module.Type,
+                        ViewKey = visual.Key,
+                        Variant = module.Config.Text("variant"),
+                        Mount = module.Config.Text("mount"),
+                        ConfigJson = "",
+                        DimensionsJson = module.Width + "x" + module.Depth,
+                        X = module.X, Y = module.Y, Z = module.Z,
+                        Rotation = module.Rotation,
+                        Width = module.Width, Depth = module.Depth,
+                        Prefab = entry.prefab,
+                        Catalogue = catalogue,
+                        Placement = OutdoorPlacement.ParentPlaced,
+                        Neighbours = OutdoorModuleViews.Neighbours(module, connections),
+                    };
+                    if (!OutdoorModuleViews.TryBuild(request, holder.transform, null, out var view)) {
+                        context.ReportUnresolved("outdoor", module.Type, module.Id, view.Diagnostic);
+                        StationWorldView.DestroyView(holder);
+                        continue;
+                    }
+                    StationEditTrace.AddInstantiatedPrefab();
+                    staged.Add((module, holder, view.Instance));
+                }
+                stage = new StagedOutdoorDelta(state, retiredIds, staged, context.PrevIndex);
+                return true;
+            } catch {
+                for (int i = 0; i < staged.Count; i++) {
+                    if (staged[i].Holder != null) StationWorldView.DestroyView(staged[i].Holder);
+                }
+                throw;
+            }
+        }
+
+        public void Release() => Purge();
     }
 
     /// <summary>
@@ -47,47 +288,37 @@ namespace Metro.App {
             if (writes == null || writes.Count == 0) return true;
             var host = UnityEngine.Object.FindAnyObjectByType<StationGameHost>();
             if (host == null || !host.IsLoaded) { code = "no-session"; return false; }
-            var saved = host.SaveDocument();
-            if (string.IsNullOrEmpty(saved)) { code = "no-document"; return false; }
-            JObject envelope;
-            try { envelope = JObject.Parse(saved); } catch (Exception) { code = "parse-failed"; return false; }
-            var cells = (envelope["static"] as JObject)?["cells"] as JArray;
-            if (cells == null) { code = "parse-failed"; return false; }
-            var byKey = new Dictionary<(int X, int Y, int Z), JObject>();
-            foreach (var token in cells) {
-                if (!(token is JObject cell)) continue;
-                byKey[((int)cell["x"], (int)cell["y"], (int)cell["z"])] = cell;
-            }
+
+            var patch = new StationCellPatch();
             foreach (var token in writes) {
                 if (!(token is JObject write)) continue;
                 if (!(write["cell"] is JArray point) || point.Count < 3) continue;
                 int x = (int)point[0], y = (int)point[1], z = (int)point[2];
                 string face = (string)write["face"];
                 if (string.IsNullOrEmpty(face)) continue;
-                if (!byKey.TryGetValue((x, y, z), out var cell)) {
-                    // Erasing or painting a record the document does not have: the source
-                    // materialises the cell only when the write carries the ground it makes.
-                    if (!(write["materialise"] is JObject materialise)) continue;
-                    cell = new JObject {
-                        ["x"] = x, ["y"] = y, ["z"] = z,
-                        ["fill"] = (string)materialise["fill"] ?? "solid",
-                    };
-                    if (materialise["zone"] != null) cell["zone"] = materialise["zone"].DeepClone();
-                    if (materialise["tags"] is JArray tags) cell["tags"] = tags.DeepClone();
-                    cells.Add(cell);
-                    byKey[(x, y, z)] = cell;
+                var finishToken = write["finish"];
+                string finishVal = finishToken == null || finishToken.Type == JTokenType.Null ? "" : (string)finishToken;
+                bool hasMat = write["materialise"] is JObject;
+                bool matVoid = false;
+                string matZone = null;
+                List<string> matTags = null;
+                if (write["materialise"] is JObject materialise) {
+                    matVoid = string.Equals((string)materialise["fill"], "void", StringComparison.Ordinal);
+                    if (materialise["zone"] != null && materialise["zone"].Type == JTokenType.String)
+                        matZone = (string)materialise["zone"];
+                    if (materialise["tags"] is JArray tagsArr) {
+                        matTags = new List<string>(tagsArr.Count);
+                        foreach (var t in tagsArr) {
+                            if (t != null && t.Type == JTokenType.String) matTags.Add((string)t);
+                        }
+                    }
                 }
-                var finishes = cell["finish"] as JObject;
-                if (finishes == null) { finishes = new JObject(); cell["finish"] = finishes; }
-                var finish = write["finish"];
-                if (finish == null || finish.Type == JTokenType.Null) finishes.Remove(face);
-                else finishes[face] = (string)finish;
+                patch.Writes.Add(StationCellWrite.PaintFace(
+                    new StationCellKey(x, y, z), face, finishVal,
+                    hasMat, matVoid, matZone, matTags));
             }
-            // Plan 27 §6: a paint is an ordinary edit transaction, so it bumps one revision **and**
-            // pushes one undo frame. Applying it straight through `ApplyDocumentEdit` (the earlier
-            // path) made a painted face impossible to take back with Ctrl+Z.
-            if (!StationEditSession.TryApplyPatch(host, envelope.ToString(Newtonsoft.Json.Formatting.None),
-                    "paint", null, out var result, out code)) {
+            if (!patch.HasWork) return true;
+            if (!StationEditSession.TryApplyCells(host, patch, "paint", null, out var result, out code)) {
                 return false;
             }
             reply["requiresCommit"] = false;

@@ -18,11 +18,31 @@ namespace Metro.Build {
             StationFootprints.IsCeilingHung(type ?? "", config ?? ModuleConfig.Empty);
 
         /// <summary>
-        /// `hungCeilingAim`: the anchor of a ceiling piece for one hit. <paramref name="top"/> is
-        /// the ceiling course the piece hangs from, and the anchor is the air cell beneath it.
+        /// `moduleAim.ts` + `hungCeilingAim`: the anchor of a ceiling piece for one hit. A steel
+        /// hanger beam or a hanger-compatible prop aimed at a cell spanned by an existing hanger
+        /// keeps its stand anchor (`moduleAim.ts:34-38`); otherwise <paramref name="top"/> is the
+        /// ceiling course overhead and the anchor is the air cell beneath it.
         /// </summary>
         public static StationPoint Aim(StationIndex index, StationPlacementRequest request, string type) {
             var hit = request.Hit;
+            var stand = StandCell(hit);
+            string kind = type ?? "";
+            if (string.Equals(kind, "hanger", StringComparison.Ordinal) ||
+                kind.StartsWith("hanger-", StringComparison.Ordinal)) {
+                return stand;
+            }
+            bool hangerProp = request.Carried != null
+                ? StationModulePlacement.HangerAcceptsPiece(
+                    request.Carried.Type,
+                    request.Carried.Config.Text("variant"),
+                    request.Carried.Config.Text("mount"))
+                : IsHangerPropPalette(kind);
+            if (hangerProp && index != null) {
+                int sx = (int)Math.Round(stand.X);
+                int sy = (int)Math.Round(stand.Y);
+                int sz = (int)Math.Round(stand.Z);
+                if (HangerCellAt(index, sx, sy, sz)) return stand;
+            }
             bool side = hit.PlaceX != hit.X || hit.PlaceY != hit.Y;
             int x = side ? hit.PlaceX : hit.X;
             int y = side ? hit.PlaceY : hit.Y;
@@ -30,7 +50,55 @@ namespace Metro.Build {
             // above the block the pointer is on.
             int from = !side && hit.PlaceZ < hit.Z ? hit.Z : hit.Z + 1;
             if (index != null && TryTopBlockZ(index, x, y, from, out var top)) return new StationPoint(x, y, top - 1);
-            return StandCell(hit);
+            return stand;
+        }
+
+        public static bool IsHangerPropPalette(string type) {
+            switch (type ?? "") {
+                case "tv":
+                case "tv-double":
+                case "clock":
+                case "clock-digital":
+                case "cctv":
+                case "cctv-ptz":
+                case "cctv-dome":
+                case "sign":
+                case "sign-ceiling":
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        public static bool HangerCellAt(StationIndex index, int x, int y, int z) {
+            if (index == null) return false;
+            var hangers = index.ModulesOfType("hanger");
+            for (int h = 0; h < hangers.Count; h++) {
+                var hanger = hangers[h];
+                if (hanger == null || hanger.Z != z) continue;
+                int width = Math.Max(1, hanger.Width);
+                for (int i = 0; i < width; i++) {
+                    StationFootprints.RotateLocal(hanger.Rotation, i, 0, out var dx, out var dy);
+                    if (hanger.X + (int)Math.Round(dx) == x && hanger.Y + (int)Math.Round(dy) == y) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        /// <summary>Port of <c>sim/placement.ts:topBlockOver</c>.</summary>
+        public static bool TopBlockOver(StationIndex index, int x, int y, int z) {
+            if (index == null) return false;
+            int over = z + 1;
+            if (StationFootprints.IsSolidAt(index, x, y, over)) return true;
+            var tracks = index.ModulesOfType("track");
+            for (int i = 0; i < tracks.Count; i++) {
+                var track = tracks[i];
+                if (track == null || track.Config.Bool("tunnel") || track.Z - 1 != over) continue;
+                if (StationRailRules.Covers(track, x, y, track.Z)) return true;
+            }
+            return false;
         }
 
         /// <summary>`ceilingMountStandCell`: the three fallbacks an aim with no ceiling above reads.</summary>
@@ -50,30 +118,38 @@ namespace Metro.Build {
         public static bool TryTopBlockZ(StationIndex index, int x, int y, int from, out int top) {
             top = int.MaxValue;
             bool found = false;
-            var document = index.Document;
-            var solids = new HashSet<int>();
-            foreach (var cell in document.Cells) {
-                if (cell == null || !cell.IsSolid || cell.X != x || cell.Y != y) continue;
-                solids.Add(cell.Z);
+            var bounds = index.Bounds;
+            if (!bounds.IsEmpty && x >= bounds.MinX && x <= bounds.MaxX && y >= bounds.MinY && y <= bounds.MaxY) {
+                int minZ = Math.Max(from, bounds.MinZ);
+                for (int z = minZ; z <= bounds.MaxZ; z++) {
+                    var cell = index.GetCell(x, y, z);
+                    if (cell == null || !cell.IsSolid) continue;
+                    var below = index.GetCell(x, y, z - 1);
+                    if (below != null && below.IsSolid) continue;
+                    top = z;
+                    found = true;
+                    break;
+                }
             }
-            foreach (var z in solids) {
-                if (z < from) continue;
-                if (solids.Contains(z - 1)) continue;
-                if (!found || z < top) { top = z; found = true; }
-            }
-            foreach (var module in document.Modules) {
-                if (module == null || module.Type != "track" || module.Config.Bool("tunnel")) continue;
-                if (!StationRailRules.Covers(module, x, y, module.Z)) continue;
+            var tracks = index.ModulesOfType("track");
+            for (int i = 0; i < tracks.Count; i++) {
+                var module = tracks[i];
+                if (module == null || module.Config.Bool("tunnel")) continue;
                 int underside = module.Z - 1;
-                if (underside < from) continue;
-                if (solids.Contains(underside - 1)) continue;
-                if (!found || underside < top) { top = underside; found = true; }
+                if (underside < from || (found && underside >= top)) continue;
+                if (!StationRailRules.Covers(module, x, y, module.Z)) continue;
+                var below = index.GetCell(x, y, underside - 1);
+                if (below != null && below.IsSolid) continue;
+                top = underside;
+                found = true;
             }
             int ground = (int)Math.Round(StationFootprints.GroundZ);
-            if (from <= ground && !StationFootprints.IsGroundHole(index, x, y) &&
-                (!found || top > ground)) {
-                top = ground;
-                found = true;
+            if (from <= ground && (!found || top > ground) && !StationFootprints.IsGroundHole(index, x, y)) {
+                var belowGround = index.GetCell(x, y, ground - 1);
+                if (belowGround == null || !belowGround.IsSolid) {
+                    top = ground;
+                    found = true;
+                }
             }
             return found;
         }

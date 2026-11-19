@@ -48,7 +48,10 @@ namespace Metro.Sim {
         public int Batch = 1;
         public int Cycle;
         /// <summary>A gate's policy: -1 exit only, 0 both, 1 entry only.</summary>
-        public int GateMode;
+        public int GateMode, GateRotation;
+        public StationRidePath RidePath;
+        public int RideColumns;
+        public bool RideReverse;
         /// <summary>Live queue length (0 until the crowd is ported; never invented).</summary>
         public int QueueCount;
         public int Served;
@@ -75,11 +78,21 @@ namespace Metro.Sim {
         public double[] NodeX = Array.Empty<double>(), NodeY = Array.Empty<double>(), NodeZ = Array.Empty<double>();
         public double[] NodeSpeed = Array.Empty<double>();
         public int[] NodeZone = Array.Empty<int>();
-        public readonly Dictionary<string, int> NodeIndex = new Dictionary<string, int>(StringComparer.Ordinal);
-        public List<int[]> AdjTo = new List<int[]>();
-        public List<double[]> AdjCost = new List<double[]>();
-        public List<int[]> AdjKind = new List<int[]>();
-        public List<int[]> AdjServer = new List<int[]>();
+        Dictionary<string, int> lazyNodeIndex;
+        public Dictionary<string, int> NodeIndex => EnsureNodeIndex();
+        internal Dictionary<long, int>[] NodeShards;
+        internal int[] WalkComponent;
+        internal Dictionary<int, int> CondensationMap;
+        internal ulong[][] CondensationReachStandard;
+        internal ulong[][] CondensationReachStepFree;
+        public IList<int[]> AdjTo = new List<int[]>();
+        public IList<double[]> AdjCost = new List<double[]>();
+        public IList<int[]> AdjKind = new List<int[]>();
+        public IList<int[]> AdjServer = new List<int[]>();
+        internal int[][] AdjToRaw;
+        internal double[][] AdjCostRaw;
+        internal int[][] AdjKindRaw;
+        internal int[][] AdjServerRaw;
         public readonly List<StationServerFact> Servers = new List<StationServerFact>();
         public readonly Dictionary<int, int> ServerForNode = new Dictionary<int, int>();
         public readonly List<StationPlatformFact> Platforms = new List<StationPlatformFact>();
@@ -93,8 +106,85 @@ namespace Metro.Sim {
 
         public static string CellKey(int x, int y, int z) => x + "," + y + "," + z;
 
-        public bool TryNode(int x, int y, int z, out int node) => NodeIndex.TryGetValue(CellKey(x, y, z), out node);
-        public bool TryNode(string key, out int node) => NodeIndex.TryGetValue(key, out node);
+        Dictionary<string, int> EnsureNodeIndex() {
+            if (lazyNodeIndex != null) return lazyNodeIndex;
+            var dict = new Dictionary<string, int>(NodeCount, StringComparer.Ordinal);
+            if (NodeKey != null) {
+                int len = Math.Min(NodeCount, NodeKey.Length);
+                for (int i = 0; i < len; i++) {
+                    if (NodeKey[i] != null) dict[NodeKey[i]] = i;
+                }
+            }
+            lazyNodeIndex = dict;
+            return dict;
+        }
+
+        public bool TryNode(int x, int y, int z, out int node) {
+            if (NodeShards != null) {
+                long pk = StationWalkGraphWorkspace.Pack3(x, y, z);
+                return NodeShards[StationWalkGraphWorkspace.ShardOf(pk)].TryGetValue(pk, out node);
+            }
+            return EnsureNodeIndex().TryGetValue(CellKey(x, y, z), out node);
+        }
+
+        public bool TryNode(string key, out int node) {
+            if (NodeShards != null && TryParseCellKey(key, out int x, out int y, out int z)) {
+                long pk = StationWalkGraphWorkspace.Pack3(x, y, z);
+                return NodeShards[StationWalkGraphWorkspace.ShardOf(pk)].TryGetValue(pk, out node);
+            }
+            if (string.IsNullOrEmpty(key)) { node = -1; return false; }
+            return EnsureNodeIndex().TryGetValue(key, out node);
+        }
+
+        static bool TryParseCellKey(string key, out int x, out int y, out int z) {
+            x = y = z = 0;
+            if (string.IsNullOrEmpty(key)) return false;
+            int c1 = key.IndexOf(',');
+            if (c1 <= 0) return false;
+            int c2 = key.IndexOf(',', c1 + 1);
+            if (c2 <= c1 + 1 || key.IndexOf(',', c2 + 1) >= 0) return false;
+            return TryParseIntSlice(key, 0, c1, out x) &&
+                   TryParseIntSlice(key, c1 + 1, c2, out y) &&
+                   TryParseIntSlice(key, c2 + 1, key.Length, out z);
+        }
+
+        static bool TryParseIntSlice(string s, int start, int end, out int val) {
+            val = 0;
+            if (start >= end) return false;
+            bool neg = false;
+            int i = start;
+            if (s[i] == '-') { neg = true; i++; if (i >= end) return false; }
+            long acc = 0;
+            for (; i < end; i++) {
+                char ch = s[i];
+                if (ch < '0' || ch > '9') return false;
+                acc = acc * 10 + (ch - '0');
+                if (acc > int.MaxValue) return false;
+            }
+            val = neg ? -(int)acc : (int)acc;
+            return true;
+        }
+
+        /// <summary>
+        /// Exact O(1) reachability query over undirected <c>Walk</c> components and vertical
+        /// condensation bitsets. Returns true conservatively when no component index was built.
+        /// </summary>
+        public bool CanReach(int start, int goal, bool stepFree = false) {
+            if (start < 0 || goal < 0 || start >= NodeCount || goal >= NodeCount) return false;
+            if (start == goal) return true;
+            if (WalkComponent == null || start >= WalkComponent.Length || goal >= WalkComponent.Length) return true;
+            int cs = WalkComponent[start];
+            int cg = WalkComponent[goal];
+            if (cs == cg && cs != 0) return true;
+            var map = CondensationMap;
+            var reach = stepFree ? CondensationReachStepFree : CondensationReachStandard;
+            if (map == null || reach == null || reach.Length == 0) return false;
+            if (!map.TryGetValue(cs, out int ds) || !map.TryGetValue(cg, out int dg)) return false;
+            if (ds < 0 || ds >= reach.Length) return false;
+            var bits = reach[ds];
+            int word = dg >> 6;
+            return bits != null && word < bits.Length && (bits[word] & (1UL << (dg & 63))) != 0;
+        }
 
         /// <summary>Total cost of a path of node ids, or NaN when an edge is missing.</summary>
         public double PathCost(IReadOnlyList<int> path) {
@@ -138,26 +228,57 @@ namespace Metro.Sim {
         public const int GroundZ = 0;
         public const int ZoneOutside = 1;
 
+        internal static bool GateStepAllowed(bool fromGate, int fromRotation,
+            bool toGate, int toRotation, int dx, int dy, int fromZone, int toZone,
+            bool zoneBarriers) {
+            if (fromGate && GateTravelDirection(fromRotation, dx, dy) == 0) return false;
+            if (toGate && GateTravelDirection(toRotation, dx, dy) == 0) return false;
+            return !zoneBarriers || !CrossesFareLine(fromZone, toZone) || fromGate || toGate;
+        }
+
+        internal static bool CrossesFareLine(int fromZone, int toZone) =>
+            (fromZone >= 3 && fromZone <= 5) != (toZone >= 3 && toZone <= 5);
+
+        internal static int GateTravelDirection(int rotation, int dx, int dy) {
+            switch ((rotation % 4 + 4) % 4) {
+                case 1: return -dx;
+                case 2: return -dy;
+                case 3: return dx;
+                default: return dy;
+            }
+        }
+
+        public static StationWalkGraphWorkspace BuildWorkspace(StationSessionDocument document, StationWalkGraphOptions options = null) =>
+            StationWalkGraphWorkspace.Build(document, options);
+
+        public static StationWalkGraphWorkspace.StagedResult StageCellDelta(
+            StationWalkGraphWorkspace workspace,
+            StationSessionDocument nextDocument,
+            StationSessionDelta delta,
+            StationWalkGraphScratchSlot scratchSlot = null) =>
+            workspace.StageCellDelta(nextDocument, delta, scratchSlot);
+
         public static StationWalkGraph Build(StationSessionDocument document, StationWalkGraphOptions options = null) {
             if (document == null) throw new ArgumentNullException(nameof(document));
             options = options ?? new StationWalkGraphOptions();
             var graph = new StationWalkGraph();
             var unported = new List<string>();
+            var docCells = document.EnsureCells();
 
             // ---- effective cells: authored records first, then the generated street.
             var cells = new List<CellShape>();
             var authoredAtGrade = new HashSet<long>();
-            foreach (var cell in document.Cells) {
+            foreach (var cell in docCells) {
                 if (cell.Z == GroundZ) authoredAtGrade.Add(Pack(cell.X, cell.Y));
                 cells.Add(new CellShape { X = cell.X, Y = cell.Y, Z = cell.Z, Solid = cell.Solid, Zone = cell.Zone, Speed = double.IsNaN(cell.Speed) ? options.UnknownFloorSpeed : cell.Speed });
             }
-            if (options.IncludeGround) AppendGround(cells, document, options, authoredAtGrade);
+            if (options.IncludeGround) AppendGround(cells, document, options, authoredAtGrade, docCells);
 
             var solid = new HashSet<string>(StringComparer.Ordinal);
             foreach (var cell in cells) if (cell.Solid) solid.Add(StationWalkGraph.CellKey(cell.X, cell.Y, cell.Z));
 
             // ---- exclusions: a whole cell that is not walkable even though it is solid.
-            var gateModes = new Dictionary<string, int>(StringComparer.Ordinal);
+            var gateRotations = new Dictionary<string, int>(StringComparer.Ordinal);
             var gateWallCells = new HashSet<string>(StringComparer.Ordinal);
             var fenceCells = new HashSet<string>(StringComparer.Ordinal);
             var boothCells = new HashSet<string>(StringComparer.Ordinal);
@@ -166,7 +287,7 @@ namespace Metro.Sim {
                 string key = StationWalkGraph.CellKey(module.X, module.Y, module.Z);
                 switch (module.Type) {
                     case "gate":
-                        if (module.GateHasLane) gateModes[key] = module.GateDir;
+                        if (module.GateHasLane) gateRotations[key] = module.Rot;
                         else gateWallCells.Add(key);
                         break;
                     case "fence":
@@ -192,7 +313,7 @@ namespace Metro.Sim {
                         // A turning stair's middle landing is a model-owned walkable cell
                         // (`stairTurnCells`), and its flights carry their own walls; neither is
                         // ported, so the family is reported rather than half-walked.
-                        if (module.HasEndpoints && Math.Abs(module.ToZ - module.FromZ) > 0) unported.Add("stair-flights:" + module.Id);
+                        if (module.RidePath == null && module.HasEndpoints && Math.Abs(module.ToZ - module.FromZ) > 0) unported.Add("stair-flights:" + module.Id);
                         break;
                     case "booth": {
                         int w = Math.Max(1, module.Width), h = Math.Max(1, module.Depth);
@@ -311,7 +432,10 @@ namespace Metro.Sim {
                 foreach (var step in Cardinal) {
                     int nx = x + step.dx, ny = y + step.dy;
                     if (!graph.NodeIndex.TryGetValue(StationWalkGraph.CellKey(nx, ny, z), out int j)) continue;
-                    if (options.ZoneBarriers && graph.NodeZone[i] != graph.NodeZone[j]) continue;
+                    bool fromGate = gateRotations.TryGetValue(StationWalkGraph.CellKey(x, y, z), out var fromLane);
+                    bool toGate = gateRotations.TryGetValue(StationWalkGraph.CellKey(nx, ny, z), out var toLane);
+                    if (!GateStepAllowed(fromGate, fromLane, toGate, toLane, step.dx, step.dy,
+                            graph.NodeZone[i], graph.NodeZone[j], options.ZoneBarriers)) continue;
                     if (CrossesExitWall(document, x, y, nx, ny, z)) continue;
                     if (CrossesRampWall(rampWalls, x + 0.5, y + 0.5, nx + 0.5, ny + 0.5, z)) continue;
                     double speed = (graph.NodeSpeed[i] + graph.NodeSpeed[j]) / 2;
@@ -324,15 +448,15 @@ namespace Metro.Sim {
             bool CardinalAllows(int from, int to) => cardinalWalk.Contains((long)from * graph.NodeCount + to);
             for (int i = 0; i < graph.NodeCount; i++) {
                 int x = (int)(graph.NodeX[i] - 0.5), y = (int)(graph.NodeY[i] - 0.5), z = (int)(graph.NodeZ[i] - 1);
-                if (gateModes.ContainsKey(StationWalkGraph.CellKey(x, y, z))) continue;
+                if (gateRotations.ContainsKey(StationWalkGraph.CellKey(x, y, z))) continue;
                 foreach (var step in Diagonal) {
                     int nx = x + step.dx, ny = y + step.dy;
                     if (!graph.NodeIndex.TryGetValue(StationWalkGraph.CellKey(nx, ny, z), out int j)) continue;
                     if (!graph.NodeIndex.TryGetValue(StationWalkGraph.CellKey(nx, y, z), out int a)) continue;
                     if (!graph.NodeIndex.TryGetValue(StationWalkGraph.CellKey(x, ny, z), out int b)) continue;
-                    if (gateModes.ContainsKey(StationWalkGraph.CellKey(nx, ny, z)) ||
-                        gateModes.ContainsKey(StationWalkGraph.CellKey(nx, y, z)) ||
-                        gateModes.ContainsKey(StationWalkGraph.CellKey(x, ny, z))) continue;
+                    if (gateRotations.ContainsKey(StationWalkGraph.CellKey(nx, ny, z)) ||
+                        gateRotations.ContainsKey(StationWalkGraph.CellKey(nx, y, z)) ||
+                        gateRotations.ContainsKey(StationWalkGraph.CellKey(x, ny, z))) continue;
                     if (!CardinalAllows(i, a) || !CardinalAllows(a, j) || !CardinalAllows(i, b) || !CardinalAllows(b, j)) continue;
                     if (CrossesExitWall(document, x, y, nx, ny, z)) continue;
                     if (CrossesRampWall(rampWalls, x + 0.5, y + 0.5, nx + 0.5, ny + 0.5, z)) continue;
@@ -355,7 +479,7 @@ namespace Metro.Sim {
                         if (node < 0) break;
                         int id = AddServer(graph, new StationServerFact {
                             Kind = "gate", Label = module.GateDir == 0 ? "fare_gate" : module.GateDir > 0 ? "entry_gate" : "exit_gate",
-                            Rate = GateRate, Node = node, ExitNode = -1, Batch = 1, GateMode = module.GateDir,
+                            Rate = GateRate, Node = node, ExitNode = -1, Batch = 1, GateMode = module.GateDir, GateRotation = module.Rot,
                         });
                         graph.ServerForNode[node] = id;
                         break;
@@ -370,12 +494,13 @@ namespace Metro.Sim {
                         double horizontal = Math.Sqrt(Pow2(graph.NodeX[a] - graph.NodeX[b]) + Pow2(graph.NodeY[a] - graph.NodeY[b]));
                         double vertical = Math.Abs(graph.NodeZ[a] - graph.NodeZ[b]);
                         double distance = Math.Sqrt(horizontal * horizontal + vertical * vertical);
-                        double ride = distance / (walkway ? WalkwaySpeed : EscalatorSpeed);
+                        double ride = (module.RidePath?.Length ?? distance) / (walkway ? WalkwaySpeed : EscalatorSpeed);
                         int id = AddServer(graph, new StationServerFact {
                             Kind = walkway ? "walkway" : "escalator",
                             Label = walkway ? "walkway" : module.Dir == "down" ? "down_escalator" : "up_escalator",
                             Rate = (walkway ? WalkwayRate : EscalatorRate) * Math.Max(1, module.Width),
                             Node = a, ExitNode = b, Ride = ride, Batch = 1, Cycle = 0,
+                            RidePath = module.RidePath, RideColumns = module.RideColumns,
                         });
                         // The edge and the band both travel from→to; a descending piece is not
                         // a second edge back up (it is one-way, as the source builds it).
@@ -389,7 +514,7 @@ namespace Metro.Sim {
                         if (a < 0 || b < 0) break;
                         double horizontal = Math.Sqrt(Pow2(graph.NodeX[a] - graph.NodeX[b]) + Pow2(graph.NodeY[a] - graph.NodeY[b]));
                         double vertical = Math.Abs(graph.NodeZ[a] - graph.NodeZ[b]);
-                        double ride = Math.Sqrt(horizontal * horizontal + vertical * vertical) / StairSpeed;
+                        double ride = (module.RidePath?.Length ?? Math.Sqrt(horizontal * horizontal + vertical * vertical)) / StairSpeed;
                         int width = Math.Max(1, module.Width);
                         // Each flight is a two-way capacity-limited edge: the landing below and
                         // the landing above are two servers with opposite rates (§5.1).
@@ -397,13 +522,13 @@ namespace Metro.Sim {
                         int downId = AddServer(graph, new StationServerFact {
                             Kind = "stair", Label = "stairs",
                             Rate = (down ? StairRateDown : StairRateUp) * width,
-                            Node = a, ExitNode = b, Ride = ride, Batch = 1, Cycle = 0,
+                            Node = a, ExitNode = b, Ride = ride, RidePath = module.RidePath,
                         });
                         edges.Add(a, b, ride, WalkEdgeKind.Stair, downId);
                         int upId = AddServer(graph, new StationServerFact {
                             Kind = "stair", Label = "stairs",
                             Rate = (down ? StairRateUp : StairRateDown) * width,
-                            Node = b, ExitNode = a, Ride = ride, Batch = 1, Cycle = 0,
+                            Node = b, ExitNode = a, Ride = ride, RidePath = module.RidePath, RideReverse = true,
                         });
                         edges.Add(b, a, ride, WalkEdgeKind.Stair, upId);
                         break;
@@ -472,7 +597,7 @@ namespace Metro.Sim {
         }
 
         /// <summary>The source <c>withGround</c>: the authored records plus the generated street window.</summary>
-        static void AppendGround(List<CellShape> cells, StationSessionDocument document, StationWalkGraphOptions options, HashSet<long> authoredAtGrade) {
+        static void AppendGround(List<CellShape> cells, StationSessionDocument document, StationWalkGraphOptions options, HashSet<long> authoredAtGrade, List<StationCellFact> docCells) {
             int x0 = int.MaxValue, y0 = int.MaxValue, x1 = int.MinValue, y1 = int.MinValue;
             void Eat(double x, double y) {
                 if (double.IsNaN(x) || double.IsNaN(y) || double.IsInfinity(x) || double.IsInfinity(y)) return;
@@ -481,7 +606,7 @@ namespace Metro.Sim {
                 if (x > x1) x1 = (int)x;
                 if (y > y1) y1 = (int)y;
             }
-            foreach (var cell in document.Cells) Eat(cell.X, cell.Y);
+            foreach (var cell in docCells) Eat(cell.X, cell.Y);
             foreach (var module in document.Modules) {
                 Eat(module.X, module.Y);
                 if (module.Type == "road") Eat(module.X + Math.Max(1, module.Width) - 1, module.Y + Math.Max(1, module.Depth) - 1);

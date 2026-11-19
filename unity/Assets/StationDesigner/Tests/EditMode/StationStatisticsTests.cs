@@ -88,7 +88,7 @@ namespace Metro.EditModeTests {
             // Single fare gate throat at (8, 3) separating unpaid and paid concourse.
             doc.Cells.RemoveAll(c => c.Z == 0 && c.X == 8 && c.Y != 3);
             doc.Modules.Add(new StationModuleFact {
-                Id = "gate-1", Type = "gate", X = 8, Y = 3, Z = 0, Rot = 0,
+                Id = "gate-1", Type = "gate", X = 8, Y = 3, Z = 0, Rot = 3,
                 GateDir = 0, GateOpen = true, GateHasLane = true,
             });
 
@@ -378,6 +378,9 @@ namespace Metro.EditModeTests {
                     WalkOptions = new StationWalkGraphOptions { IncludeGround = false },
                     Services = options,
                 });
+                // Create a deterministic missed train at the narrow platform edge even when
+                // live crowd routing moves subsequent arrivals to less busy queues.
+                Assert.Greater(s.Services.SeedDoorRiders(LineA, TrackA, 48), 0);
                 int steps = 320 / speed;
                 for (int i = 0; i < steps; i++) s.Advance(1.0);
                 return s;

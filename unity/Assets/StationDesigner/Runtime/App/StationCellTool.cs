@@ -141,6 +141,7 @@ namespace Metro.App {
     /// </summary>
     public static class StationCellTool {
         static StationCellEditWorld world;
+        static Metro.Persistence.StationReadResult worldRead;
         static int worldRevision = int.MinValue;
         static string worldSource = "";
         static StationCellGesture gesture;
@@ -160,6 +161,7 @@ namespace Metro.App {
 
         public static void Reset() {
             world = null;
+            worldRead = null;
             worldRevision = int.MinValue;
             worldSource = "";
             gesture = null;
@@ -171,22 +173,44 @@ namespace Metro.App {
         }
 
         /// <summary>
-        /// The cell tools' own world for one committed document. A new revision or a station
-        /// switch discards it, which is exactly the source's immutable-array cache.
+        /// The cell tools' own world for one committed document. Advances incrementally across
+        /// local commits and undo/redo; rebuilds on station switch or full-read fallback.
         /// </summary>
         public static StationCellEditWorld World(StationGameHost host) {
             if (host == null || host.Index == null) return null;
+            var currentRead = host.Coordinator?.CommittedRead;
             if (world?.Index == host.Index && worldRevision == host.CurrentRevision &&
                 string.Equals(worldSource, host.CurrentSourceId, StringComparison.Ordinal)) return world;
-            world = StationCellEditWorld.Build(host.Index, new StationCellReservations());
+            if (world != null && currentRead != null && worldRead != null &&
+                string.Equals(worldSource, host.CurrentSourceId, StringComparison.Ordinal)) {
+                var chain = new List<Metro.Persistence.StationReadResult>(4);
+                var cursor = currentRead;
+                int guard = 0;
+                while (cursor != null && !ReferenceEquals(cursor, worldRead) && cursor.LocalDelta != null && guard++ < 32) {
+                    chain.Add(cursor);
+                    cursor = cursor.LocalParent;
+                }
+                if (cursor != null && ReferenceEquals(cursor, worldRead) && chain.Count > 0) {
+                    for (int i = chain.Count - 1; i >= 0; i--) {
+                        var step = chain[i];
+                        world = world.ApplyLocalDelta(step.Index, step.LocalDelta);
+                    }
+                } else {
+                    world = StationCellEditWorld.Build(host.Index, new StationCellReservations(host.Index));
+                }
+            } else {
+                world = StationCellEditWorld.Build(host.Index, new StationCellReservations(host.Index));
+            }
+            worldRead = currentRead;
             worldRevision = host.CurrentRevision;
             worldSource = host.CurrentSourceId ?? "";
             return world;
         }
 
-        /// <summary>Drop the cached world after a commit, undo or station switch.</summary>
+        /// <summary>Drop the cached world after a station switch.</summary>
         public static void ForgetWorld() {
             world = null;
+            worldRead = null;
             worldRevision = int.MinValue;
         }
 
@@ -423,6 +447,9 @@ namespace Metro.App {
         }
 
         /// <summary>The cell a hit places into (add) or takes away (erase).</summary>
+        internal static StationCellKey? CellAnchorFor(StationSceneHit hit, bool remove, bool allowWorkPlane = false) =>
+            AnchorFor(hit, remove, allowWorkPlane);
+
         static StationCellKey? AnchorFor(StationSceneHit hit, bool remove, bool allowWorkPlane = false) {
             var found = CellOf(hit, allowWorkPlane && !remove);
             if (!found.HasValue) return null;
@@ -1020,7 +1047,7 @@ namespace Metro.App {
         /// cell edit (a miss with nothing aimed, a stale press, an over-limit drag).
         /// </summary>
         public static bool Finish(StationGameHost host, StationSceneHit hit, StationPointerEvent pointer,
-            out string code, out string reason) {
+            out string code, out string reason, string commandId = null) {
             using var sample = StationEditProfiling.Measure("StationEdit.CellFinish");
             code = null;
             reason = null;
@@ -1129,11 +1156,10 @@ namespace Metro.App {
                 reason = "nothing-to-do";
                 return false;
             }
-            if (!StationEditSession.TryApplyCells(host, patch, plan.Kind, null, out _, out code)) {
+            if (!StationEditSession.TryApplyCells(host, patch, plan.Kind, commandId, out _, out code)) {
                 reason = code;
                 return false;
             }
-            ForgetWorld();
             preview = new StationCellPreview();
             StationEditSession.Cells = null;
             // A committed gesture leaves the pointer over the cell it just built, so the next
@@ -1224,8 +1250,63 @@ namespace Metro.App {
     /// ramp cut/retained-wedge rules"). `Metro.Build` cannot reference `Metro.View`, where the
     /// carve tables live, so this adapter is the one seam.
     /// </summary>
-    public sealed class StationCellReservations : IStationCellReservations {
+    public sealed class StationCellReservations : IStationPreparedReservations {
+        readonly StationIndex index;
+        readonly Metro.View.StationRampOpenings.PreparedRampOpenings prepared;
+
+        public StationCellReservations() { }
+
+        public StationCellReservations(StationIndex index)
+            : this(index, Metro.View.StationRampOpenings.PrepareOpenings(index)) { }
+
+        StationCellReservations(StationIndex index, Metro.View.StationRampOpenings.PreparedRampOpenings prepared) {
+            this.index = index;
+            this.prepared = prepared;
+        }
+
+        public IStationPreparedReservations Bind(StationIndex nextIndex) {
+            if (nextIndex == null) return this;
+            if (ReferenceEquals(index, nextIndex) && prepared != null) return this;
+            return new StationCellReservations(nextIndex, Metro.View.StationRampOpenings.PrepareOpenings(nextIndex));
+        }
+
+        public IStationPreparedReservations WithDelta(StationIndex nextIndex, StationIndexDelta delta) {
+            if (nextIndex == null) return this;
+            if (prepared == null || delta == null) return Bind(nextIndex);
+            bool rampTouched = false;
+            for (int i = 0; i < delta.RemovedModules.Count && !rampTouched; i++) {
+                var oldMod = index?.GetModule(delta.RemovedModules[i]);
+                if (IsRampOrExit(oldMod?.Type)) rampTouched = true;
+            }
+            for (int i = 0; i < delta.ChangedModules.Count && !rampTouched; i++) {
+                var nextMod = delta.ChangedModules[i];
+                var oldMod = index?.GetModule(nextMod.Id);
+                if (IsRampOrExit(nextMod.Type) || IsRampOrExit(oldMod?.Type)) rampTouched = true;
+            }
+            return rampTouched
+                ? new StationCellReservations(nextIndex, Metro.View.StationRampOpenings.PrepareOpenings(nextIndex))
+                : new StationCellReservations(nextIndex, prepared);
+        }
+
+        public IStationPreparedReservations WithoutModules(HashSet<string> removedModuleIds) {
+            if (removedModuleIds == null || removedModuleIds.Count == 0 || index == null) return this;
+            bool rampTouched = false;
+            foreach (var id in removedModuleIds) {
+                var m = index.GetModule(id);
+                if (IsRampOrExit(m?.Type)) { rampTouched = true; break; }
+            }
+            return rampTouched
+                ? new StationCellReservations(index, Metro.View.StationRampOpenings.PrepareOpenings(index, removedModuleIds))
+                : this;
+        }
+
+        public HashSet<StationCellKey> OpeningsAt(int z) =>
+            prepared != null ? prepared.AtLevel(z) : new HashSet<StationCellKey>();
+
         public HashSet<StationCellKey> OpeningsAtLevel(int z, IReadOnlyList<StationModuleRecord> modules) =>
-            StationRampOpenings.RampOpeningsAtLevel(modules, z);
+            Metro.View.StationRampOpenings.RampOpeningsAtLevel(modules, z);
+
+        static bool IsRampOrExit(string type) =>
+            type == "exit" || type == "stair" || type == "escalator" || type == "lift";
     }
 }

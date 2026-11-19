@@ -58,12 +58,17 @@ namespace Metro.Build {
         public static int? ExposedFloorZ(StationIndex index, int x, int y, int below) {
             if (index == null) return null;
             int? best = null;
-            foreach (var cell in index.Document.Cells) {
-                if (cell == null || !cell.IsSolid || cell.X != x || cell.Y != y) continue;
-                if (cell.Z > below) continue;
-                if (StationCellRules.IsWallBlock(cell.Tags)) continue;
-                if (StationFootprints.IsSolidAt(index, x, y, cell.Z + 1)) continue;
-                if (best == null || cell.Z > best) best = cell.Z;
+            var bounds = index.Bounds;
+            if (!bounds.IsEmpty && x >= bounds.MinX && x <= bounds.MaxX && y >= bounds.MinY && y <= bounds.MaxY) {
+                int maxZ = Math.Min(below, bounds.MaxZ);
+                for (int z = maxZ; z >= bounds.MinZ; z--) {
+                    var cell = index.GetCell(x, y, z);
+                    if (cell == null || !cell.IsSolid) continue;
+                    if (StationCellRules.IsWallBlock(cell.Tags)) continue;
+                    if (StationFootprints.IsSolidAt(index, x, y, z + 1)) continue;
+                    best = z;
+                    break;
+                }
             }
             if (below >= (int)Math.Round(StationFootprints.GroundZ) &&
                 !StationFootprints.IsGroundHole(index, x, y) &&

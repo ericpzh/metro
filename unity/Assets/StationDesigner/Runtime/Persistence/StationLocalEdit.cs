@@ -6,421 +6,613 @@ using Newtonsoft.Json.Linq;
 
 namespace Metro.Persistence {
     /// <summary>
-    /// The local-edit half of plan 30 §3. A whitelisted cell or module patch is applied to the
-    /// committed envelope **tree** and installed by projecting only the records it touched,
-    /// instead of serializing the whole save, re-parsing it, re-running every load-time repair
-    /// and re-indexing the station.
+    /// Bounded neighborhood local-edit installer (Plan 32 §3.C). Applies an explicit cell or
+    /// module patch directly against the committed <see cref="StationRecordPages{T}"/> and
+    /// sharded <see cref="StationIndex"/> without cloning, scanning, serializing or hashing a
+    /// whole-station JSON envelope.
     ///
-    /// Everything this path cannot derive exactly like <see cref="StationDocumentReader.Read"/>
-    /// is refused with a stable <c>local-*</c> code, and the caller falls back to the complete
-    /// envelope path with the identical result. That is: line adds; a record a load-time repair
-    /// owns (a sign's board layout, an unpostered screen, an unstocked room, a bridge track or
-    /// its pillars); a record the grid repair would drop; a coordinate that already carries two
-    /// saved records; and any patch the committed document does not match.
-    ///
-    /// Unknown fields survive because the envelope is patched surgically with the same writer
-    /// the text path uses (<see cref="StationCellEdits.ApplyToEnvelope"/> /
-    /// <see cref="StationModuleEdits.ApplyToEnvelope"/>), and every record the patch did not
-    /// name is carried over as the exact typed instance the committed document holds.
+    /// Only the patch's written cells and their 1-ring neighbours are parsed and normalized;
+    /// every untouched record and leaf page is shared with the committed document. Snapshot JSON
+    /// and SHA-256 export hashes materialize lazily outside the edit transaction. Unsupported
+    /// load-time-repaired records, line additions, off-grid modules and duplicate cell coordinates
+    /// return a stable <c>local-*</c> refusal so the caller falls back to <see cref="StationDocumentReader.Read"/>.
     /// </summary>
     public static class StationLocalEdit {
-        /// <summary>
-        /// The per-cell rule <see cref="StationCellNormalization.NormalizeJson"/> applies reads
-        /// the six axis neighbours of a cell and, one ring further out, the solids that decide
-        /// whether a face is covered. A written cell therefore normalises its one ring and needs
-        /// its two ring for the answer.
-        /// </summary>
         static readonly (int X, int Y, int Z)[] Neighbourhood = {
             (1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1),
         };
 
+        sealed class WorkingCell {
+            public StationCellKey Key;
+            public StationCellRecord OriginalRecord;
+            public int OriginalPageId;
+            public JObject Json;
+            public int CurrentPageId;
+            public StationCellRecord Placeholder;
+        }
+
         // --------------------------------------------------------------- cell patches
 
-        /// <summary>
-        /// Apply one cell patch locally. Returns the next read result, or null with a
-        /// <c>local-*</c> (or the writer's own) code when the caller must use the full path.
-        /// </summary>
         public static StationReadResult TryApplyCells(StationReadResult committed, StationCellPatch patch,
             string sourceId, out string code) {
             using var editSample = StationEditTrace.Measure("StationEdit.TryApplyCells");
-            if (!TryPatchEnvelope(committed, patch, out var envelope, out code)) return null;
-            return TryProject(committed, envelope, patch, sourceId, out code);
-        }
-
-        /// <summary>
-        /// Step one of the local path: clone the committed normalized envelope and write the
-        /// patch into the clone with the same surgical writer the text path uses. No record is
-        /// projected yet, so the caller can time or defer the two halves separately.
-        /// </summary>
-        public static bool TryPatchEnvelope(StationReadResult committed, StationCellPatch patch,
-            out JObject envelope, out string code) {
-            using var editSample = StationEditTrace.Measure("StationEdit.TryPatchEnvelope");
-            code = null;
-            envelope = null;
-            if (committed?.Document == null || committed.Index == null) { code = "no-document"; return false; }
-            if (patch == null || (!patch.HasWork && patch.RemoveModuleIds.Count == 0)) { code = "no-change"; return false; }
-            // A line record is a whole-document fact the reader repairs; never a local write.
-            if (patch.LineAdds.Count > 0) { code = "local-line-adds"; return false; }
-            if (!TryCloneEnvelope(committed, out envelope, out code)) return false;
-            if (!StationCellEdits.ApplyToEnvelope(envelope, patch, out code)) return false;
-            return true;
-        }
-
-        /// <summary>
-        /// Step two of the local path: project a patched envelope into the next typed read result.
-        /// The envelope must be the one <see cref="TryPatchEnvelope"/> produced for this patch.
-        /// </summary>
-        public static StationReadResult TryProject(StationReadResult committed, JObject envelope,
-            StationCellPatch patch, string sourceId, out string code) {
-            using var editSample = StationEditTrace.Measure("StationEdit.TryProject");
             code = null;
             if (committed?.Document == null || committed.Index == null) { code = "no-document"; return null; }
-            if (patch == null || envelope == null) { code = "no-document"; return null; }
+            if (patch == null || (!patch.HasWork && patch.RemoveModuleIds.Count == 0)) { code = "no-change"; return null; }
             if (patch.LineAdds.Count > 0) { code = "local-line-adds"; return null; }
-            return Build(committed, envelope, WrittenCells(patch), AffectedModules(patch), sourceId, out code);
-        }
+            if (!TryCloneRootHeader(committed, out var rootHeader, out var savedAt, out code)) return null;
 
-        static HashSet<StationCellKey> WrittenCells(StationCellPatch patch) {
-            var written = new HashSet<StationCellKey>();
-            for (int i = 0; i < patch.Writes.Count; i++) {
-                var write = patch.Writes[i];
-                if (write != null) written.Add(write.Key);
-            }
-            return written;
-        }
+            var delta = new StationIndexDelta();
+            if (!TryProjectCells(committed.Document, committed.Index, patch, delta, out var cellPages, out code)) return null;
+            if (!TryProjectPatchModules(committed.Document, committed.Index, patch, delta, out var modulePages, out code)) return null;
 
-        static HashSet<string> AffectedModules(StationCellPatch patch) {
-            var affected = new HashSet<string>(StringComparer.Ordinal);
-            for (int i = 0; i < patch.ModuleAdds.Count; i++)
-                if (patch.ModuleAdds[i] != null) affected.Add(patch.ModuleAdds[i].Id);
-            for (int i = 0; i < patch.ModuleReplaces.Count; i++)
-                if (patch.ModuleReplaces[i] != null) affected.Add(patch.ModuleReplaces[i].Id);
-            for (int i = 0; i < patch.RemoveModuleIds.Count; i++)
-                if (!string.IsNullOrEmpty(patch.RemoveModuleIds[i])) affected.Add(patch.RemoveModuleIds[i]);
-            return affected;
+            return BuildResult(committed, rootHeader, savedAt, cellPages, modulePages, delta, sourceId, out code);
         }
 
         // ------------------------------------------------------------- module edits
 
-        /// <summary>
-        /// Apply one module add/replace/remove locally. Same contract as
-        /// <see cref="TryApplyCells"/>: the next read result, or null with a code.
-        /// </summary>
         public static StationReadResult TryApplyModule(StationReadResult committed, StationModuleEditMode mode,
             StationEditDraft draft, string removeId, string sourceId, out string code) {
             using var editSample = StationEditTrace.Measure("StationEdit.TryApplyModule");
-            if (!TryPatchEnvelope(committed, mode, draft, removeId, out var envelope, out code)) return null;
-            return TryProject(committed, envelope, mode, draft, removeId, sourceId, out code);
-        }
-
-        /// <summary>Step one for a module verb: clone the committed envelope and write one record.</summary>
-        public static bool TryPatchEnvelope(StationReadResult committed, StationModuleEditMode mode,
-            StationEditDraft draft, string removeId, out JObject envelope, out string code) {
-            using var editSample = StationEditTrace.Measure("StationEdit.TryPatchEnvelope");
-            code = null;
-            envelope = null;
-            if (committed?.Document == null || committed.Index == null) { code = "no-document"; return false; }
-            if (!TryCloneEnvelope(committed, out envelope, out code)) return false;
-            if (!StationModuleEdits.ApplyToEnvelope(envelope, mode, draft, removeId, out code)) return false;
-            return true;
-        }
-
-        /// <summary>Step two for a module verb: project the patched envelope.</summary>
-        public static StationReadResult TryProject(StationReadResult committed, JObject envelope,
-            StationModuleEditMode mode, StationEditDraft draft, string removeId, string sourceId, out string code) {
-            using var editSample = StationEditTrace.Measure("StationEdit.TryProject");
             code = null;
             if (committed?.Document == null || committed.Index == null) { code = "no-document"; return null; }
-            if (envelope == null) { code = "no-document"; return null; }
-            // A module verb names exactly one record; there is no cell ring to repair.
-            return Build(committed, envelope, NoCells, AffectedModules(mode, draft, removeId), sourceId, out code);
+            if (!TryCloneRootHeader(committed, out var rootHeader, out var savedAt, out code)) return null;
+
+            var delta = new StationIndexDelta();
+            if (!TryProjectSingleModule(committed.Document, committed.Index, mode, draft, removeId, delta, out var modulePages, out code)) {
+                return null;
+            }
+            return BuildResult(committed, rootHeader, savedAt, committed.Document.CellPages, modulePages, delta, sourceId, out code);
         }
 
-        static readonly HashSet<StationCellKey> NoCells = new HashSet<StationCellKey>();
-
-        static HashSet<string> AffectedModules(StationModuleEditMode mode, StationEditDraft draft, string removeId) {
-            string id;
-            switch (mode) {
-                case StationModuleEditMode.Remove:
-                    id = removeId ?? "";
-                    break;
-                case StationModuleEditMode.Add:
-                    id = draft?.Id ?? "";
-                    break;
-                default:
-                    id = draft == null ? "" : (draft.SourceId.Length > 0 ? draft.SourceId : draft.Id);
-                    break;
-            }
-            var affected = new HashSet<string>(StringComparer.Ordinal);
-            if (id.Length > 0) affected.Add(id);
-            return affected;
-        }
-
-        /// <summary>Restore a retained local history target through the same whitelist and
-        /// projection as a forward patch. Callers must verify the history frame still names
-        /// the current read. Unsupported repaired records fall back to the full reader.</summary>
-        public static StationReadResult TryRestore(StationReadResult committed, StationReadResult target, string sourceId, out string code) {
-            code = null;
-            if (committed?.Envelope == null || target?.Envelope == null) { code = "local-no-envelope"; return null; }
-            bool SameFields(JObject a, JObject b, string skipA, string skipB) {
-                foreach (var property in a.Properties())
-                    if (property.Name != skipA && property.Name != skipB && !JToken.DeepEquals(property.Value, b[property.Name])) return false;
-                foreach (var property in b.Properties())
-                    if (property.Name != skipA && property.Name != skipB && !JToken.DeepEquals(property.Value, a[property.Name])) return false;
-                return true;
-            }
-            if (!SameFields(committed.Envelope, target.Envelope, "savedAt", "static") ||
-                !(committed.Envelope["static"] is JObject currentState) || !(target.Envelope["static"] is JObject targetState) ||
-                !SameFields(currentState, targetState, "cells", "modules")) { code = "local-history-metadata"; return null; }
-            if (!TryCloneEnvelope(target, out var envelope, out code)) return null;
-            var cells = new HashSet<StationCellKey>();
-            foreach (var cell in committed.Document.Cells) {
-                var next = target.Index.GetCell(cell.Key);
-                if (next == null || cell.RawJson != next.RawJson) cells.Add(cell.Key);
-            }
-            foreach (var cell in target.Document.Cells) if (committed.Index.GetCell(cell.Key) == null) cells.Add(cell.Key);
-            var modules = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var module in committed.Document.Modules) {
-                var next = target.Index.GetModule(module.Id);
-                if (next == null || module.RawJson != next.RawJson) modules.Add(module.Id);
-            }
-            foreach (var module in target.Document.Modules) if (committed.Index.GetModule(module.Id) == null) modules.Add(module.Id);
-            return Build(committed, envelope, cells, modules, sourceId, out code);
-        }
-
-        // ------------------------------------------------------------------- shared
+        // ------------------------------------------------------------- history restore
 
         /// <summary>
-        /// The committed normalized envelope as a tree the caller may patch. It is cloned: the
-        /// history frame and the previous document both still refer to the original.
+        /// Restore a retained local history snapshot in O(|delta|) by sharing the target's
+        /// immutable record pages and sharded index, attaching the precomputed inverse delta.
         /// </summary>
-        static bool TryCloneEnvelope(StationReadResult committed, out JObject envelope, out string code) {
+        public static StationReadResult TryRestore(StationReadResult committed, StationReadResult target,
+            StationIndexDelta inverseDelta, string sourceId, out string code) {
+            using var restoreSample = StationEditTrace.Measure("StationEdit.TryRestore");
             code = null;
-            envelope = null;
-            var retained = committed.Envelope;
-            if (retained != null) {
-                envelope = (JObject)retained.DeepClone();
-            } else {
-                var json = committed.Document?.NormalizedJson;
-                if (string.IsNullOrEmpty(json)) { code = "local-no-envelope"; return false; }
-                try { envelope = JObject.Parse(json); } catch (JsonException) { code = "local-no-envelope"; return false; }
+            if (committed?.Document == null || committed.Index == null ||
+                target?.Document == null || target.Index == null) {
+                code = "no-document";
+                return null;
             }
-            // A local edit is one revision of the same station: stamp the envelope the way the
-            // save writer does so the committed document carries the edit's own time, exactly as
-            // the full path's `Write(document, UtcNow)` history frame does.
-            StationDocumentReader.StampSavedAt(envelope, DateTimeOffset.UtcNow);
+            if (committed.Envelope == null || target.Envelope == null) {
+                code = "local-no-envelope";
+                return null;
+            }
+            if (!SameHeaderMetadata(committed.Envelope, target.Envelope)) {
+                code = "local-history-metadata";
+                return null;
+            }
+            if (inverseDelta == null) {
+                inverseDelta = ComputeDeltaBetween(committed.Index, target.Index);
+            }
+
+            if (!TryCloneRootHeader(target, out var rootHeader, out var savedAt, out code, preserveSavedAt: true)) return null;
+            var rawRootJson = StationDocumentReader.CanonicalRootJson(rootHeader);
+            var existingHash = target.Document.PeekMaterializedHash() ?? "";
+            var nextDoc = target.Document.WithSnapshotMetadata(
+                new StationSource(sourceId ?? "", existingHash),
+                savedAt,
+                doc => StationDocumentReader.SerializeEnvelope(rootHeader, doc.SavedAt, doc),
+                doc => StationDocumentReader.Hash(doc.NormalizedJson),
+                rawRootJson);
+            StationDocumentReader.RegisterRootHeader(nextDoc, rootHeader);
+
+            var nextIndex = target.Index.RebindDocument(nextDoc);
+            StationEditTrace.NoteLocalDocument();
+            var result = StationReadResult.FromLocalEdit(nextDoc, nextIndex, target.ReaderDiagnostics, target.Repairs, rootHeader);
+            result.LocalParent = committed;
+            result.LocalDelta = inverseDelta;
+            return result;
+        }
+
+        public static StationReadResult TryRestore(StationReadResult committed, StationReadResult target,
+            string sourceId, out string code) =>
+            TryRestore(committed, target, null, sourceId, out code);
+
+        /// <summary>
+        /// Compute the exact inverse <see cref="StationIndexDelta"/> in O(|forwardDelta|) from
+        /// the before/after sharded indexes.
+        /// </summary>
+        public static StationIndexDelta BuildInverseDelta(StationIndex beforeIndex, StationIndex afterIndex,
+            StationIndexDelta forwardDelta) {
+            if (beforeIndex == null || afterIndex == null || forwardDelta == null) return null;
+            var inverse = new StationIndexDelta();
+            var seenCells = new HashSet<StationCellKey>();
+
+            for (int i = 0; i < forwardDelta.RemovedCells.Count; i++) {
+                var key = forwardDelta.RemovedCells[i];
+                if (!seenCells.Add(key)) continue;
+                if (beforeIndex.TryGetCellPage(key, out var prior, out int pageId)) {
+                    inverse.ChangedCells.Add(prior);
+                    inverse.CellPageIds[key] = pageId;
+                }
+            }
+            for (int i = 0; i < forwardDelta.ChangedCells.Count; i++) {
+                var key = forwardDelta.ChangedCells[i].Key;
+                if (!seenCells.Add(key)) continue;
+                if (beforeIndex.TryGetCellPage(key, out var prior, out int pageId)) {
+                    inverse.ChangedCells.Add(prior);
+                    inverse.CellPageIds[key] = pageId;
+                } else {
+                    inverse.RemovedCells.Add(key);
+                }
+            }
+
+            var seenModules = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < forwardDelta.RemovedModules.Count; i++) {
+                var id = forwardDelta.RemovedModules[i];
+                if (string.IsNullOrEmpty(id) || !seenModules.Add(id)) continue;
+                if (beforeIndex.TryGetModulePage(id, out var prior, out int pageId)) {
+                    inverse.ChangedModules.Add(prior);
+                    inverse.ModulePageIds[id] = pageId;
+                }
+            }
+            for (int i = 0; i < forwardDelta.ChangedModules.Count; i++) {
+                var id = forwardDelta.ChangedModules[i].Id;
+                if (string.IsNullOrEmpty(id) || !seenModules.Add(id)) continue;
+                if (beforeIndex.TryGetModulePage(id, out var prior, out int pageId)) {
+                    inverse.ChangedModules.Add(prior);
+                    inverse.ModulePageIds[id] = pageId;
+                } else {
+                    inverse.RemovedModules.Add(id);
+                }
+            }
+            return inverse;
+        }
+
+        // ------------------------------------------------------------- cell projection
+
+        static bool TryProjectCells(StationDocument previous, StationIndex previousIndex, StationCellPatch patch,
+            StationIndexDelta delta, out StationRecordPages<StationCellRecord> nextPages, out string code) {
+            using var projectSample = StationEditTrace.Measure("StationEdit.TryProjectCells");
+            code = null;
+            nextPages = previous.CellPages;
+            if (patch.Writes.Count == 0) return true;
+
+            var writtenKeys = new HashSet<StationCellKey>();
+            for (int i = 0; i < patch.Writes.Count; i++) {
+                var w = patch.Writes[i];
+                if (w == null) continue;
+                writtenKeys.Add(w.Key);
+                if (previousIndex.HasUnsupportedBridgePillarSite(w.Key.X, w.Key.Y)) {
+                    code = "local-bridge-pillars";
+                    return false;
+                }
+            }
+            if (writtenKeys.Count == 0) return true;
+
+            var affected = Expand(writtenKeys, 1);
+            StationEditTrace.AddScanned(affected.Count * 6);
+
+            foreach (var key in affected) {
+                if (previousIndex.HasDuplicateCell(key)) {
+                    code = "local-duplicate-cell";
+                    return false;
+                }
+            }
+
+            var builder = previous.CellPages.ToBuilder();
+            var working = new Dictionary<StationCellKey, WorkingCell>(affected.Count);
+
+            WorkingCell EnsureWorking(StationCellKey key) {
+                if (working.TryGetValue(key, out var cell)) return cell;
+                previousIndex.TryGetCellPage(key, out var orig, out int origPage);
+                cell = new WorkingCell {
+                    Key = key,
+                    OriginalRecord = orig,
+                    OriginalPageId = origPage,
+                    CurrentPageId = orig != null ? origPage : -1,
+                    Json = orig != null ? JObject.Parse(orig.RawJson) : null,
+                    Placeholder = orig,
+                };
+                working.Add(key, cell);
+                return cell;
+            }
+
+            for (int i = 0; i < patch.Writes.Count; i++) {
+                var write = patch.Writes[i];
+                if (write == null) continue;
+                var state = EnsureWorking(write.Key);
+                bool hadCurrent = state.Json != null;
+
+                if (!StationCellEdits.ApplyWriteToRecord(state.Json, write, out var updatedJson)) {
+                    code = "bad-cell-write";
+                    return false;
+                }
+
+                if (updatedJson == null) {
+                    if (hadCurrent) {
+                        var toRemove = state.Placeholder;
+                        var matchKey = state.Key;
+                        if (!builder.RemoveFromPage(state.CurrentPageId, c => ReferenceEquals(c, toRemove) || c.Key == matchKey)) {
+                            code = "local-cell-mismatch";
+                            return false;
+                        }
+                    }
+                    state.Json = null;
+                    state.CurrentPageId = -1;
+                    state.Placeholder = null;
+                } else if (!hadCurrent) {
+                    var placeholder = new StationCellRecord(
+                        write.Key.X, write.Key.Y, write.Key.Z, "full", "solid", "", null, null, "", "");
+                    int appendedPage = builder.Append(placeholder);
+                    state.Json = updatedJson;
+                    state.CurrentPageId = appendedPage;
+                    state.Placeholder = placeholder;
+                } else {
+                    state.Json = updatedJson;
+                }
+            }
+
+            foreach (var key in affected) {
+                if (working.ContainsKey(key)) continue;
+                if (!previousIndex.TryGetCellPage(key, out var neighbour, out int pageId)) continue;
+                working.Add(key, new WorkingCell {
+                    Key = key,
+                    OriginalRecord = neighbour,
+                    OriginalPageId = pageId,
+                    CurrentPageId = pageId,
+                    Json = JObject.Parse(neighbour.RawJson),
+                    Placeholder = neighbour,
+                });
+            }
+
+            var preNormRecords = new Dictionary<StationCellKey, StationCellRecord>(working.Count);
+            foreach (var pair in working) {
+                if (pair.Value.Json != null) {
+                    preNormRecords[pair.Key] = StationDocumentReader.BuildCellRecord(pair.Value.Json);
+                }
+            }
+
+            StationCellRecord LookupNeighbour(int x, int y, int z) {
+                var k = new StationCellKey(x, y, z);
+                if (working.ContainsKey(k)) {
+                    return preNormRecords.TryGetValue(k, out var rec) ? rec : null;
+                }
+                return previousIndex.GetNormalizationNeighbour(k);
+            }
+
+            foreach (var pair in working) {
+                if (pair.Value.Json == null) continue;
+                StationCellNormalization.NormalizeCellRecord(pair.Value.Json, LookupNeighbour);
+            }
+
+            foreach (var pair in working) {
+                var key = pair.Key;
+                var state = pair.Value;
+                if (state.Json == null) {
+                    if (state.OriginalRecord != null) {
+                        delta.RemovedCells.Add(key);
+                    }
+                    continue;
+                }
+
+                var finalRecord = StationDocumentReader.BuildCellRecord(state.Json);
+                bool sameAsOriginal = state.OriginalRecord != null &&
+                                      state.CurrentPageId == state.OriginalPageId &&
+                                      ReferenceEquals(state.Placeholder, state.OriginalRecord) &&
+                                      string.Equals(state.OriginalRecord.RawJson, finalRecord.RawJson, StringComparison.Ordinal);
+                if (sameAsOriginal) {
+                    continue;
+                }
+
+                var targetPlaceholder = state.Placeholder;
+                if (!builder.ReplaceInPage(state.CurrentPageId, c => ReferenceEquals(c, targetPlaceholder) || c.Key == key, finalRecord)) {
+                    code = "local-cell-mismatch";
+                    return false;
+                }
+                delta.ChangedCells.Add(finalRecord);
+                delta.CellPageIds[key] = state.CurrentPageId;
+            }
+
+            StationEditTrace.AddCloned(builder.ClonedRecordCount + delta.ChangedCells.Count);
+            nextPages = builder.Build(previous.CellPages);
             return true;
         }
 
-        static StationReadResult Build(StationReadResult committed, JObject envelope, HashSet<StationCellKey> writtenCells,
-            HashSet<string> affectedModules, string sourceId, out string code) {
-            using var editSample = StationEditTrace.Measure("StationEdit.Build");
-            code = null;
-            var previous = committed.Document;
-            var previousIndex = committed.Index;
-            if (!(envelope["static"] is JObject state)) { code = "local-bad-envelope"; return null; }
-            var cellsNode = state["cells"] as JArray;
-            if (cellsNode == null) { cellsNode = new JArray(); state["cells"] = cellsNode; }
-            var modulesNode = state["modules"] as JArray ?? new JArray();
-            var city = StationDocumentReader.Str(state["city"]);
+        // ----------------------------------------------------------- module projection
 
-            var delta = new StationIndexDelta();
-            if (!TryProjectCells(previous, previousIndex, cellsNode, writtenCells, delta, out var cells, out code)) return null;
-            if (!TryProjectModules(committed, modulesNode, city, affectedModules, delta, out var modules, out code)) return null;
-            for (int i = 0; i < modules.Length; i++) {
-                if (modules[i] != null && affectedModules.Contains(modules[i].Id)) delta.ChangedModules.Add(modules[i]);
+        static bool TryProjectPatchModules(StationDocument previous, StationIndex previousIndex, StationCellPatch patch,
+            StationIndexDelta delta, out StationRecordPages<StationModuleRecord> nextPages, out string code) {
+            code = null;
+            nextPages = previous.ModulePages;
+            if (patch.ModuleReplaces.Count == 0 && patch.ModuleAdds.Count == 0 && patch.RemoveModuleIds.Count == 0) {
+                return true;
+            }
+            using var modSample = StationEditTrace.Measure("StationEdit.TryProjectModules");
+
+            var builder = previous.ModulePages.ToBuilder();
+            var liveSlots = new Dictionary<string, (StationModuleRecord Record, int PageId)>(StringComparer.Ordinal);
+            var removedIds = new HashSet<string>(StringComparer.Ordinal);
+            string city = previous.City;
+
+            bool TryLookupCurrent(string id, out StationModuleRecord rec, out int pageId) {
+                if (removedIds.Contains(id)) { rec = null; pageId = -1; return false; }
+                if (liveSlots.TryGetValue(id, out var local)) { rec = local.Record; pageId = local.PageId; return true; }
+                return previousIndex.TryGetModulePage(id, out rec, out pageId);
             }
 
-            var savedAt = StationDocumentReader.Str(envelope["savedAt"]);
-            if (savedAt.Length == 0) savedAt = StationDocumentReader.FixedSavedAt;
-            var normalized = envelope.ToString(Formatting.None);
-            var lines = new StationLineRecord[previous.LineCount];
-            for (int i = 0; i < lines.Length; i++) lines[i] = previous.Lines[i];
+            for (int i = 0; i < patch.ModuleReplaces.Count; i++) {
+                var draft = patch.ModuleReplaces[i];
+                if (draft == null) continue;
+                StationEditTrace.AddScanned(1);
+                if (!TryLookupCurrent(draft.Id, out var before, out int pageId)) {
+                    code = "missing-module";
+                    return false;
+                }
+                var beforeRefusal = ModuleRefusal(before);
+                if (beforeRefusal != null) { code = beforeRefusal; return false; }
+
+                var saveJson = StationModuleEdits.ToSaveRecord(draft);
+                var nextRefusal = ModuleRefusal(saveJson);
+                if (nextRefusal != null) { code = nextRefusal; return false; }
+
+                if (!TryBuildProjectedModule(saveJson, city, out var built, out code)) return false;
+                var matchId = draft.Id;
+                if (!builder.ReplaceInPage(pageId, m => string.Equals(m.Id, matchId, StringComparison.Ordinal), built)) {
+                    code = "local-module-mismatch";
+                    return false;
+                }
+                liveSlots[built.Id] = (built, pageId);
+            }
+
+            for (int i = 0; i < patch.ModuleAdds.Count; i++) {
+                var draft = patch.ModuleAdds[i];
+                if (draft == null) continue;
+                StationEditTrace.AddScanned(1);
+                if (TryLookupCurrent(draft.Id, out _, out _)) {
+                    code = "duplicate-id";
+                    return false;
+                }
+                var saveJson = StationModuleEdits.ToSaveRecord(draft);
+                var nextRefusal = ModuleRefusal(saveJson);
+                if (nextRefusal != null) { code = nextRefusal; return false; }
+
+                if (!TryBuildProjectedModule(saveJson, city, out var built, out code)) return false;
+                int appendedPage = builder.Append(built);
+                removedIds.Remove(built.Id);
+                liveSlots[built.Id] = (built, appendedPage);
+            }
+
+            for (int i = 0; i < patch.RemoveModuleIds.Count; i++) {
+                var id = patch.RemoveModuleIds[i];
+                if (string.IsNullOrEmpty(id)) continue;
+                StationEditTrace.AddScanned(1);
+                if (!TryLookupCurrent(id, out var existing, out int pageId)) continue;
+                var beforeRefusal = ModuleRefusal(existing);
+                if (beforeRefusal != null) { code = beforeRefusal; return false; }
+
+                var matchId = id;
+                if (!builder.RemoveFromPage(pageId, m => string.Equals(m.Id, matchId, StringComparison.Ordinal))) {
+                    code = "local-module-mismatch";
+                    return false;
+                }
+                liveSlots.Remove(id);
+                removedIds.Add(id);
+            }
+
+            foreach (var id in removedIds) {
+                if (previousIndex.TryGetModule(id, out _)) delta.RemovedModules.Add(id);
+            }
+            foreach (var pair in liveSlots) {
+                delta.ChangedModules.Add(pair.Value.Record);
+                delta.ModulePageIds[pair.Key] = pair.Value.PageId;
+            }
+
+            StationEditTrace.AddCloned(builder.ClonedRecordCount + delta.ChangedModules.Count);
+            nextPages = builder.Build(previous.ModulePages);
+            return true;
+        }
+
+        static bool TryProjectSingleModule(StationDocument previous, StationIndex previousIndex,
+            StationModuleEditMode mode, StationEditDraft draft, string removeId, StationIndexDelta delta,
+            out StationRecordPages<StationModuleRecord> nextPages, out string code) {
+            using var modSample = StationEditTrace.Measure("StationEdit.TryProjectModules");
+            code = null;
+            nextPages = previous.ModulePages;
+            var builder = previous.ModulePages.ToBuilder();
+            string city = previous.City;
+
+            switch (mode) {
+                case StationModuleEditMode.Remove: {
+                    StationEditTrace.AddScanned(1);
+                    if (string.IsNullOrEmpty(removeId) || !previousIndex.TryGetModulePage(removeId, out var existing, out int pageId)) {
+                        code = "not-found";
+                        return false;
+                    }
+                    var refusal = ModuleRefusal(existing);
+                    if (refusal != null) { code = refusal; return false; }
+
+                    if (!builder.RemoveFromPage(pageId, m => string.Equals(m.Id, removeId, StringComparison.Ordinal))) {
+                        code = "local-module-mismatch";
+                        return false;
+                    }
+                    delta.RemovedModules.Add(removeId);
+                    break;
+                }
+                case StationModuleEditMode.Add: {
+                    if (draft == null) { code = "bad-payload"; return false; }
+                    StationEditTrace.AddScanned(1);
+                    if (previousIndex.TryGetModule(draft.Id, out _)) {
+                        code = "duplicate-id";
+                        return false;
+                    }
+                    var saveJson = StationModuleEdits.ToSaveRecord(draft);
+                    var refusal = ModuleRefusal(saveJson);
+                    if (refusal != null) { code = refusal; return false; }
+                    if (!TryBuildProjectedModule(saveJson, city, out var built, out code)) return false;
+
+                    int pageId = builder.Append(built);
+                    delta.ChangedModules.Add(built);
+                    delta.ModulePageIds[built.Id] = pageId;
+                    break;
+                }
+                default: {
+                    if (draft == null) { code = "bad-payload"; return false; }
+                    StationEditTrace.AddScanned(1);
+                    string targetId = draft.SourceId.Length > 0 ? draft.SourceId : draft.Id;
+                    if (string.IsNullOrEmpty(targetId) || !previousIndex.TryGetModulePage(targetId, out var existing, out int pageId)) {
+                        code = "not-found";
+                        return false;
+                    }
+                    var beforeRefusal = ModuleRefusal(existing);
+                    if (beforeRefusal != null) { code = beforeRefusal; return false; }
+
+                    var movedJson = JObject.Parse(existing.RawJson);
+                    StationModuleEdits.ApplyMove(movedJson, draft);
+                    var afterRefusal = ModuleRefusal(movedJson);
+                    if (afterRefusal != null) { code = afterRefusal; return false; }
+                    if (!TryBuildProjectedModule(movedJson, city, out var built, out code)) return false;
+
+                    if (!builder.ReplaceInPage(pageId, m => string.Equals(m.Id, targetId, StringComparison.Ordinal), built)) {
+                        code = "local-module-mismatch";
+                        return false;
+                    }
+                    delta.ChangedModules.Add(built);
+                    delta.ModulePageIds[built.Id] = pageId;
+                    break;
+                }
+            }
+
+            StationEditTrace.AddCloned(builder.ClonedRecordCount + delta.ChangedModules.Count);
+            nextPages = builder.Build(previous.ModulePages);
+            return true;
+        }
+
+        static bool TryBuildProjectedModule(JObject moduleJson, string city, out StationModuleRecord record, out string code) {
+            record = null;
+            code = null;
+            try {
+                record = StationDocumentReader.BuildModule(moduleJson, city);
+                return true;
+            } catch (StationRejectedException) {
+                code = "local-unsupported-record";
+                return false;
+            } catch (FormatException) {
+                code = "local-bad-module";
+                return false;
+            }
+        }
+
+        // ------------------------------------------------------------- assembly & header
+
+        static StationReadResult BuildResult(StationReadResult committed, JObject rootHeader, string savedAt,
+            StationRecordPages<StationCellRecord> cellPages, StationRecordPages<StationModuleRecord> modulePages,
+            StationIndexDelta delta, string sourceId, out string code) {
+            using var buildSample = StationEditTrace.Measure("StationEdit.Build");
+            code = null;
+            var previous = committed.Document;
+            var rawRootJson = StationDocumentReader.CanonicalRootJson(rootHeader);
+
             var document = new StationDocument(
                 previous.Name, previous.NameEn, previous.City, previous.Seed,
-                previous.LevelBase, previous.StoreyHeight, previous.Day, cells, modules, lines,
+                previous.LevelBase, previous.StoreyHeight, previous.Day,
+                cellPages, modulePages, previous.Lines,
                 previous.DroppedCells, previous.DroppedModules,
-                new StationSource(sourceId ?? "", StationDocumentReader.Hash(normalized)), savedAt, normalized);
+                new StationSource(sourceId ?? "", ""), savedAt,
+                null,
+                doc => StationDocumentReader.SerializeEnvelope(rootHeader, doc.SavedAt, doc),
+                doc => StationDocumentReader.Hash(doc.NormalizedJson),
+                rawRootJson);
+            StationDocumentReader.RegisterRootHeader(document, rootHeader);
 
-            StationIndex index;
-            StationRejection rejection;
-            if (!StationIndex.TryCreateIncremental(previousIndex, document, delta, out index, out rejection)) {
+            if (!StationIndex.TryCreateIncremental(committed.Index, document, delta, out var index, out var rejection)) {
                 code = rejection?.Code ?? "local-index-failed";
                 return null;
             }
-            var result = StationReadResult.FromLocalEdit(document, index, committed.ReaderDiagnostics, committed.Repairs, envelope);
+
+            StationEditTrace.NoteLocalDocument();
+            var result = StationReadResult.FromLocalEdit(document, index, committed.ReaderDiagnostics, committed.Repairs, rootHeader);
             result.LocalParent = committed;
             result.LocalDelta = delta;
             return result;
         }
 
-        /// <summary>
-        /// Rebuild the typed cell array from the patched envelope: the records the patch wrote
-        /// (and the ring the cell repair may have changed around them) are projected, every other
-        /// record is the committed document's own instance, in the patched array's own order.
-        /// </summary>
-        static bool TryProjectCells(StationDocument previous, StationIndex previousIndex, JArray cellsNode,
-            HashSet<StationCellKey> writtenCells, StationIndexDelta delta, out StationCellRecord[] cells, out string code) {
+        static bool TryCloneRootHeader(StationReadResult committed, out JObject rootHeader, out string savedAt, out string code,
+            bool preserveSavedAt = false) {
             code = null;
-            cells = new StationCellRecord[cellsNode.Count];
-            if (writtenCells.Count == 0) {
-                if (cellsNode.Count != previous.CellCount) { code = "local-cell-mismatch"; return false; }
-                for (int i = 0; i < cellsNode.Count; i++) {
-                    if (!(cellsNode[i] is JObject cell) || StationDocumentReader.CellKeyOf(cell) != previous.Cells[i].Key) {
-                        code = "local-cell-mismatch";
-                        return false;
-                    }
-                    cells[i] = previous.Cells[i];
+            rootHeader = null;
+            savedAt = preserveSavedAt && !string.IsNullOrEmpty(committed?.Document?.SavedAt)
+                ? committed.Document.SavedAt
+                : StationDocumentReader.FormatSavedAt(DateTimeOffset.UtcNow);
+            if (committed.Envelope != null) {
+                rootHeader = new JObject();
+                foreach (var prop in committed.Envelope.Properties()) {
+                    if (prop.Name == "static") continue;
+                    rootHeader[prop.Name] = prop.Value.DeepClone();
                 }
+                rootHeader["savedAt"] = savedAt;
                 return true;
             }
-
-            var affected = Expand(writtenCells, 1);
-            var lookup = Expand(writtenCells, 2);
-
-            // A coordinate with two saved records keeps its own first-record rule in the index and
-            // its last-solid rule in the cell repair. Neither is a one-record delta, so refuse.
-            if (!NoDuplicate(previous, affected, out code)) return false;
-
-            var raw = new Dictionary<StationCellKey, JObject>();
-            var positions = new Dictionary<StationCellKey, int>();
-            var records = new Dictionary<StationCellKey, StationCellRecord>();
-            int cursor = 0;
-            for (int i = 0; i < cellsNode.Count; i++) {
-                if (!(cellsNode[i] is JObject cell)) { code = "local-bad-cell"; return false; }
-                var key = StationDocumentReader.CellKeyOf(cell);
-                if (affected.Contains(key)) {
-                    if (raw.ContainsKey(key)) { code = "local-duplicate-cell"; return false; }
-                    var record = StationDocumentReader.BuildCellRecord(cell);
-                    cells[i] = record;
-                    records[key] = record;
-                    raw[key] = cell;
-                    positions[key] = i;
-                    continue;
-                }
-                while (cursor < previous.CellCount && affected.Contains(previous.Cells[cursor].Key)) cursor++;
-                if (cursor >= previous.CellCount) { code = "local-cell-mismatch"; return false; }
-                var reuse = previous.Cells[cursor++];
-                cells[i] = reuse;
-                if (lookup.Contains(key)) records[key] = reuse;
-            }
-            while (cursor < previous.CellCount && affected.Contains(previous.Cells[cursor].Key)) cursor++;
-            if (cursor != previous.CellCount) { code = "local-cell-mismatch"; return false; }
-
-            // The cell repair, exactly as a full read runs it, for the records this edit touched
-            // and the ring whose faces it can cover. The lookup carries the new state, so a
-            // written solid covers a neighbour's face and a removed one stops covering it.
-            foreach (var pair in raw) {
-                StationCellNormalization.NormalizeCellRecord(pair.Value, (x, y, z) =>
-                    records.TryGetValue(new StationCellKey(x, y, z), out var neighbour) ? neighbour : null);
-            }
-            foreach (var pair in raw) {
-                var record = StationDocumentReader.BuildCellRecord(pair.Value);
-                cells[positions[pair.Key]] = record;
-                records[pair.Key] = record;
-            }
-
-            foreach (var key in affected) {
-                var before = previousIndex.GetCell(key);
-                records.TryGetValue(key, out var after);
-                if (before == null && after == null) continue;
-                if (after == null) { delta.RemovedCells.Add(key); continue; }
-                delta.ChangedCells.Add(after);
-            }
-            return true;
-        }
-
-        /// <summary>
-        /// Refuse a written/neighbouring coordinate that carries more than one saved record: the
-        /// committed document keeps such duplicates in <c>Cells</c> but indexes only the first.
-        /// </summary>
-        static bool NoDuplicate(StationDocument previous, HashSet<StationCellKey> affected, out string code) {
-            code = null;
-            var counts = new Dictionary<StationCellKey, int>();
-            for (int i = 0; i < previous.CellCount; i++) {
-                var key = previous.Cells[i].Key;
-                if (!affected.Contains(key)) continue;
-                if (counts.TryGetValue(key, out var count)) counts[key] = count + 1;
-                else counts[key] = 1;
-            }
-            foreach (var pair in counts) {
-                if (pair.Value > 1) { code = "local-duplicate-cell"; return false; }
-            }
-            return true;
-        }
-
-        /// <summary>
-        /// Rebuild the typed module array from the patched envelope. A module the patch named is
-        /// refused when a load-time repair owns it, and projected otherwise; every other module
-        /// is the committed document's own instance, in the patched array's order.
-        /// </summary>
-        static bool TryProjectModules(StationReadResult committed, JArray modulesNode, string city,
-            HashSet<string> affectedModules, StationIndexDelta delta, out StationModuleRecord[] modules, out string code) {
-            code = null;
-            var previous = committed.Document;
-            var previousIndex = committed.Index;
-            modules = new StationModuleRecord[modulesNode.Count];
-            if (affectedModules.Count == 0) {
-                if (modulesNode.Count != previous.ModuleCount) { code = "local-module-mismatch"; return false; }
-                for (int i = 0; i < modulesNode.Count; i++) {
-                    if (!(modulesNode[i] is JObject module) ||
-                        !string.Equals(StationDocumentReader.Str(module["id"]), previous.Modules[i].Id, StringComparison.Ordinal)) {
-                        code = "local-module-mismatch";
-                        return false;
-                    }
-                    modules[i] = previous.Modules[i];
-                }
+            var json = committed.Document?.NormalizedJson;
+            if (string.IsNullOrEmpty(json)) { code = "local-no-envelope"; return false; }
+            try {
+                var parsed = JObject.Parse(json);
+                parsed.Remove("static");
+                parsed["savedAt"] = savedAt;
+                rootHeader = parsed;
                 return true;
+            } catch (JsonException) {
+                code = "local-no-envelope";
+                return false;
             }
-            // A *removed* record still has to be one the local path may touch: a bridge track or a
-            // bridge-owned pillar is repaired on every read (plan 30 §3).
-            foreach (var id in affectedModules) {
-                var before = previousIndex.GetModule(id);
-                if (before == null) continue;
-                var refusal = ModuleRefusal(before);
-                if (refusal != null) { code = refusal; return false; }
-            }
+        }
 
-            var found = new HashSet<string>(StringComparer.Ordinal);
-            int cursor = 0;
-            for (int i = 0; i < modulesNode.Count; i++) {
-                if (!(modulesNode[i] is JObject module)) { code = "local-bad-module"; return false; }
-                var id = StationDocumentReader.Str(module["id"]);
-                if (affectedModules.Contains(id)) {
-                    var refusal = ModuleRefusal(module);
-                    if (refusal != null) { code = refusal; return false; }
-                    try {
-                        modules[i] = StationDocumentReader.BuildModule(module, city);
-                    } catch (StationRejectedException) {
-                        // The full reader refuses the same record (or the repairs would drop it);
-                        // let the complete path produce its own answer.
-                        code = "local-unsupported-record";
-                        return false;
-                    } catch (FormatException) {
-                        code = "local-bad-module";
-                        return false;
-                    }
-                    found.Add(id);
-                    continue;
-                }
-                while (cursor < previous.ModuleCount && affectedModules.Contains(previous.Modules[cursor].Id)) cursor++;
-                if (cursor >= previous.ModuleCount) { code = "local-module-mismatch"; return false; }
-                modules[i] = previous.Modules[cursor++];
+        static bool SameHeaderMetadata(JObject a, JObject b) {
+            foreach (var prop in a.Properties()) {
+                if (prop.Name == "savedAt" || prop.Name == "static") continue;
+                if (!JToken.DeepEquals(prop.Value, b[prop.Name])) return false;
             }
-            while (cursor < previous.ModuleCount && affectedModules.Contains(previous.Modules[cursor].Id)) cursor++;
-            if (cursor != previous.ModuleCount) { code = "local-module-mismatch"; return false; }
-            foreach (var id in affectedModules) {
-                if (found.Contains(id)) continue;
-                if (previousIndex.GetModule(id) != null) delta.RemovedModules.Add(id);
+            foreach (var prop in b.Properties()) {
+                if (prop.Name == "savedAt" || prop.Name == "static") continue;
+                if (!JToken.DeepEquals(a[prop.Name], prop.Value)) return false;
+            }
+            if (a["static"] is JObject sa && b["static"] is JObject sb) {
+                foreach (var prop in sa.Properties()) {
+                    if (prop.Name == "cells" || prop.Name == "modules") continue;
+                    if (!JToken.DeepEquals(prop.Value, sb[prop.Name])) return false;
+                }
+                foreach (var prop in sb.Properties()) {
+                    if (prop.Name == "cells" || prop.Name == "modules") continue;
+                    if (!JToken.DeepEquals(sa[prop.Name], prop.Value)) return false;
+                }
             }
             return true;
         }
 
-        /// <summary>
-        /// Why a saved record cannot take the local path: a load-time repair in
-        /// <see cref="StationSaveV1.Read"/> would rewrite or drop it, so only the full read
-        /// can say what the record becomes.
-        /// </summary>
+        static StationIndexDelta ComputeDeltaBetween(StationIndex current, StationIndex target) {
+            var delta = new StationIndexDelta();
+            foreach (var cell in current.Document.CellPages) {
+                if (target.GetCell(cell.Key) == null) delta.RemovedCells.Add(cell.Key);
+            }
+            foreach (var cell in target.Document.CellPages) {
+                var prior = current.GetCell(cell.Key);
+                if (prior == null || !string.Equals(prior.RawJson, cell.RawJson, StringComparison.Ordinal)) {
+                    delta.ChangedCells.Add(cell);
+                    if (target.TryGetCellPage(cell.Key, out _, out int p)) delta.CellPageIds[cell.Key] = p;
+                }
+            }
+            foreach (var mod in current.Document.ModulePages) {
+                if (target.GetModule(mod.Id) == null) delta.RemovedModules.Add(mod.Id);
+            }
+            foreach (var mod in target.Document.ModulePages) {
+                var prior = current.GetModule(mod.Id);
+                if (prior == null || !string.Equals(prior.RawJson, mod.RawJson, StringComparison.Ordinal)) {
+                    delta.ChangedModules.Add(mod);
+                    if (target.TryGetModulePage(mod.Id, out _, out int p)) delta.ModulePageIds[mod.Id] = p;
+                }
+            }
+            return delta;
+        }
+
+        // ------------------------------------------------------------- whitelist refusals
+
         static string ModuleRefusal(JObject record) {
             if (record == null) return "local-bad-module";
             var type = StationDocumentReader.Str(record["type"]);
@@ -442,7 +634,6 @@ namespace Metro.Persistence {
             return null;
         }
 
-        /// <summary>The same refusal over an already-typed record (a removal).</summary>
         static string ModuleRefusal(StationModuleRecord record) {
             if (record == null) return null;
             var type = record.Type;

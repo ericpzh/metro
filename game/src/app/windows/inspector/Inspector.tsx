@@ -30,7 +30,8 @@ const INSPECTOR_FOLDER_KEYS: ReadonlySet<string> = new Set(INSPECTOR_FOLDERS.map
 
 export function Inspector(): React.ReactElement {
   const language = useLanguage()
-  const station = useStore((s) => s.station)
+  const stationModules = useStore((s) => s.station.modules)
+  const stationLines = useStore((s) => s.station.lines)
   const addLine = useStore((s) => s.addLine)
   // Every row of the stack opens where the player needs it: the report sections, and
   // 视图 with them — the view toggles are the row a build starts from (which storey is
@@ -73,9 +74,9 @@ export function Inspector(): React.ReactElement {
 
   const toggle = (k: InspectorFolderKey): void => setOpen((o) => ({ ...o, [k]: !o[k] }))
 
-  const exits = useMemo(() => station.modules
+  const exits = useMemo(() => stationModules
     .filter((m) => m.type === 'exit')
-    .sort((a, b) => a.cfg.name.localeCompare(b.cfg.name, language, { sensitivity: 'base', numeric: true })), [language, station.modules])
+    .sort((a, b) => a.cfg.name.localeCompare(b.cfg.name, language, { sensitivity: 'base', numeric: true })), [language, stationModules])
 
   // What each row shows and the count its header prints — the one half of a folder the
   // table cannot carry. 视图's is its own nine tiles (显示其他层 / 剖切 / 隐藏UI /
@@ -99,13 +100,13 @@ export function Inspector(): React.ReactElement {
       ),
     },
     lines: {
-      count: station.lines.length,
+      count: stationLines.length,
       body: (
         <>
-          {station.lines.length === 0 && (
+          {stationLines.length === 0 && (
             <div className="muted small">{t('no_lines_configured_laying_track_creates_one_automatically_or_ad')}</div>
           )}
-          {station.lines.map((line) => (
+          {stationLines.map((line) => (
             <LineCard
               key={line.id}
               line={line}

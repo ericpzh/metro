@@ -24,12 +24,12 @@ export function InfoCard(): React.ReactElement {
   useLanguage()
   const selected = useStore((s) => s.selected)
   const followAgentId = useStore((s) => s.followAgentId)
-  const station = useStore((s) => s.station)
+  const stationModules = useStore((s) => (s.selected?.kind === 'module' ? s.station.modules : null))
   const moveDraft = useStore((s) => s.moveDraft)
   const openSignEditor = useStore((s) => s.openSignEditor)
   // The selected piece, when the selection is a placed module — what 移动 acts on.
-  const selectedModule = selected?.kind === 'module' ? station.modules.find((m) => m.id === selected.key) : undefined
-  const refreshTrack = refreshTrackForSelection(station.modules, selectedModule)
+  const selectedModule = selected?.kind === 'module' && stationModules ? stationModules.find((m) => m.id === selected.key) : undefined
+  const refreshTrack = stationModules ? refreshTrackForSelection(stationModules, selectedModule) : undefined
   const liftModule = selectedModule?.type === 'lift' ? selectedModule : undefined
   const isSign = selectedModule?.type === 'sign'
   const movable = selectedModule !== undefined && isMovableModule(selectedModule)

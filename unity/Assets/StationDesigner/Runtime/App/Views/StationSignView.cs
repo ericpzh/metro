@@ -2292,8 +2292,13 @@ namespace Metro.App {
         public Func<string, bool> Publish;
         public readonly List<StationSignView> Views = new List<StationSignView>();
         public readonly List<StationSignViewBinding> Bindings = new List<StationSignViewBinding>();
+        public readonly Dictionary<string, (StationSignView View, StationSignViewBinding Binding, float? HangLocal)> ById =
+            new Dictionary<string, (StationSignView, StationSignViewBinding, float?)>(StringComparer.Ordinal);
+        public readonly Dictionary<long, HashSet<string>> HungByColumn = new Dictionary<long, HashSet<string>>();
         public StationMaterials Palette;
         public Material FaceTemplate;
+        public StationSignMaterials SignMaterials;
+        public StationSignHolderSet Holders;
         /// <summary>The scope this one replaced; restored if this build never commits.</summary>
         internal StationSignSignageScope Previous;
 
@@ -2388,8 +2393,99 @@ namespace Metro.App {
     /// candidate before disposing the previous station); the scope's own destruction
     /// releases exactly the world it belongs to.
     /// </summary>
-    public sealed class StationSignRenderer : IStationViewRenderer {
+    public sealed class StationSignRenderer : IStationViewRenderer, IStationLocalViewRenderer {
         public const string RoleName = "signs";
+
+        sealed class StagedSignDelta : IStationLocalRendererStage {
+            readonly StationSignSignageScope scope;
+            readonly HashSet<string> retiredIds;
+            readonly List<(Metro.Build.StationModuleRecord Record, StationSignView View, float? HangLocal)> staged;
+            bool committed;
+
+            public StagedSignDelta(
+                StationSignSignageScope scope,
+                HashSet<string> retiredIds,
+                List<(Metro.Build.StationModuleRecord Record, StationSignView View, float? HangLocal)> staged) {
+                this.scope = scope;
+                this.retiredIds = retiredIds;
+                this.staged = staged;
+            }
+
+            public void Commit(StationWorldView world, StationLocalViewCommit commit) {
+                committed = true;
+                if (retiredIds.Count > 0) {
+                    world.RetireRecordsWhere(rec => rec.Role == RoleName && retiredIds.Contains(rec.ModuleId), commit);
+                    foreach (var id in retiredIds) {
+                        if (scope.ById.TryGetValue(id, out var oldEntry)) {
+                            scope.ById.Remove(id);
+                            try { oldEntry.Binding?.Dispose(); } catch (Exception) { }
+                            scope.Bindings.Remove(oldEntry.Binding);
+                            scope.Views.Remove(oldEntry.View);
+                            if (oldEntry.View != null) {
+                                DestroySlotMaterials(oldEntry.View);
+                                commit.RetiredViews.Add(oldEntry.View.gameObject);
+                            }
+                        }
+                    }
+                    foreach (var pair in scope.HungByColumn) {
+                        pair.Value.RemoveWhere(id => retiredIds.Contains(id));
+                    }
+                }
+
+                var roleRoot = world.RoleRoot(RoleName);
+                bool boundAny = false;
+                for (int i = 0; i < staged.Count; i++) {
+                    var (record, view, hangLocal) = staged[i];
+                    view.transform.SetParent(roleRoot, false);
+                    view.transform.SetPositionAndRotation(StationSignViews.Placement(record), ModulePlacement.Rotation(record.Rotation));
+                    var bounds = PanelBounds(view, world.Root);
+                    world.AddLocalRecord(new StationViewRecord {
+                        Role = RoleName,
+                        ModuleId = record.Id,
+                        Part = "board",
+                        View = view.gameObject,
+                        Bounds = bounds,
+                        HasBounds = true,
+                        LevelMin = record.Z,
+                        LevelMax = record.Z + 1,
+                    }, commit);
+                    var binding = scope.Cache != null ? scope.Cache.BindView(view) : null;
+                    scope.Views.Add(view);
+                    if (binding != null) {
+                        scope.Bindings.Add(binding);
+                        boundAny = true;
+                    }
+                    scope.ById[record.Id] = (view, binding, hangLocal);
+                    if (hangLocal.HasValue) {
+                        long col = StationLocalDeltaContext.PackColumn(record.X, record.Y);
+                        if (!scope.HungByColumn.TryGetValue(col, out var set)) {
+                            scope.HungByColumn[col] = set = new HashSet<string>(StringComparer.Ordinal);
+                        }
+                        set.Add(record.Id);
+                    }
+                }
+                if (boundAny) scope.Cache?.Pump();
+            }
+
+            public void Dispose() {
+                if (committed) return;
+                for (int i = 0; i < staged.Count; i++) {
+                    var view = staged[i].View;
+                    if (view != null) {
+                        DestroySlotMaterials(view);
+                        StationWorldView.DestroyView(view.gameObject);
+                    }
+                }
+                staged.Clear();
+            }
+
+            static void DestroySlotMaterials(StationSignView view) {
+                if (view == null || view.Slots == null) return;
+                foreach (var slot in view.Slots) {
+                    if (slot?.Material != null) StationWorldView.DestroyUnityObject(slot.Material);
+                }
+            }
+        }
 
         StationSignSignageScope scope;
         StationGameHost host;
@@ -2400,6 +2496,7 @@ namespace Metro.App {
         /// <summary>The view of one saved sign, for a verifier: the edited board re-rendered.</summary>
         public StationSignView View(string moduleId) {
             if (scope == null) return null;
+            if (scope.ById.TryGetValue(moduleId ?? "", out var found)) return found.View;
             foreach (var view in scope.Views) if (string.Equals(view.ModuleId, moduleId, StringComparison.Ordinal)) return view;
             return null;
         }
@@ -2428,6 +2525,8 @@ namespace Metro.App {
             built.Renderer = this;
             built.Palette = palette;
             built.FaceTemplate = faceTemplate;
+            built.SignMaterials = materials;
+            built.Holders = holders;
             // The painter's outbound route is the host's, so the desktop presenter sees
             // the same envelopes the WebGL page does (RCA 14 §4.1). A document-only
             // test has no host and keeps the bridge fallback.
@@ -2442,8 +2541,10 @@ namespace Metro.App {
             built.Cache = new StationSignTextureCache(built.Provider);
 
             var lines = StationSignViews.Lines(context.Document);
-            var records = StationSignViews.Records(context.Document);
-            var ceilingMounts = StationCeilingMounts.For(context.Document);
+            var records = context.Index != null ? context.Index.ModulesOfType("sign") : StationSignViews.Records(context.Document);
+            var ceilingMounts = context.Index != null
+                ? StationCeilingMounts.ForIndex(context.Index)
+                : StationCeilingMounts.For(context.Document);
             int storeyHeight = context.Document != null && context.Document.StoreyHeight > 0
                 ? context.Document.StoreyHeight
                 : (int)Metro.Build.StationFootprints.StoreyHeight;
@@ -2483,8 +2584,17 @@ namespace Metro.App {
                 }
                 context.World.RegisterModule(Role, record.Id, view.gameObject, "board",
                     PanelBounds(view, context.Root), record.Z, record.Z + 1);
+                var binding = built.Cache.BindView(view);
                 built.Views.Add(view);
-                built.Bindings.Add(built.Cache.BindView(view));
+                built.Bindings.Add(binding);
+                built.ById[record.Id] = (view, binding, hangCeilingLocal);
+                if (hangCeilingLocal.HasValue) {
+                    long col = StationLocalDeltaContext.PackColumn(record.X, record.Y);
+                    if (!built.HungByColumn.TryGetValue(col, out var set)) {
+                        built.HungByColumn[col] = set = new HashSet<string>(StringComparer.Ordinal);
+                    }
+                    set.Add(record.Id);
+                }
             }
             // One bounded request for every board; replies arrive as `sign.faceChunk` /
             // `sign.faceReady` and the command handler pumps them into the slots. The
@@ -2498,6 +2608,118 @@ namespace Metro.App {
             // its predecessor (`StationSignSignageScope.OnDestroy`).
             scope = built;
             StationSignSignage.Attach(built);
+        }
+
+        public bool TryStageLocalDelta(
+            StationLocalDeltaContext context,
+            out IStationLocalRendererStage stage,
+            out string fallbackReason) {
+            stage = null;
+            fallbackReason = null;
+            var roleRoot = context.World.RoleRoot(RoleName);
+            var worldScope = roleRoot != null ? roleRoot.GetComponent<StationSignSignageScope>() : null;
+            if (worldScope == null) {
+                if (context.NextIndex.ModulesOfType("sign").Count == 0 && context.PrevIndex.ModulesOfType("sign").Count == 0) {
+                    return true;
+                }
+                fallbackReason = "no-sign-scope";
+                return false;
+            }
+
+            var removedIds = new HashSet<string>(StringComparer.Ordinal);
+            var dirtyIds = new HashSet<string>(StringComparer.Ordinal);
+            var delta = context.Delta;
+
+            for (int i = 0; i < delta.RemovedModules.Count; i++) {
+                var id = delta.RemovedModules[i];
+                if (context.PrevIndex.TryGetModule(id, out var oldMod) && oldMod != null && oldMod.Type == "sign") {
+                    removedIds.Add(id);
+                }
+            }
+            for (int i = 0; i < delta.ChangedModules.Count; i++) {
+                var mod = delta.ChangedModules[i];
+                if (mod != null && mod.Type == "sign") dirtyIds.Add(mod.Id);
+            }
+
+            int storeyHeight = context.NextDocument.StoreyHeight > 0
+                ? context.NextDocument.StoreyHeight
+                : (int)Metro.Build.StationFootprints.StoreyHeight;
+
+            if (context.CellsChanged && worldScope.HungByColumn.Count > 0) {
+                var mounts = context.GetNextCeilingMounts();
+                foreach (long col in context.TouchedColumns) {
+                    if (!worldScope.HungByColumn.TryGetValue(col, out var ids)) continue;
+                    foreach (var id in ids) {
+                        if (removedIds.Contains(id) || dirtyIds.Contains(id)) continue;
+                        if (!context.NextIndex.TryGetModule(id, out var rec) || rec == null) continue;
+                        double fallback = StationCeilingMounts.FallbackFor(rec.Facts, storeyHeight);
+                        float nextHang = (float)mounts.Resolve(rec.Facts, fallback).Local;
+                        if (!worldScope.ById.TryGetValue(id, out var existing) || !existing.HangLocal.HasValue ||
+                            Mathf.Abs(existing.HangLocal.Value - nextHang) > 1e-4f) {
+                            dirtyIds.Add(id);
+                        }
+                    }
+                }
+            }
+
+            if (removedIds.Count == 0 && dirtyIds.Count == 0) return true;
+
+            var lines = StationSignViews.Lines(context.NextDocument);
+            var ceilingMounts = dirtyIds.Count > 0 ? context.GetNextCeilingMounts() : null;
+            var retiredIds = new HashSet<string>(removedIds, StringComparer.Ordinal);
+            var staged = new List<(Metro.Build.StationModuleRecord Record, StationSignView View, float? HangLocal)>(dirtyIds.Count);
+
+            try {
+                foreach (var id in dirtyIds) {
+                    retiredIds.Add(id);
+                    if (!context.NextIndex.TryGetModule(id, out var record) || record == null || record.Type != "sign") continue;
+                    var mountKind = StationSignMounts.Of(record.Config.Text("mount"));
+                    float? hangCeilingLocal = null;
+                    if (StationSignMounts.Hung(mountKind)) {
+                        double fallback = StationCeilingMounts.FallbackFor(record.Facts, storeyHeight);
+                        var resolved = ceilingMounts.Resolve(record.Facts, fallback);
+                        hangCeilingLocal = (float)resolved.Local;
+                        if (resolved.Support == StationCeilingMounts.SupportKind.Fallback) {
+                            context.ReportUnresolved("sign-hang", "sign", record.Id,
+                                "no overhead anchor, block, hanger or slab backing found; using fallback " +
+                                resolved.Local.ToString("0.###", CultureInfo.InvariantCulture) + " m");
+                        }
+                    }
+                    var request = StationSignViews.RequestFor(record, lines, StationSignSignage.Locale, hangCeilingLocal);
+                    var view = StationSignView.Build(request, worldScope.SignMaterials, worldScope.Holders, context.StagingRoot);
+                    if (view.HolderClearance != null && view.HolderClearance.ContractRejected) {
+                        context.ReportUnresolved("sign-holder", "sign", record.Id, view.HolderDiagnostic);
+                    }
+                    if (!view.Supported || view.BoardCount == 0) {
+                        context.ReportUnresolved("sign-board", "sign", record.Id,
+                            view.Issue.Length > 0 ? view.Issue : "no board content");
+                        if (view.Slots != null) {
+                            foreach (var slot in view.Slots) {
+                                if (slot?.Material != null) StationWorldView.DestroyUnityObject(slot.Material);
+                            }
+                        }
+                        StationWorldView.DestroyView(view.gameObject);
+                        continue;
+                    }
+                    StationEditTrace.AddInstantiatedPrefab();
+                    staged.Add((record, view, hangCeilingLocal));
+                }
+                stage = new StagedSignDelta(worldScope, retiredIds, staged);
+                return true;
+            } catch {
+                for (int i = 0; i < staged.Count; i++) {
+                    var view = staged[i].View;
+                    if (view != null) {
+                        if (view.Slots != null) {
+                            foreach (var slot in view.Slots) {
+                                if (slot?.Material != null) StationWorldView.DestroyUnityObject(slot.Material);
+                            }
+                        }
+                        StationWorldView.DestroyView(view.gameObject);
+                    }
+                }
+                throw;
+            }
         }
 
         /// <summary>

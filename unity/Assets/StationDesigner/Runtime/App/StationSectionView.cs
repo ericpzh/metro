@@ -622,22 +622,36 @@ namespace Metro.App {
         /// <see cref="Configure"/> instead, which homes against the fresh bounds.
         /// </summary>
         public void RefreshStation(Bounds documentBounds, StationLevelGrid grid) {
+            RefreshStationCore(documentBounds, grid, applyVisibility: true);
+        }
+
+        public void RefreshStationLocal(Bounds documentBounds, StationLevelGrid grid, out bool levelShifted) {
+            levelShifted = RefreshStationCore(documentBounds, grid, applyVisibility: false);
+        }
+
+        bool RefreshStationCore(Bounds documentBounds, StationLevelGrid grid, bool applyVisibility) {
             int previousBase = Visibility != null ? Visibility.State.LevelBase : Grid.LevelBase;
+            int previousHeight = Visibility != null ? Visibility.State.StoreyHeight : Grid.StoreyHeight;
             StationBounds = documentBounds;
             Grid = grid;
-            if (Commands == null) return;
+            if (Commands == null) return false;
             Commands.Grid = grid;
             Visibility.State.LevelBase = grid.LevelBase;
             Visibility.State.StoreyHeight = grid.StoreyHeight;
+            bool shiftedLevel = false;
             if (previousBase != grid.LevelBase) {
                 int shifted = grid.NearestLadderLevel(Commands.Camera.ActiveLevel - previousBase + grid.LevelBase);
                 Commands.Camera.SetActiveLevel(shifted);
                 Visibility.State.ActiveLevel = shifted;
+                shiftedLevel = true;
+            } else if (previousHeight != grid.StoreyHeight) {
+                shiftedLevel = true;
             }
             CameraController.SetBounds(documentBounds);
-            Visibility.Apply();
+            if (applyVisibility) Visibility.Apply();
             SyncSky();
             MarkDirty();
+            return shiftedLevel;
         }
 
         public StationVisibilityTarget Register(Transform root, StationPartRole role, int[] levels,
@@ -662,6 +676,12 @@ namespace Metro.App {
             if (!StationViewCommandParser.TryParse(json, out var command, out string error)) {
                 code = "parse-failed:" + error;
                 return false;
+            }
+            if (Visibility.State.FollowPassenger >= 0 && command.Type == StationViewCommandType.Orbit) {
+                eyeYaw -= command.Dx * .003f;
+                eyePitch = Mathf.Clamp(eyePitch - command.Dy * .003f, -1.56f, 1.56f);
+                code = null;
+                return true;
             }
             float previousAzimuth = Commands.Section.Azimuth;
             if (!Commands.TryApply(command, out code)) return false;
@@ -688,6 +708,7 @@ namespace Metro.App {
                 }
                 Commands.Tick(deltaSeconds);
                 Commands.ApplyCamera();
+                ApplyPassengerEye();
                 // Sample the pose the frame really renders and publish it only when it moved
                 // (plan 29 §5). The exploded viewer drives the same camera while it is open, so
                 // the first frame back must publish even when the pose equals the last one.
@@ -720,6 +741,37 @@ namespace Metro.App {
         /// <summary>The snapshot as JSON objects, for the host's `camera`/`view` contributors.</summary>
         public JObject SnapshotObject() {
             try { return JObject.Parse(SnapshotJson()); } catch (Exception) { return new JObject(); }
+        }
+
+        int eyePassenger = -1;
+        float eyeYaw, eyePitch, orbitNear;
+
+        void ApplyPassengerEye() {
+            var camera = Commands.ViewCamera;
+            if (!camera) return;
+            int id = Visibility.State.FollowPassenger;
+            if (id >= 0 && Metro.App.Views.PassengerCrowdRenderer.Current != null &&
+                Metro.App.Views.PassengerCrowdRenderer.Current.TryGetEyePose(id, out var position, out float heading)) {
+                if (eyePassenger != id) {
+                    if (eyePassenger < 0) orbitNear = camera.nearClipPlane;
+                    eyePassenger = id;
+                    eyeYaw = heading;
+                    eyePitch = 0;
+                    Commands.Camera.ClearHeld();
+                }
+                camera.orthographic = false;
+                camera.fieldOfView = 75;
+                camera.nearClipPlane = .05f;
+                float flat = Mathf.Cos(eyePitch);
+                var forward = new Vector3(flat * Mathf.Cos(eyeYaw), Mathf.Sin(eyePitch), flat * Mathf.Sin(eyeYaw));
+                camera.transform.SetPositionAndRotation(position, Quaternion.LookRotation(forward, Vector3.up));
+                return;
+            }
+            if (eyePassenger >= 0) camera.nearClipPlane = orbitNear;
+            eyePassenger = -1;
+            if (id >= 0) Commands.TryApply(new StationViewCommand {
+                Type = StationViewCommandType.ViewSet, Key = StationViewKey.FollowPassenger, IntValue = -1,
+            }, out _);
         }
 
         public bool TrySectionHit(Ray ray, out Vector3 documentPoint) {
@@ -940,12 +992,80 @@ namespace Metro.App {
                 int level = grid.NearestLadderLevel(info.Document.OpeningLevel);
                 rig.Configure(host != null ? host.stationCamera : null, bounds, grid, level, SectionPlanCentre(world));
                 host?.SetActiveLevel(level);
-            } else {
-                rig.RefreshStation(bounds, grid);
-                if (rig.Commands != null) host?.SetActiveLevel(rig.Commands.Camera.ActiveLevel);
+                rig.SetDense(info.Document.ModuleCount >= StationVisibilityRules.DenseStationModules);
+                RegisterWorld(rig, world);
+                return;
             }
+
+            if (info.LocalView != null && world != null) {
+                rig.RefreshStationLocal(bounds, grid, out bool levelShifted);
+                if (rig.Commands != null) host?.SetActiveLevel(rig.Commands.Camera.ActiveLevel);
+                ApplyLocalWorld(rig, world, info.LocalView, levelShifted);
+                return;
+            }
+
+            rig.RefreshStation(bounds, grid);
+            if (rig.Commands != null) host?.SetActiveLevel(rig.Commands.Camera.ActiveLevel);
             rig.SetDense(info.Document.ModuleCount >= StationVisibilityRules.DenseStationModules);
             RegisterWorld(rig, world);
+        }
+
+        /// <summary>
+        /// Incrementally synchronize a retained world commit with the visibility registry, keeping
+        /// material variant clones warm and applying draw modes only to added/updated targets unless
+        /// a global slice input (<c>LevelBase</c>, <c>StoreyHeight</c>, <c>Dense</c> or <c>ActiveBuilt</c>) flipped.
+        /// </summary>
+        public static void ApplyLocalWorld(StationViewRig rig, StationWorldView world, StationLocalViewCommit localCommit, bool levelShifted = false) {
+            using var editSample = StationEditProfiling.Measure("StationEdit.ApplyLocalWorld");
+            if (rig == null || world == null || localCommit == null) return;
+            ApplyLocalWorld(rig.Visibility, world, localCommit, levelShifted);
+            rig.SyncSky();
+        }
+
+        public static void ApplyLocalWorld(StationVisibilityRegistry visibility, StationWorldView world, StationLocalViewCommit localCommit, bool levelShifted = false) {
+            if (visibility == null || world == null || world.Document == null || localCommit == null) return;
+
+            bool prevDense = visibility.State.Dense;
+            bool nextDense = world.Document.ModuleCount >= StationVisibilityRules.DenseStationModules;
+            visibility.State.LevelBase = world.Document.LevelBase;
+            visibility.State.StoreyHeight = world.Document.StoreyHeight;
+            visibility.State.Dense = nextDense;
+            world.BindVisibility(visibility);
+
+            for (int i = 0; i < localCommit.RetiredTargets.Count; i++) {
+                visibility.Unregister(localCommit.RetiredTargets[i]);
+            }
+
+            var grid = visibility.State.Grid;
+            var idx = world.Index;
+            var dirtyTargets = new List<IStationVisibilityTarget>(localCommit.AddedRecords.Count + localCommit.UpdatedRecords.Count);
+            for (int i = 0; i < localCommit.UpdatedRecords.Count; i++) {
+                var record = localCommit.UpdatedRecords[i];
+                if (record?.View == null) continue;
+                var role = RoleOfIndexed(record, idx);
+                var levels = LevelsOfIndexed(record, idx, grid);
+                bool parked = role == StationPartRole.Train && !record.View.activeSelf;
+                var target = visibility.Register(record.View.transform, role, levels,
+                    parked: parked, gradeOwned: IsGradeOwnedIndexed(record, idx));
+                if (target != null) dirtyTargets.Add(target);
+            }
+            for (int i = 0; i < localCommit.AddedRecords.Count; i++) {
+                var record = localCommit.AddedRecords[i];
+                if (record?.View == null) continue;
+                var role = RoleOfIndexed(record, idx);
+                var levels = LevelsOfIndexed(record, idx, grid);
+                bool parked = role == StationPartRole.Train && !record.View.activeSelf;
+                var target = visibility.Register(record.View.transform, role, levels,
+                    parked: parked, gradeOwned: IsGradeOwnedIndexed(record, idx));
+                if (target != null) dirtyTargets.Add(target);
+            }
+
+            bool activeBuiltFlipped = visibility.RefreshActiveBuilt();
+            if (levelShifted || prevDense != nextDense || activeBuiltFlipped) {
+                visibility.Apply();
+            } else if (dirtyTargets.Count > 0) {
+                visibility.ApplyTargets(dirtyTargets);
+            }
         }
 
         /// <summary>
@@ -973,16 +1093,20 @@ namespace Metro.App {
             visibility.State.Dense = world.Document.ModuleCount >= StationVisibilityRules.DenseStationModules;
             visibility.ClearRegisteredTargets();
             visibility.ResetMaterials();
-            var modules = new Dictionary<string, StationModuleRecord>(StringComparer.Ordinal);
-            foreach (var module in world.Document.Modules) modules[module.Id] = module;
+            var idx = world.Index;
+            Dictionary<string, StationModuleRecord> modules = null;
+            if (idx == null) {
+                modules = new Dictionary<string, StationModuleRecord>(StringComparer.Ordinal);
+                foreach (var module in world.Document.Modules) modules[module.Id] = module;
+            }
             var grid = visibility.State.Grid;
             foreach (var record in world.Records) {
                 if (record?.View == null) continue;
-                var role = RoleOf(record, modules);
-                var levels = LevelsOf(record, modules, grid);
+                var role = idx != null ? RoleOfIndexed(record, idx) : RoleOf(record, modules);
+                var levels = idx != null ? LevelsOfIndexed(record, idx, grid) : LevelsOf(record, modules, grid);
+                bool gradeOwned = idx != null ? IsGradeOwnedIndexed(record, idx) : IsGradeOwned(record, modules);
                 bool parked = role == StationPartRole.Train && !record.View.activeSelf;
-                visibility.Register(record.View.transform, role, levels,
-                    parked: parked, gradeOwned: IsGradeOwned(record, modules));
+                visibility.Register(record.View.transform, role, levels, parked: parked, gradeOwned: gradeOwned);
             }
             world.BindVisibility(visibility);
             visibility.Apply();
@@ -1010,6 +1134,14 @@ namespace Metro.App {
             return modules != null && modules.TryGetValue(record.ModuleId, out var module) && IsGradeModule(module);
         }
 
+        public static bool IsGradeOwnedIndexed(StationViewRecord record, StationIndex index) {
+            if (record == null) return false;
+            if (record.GradeOwned) return true;
+            if (RoleOfIndexed(record, index) == StationPartRole.Ground) return true;
+            if (string.IsNullOrEmpty(record.ModuleId)) return false;
+            return index != null && index.TryGetModule(record.ModuleId, out var module) && IsGradeModule(module);
+        }
+
         /// <summary>
         /// One saved module's grade membership. The source hides `sidewalk`, `lawn`, `tree`,
         /// `road` and `traffic-light` wherever they stand; everything else is grade furniture
@@ -1032,6 +1164,18 @@ namespace Metro.App {
         }
 
         public static StationPartRole RoleOf(StationViewRecord record, Dictionary<string, StationModuleRecord> modules) {
+            StationModuleRecord module = null;
+            if (!string.IsNullOrEmpty(record?.ModuleId) && modules != null) modules.TryGetValue(record.ModuleId, out module);
+            return RoleOfModule(record, module);
+        }
+
+        public static StationPartRole RoleOfIndexed(StationViewRecord record, StationIndex index) {
+            StationModuleRecord module = null;
+            if (!string.IsNullOrEmpty(record?.ModuleId) && index != null) index.TryGetModule(record.ModuleId, out module);
+            return RoleOfModule(record, module);
+        }
+
+        static StationPartRole RoleOfModule(StationViewRecord record, StationModuleRecord module) {
             switch ((record.Role ?? "").ToLowerInvariant()) {
                 case "cells": {
                     // E hangs each group under its surface role's transform
@@ -1060,9 +1204,7 @@ namespace Metro.App {
                 // under its own role, and a roof still has to answer the `Roof` role so Hide
                 // Roof and the section plane reach the geometry it builds.
                 case "structure": {
-                    if (string.IsNullOrEmpty(record.ModuleId) || !modules.TryGetValue(record.ModuleId, out var module)) {
-                        return StationPartRole.Prop;
-                    }
+                    if (module == null) return StationPartRole.Prop;
                     switch (module.Type) {
                         case "psd": case "psd-end": case "platform-edge": return StationPartRole.Psd;
                         case "roof": return StationPartRole.Roof;
@@ -1086,8 +1228,20 @@ namespace Metro.App {
         /// the old raw-Z bounds branch is what put the −14 m glass above the −15 floor.
         /// </summary>
         public static int[] LevelsOf(StationViewRecord record, Dictionary<string, StationModuleRecord> modules, StationLevelGrid grid) {
+            StationModuleRecord module = null;
+            if (!string.IsNullOrEmpty(record.ModuleId) && modules != null) modules.TryGetValue(record.ModuleId, out module);
+            return LevelsOfModule(record, module, grid);
+        }
+
+        public static int[] LevelsOfIndexed(StationViewRecord record, StationIndex index, StationLevelGrid grid) {
+            StationModuleRecord module = null;
+            if (!string.IsNullOrEmpty(record.ModuleId) && index != null) index.TryGetModule(record.ModuleId, out module);
+            return LevelsOfModule(record, module, grid);
+        }
+
+        static int[] LevelsOfModule(StationViewRecord record, StationModuleRecord module, StationLevelGrid grid) {
             if (record.LevelBands != null && record.LevelBands.Length > 0) return record.LevelBands;
-            if (!string.IsNullOrEmpty(record.ModuleId) && modules.TryGetValue(record.ModuleId, out var module)) {
+            if (module != null) {
                 var bands = StationModuleLevels.Of(module, grid);
                 if (bands.Length > 0) return bands;
             }

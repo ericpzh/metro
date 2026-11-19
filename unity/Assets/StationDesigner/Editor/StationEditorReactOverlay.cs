@@ -262,7 +262,15 @@ namespace Metro.Editor {
 
         // ------------------------------------------------------------------ build & asset helpers
 
-        static string RepoRoot() => Directory.GetParent(Directory.GetParent(Application.dataPath).FullName).FullName;
+        static string RepoRoot() {
+            var cur = new DirectoryInfo(Path.GetFullPath(Path.Combine(Application.dataPath, "..")));
+            while (cur != null &&
+                   !Directory.Exists(Path.Combine(cur.FullName, ".git")) &&
+                   !File.Exists(Path.Combine(cur.FullName, ".git"))) {
+                cur = cur.Parent;
+            }
+            return cur != null ? cur.FullName : Directory.GetParent(Directory.GetParent(Application.dataPath).FullName).FullName;
+        }
 
         static string OverlayExePath(string repoRoot) =>
             Path.Combine(repoRoot, ".preview", "unity", "editor-ui-host", "bin", "MetroEditorWebView.exe");
@@ -381,6 +389,58 @@ namespace Metro.Editor {
                 return (bool?)report["ok"] == true ? ExitCode.Success : ExitCode.Failed;
             } catch (Exception ex) {
                 cmd.Log.Error("editor_ui_selftest failed: " + ex);
+                return ExitCode.Failed;
+            }
+        }
+
+        [CliGroupCommand("metro",
+            "Launch a standalone Windows player benchmark (MetroStation.exe -metroBenchOut) inside the interactive desktop session and return its PID immediately.",
+            Effect = CommandEffect.ReadOnly, Tags = new[] { "tests" })]
+        internal static ExitCode PlayerBenchmarkStart(
+            CommandContext cmd,
+            [CliArg("exe", "Path to MetroStation.exe.")] string exe = "",
+            [CliArg("out-path", "Output JSON report path.")] string outPath = "",
+            [CliArg("demos", "Comma-separated demos (e.g. zoo,tanwei,tianhe).")] string demos = "zoo,tanwei,tianhe",
+            [CliArg("log-path", "Optional Unity player log path.")] string logPath = "") {
+            try {
+                if (string.IsNullOrWhiteSpace(exe) || string.IsNullOrWhiteSpace(outPath)) {
+                    cmd.Log.Error("Both --exe and --out-path are required.");
+                    return ExitCode.Failed;
+                }
+                string fullExe = Path.GetFullPath(exe);
+                string fullOut = Path.GetFullPath(outPath);
+                if (!File.Exists(fullExe)) {
+                    cmd.Log.Error("Executable not found: " + fullExe);
+                    return ExitCode.Failed;
+                }
+                if (File.Exists(fullOut)) File.Delete(fullOut);
+                string args = $"-metroBenchOut \"{fullOut}\" -metroBenchDemos \"{demos}\"";
+                if (!string.IsNullOrWhiteSpace(logPath)) {
+                    string fullLog = Path.GetFullPath(logPath);
+                    if (File.Exists(fullLog)) File.Delete(fullLog);
+                    args += $" -logFile \"{fullLog}\"";
+                }
+                var psi = new ProcessStartInfo {
+                    FileName = fullExe,
+                    Arguments = args,
+                    WorkingDirectory = Path.GetDirectoryName(fullExe) ?? RepoRoot(),
+                    UseShellExecute = false,
+                };
+                var proc = Process.Start(psi);
+                if (proc == null) {
+                    cmd.Log.Error("Process.Start returned null.");
+                    return ExitCode.Failed;
+                }
+                cmd.Result.Write(new JObject {
+                    ["started"] = true,
+                    ["pid"] = proc.Id,
+                    ["exe"] = fullExe,
+                    ["outPath"] = fullOut,
+                    ["demos"] = demos,
+                });
+                return ExitCode.Success;
+            } catch (Exception ex) {
+                cmd.Log.Error("player_benchmark_start failed: " + ex);
                 return ExitCode.Failed;
             }
         }

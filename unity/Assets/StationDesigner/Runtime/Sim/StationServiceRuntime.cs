@@ -32,6 +32,7 @@ namespace Metro.Sim {
         public const double DoorRate = 1.2;
         /// <summary>Riders one lift car takes per stop (<c>LIFT_BATCH</c>).</summary>
         public const int LiftBatch = 15;
+        internal const double LiftCycleSeconds = 40;
         /// <summary>The consist's car length and rated load (<c>stock.ts</c>, Type L), used only to size capacity.</summary>
         public const double CarLengthMetres = 16.8;
         public const int RatedPerCar = 170;
@@ -43,6 +44,13 @@ namespace Metro.Sim {
         /// <summary>The source's luggage share (<c>rng.chance(0.08)</c>).</summary>
         public const double LuggageChance = 0.08;
         const double Dt = StationSimConstants.SimSecondsPerTick;
+        // Fare-line decision and forecast constants from game/src/sim/constants.ts.
+        const double GateLookahead = 8;
+        const int GateReplanPerTick = 8;
+        const double GateForecastSeconds = 12;
+        const double GateForecastMinDrainFraction = .1;
+        const int RerouteReplanPerTick = 4;
+        const double PatienceMin = 60, PatienceMax = 180;
 
         enum Phase { Walking, Queuing, Riding, LiftQueuing, LiftRiding, TrainRiding, Alighting, Stepping, Dead }
 
@@ -73,8 +81,16 @@ namespace Metro.Sim {
             public double StandX, StandY;
             public int GateServer = -1;
             public int GateDir;
+            public bool GateQueueOverflow;
+            public bool GateChosen, AlignRouteStart;
+            public GateFact ReservedGate;
+            public int ReservedGateDir;
+            public double GatePatienceAt;
             public bool Boards;
-            public double RideT, RideTotal;
+            public double RideT, RideTotal, RideColumn;
+            public StationRidePath RidePath;
+            public bool RideReverse;
+            public int RailVariant;
             public double FromX, FromY, FromZ, ToX, ToY, ToZ;
             public string TrainKey = "";
             /// <summary>The service doorway this rider left through (`train.doors` index).</summary>
@@ -103,10 +119,12 @@ namespace Metro.Sim {
 
         internal sealed class GateFact {
             public string Id = "";
-            public int Server = -1, Node = -1, Mode;
+            public int Server = -1, Node = -1, Mode, Rotation;
             public double Rate;
             public int Batch = 1, Cycle;
             public readonly List<int> Queue = new List<int>();
+            public readonly int[] QueuedByDirection = new int[3];
+            public readonly int[] IncomingByDirection = new int[3];
             public double Cooldown;
             public int Served, Lane, Admitted;
             /// <summary>Sim seconds the lane last admitted a passenger (`open` starts here).</summary>
@@ -151,6 +169,9 @@ namespace Metro.Sim {
             public int Server = -1, Node = -1, ExitNode = -1;
             public WalkEdgeKind Kind;
             public double Rate, Ride;
+            public StationRidePath Path;
+            public bool Reverse;
+            public int Columns;
             public readonly List<int> Queue = new List<int>();
             public double Cooldown;
             public int Served, Admitted;
@@ -158,8 +179,8 @@ namespace Metro.Sim {
 
         internal sealed class LiftConnector {
             public string Id = "";
-            public int NodeA = -1, NodeB = -1;
-            public int StopA = -1, StopB = -1;
+            public int[] Landings = Array.Empty<int>();
+            public double X, Y;
             public int[] Stops = Array.Empty<int>();
             public readonly List<int> Queue = new List<int>();
             public readonly List<int> Riders = new List<int>();
@@ -258,6 +279,10 @@ namespace Metro.Sim {
         StationSessionDocument document;
         StationWalkGraph graph;
         StationRoutePlanner planner;
+        int walkReplans, queueReplans, gateReplans, patienceReplans;
+        readonly Dictionary<(int X, int Y, int Z), int> collisionHeads = new Dictionary<(int X, int Y, int Z), int>();
+        int[] collisionNext = Array.Empty<int>();
+        readonly Dictionary<(int X, int Y, int Z), int> nearbyCrowd = new Dictionary<(int X, int Y, int Z), int>();
         SimulationRng rng;
         uint seed;
         double simTime;
@@ -312,6 +337,7 @@ namespace Metro.Sim {
         public int Stuck { get; private set; }
         public int CapHit { get; private set; }
         public int GraphEpoch => graphEpoch;
+        public int LastReconciledPassengers { get; private set; }
         public int GateQueueTotal {
             get {
                 int total = 0;
@@ -340,6 +366,32 @@ namespace Metro.Sim {
                 return total;
             }
         }
+        public bool TryReadPassengerRoute(int id, List<(double X, double Y, double Z)> points) {
+            points.Clear();
+            var p = Find(id);
+            if (p == null || p.Phase == Phase.Dead) return false;
+            bool ridingCurve = p.Phase == Phase.Riding && p.RidePath != null;
+            if (ridingCurve)
+                points.AddRange(p.RidePath.Remaining(p.RideT / p.RideTotal, p.RideReverse, p.RideColumn));
+            if (p.Route == null || p.AwaitingRoute || p.RouteGraphEpoch != graphEpoch) return true;
+            for (int s = p.Segment; s < p.Route.Segments.Length; s++) {
+                var path = p.Route.Segments[s];
+                int first = s != p.Segment ? 0 : p.PathIndex + (ridingCurve ? 2 : 1);
+                for (int i = first; i < path.Length; i++) {
+                    if (i > 0 && !(s == p.Segment && i == first && ridingCurve)) {
+                        int server = EdgeServer(path[i - 1], path[i], out _);
+                        if (rideByServer.TryGetValue(server, out var ride) && ride.Path != null) {
+                            points.AddRange(ride.Path.Remaining(0, ride.Reverse, 0));
+                            continue;
+                        }
+                    }
+                    int node = path[i];
+                    points.Add((graph.NodeX[node], graph.NodeY[node], graph.NodeZ[node]));
+                }
+            }
+            return true;
+        }
+
         public int QueueTotal => GateQueueTotal + DoorQueueTotal + EscalatorQueueTotal + LiftQueueTotal;
 
         /// <summary>True when every walking passenger's active path was built on the current walk graph.</summary>
@@ -374,7 +426,7 @@ namespace Metro.Sim {
                 for (int dy = -r; dy <= r; dy++) {
                     for (int dx = -r; dx <= r; dx++) {
                         if (Math.Max(Math.Abs(dx), Math.Abs(dy)) != r) continue;
-                        if (walkGraph.NodeIndex.TryGetValue(StationWalkGraph.CellKey(cx + dx, cy + dy, cz), out int node)) {
+                        if (walkGraph.TryNode(cx + dx, cy + dy, cz, out int node)) {
                             return node;
                         }
                     }
@@ -463,7 +515,7 @@ namespace Metro.Sim {
             for (int i = 0; i < lifts.Count; i++) {
                 lifts[i].Queue.Clear(); lifts[i].Riders.Clear();
                 lifts[i].CarZ = lifts[i].Stops.Length > 0 ? lifts[i].Stops[0] : 0;
-                lifts[i].CarDoor = 0; lifts[i].CarStop = lifts[i].StopA; lifts[i].Served = 0; lifts[i].Admitted = 0;
+                lifts[i].CarDoor = 0; lifts[i].CarStop = 0; lifts[i].Served = 0; lifts[i].Admitted = 0;
             }
             Invalidate();
             PublishServerCounts();
@@ -633,6 +685,9 @@ namespace Metro.Sim {
             for (int i = 0; i < doors.Count; i++) doors[i].Admitted = 0;
             for (int i = 0; i < rides.Count; i++) rides[i].Admitted = 0;
             for (int i = 0; i < lifts.Count; i++) lifts[i].Admitted = 0;
+            PriceCrowd();
+            RefreshGateTraffic();
+            walkReplans = queueReplans = gateReplans = patienceReplans = 0;
             StepConsists(trains);
             StepSpawn(serviceOpen, demandRate);
             StepGates();
@@ -640,6 +695,7 @@ namespace Metro.Sim {
             StepDoors(trains);
             StepLiftQueues();
             StepPassengers();
+            SeparateWalkers();
             Compact();
             PublishServerCounts();
             Invalidate();
@@ -752,32 +808,45 @@ namespace Metro.Sim {
 
         // --------------------------------------------------------------- building
 
+        internal static StagedServiceFacts StageCellDelta(
+            StationSessionDocument doc,
+            StationWalkGraph walkGraph,
+            StationWalkGraphDelta graphDelta) =>
+            BuildServiceFacts(doc, walkGraph);
+
         internal static StagedServiceFacts BuildServiceFacts(StationSessionDocument doc, StationWalkGraph walkGraph) {
             var staged = new StagedServiceFacts {
                 Document = doc ?? new StationSessionDocument(),
                 Graph = walkGraph,
                 Planner = walkGraph != null ? new StationRoutePlanner(walkGraph) : null,
             };
-            staged.Unported.Add("crowd-collision");
-            staged.Unported.Add("crowd-replanning");
+
             staged.Unported.Add("errands:shop,shelf,bench,cubicle,sink");
             staged.Unported.Add("transfers:second-line");
             staged.Unported.Add("consist-geometry");
             if (walkGraph == null || doc == null) return staged;
 
-            // Gates: one server per walkable gate cell, keyed by the gate module id.
-            for (int i = 0; i < doc.Modules.Count; i++) {
-                var module = doc.Modules[i];
-                if (module.Type != "gate" || !module.GateHasLane) continue;
-                if (!walkGraph.TryNode(module.X, module.Y, module.Z, out int node)) continue;
-                StationServerFact server = null;
-                for (int s = 0; s < walkGraph.Servers.Count; s++) {
-                    var candidate = walkGraph.Servers[s];
-                    if (candidate.Kind == "gate" && candidate.Node == node) { server = candidate; break; }
+            // Index gate & door servers by Node once in O(|Servers|) instead of linear-scanning per module:
+            var gateServerByNode = new Dictionary<int, StationServerFact>();
+            var doorServerByNode = new Dictionary<int, int>();
+            for (int s = 0; s < walkGraph.Servers.Count; s++) {
+                var srv = walkGraph.Servers[s];
+                if (srv.Kind == "gate" && !gateServerByNode.ContainsKey(srv.Node)) {
+                    gateServerByNode[srv.Node] = srv;
+                } else if (srv.Kind == "door" && !doorServerByNode.ContainsKey(srv.Node)) {
+                    doorServerByNode[srv.Node] = s;
                 }
-                if (server == null) continue;
+            }
+
+            // Gates: one server per walkable gate cell, keyed by the gate module id.
+            var gateModules = doc.ModulesOfType("gate");
+            for (int i = 0; i < gateModules.Count; i++) {
+                var module = gateModules[i];
+                if (!module.GateHasLane) continue;
+                if (!walkGraph.TryNode(module.X, module.Y, module.Z, out int node)) continue;
+                if (!gateServerByNode.TryGetValue(node, out var server) || server == null) continue;
                 var gate = new GateFact {
-                    Id = module.Id ?? "", Server = server.Id, Node = node, Mode = module.GateDir,
+                    Id = module.Id ?? "", Server = server.Id, Node = node, Mode = module.GateDir, Rotation = module.Rot,
                     Rate = server.Rate > 0 ? server.Rate : StationWalkGraphBuilder.GateRate,
                     Batch = Math.Max(1, server.Batch), Cycle = server.Cycle,
                 };
@@ -810,14 +879,9 @@ namespace Metro.Sim {
                         };
                         serviceDoors.Add(door);
                         staged.Doors.Add(door);
-                        if (door.Node >= 0) {
-                            for (int srv = 0; srv < walkGraph.Servers.Count; srv++) {
-                                var candidate = walkGraph.Servers[srv];
-                                if (candidate.Kind != "door" || candidate.Node != door.Node) continue;
-                                door.Server = srv;
-                                staged.DoorByServer[srv] = door;
-                                break;
-                            }
+                        if (door.Node >= 0 && doorServerByNode.TryGetValue(door.Node, out int srv)) {
+                            door.Server = srv;
+                            staged.DoorByServer[srv] = door;
                         }
                     }
                     staged.DoorsByService[ServiceKey(line.Id, trackId)] = serviceDoors;
@@ -835,29 +899,35 @@ namespace Metro.Sim {
                     case "stair": kind = WalkEdgeKind.Stair; break;
                     default: continue;
                 }
-                var ride = new RideFact { Server = s, Node = server.Node, ExitNode = server.ExitNode, Kind = kind, Rate = server.Rate, Ride = server.Ride };
+                var ride = new RideFact { Server = s, Node = server.Node, ExitNode = server.ExitNode, Kind = kind, Rate = server.Rate, Ride = server.Ride,
+                    Path = server.RidePath, Reverse = server.RideReverse, Columns = server.RideColumns };
                 staged.Rides.Add(ride);
                 staged.RideByServer[s] = ride;
             }
 
             // Lift connectors: the landing rows on each side of a shaft.
-            for (int i = 0; i < doc.Modules.Count; i++) {
-                var module = doc.Modules[i];
-                if (module.Type != "lift" || !module.HasEndpoints) continue;
+            var liftModules = doc.ModulesOfType("lift");
+            for (int i = 0; i < liftModules.Count; i++) {
+                var module = liftModules[i];
+                if (!module.HasEndpoints) continue;
                 int size = module.Width >= 3 ? 3 : 2;
                 var stops = StationLiftStops.Levels(module);
                 int loZ = Math.Min(module.FromZ, module.ToZ), hiZ = Math.Max(module.FromZ, module.ToZ);
                 if (hiZ - loZ < 1) continue;
-                int a = LandingNode(walkGraph, module, size, loZ);
-                int b = LandingNode(walkGraph, module, size, hiZ);
-                if (a < 0 || b < 0) { staged.Unported.Add("lift-landing:" + module.Id); continue; }
-                int stopA = stops.IndexOf(loZ), stopB = stops.IndexOf(hiZ);
-                if (stopA < 0 || stopB < 0) { staged.Unported.Add("lift-stop:" + module.Id); continue; }
+                var landings = new int[stops.Count];
+                int servedStops = 0;
+                for (int s = 0; s < stops.Count; s++) {
+                    landings[s] = LandingNode(walkGraph, module, size, stops[s]);
+                    if (landings[s] >= 0) servedStops++;
+                }
+                if (servedStops < 2) { staged.Unported.Add("lift-landing:" + module.Id); continue; }
                 var connector = new LiftConnector {
-                    Id = module.Id ?? "", NodeA = a, NodeB = b, StopA = stopA, StopB = stopB,
-                    Stops = stops.ToArray(), CarZ = stops[stopA], CarStop = stopA,
+                    Id = module.Id ?? "", Landings = landings,
+                    X = module.X + size * .5, Y = module.Y + size * .5,
+                    Stops = stops.ToArray(), CarZ = stops[0], CarStop = 0,
                 };
                 staged.Lifts.Add(connector);
+                staged.Planner.AddLift(connector.Id, landings, () => LiftQueueWait(connector));
                 staged.LiftById[connector.Id] = connector;
             }
 
@@ -877,6 +947,11 @@ namespace Metro.Sim {
             document = staged?.Document ?? new StationSessionDocument();
             graph = staged?.Graph;
             planner = staged?.Planner;
+            nearbyCrowd.Clear();
+            if (planner != null) {
+                planner.Congestion = CongestionAt;
+                planner.GateWait = GateWait;
+            }
             graphEpoch++;
             gates.Clear(); gateByServer.Clear(); gateByNode.Clear();
             doors.Clear(); doorByServer.Clear(); doorsByService.Clear();
@@ -915,17 +990,7 @@ namespace Metro.Sim {
             Invalidate();
         }
 
-        /// <summary>
-        /// Port of the crowd/service tail of <c>World.rebuild</c>: swap in staged graph and
-        /// service servers, keep cumulative counters and RNG untouched, preserve active
-        /// consist riders whose doorways still match (or clear recut cabins without charging
-        /// <see cref="LeftBehind"/>), relocate standing passengers off newly placed road
-        /// footprints, invalidate old route/server/lift references, and replan routes on the
-        /// new graph while recomputing active queues.
-        /// </summary>
-        internal void ApplyStagedEdit(StagedServiceFacts staged) {
-            InstallFacts(staged);
-
+        void ReconcileTrainWatches() {
             foreach (var pair in watches) {
                 var watch = pair.Value;
                 var newDoors = doorsByService.TryGetValue(watch.Key, out var heldDoors) ? heldDoors : new List<DoorFact>();
@@ -956,144 +1021,516 @@ namespace Metro.Sim {
                     watch.Seated = false;
                 }
             }
+        }
 
+        /// <summary>
+        /// Incremental local-edit actor reconciliation: preserves unaffected server cooldowns,
+        /// served counts, FIFO queues, lift poses and passenger routes (remapping dense node ids),
+        /// while replanning only passengers whose node, server, destination or remaining path was
+        /// touched by the edit.
+        /// </summary>
+        internal void ApplyIncrementalStagedEdit(StagedServiceFacts staged, StationWalkGraphDelta delta) {
+            LastReconciledPassengers = 0;
+            if (delta == null) {
+                ApplyStagedEdit(staged);
+                return;
+            }
+
+            int oldLimit = Math.Min(delta.OldNodeCount, delta.OldToNewNode.Length);
+            int touchedLimit = Math.Min(delta.OldNodeCount, delta.OldNodeTouched.Length);
+            int MapOldNode(int oldN) =>
+                (oldN >= 0 && oldN < oldLimit) ? delta.OldToNewNode[oldN] : -1;
+
+            // Snapshot previous server states before InstallFacts clears them:
+            var oldGatesById = new Dictionary<string, GateFact>(gates.Count, StringComparer.Ordinal);
+            var oldGatesByServer = new Dictionary<int, GateFact>(gates.Count);
+            for (int i = 0; i < gates.Count; i++) {
+                var g = gates[i];
+                if (!string.IsNullOrEmpty(g.Id)) oldGatesById[g.Id] = g;
+                if (g.Server >= 0) oldGatesByServer[g.Server] = g;
+            }
+            var oldDoorsById = new Dictionary<string, DoorFact>(doors.Count, StringComparer.Ordinal);
+            for (int i = 0; i < doors.Count; i++) {
+                var d = doors[i];
+                if (!string.IsNullOrEmpty(d.Id)) oldDoorsById[d.Id] = d;
+            }
+            var oldRidesByServer = new Dictionary<int, RideFact>(rides.Count);
+            var oldRidesByKey = new Dictionary<(WalkEdgeKind Kind, int Node, int ExitNode), RideFact>(rides.Count);
+            for (int i = 0; i < rides.Count; i++) {
+                var r = rides[i];
+                if (r.Server >= 0) oldRidesByServer[r.Server] = r;
+                int nn = MapOldNode(r.Node), ne = MapOldNode(r.ExitNode);
+                if (nn >= 0 && ne >= 0) oldRidesByKey[(r.Kind, nn, ne)] = r;
+            }
+            var oldLiftsById = new Dictionary<string, LiftConnector>(lifts.Count, StringComparer.Ordinal);
+            for (int i = 0; i < lifts.Count; i++) {
+                var l = lifts[i];
+                if (!string.IsNullOrEmpty(l.Id)) oldLiftsById[l.Id] = l;
+            }
+
+            InstallFacts(staged);
+            ReconcileTrainWatches();
+
+            var newGatesById = new Dictionary<string, GateFact>(gates.Count, StringComparer.Ordinal);
+            for (int i = 0; i < gates.Count; i++) {
+                var ng = gates[i];
+                if (!string.IsNullOrEmpty(ng.Id)) newGatesById[ng.Id] = ng;
+                if (!string.IsNullOrEmpty(ng.Id) && oldGatesById.TryGetValue(ng.Id, out var og) &&
+                    og.Mode == ng.Mode && MapOldNode(og.Node) == ng.Node) {
+                    ng.Cooldown = og.Cooldown;
+                    ng.Served = og.Served;
+                    ng.Lane = og.Lane;
+                    ng.AdmittedAt = og.AdmittedAt;
+                }
+            }
+            var newDoorsById = new Dictionary<string, DoorFact>(doors.Count, StringComparer.Ordinal);
+            for (int i = 0; i < doors.Count; i++) {
+                var nd = doors[i];
+                if (!string.IsNullOrEmpty(nd.Id)) newDoorsById[nd.Id] = nd;
+                if (!string.IsNullOrEmpty(nd.Id) && oldDoorsById.TryGetValue(nd.Id, out var od) &&
+                    MapOldNode(od.Node) == nd.Node) {
+                    nd.Cooldown = od.Cooldown;
+                    nd.Served = od.Served;
+                }
+            }
+            var newRidesByKey = new Dictionary<(WalkEdgeKind Kind, int Node, int ExitNode), RideFact>(rides.Count);
+            for (int i = 0; i < rides.Count; i++) {
+                var nr = rides[i];
+                newRidesByKey[(nr.Kind, nr.Node, nr.ExitNode)] = nr;
+                if (oldRidesByKey.TryGetValue((nr.Kind, nr.Node, nr.ExitNode), out var oride) &&
+                    Math.Abs(oride.Rate - nr.Rate) < 1e-9) {
+                    nr.Cooldown = oride.Cooldown;
+                    nr.Served = oride.Served;
+                }
+            }
+            var intactLifts = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < lifts.Count; i++) {
+                var nl = lifts[i];
+                if (!string.IsNullOrEmpty(nl.Id) && oldLiftsById.TryGetValue(nl.Id, out var ol) &&
+                    SameStops(ol.Stops, nl.Stops) &&
+                    LiftLandingsMatch(ol, nl, MapOldNode)) {
+                    nl.CarZ = ol.CarZ;
+                    nl.CarDoor = ol.CarDoor;
+                    nl.CarStop = ol.CarStop;
+                    nl.Served = ol.Served;
+                    intactLifts.Add(nl.Id);
+                }
+            }
+
+            if (passengers.Count == 0) {
+                PublishServerCounts();
+                Invalidate();
+                return;
+            }
+
+            var paxById = new Dictionary<int, Passenger>(passengers.Count);
+            var preservedIds = new HashSet<int>();
+            var toReplan = new List<Passenger>();
+
+            for (int i = 0; i < passengers.Count; i++) {
+                var p = passengers[i];
+                if (p.Phase == Phase.Dead) continue;
+                if (!string.IsNullOrEmpty(p.TrainKey)) {
+                    if (!watches.ContainsKey(p.TrainKey)) {
+                        if (p.Phase == Phase.TrainRiding) Onboard = Math.Max(0, Onboard - 1);
+                        Kill(p);
+                    }
+                    continue;
+                }
+                paxById[p.Id] = p;
+                if (TryPreservePassenger(p, delta, oldGatesByServer, oldRidesByServer, newGatesById, newDoorsById, newRidesByKey, intactLifts)) {
+                    preservedIds.Add(p.Id);
+                } else {
+                    toReplan.Add(p);
+                }
+            }
+
+            // Restore preserved passengers into their servers' FIFO queues in exact previous order:
+            foreach (var kv in newGatesById) {
+                if (oldGatesById.TryGetValue(kv.Key, out var og)) {
+                    for (int q = 0; q < og.Queue.Count; q++) {
+                        int pid = og.Queue[q];
+                        if (preservedIds.Contains(pid) && paxById.TryGetValue(pid, out var p) &&
+                            p.Phase == Phase.Queuing && p.Server == kv.Value.Server) {
+                            kv.Value.Queue.Add(pid);
+                        }
+                    }
+                }
+            }
+            foreach (var kv in newDoorsById) {
+                if (oldDoorsById.TryGetValue(kv.Key, out var od)) {
+                    for (int q = 0; q < od.Queue.Count; q++) {
+                        int pid = od.Queue[q];
+                        if (preservedIds.Contains(pid) && paxById.TryGetValue(pid, out var p) &&
+                            p.Phase == Phase.Queuing && p.Server == kv.Value.Server) {
+                            kv.Value.Queue.Add(pid);
+                        }
+                    }
+                }
+            }
+            foreach (var kv in newRidesByKey) {
+                if (oldRidesByKey.TryGetValue(kv.Key, out var oride)) {
+                    for (int q = 0; q < oride.Queue.Count; q++) {
+                        int pid = oride.Queue[q];
+                        if (preservedIds.Contains(pid) && paxById.TryGetValue(pid, out var p) &&
+                            p.Phase == Phase.Queuing && p.Server == kv.Value.Server) {
+                            kv.Value.Queue.Add(pid);
+                        }
+                    }
+                }
+            }
+            foreach (string lid in intactLifts) {
+                if (oldLiftsById.TryGetValue(lid, out var ol) && liftById.TryGetValue(lid, out var nl)) {
+                    for (int q = 0; q < ol.Queue.Count; q++) {
+                        int pid = ol.Queue[q];
+                        if (preservedIds.Contains(pid)) nl.Queue.Add(pid);
+                    }
+                    for (int r = 0; r < ol.Riders.Count; r++) {
+                        int pid = ol.Riders[r];
+                        if (preservedIds.Contains(pid)) nl.Riders.Add(pid);
+                    }
+                }
+            }
+
+            // Replan only the affected passengers:
+            LastReconciledPassengers = toReplan.Count;
+            for (int i = 0; i < toReplan.Count; i++) {
+                ReplanSinglePassenger(toReplan[i], checkRoads: delta.AnyRoadAdded);
+            }
+
+            Compact();
+            PublishServerCounts();
+            Invalidate();
+        }
+
+        bool TryPreservePassenger(
+            Passenger p,
+            StationWalkGraphDelta delta,
+            Dictionary<int, GateFact> oldGatesByServer,
+            Dictionary<int, RideFact> oldRidesByServer,
+            Dictionary<string, GateFact> newGatesById,
+            Dictionary<string, DoorFact> newDoorsById,
+            Dictionary<(WalkEdgeKind Kind, int Node, int ExitNode), RideFact> newRidesByKey,
+            HashSet<string> intactLifts) {
+            if (graph == null || planner == null) return false;
+            int oldLimit = Math.Min(delta.OldNodeCount, delta.OldToNewNode.Length);
+            int touchedLimit = Math.Min(delta.OldNodeCount, delta.OldNodeTouched.Length);
+            int MapOld(int oldN) =>
+                (oldN >= 0 && oldN < oldLimit) ? delta.OldToNewNode[oldN] : -1;
+            bool IsTouched(int oldN) =>
+                oldN < 0 || oldN >= touchedLimit || delta.OldNodeTouched[oldN];
+
+            if (delta.AnyRoadAdded && p.Phase != Phase.Riding && p.Phase != Phase.LiftRiding &&
+                RoadContainsPoint(document, p.X, p.Y, JsRound(p.Z) - 1)) {
+                return false;
+            }
+
+            if (p.AwaitingRoute) {
+                if (delta.ConnectivityIncreased) return false;
+                p.RouteGraphEpoch = graphEpoch;
+                return true;
+            }
+
+            // Check current phase & server validity:
+            int remappedGateServer = -1;
+            if (p.GateServer >= 0 && oldGatesByServer.TryGetValue(p.GateServer, out var passedOldGate) &&
+                !string.IsNullOrEmpty(passedOldGate.Id) && newGatesById.TryGetValue(passedOldGate.Id, out var passedNewGate)) {
+                remappedGateServer = passedNewGate.Server;
+            }
+
+            int updatedServer = p.Server;
+            string updatedServerId = p.ServerId ?? "";
+            int updatedDoorNode = p.DoorNode >= 0 ? MapOld(p.DoorNode) : -1;
+
+            switch (p.Phase) {
+                case Phase.Walking:
+                    if (p.Route?.Segments == null || p.Segment < 0 || p.Segment >= p.Route.Segments.Length) return false;
+                    break;
+                case Phase.Queuing: {
+                    if (updatedServerId.StartsWith("gate:", StringComparison.Ordinal)) {
+                        string gid = updatedServerId.Substring(5);
+                        if (!newGatesById.TryGetValue(gid, out var ng)) return false;
+                        if (!GateLaneAllows(ng.Mode, 0, p.GateDir)) return false;
+                        updatedServer = ng.Server;
+                    } else if (updatedServerId.StartsWith("door:", StringComparison.Ordinal)) {
+                        string did = updatedServerId.Substring(5);
+                        int effectiveDoorNode = updatedDoorNode >= 0
+                            ? updatedDoorNode
+                            : (p.Path != null && p.Path.Length > 0 ? MapOld(p.Path[p.Path.Length - 1]) : -1);
+                        if (!newDoorsById.TryGetValue(did, out var nd) || effectiveDoorNode < 0 || nd.Node != effectiveDoorNode) return false;
+                        updatedServer = nd.Server;
+                        p.Server = updatedServer;
+                        p.DoorNode = effectiveDoorNode;
+                        p.GateServer = remappedGateServer;
+                        p.RouteGraphEpoch = graphEpoch;
+                        if (p.Route?.Segments != null) RemapRouteSegmentsInPlace(p, delta.OldToNewNode, oldLimit);
+                        return true;
+                    } else if (updatedServerId.StartsWith("ride:", StringComparison.Ordinal)) {
+                        if (!oldRidesByServer.TryGetValue(p.Server, out var oride)) return false;
+                        int nn = MapOld(oride.Node), ne = MapOld(oride.ExitNode);
+                        if (nn < 0 || ne < 0 || !newRidesByKey.TryGetValue((oride.Kind, nn, ne), out var nride)) return false;
+                        if (!SameRideGeometry(oride, nride)) return false;
+                        updatedServer = nride.Server;
+                        updatedServerId = "ride:" + nride.Server;
+                    } else {
+                        return false;
+                    }
+                    break;
+                }
+                case Phase.Riding: {
+                    if (!updatedServerId.StartsWith("ride:", StringComparison.Ordinal)) return false;
+                    if (!int.TryParse(updatedServerId.Substring(5), out int oldSrv) || !oldRidesByServer.TryGetValue(oldSrv, out var oride)) return false;
+                    int nn = MapOld(oride.Node), ne = MapOld(oride.ExitNode);
+                    if (nn < 0 || ne < 0 || !newRidesByKey.TryGetValue((oride.Kind, nn, ne), out var nride)) return false;
+                    if (!SameRideGeometry(oride, nride)) return false;
+                    updatedServerId = "ride:" + nride.Server;
+                    break;
+                }
+                case Phase.LiftQueuing:
+                case Phase.LiftRiding: {
+                    if (string.IsNullOrEmpty(p.LiftId) || !intactLifts.Contains(p.LiftId)) return false;
+                    if (MapOld(p.LiftBoardNode) < 0 || MapOld(p.LiftDestNode) < 0) return false;
+                    break;
+                }
+                default:
+                    return false;
+            }
+
+            // Validate Route & remaining path nodes:
+            var segments = p.Route?.Segments;
+            if (segments == null || segments.Length == 0) return false;
+            if (p.Route.Lifts != null) {
+                for (int l = Math.Max(0, p.Segment); l < p.Route.Lifts.Length; l++) {
+                    if (!intactLifts.Contains(p.Route.Lifts[l])) return false;
+                }
+            }
+
+            for (int s = 0; s < segments.Length; s++) {
+                var seg = segments[s];
+                if (seg == null) return false;
+                int touchCheckStart = s < p.Segment ? seg.Length : (s == p.Segment ? Math.Max(0, p.PathIndex) : 0);
+                for (int k = 0; k < seg.Length; k++) {
+                    int oldN = seg[k];
+                    int mapped = MapOld(oldN);
+                    if (mapped < 0) return false;
+                    if (k >= touchCheckStart && IsTouched(oldN)) return false;
+                    if (k > touchCheckStart && !planner.GatePassage(MapOld(seg[k - 1]), mapped, out _)) return false;
+                }
+            }
+
+            // Validate final destination node:
+            var lastSeg = segments[segments.Length - 1];
+            if (lastSeg.Length == 0) return false;
+            int newFinalNode = MapOld(lastSeg[lastSeg.Length - 1]);
+            if (newFinalNode < 0) return false;
+            if (p.Boards) {
+                if (DoorForNodeAndLine(newFinalNode, p.TargetLineId) == null) return false;
+            } else {
+                int expectedExit = ResolveExitNode(p.DestExitId);
+                if (expectedExit < 0 || newFinalNode != expectedExit) return false;
+                p.DestExit = expectedExit;
+            }
+
+            // Commit in-place node remapping:
+            RemapRouteSegmentsInPlace(p, delta.OldToNewNode, oldLimit);
+            if (p.LiftBoardNode >= 0) p.LiftBoardNode = MapOld(p.LiftBoardNode);
+            if (p.LiftDestNode >= 0) p.LiftDestNode = MapOld(p.LiftDestNode);
+            if (p.DoorNode >= 0) p.DoorNode = updatedDoorNode;
+            p.Server = updatedServer;
+            p.ServerId = updatedServerId;
+            p.GateServer = remappedGateServer;
+            p.RouteGraphEpoch = graphEpoch;
+            return true;
+        }
+
+        static bool SameRideGeometry(RideFact before, RideFact after) =>
+            before.Columns == after.Columns && before.Reverse == after.Reverse &&
+            (before.Path == null ? after.Path == null : before.Path.SameGeometry(after.Path));
+
+        static void RemapRouteSegmentsInPlace(Passenger p, int[] oldToNew, int oldLimit) {
+            var segments = p.Route?.Segments;
+            if (segments == null) return;
+            for (int s = 0; s < segments.Length; s++) {
+                var seg = segments[s];
+                if (seg == null) continue;
+                for (int k = 0; k < seg.Length; k++) {
+                    int oldN = seg[k];
+                    seg[k] = (oldN >= 0 && oldN < oldLimit && oldToNew[oldN] >= 0) ? oldToNew[oldN] : 0;
+                }
+            }
+            if (p.Segment >= 0 && p.Segment < segments.Length && segments[p.Segment] != null) {
+                p.Path = segments[p.Segment];
+            } else {
+                p.Path = Array.Empty<int>();
+            }
+        }
+
+        static bool SameStops(int[] a, int[] b) {
+            if (ReferenceEquals(a, b)) return true;
+            if (a == null || b == null || a.Length != b.Length) return false;
+            for (int i = 0; i < a.Length; i++) if (a[i] != b[i]) return false;
+            return true;
+        }
+
+        /// <summary>
+        /// Port of the crowd/service tail of <c>World.rebuild</c>: swap in staged graph and
+        /// service servers, keep cumulative counters and RNG untouched, preserve active
+        /// consist riders whose doorways still match (or clear recut cabins without charging
+        /// <see cref="LeftBehind"/>), relocate standing passengers off newly placed road
+        /// footprints, invalidate old route/server/lift references, and replan routes on the
+        /// new graph while recomputing active queues.
+        /// </summary>
+        internal void ApplyStagedEdit(StagedServiceFacts staged) {
+            LastReconciledPassengers = 0;
+            InstallFacts(staged);
+            ReconcileTrainWatches();
+
+            int replanned = 0;
             for (int i = 0; i < passengers.Count; i++) {
                 var passenger = passengers[i];
                 if (passenger.Phase == Phase.Dead) continue;
                 if (!string.IsNullOrEmpty(passenger.TrainKey)) {
-                    // If the consist had no watch entry (defensive), clear it without LeftBehind.
                     if (!watches.ContainsKey(passenger.TrainKey)) {
                         if (passenger.Phase == Phase.TrainRiding) Onboard = Math.Max(0, Onboard - 1);
                         Kill(passenger);
                     }
                     continue;
                 }
-
-                Phase prevPhase = passenger.Phase;
-                string prevServerId = passenger.ServerId ?? "";
-                int prevGateServer = passenger.GateServer;
-                int prevGateDir = passenger.GateDir;
-                double prevFromX = passenger.FromX, prevFromY = passenger.FromY, prevFromZ = passenger.FromZ;
-                double prevToX = passenger.ToX, prevToY = passenger.ToY, prevToZ = passenger.ToZ;
-
-                if (prevPhase != Phase.Riding && prevPhase != Phase.LiftRiding &&
-                    RoadContainsPoint(document, passenger.X, passenger.Y, JsRound(passenger.Z) - 1)) {
-                    int nearestFloor = NearestFloorNodeOnLevel(graph, passenger.X, passenger.Y, JsRound(passenger.Z));
-                    if (nearestFloor < 0) { Kill(passenger); continue; }
-                    passenger.X = graph.NodeX[nearestFloor];
-                    passenger.Y = graph.NodeY[nearestFloor];
-                    passenger.Z = graph.NodeZ[nearestFloor];
-                }
-
-                int fromNode = NearestNode(graph, passenger.X, passenger.Y, passenger.Z);
-                if (prevPhase == Phase.Riding) {
-                    if (fromNode < 0) {
-                        int nTo = NearestNode(graph, prevToX, prevToY, prevToZ);
-                        int nFrom = NearestNode(graph, prevFromX, prevFromY, prevFromZ);
-                        if (nTo >= 0 && nFrom >= 0) {
-                            double dTo = SqDist3(graph, nTo, passenger.X, passenger.Y, passenger.Z);
-                            double dFrom = SqDist3(graph, nFrom, passenger.X, passenger.Y, passenger.Z);
-                            fromNode = dTo <= dFrom ? nTo : nFrom;
-                        } else {
-                            fromNode = nTo >= 0 ? nTo : nFrom;
-                        }
-                    }
-                    if (fromNode >= 0 && graph != null) {
-                        passenger.X = graph.NodeX[fromNode];
-                        passenger.Y = graph.NodeY[fromNode];
-                        passenger.Z = graph.NodeZ[fromNode];
-                    }
-                } else if (prevPhase == Phase.LiftRiding) {
-                    if (fromNode < 0) fromNode = NearestNode(graph, passenger.X, passenger.Y, passenger.Z + 1.0);
-                    if (fromNode < 0) fromNode = NearestNodeAnyLevel(graph, passenger.X, passenger.Y, passenger.Z + 1.0);
-                    if (fromNode >= 0 && graph != null) {
-                        passenger.X = graph.NodeX[fromNode];
-                        passenger.Y = graph.NodeY[fromNode];
-                        passenger.Z = graph.NodeZ[fromNode];
-                    }
-                }
-
-                passenger.Route = null;
-                passenger.RouteGraphEpoch = graphEpoch;
-                passenger.Segment = 0;
-                passenger.Path = Array.Empty<int>();
-                passenger.PathIndex = 0;
-                passenger.AwaitingRoute = false;
-                passenger.Server = -1;
-                passenger.ServerId = "";
-                passenger.GateServer = -1;
-                passenger.GateDir = 0;
-                passenger.DoorNode = -1;
-                passenger.LiftId = "";
-                passenger.LiftBoardNode = -1;
-                passenger.LiftDestNode = -1;
-                passenger.LiftBoardStop = -1;
-                passenger.LiftDestStop = -1;
-                passenger.RideT = 0;
-                passenger.RideTotal = 0;
-                passenger.Phase = Phase.Walking;
-                passenger.Activity = StationPassengerActivity.Walk;
-                passenger.WalkWeight = 0;
-
-                if (graph == null || planner == null || fromNode < 0) {
-                    passenger.AwaitingRoute = true;
-                    continue;
-                }
-
-                if (passenger.Boards) {
-                    string lineId = !string.IsNullOrEmpty(passenger.TargetLineId)
-                        ? passenger.TargetLineId
-                        : (document != null && document.Lines.Count > 0 ? document.Lines[0].Id : "");
-                    passenger.TargetLineId = lineId;
-                    var atDoor = DoorForNodeAndLine(fromNode, lineId);
-                    if (atDoor != null) {
-                        passenger.Phase = Phase.Queuing;
-                        passenger.Server = atDoor.Server;
-                        passenger.ServerId = "door:" + atDoor.Id;
-                        passenger.DoorNode = fromNode;
-                        passenger.Activity = StationPassengerActivity.Queue;
-                        passenger.ActivityStart = simTime;
-                        passenger.ActivityTotal = 12;
-                        passenger.WalkWeight = 0;
-                        atDoor.Queue.Add(passenger.Id);
-                        StandAt(passenger, fromNode);
-                        continue;
-                    }
-                    var route = PlanDoorRoute(fromNode, lineId, passenger.Needs);
-                    if (route == null) {
-                        passenger.AwaitingRoute = true;
-                        continue;
-                    }
-                    StartRebuiltRoute(passenger, route, prevPhase, prevServerId, prevGateServer >= 0, prevGateDir);
-                } else {
-                    int destExit = ResolveExitNode(passenger.DestExitId);
-                    passenger.DestExit = destExit;
-                    if (destExit < 0) {
-                        passenger.AwaitingRoute = true;
-                        continue;
-                    }
-                    if (fromNode == destExit) {
-                        var completeRoute = new ServiceRoute { Segments = new[] { new[] { fromNode } }, Cost = 0 };
-                        passenger.Route = completeRoute;
-                        passenger.RouteGraphEpoch = graphEpoch;
-                        passenger.Segment = 0;
-                        passenger.Path = completeRoute.Segments[0];
-                        passenger.PathIndex = 0;
-                        passenger.Phase = Phase.Walking;
-                        continue;
-                    }
-                    var route = PlanRoute(fromNode, destExit, passenger.Needs);
-                    if (route == null) {
-                        passenger.AwaitingRoute = true;
-                        continue;
-                    }
-                    StartRebuiltRoute(passenger, route, prevPhase, prevServerId, prevGateServer >= 0, prevGateDir);
-                }
+                replanned++;
+                ReplanSinglePassenger(passenger, checkRoads: true);
             }
+            LastReconciledPassengers = replanned;
 
             Compact();
             PublishServerCounts();
             Invalidate();
+        }
+
+        void ReplanSinglePassenger(Passenger passenger, bool checkRoads) {
+            Phase prevPhase = passenger.Phase;
+            string prevServerId = passenger.ServerId ?? "";
+            int prevGateServer = passenger.GateServer;
+            int prevGateDir = passenger.GateDir;
+            double prevFromX = passenger.FromX, prevFromY = passenger.FromY, prevFromZ = passenger.FromZ;
+            double prevToX = passenger.ToX, prevToY = passenger.ToY, prevToZ = passenger.ToZ;
+
+            if (checkRoads && prevPhase != Phase.Riding && prevPhase != Phase.LiftRiding &&
+                RoadContainsPoint(document, passenger.X, passenger.Y, JsRound(passenger.Z) - 1)) {
+                int nearestFloor = NearestFloorNodeOnLevel(graph, passenger.X, passenger.Y, JsRound(passenger.Z));
+                if (nearestFloor < 0) { Kill(passenger); return; }
+                passenger.X = graph.NodeX[nearestFloor];
+                passenger.Y = graph.NodeY[nearestFloor];
+                passenger.Z = graph.NodeZ[nearestFloor];
+            }
+
+            int fromNode = NearestNode(graph, passenger.X, passenger.Y, passenger.Z);
+            if (prevPhase == Phase.Riding) {
+                if (fromNode < 0) {
+                    int nTo = NearestNode(graph, prevToX, prevToY, prevToZ);
+                    int nFrom = NearestNode(graph, prevFromX, prevFromY, prevFromZ);
+                    if (nTo >= 0 && nFrom >= 0) {
+                        double dTo = SqDist3(graph, nTo, passenger.X, passenger.Y, passenger.Z);
+                        double dFrom = SqDist3(graph, nFrom, passenger.X, passenger.Y, passenger.Z);
+                        fromNode = dTo <= dFrom ? nTo : nFrom;
+                    } else {
+                        fromNode = nTo >= 0 ? nTo : nFrom;
+                    }
+                }
+                if (fromNode >= 0 && graph != null) {
+                    passenger.X = graph.NodeX[fromNode];
+                    passenger.Y = graph.NodeY[fromNode];
+                    passenger.Z = graph.NodeZ[fromNode];
+                }
+            } else if (prevPhase == Phase.LiftRiding) {
+                if (fromNode < 0) fromNode = NearestNode(graph, passenger.X, passenger.Y, passenger.Z + 1.0);
+                if (fromNode < 0) fromNode = NearestNodeAnyLevel(graph, passenger.X, passenger.Y, passenger.Z + 1.0);
+                if (fromNode >= 0 && graph != null) {
+                    passenger.X = graph.NodeX[fromNode];
+                    passenger.Y = graph.NodeY[fromNode];
+                    passenger.Z = graph.NodeZ[fromNode];
+                }
+            }
+
+            passenger.Route = null;
+            passenger.RouteGraphEpoch = graphEpoch;
+            passenger.Segment = 0;
+            passenger.Path = Array.Empty<int>();
+            passenger.PathIndex = 0;
+            passenger.AwaitingRoute = false;
+            passenger.Server = -1;
+            passenger.ServerId = "";
+            passenger.GateServer = -1;
+            passenger.GateDir = 0;
+            passenger.GateChosen = false;
+            passenger.AlignRouteStart = false;
+            ReleaseGateReservation(passenger);
+            passenger.DoorNode = -1;
+            passenger.LiftId = "";
+            passenger.LiftBoardNode = -1;
+            passenger.LiftDestNode = -1;
+            passenger.LiftBoardStop = -1;
+            passenger.LiftDestStop = -1;
+            passenger.RideT = 0;
+            passenger.RidePath = null;
+            passenger.RideTotal = 0;
+            passenger.Phase = Phase.Walking;
+            passenger.Activity = StationPassengerActivity.Walk;
+            passenger.WalkWeight = 0;
+
+            if (graph == null || planner == null || fromNode < 0) {
+                passenger.AwaitingRoute = true;
+                return;
+            }
+
+            if (passenger.Boards) {
+                string lineId = !string.IsNullOrEmpty(passenger.TargetLineId)
+                    ? passenger.TargetLineId
+                    : (document != null && document.Lines.Count > 0 ? document.Lines[0].Id : "");
+                passenger.TargetLineId = lineId;
+                var atDoor = DoorForNodeAndLine(fromNode, lineId);
+                if (atDoor != null) {
+                    passenger.Phase = Phase.Queuing;
+                    passenger.Server = atDoor.Server;
+                    passenger.ServerId = "door:" + atDoor.Id;
+                    passenger.DoorNode = fromNode;
+                    passenger.Activity = StationPassengerActivity.Queue;
+                    passenger.ActivityStart = simTime;
+                    passenger.ActivityTotal = 12;
+                    passenger.WalkWeight = 0;
+                    atDoor.Queue.Add(passenger.Id);
+                    StandAt(passenger, fromNode);
+                    return;
+                }
+                var route = PlanDoorRoute(fromNode, lineId, passenger.Needs);
+                if (route == null) {
+                    passenger.AwaitingRoute = true;
+                    return;
+                }
+                StartRebuiltRoute(passenger, route, prevPhase, prevServerId, prevGateServer >= 0, prevGateDir);
+            } else {
+                int destExit = ResolveExitNode(passenger.DestExitId);
+                passenger.DestExit = destExit;
+                if (destExit < 0) {
+                    passenger.AwaitingRoute = true;
+                    return;
+                }
+                if (fromNode == destExit) {
+                    var completeRoute = new ServiceRoute { Segments = new[] { new[] { fromNode } }, Cost = 0 };
+                    passenger.Route = completeRoute;
+                    passenger.RouteGraphEpoch = graphEpoch;
+                    passenger.Segment = 0;
+                    passenger.Path = completeRoute.Segments[0];
+                    passenger.PathIndex = 0;
+                    passenger.Phase = Phase.Walking;
+                    return;
+                }
+                var route = PlanRoute(fromNode, destExit, passenger.Needs);
+                if (route == null) {
+                    passenger.AwaitingRoute = true;
+                    return;
+                }
+                StartRebuiltRoute(passenger, route, prevPhase, prevServerId, prevGateServer >= 0, prevGateDir);
+            }
         }
 
         void StartRebuiltRoute(
@@ -1116,7 +1553,7 @@ namespace Metro.Sim {
             if (firstSeg.Length <= 1 && segments.Length > 1 && route.Lifts != null && route.Lifts.Length > 0) {
                 string liftId = route.Lifts[0];
                 int node = firstSeg.Length > 0 ? firstSeg[firstSeg.Length - 1] : -1;
-                if (liftById.TryGetValue(liftId, out LiftConnector car) && (node == car.NodeA || node == car.NodeB)) {
+                if (liftById.TryGetValue(liftId, out LiftConnector car) && (node >= 0 && Array.IndexOf(car.Landings, node) >= 0)) {
                     EndSegment(passenger);
                 }
                 return;
@@ -1127,7 +1564,7 @@ namespace Metro.Sim {
                 int nextNode = firstSeg[1];
                 if (gateByNode.TryGetValue(startNode, out GateFact startGate)) {
                     if (prevPhase == Phase.Queuing && prevServerId.StartsWith("gate:", StringComparison.Ordinal)) {
-                        int dir = CrossingDir(graph.NodeZone[startNode], graph.NodeZone[nextNode]);
+                        int dir = DirectionAtGate(startGate, startNode, nextNode);
                         if (dir == 0) dir = prevGateDir != 0 ? prevGateDir : (startGate.Mode != 0 ? startGate.Mode : 1);
                         passenger.Phase = Phase.Queuing;
                         passenger.Server = startGate.Server;
@@ -1137,8 +1574,8 @@ namespace Metro.Sim {
                         passenger.ActivityStart = simTime;
                         passenger.ActivityTotal = 12;
                         passenger.WalkWeight = 0;
-                        startGate.Queue.Add(passenger.Id);
-                        StandAt(passenger, startGate.Node);
+                        RegisterGateQueue(passenger, startGate);
+                        GateStance(passenger, startGate);
                         return;
                     }
                     if (hadPassedGate) {
@@ -1169,9 +1606,10 @@ namespace Metro.Sim {
 
         static bool RoadContainsPoint(StationSessionDocument doc, double x, double y, int cellZ) {
             if (doc == null) return false;
-            for (int i = 0; i < doc.Modules.Count; i++) {
-                var m = doc.Modules[i];
-                if (m.Type != "road" || m.Z != cellZ) continue;
+            var roads = doc.ModulesOfType("road");
+            for (int i = 0; i < roads.Count; i++) {
+                var m = roads[i];
+                if (m.Z != cellZ) continue;
                 double w = Math.Max(1, m.Width), d = Math.Max(1, m.Depth);
                 if (x >= m.X && x <= m.X + w && y >= m.Y && y <= m.Y + d) return true;
             }
@@ -1231,21 +1669,307 @@ namespace Metro.Sim {
             return graph != null && graph.NodeCount > 0 ? 0 : -1;
         }
 
+        static bool LiftLandingsMatch(LiftConnector before, LiftConnector after, Func<int, int> map) {
+            for (int i = 0; i < before.Landings.Length; i++) {
+                int old = before.Landings[i];
+                if ((old < 0 ? -1 : map(old)) != after.Landings[i]) return false;
+            }
+            return true;
+        }
+
         static int LandingNode(StationWalkGraph walkGraph, StationModuleFact module, int size, int z) {
             if (walkGraph == null) return -1;
-            if (module.HasEndpoints) {
-                int ex = z == module.FromZ ? module.FromX : module.ToX;
-                int ey = z == module.FromZ ? module.FromY : module.ToY;
-                if (walkGraph.TryNode(ex, ey, z, out int endpoint)) return endpoint;
-            }
-            for (int y = module.Y - 1; y <= module.Y + size; y++) {
-                for (int x = module.X - 1; x <= module.X + size; x++) {
-                    bool inside = x >= module.X && x < module.X + size && y >= module.Y && y < module.Y + size;
-                    if (inside) continue;
-                    if (walkGraph.TryNode(x, y, z, out int node)) return node;
+            int mask = module.LiftDoorMasks != null && module.LiftDoorMasks.TryGetValue(z, out int configured)
+                ? configured : 1;
+            double half = size * .5;
+            for (int side = 0; side < 2; side++) {
+                if ((mask & (1 << side)) == 0) continue;
+                for (int i = 0; i < size; i++) {
+                    double x = i - (size - 1) * .5;
+                    double y = (side == 0 ? -1 : 1) * (half + .5);
+                    for (int turn = (module.Rot % 4 + 4) % 4; turn > 0; turn--) (x, y) = (-y, x);
+                    if (walkGraph.TryNode(JsRound(module.X + half + x - .5),
+                            JsRound(module.Y + half + y - .5), z, out int node)) return node;
                 }
             }
             return -1;
+        }
+
+        bool CanSeparate(Passenger p) {
+            if (p.RidePath != null || p.GateServer >= 0) return false;
+            if (p.Phase == Phase.Walking) return true;
+            if (p.Phase == Phase.LiftQueuing) return true;
+            return p.Phase == Phase.Queuing && (rideByServer.ContainsKey(p.Server) ||
+                p.GateQueueOverflow && gateByServer.ContainsKey(p.Server));
+        }
+
+        void SeparateWalkers() {
+            if (graph == null || passengers.Count < 2) return;
+            collisionHeads.Clear();
+            if (collisionNext.Length < passengers.Count)
+                Array.Resize(ref collisionNext, Math.Max(64, passengers.Count * 2));
+            for (int i = 0; i < passengers.Count; i++) {
+                var p = passengers[i];
+                if (!CanSeparate(p)) continue;
+                var cell = ((int)Math.Floor(p.X), (int)Math.Floor(p.Y), JsRound(p.Z) - 1);
+                collisionNext[i] = collisionHeads.TryGetValue(cell, out int head) ? head : -1;
+                collisionHeads[cell] = i;
+            }
+            const double space = .8;
+            for (int i = 0; i < passengers.Count; i++) {
+                var p = passengers[i];
+                if (!CanSeparate(p)) continue;
+                int x = (int)Math.Floor(p.X), y = (int)Math.Floor(p.Y), z = JsRound(p.Z) - 1;
+                if (!graph.TryNode(x, y, z, out int from) || graph.ServerForNode.ContainsKey(from)) continue;
+                double px = 0, py = 0;
+                int neighbors = 0;
+                for (int dy = -1; dy <= 1; dy++) for (int dx = -1; dx <= 1; dx++) {
+                    if (!collisionHeads.TryGetValue((x + dx, y + dy, z), out int j)) continue;
+                    for (; j >= 0 && neighbors < 24; j = collisionNext[j]) {
+                        if (j == i) continue;
+                        var other = passengers[j];
+                        if (Math.Abs(p.Z - other.Z) > .3) continue;
+                        double vx = p.X - other.X, vy = p.Y - other.Y;
+                        double distance = Math.Sqrt(vx * vx + vy * vy);
+                        if (distance >= space) continue;
+                        neighbors++;
+                        if (distance < 1e-6) {
+                            double angle = p.Id * 2.399963229728653;
+                            px += Math.Cos(angle) * space * .5;
+                            py += Math.Sin(angle) * space * .5;
+                        } else {
+                            double push = (space - distance) / distance * .5;
+                            px += vx * push; py += vy * push;
+                        }
+                    }
+                }
+                double length = Math.Sqrt(px * px + py * py);
+                if (length < 1e-6) continue;
+                double scale = Math.Min(1, .2 / length);
+                double tx = p.X + px * scale, ty = p.Y + py * scale;
+                // Limit each push to a walk connection. A rotated gate, balustrade or missing
+                // support stays solid even when an agent is pushed toward it.
+                if (CanPush(from, tx, ty, z)) { p.X = tx; p.Y = ty; }
+                else if (CanPush(from, tx, p.Y, z)) p.X = tx;
+                else if (CanPush(from, p.X, ty, z)) p.Y = ty;
+            }
+        }
+
+        bool CanPush(int from, double x, double y, int z) {
+            if (!graph.TryNode((int)Math.Floor(x), (int)Math.Floor(y), z, out int to)) return false;
+            if (to == from) return true;
+            if (graph.ServerForNode.ContainsKey(to)) return false;
+            int edge = Array.IndexOf(graph.AdjTo[from], to);
+            return edge >= 0 && graph.AdjKind[from][edge] == (int)WalkEdgeKind.Walk;
+        }
+
+        void PriceCrowd() {
+            nearbyCrowd.Clear();
+            for (int i = 0; i < passengers.Count; i++) {
+                var p = passengers[i];
+                if (p.Phase != Phase.Walking && p.Phase != Phase.Queuing && p.Phase != Phase.LiftQueuing) continue;
+                int x = (int)Math.Floor(p.X), y = (int)Math.Floor(p.Y), z = JsRound(p.Z);
+                for (int dy = -2; dy <= 2; dy++) for (int dx = -2; dx <= 2; dx++) {
+                    var key = (x + dx, y + dy, z);
+                    nearbyCrowd.TryGetValue(key, out int count);
+                    if (count < StationRoutePlanner.CongestionCap) nearbyCrowd[key] = count + 1;
+                }
+            }
+        }
+
+        double CongestionAt(int node) {
+            nearbyCrowd.TryGetValue(((int)Math.Floor(graph.NodeX[node]), (int)Math.Floor(graph.NodeY[node]),
+                JsRound(graph.NodeZ[node])), out int count);
+            return StationRoutePlanner.CongestionCost(count);
+        }
+
+        // gateTraffic.ts refresh/reserve/join/leave. Decisions made earlier in this
+        // tick are visible to the next passenger, even if neither has queued yet.
+        void RefreshGateTraffic() {
+            foreach (var gate in gates) {
+                Array.Clear(gate.QueuedByDirection, 0, 3);
+                Array.Clear(gate.IncomingByDirection, 0, 3);
+                foreach (int id in gate.Queue) {
+                    var passenger = Find(id);
+                    if (passenger != null && passenger.Phase == Phase.Queuing)
+                        gate.QueuedByDirection[passenger.GateDir + 1]++;
+                }
+            }
+            foreach (var passenger in passengers) {
+                passenger.ReservedGate = null;
+                ReserveGate(passenger);
+            }
+        }
+
+        void ReleaseGateReservation(Passenger passenger) {
+            var gate = passenger.ReservedGate;
+            if (gate == null) return;
+            gate.IncomingByDirection[passenger.ReservedGateDir + 1]--;
+            passenger.ReservedGate = null;
+        }
+
+        void ReserveGate(Passenger passenger) {
+            ReleaseGateReservation(passenger);
+            if (!passenger.GateChosen || passenger.Phase != Phase.Walking || passenger.AwaitingRoute) return;
+            var gate = UpcomingGate(passenger, GateForecastSeconds * WalkSpeed, true, out int at);
+            if (gate == null) return;
+            int from = passenger.Path[at - 1];
+            int direction = DirectionAtGate(gate, from, gate.Node);
+            passenger.ReservedGate = gate;
+            passenger.ReservedGateDir = direction;
+            gate.IncomingByDirection[direction + 1]++;
+        }
+
+        GateFact UpcomingGate(Passenger passenger, double limit, bool includeRise, out int at) {
+            double x = passenger.X, y = passenger.Y, z = passenger.Z, distance = 0;
+            for (int i = passenger.PathIndex + 1; i < passenger.Path.Length; i++) {
+                int node = passenger.Path[i];
+                double dx = graph.NodeX[node] - x, dy = graph.NodeY[node] - y;
+                double dz = includeRise ? graph.NodeZ[node] - z : 0;
+                distance += Math.Sqrt(dx * dx + dy * dy + dz * dz);
+                bool immediateChoice = !includeRise && i == passenger.PathIndex + 1;
+                if (distance > limit && !immediateChoice) break;
+                if (gateByNode.TryGetValue(node, out var gate) && gate.Server != passenger.GateServer) {
+                    at = i;
+                    return gate;
+                }
+                if (distance > limit) break;
+                x = graph.NodeX[node]; y = graph.NodeY[node]; z = graph.NodeZ[node];
+            }
+            at = -1;
+            return null;
+        }
+
+        double GateWait(int server, int direction) {
+            if (!gateByServer.TryGetValue(server, out var gate)) return 0;
+            if (gate.Rate <= 0) return 600;
+            int Count(int d) => gate.QueuedByDirection[d + 1] + gate.IncomingByDirection[d + 1];
+            int neutral = Count(0);
+            double seconds;
+            if (direction == 0 || gate.Mode != 0) {
+                seconds = (Count(-1) + neutral + Count(1)) / gate.Rate;
+            } else {
+                seconds = (Count(direction) + neutral) / gate.Rate;
+                int lane = gate.Lane != 0 ? gate.Lane : Count(-1) > Count(1) ? -1 : Count(1) > 0 ? 1 : 0;
+                if (lane != 0 && lane != direction) {
+                    int opposite = -direction;
+                    double arrivals = gate.IncomingByDirection[opposite + 1] / GateForecastSeconds;
+                    double drain = Math.Max(gate.Rate * GateForecastMinDrainFraction, gate.Rate - arrivals);
+                    seconds += Count(opposite) / drain;
+                }
+            }
+            return Math.Min(600, seconds + Math.Max(0, gate.Cooldown));
+        }
+
+        void RegisterGateQueue(Passenger passenger, GateFact gate) {
+            ReleaseGateReservation(passenger);
+            gate.Queue.Add(passenger.Id);
+            gate.QueuedByDirection[passenger.GateDir + 1]++;
+            ResetGatePatience(passenger);
+        }
+
+        void ResetGatePatience(Passenger passenger) {
+            double patience = PatienceMin + (PatienceMax - PatienceMin) * IdentityUnit(passenger.Id, 0x62b9u);
+            passenger.GatePatienceAt = simTime + patience;
+        }
+
+        // World.chooseGate: a fresh search once per walking leg. A deferred decision
+        // can keep approaching, but holds before entering the gate queue.
+        bool ChooseApproachingGate(Passenger passenger) {
+            if (passenger.GateChosen) return false;
+            var gate = UpcomingGate(passenger, GateLookahead, false, out int at);
+            if (gate == null) return false;
+            if (gateReplans >= GateReplanPerTick) {
+                if (at != passenger.PathIndex + 1) return false;
+                passenger.WalkWeight = 0;
+                return true;
+            }
+
+            gateReplans++;
+            passenger.GateChosen = true;
+            ReleaseGateReservation(passenger);
+            int from = GateSearchStart(passenger, passenger.Path[at - 1]);
+            var segments = passenger.Route.Segments;
+            int goal = segments[segments.Length - 1][^1];
+            var route = PlanRoute(from, goal, passenger.Needs);
+            if (route == null) return true;
+            SetWalkingRoute(passenger, route);
+            ReserveGate(passenger);
+            return false;
+        }
+
+        int GateSearchStart(Passenger passenger, int approach) {
+            int start = NearestNode(graph, passenger.X, passenger.Y, passenger.Z);
+            // Starting on a gate cell skips its arrival charge. Use the connected approach
+            // when a body is close enough to be mapped onto the gate.
+            return start < 0 || gateByNode.ContainsKey(start) ? approach : start;
+        }
+
+        void SetWalkingRoute(Passenger passenger, ServiceRoute route) {
+            passenger.Route = route;
+            passenger.Segment = 0;
+            passenger.Path = route.Segments[0];
+            passenger.PathIndex = 0;
+            passenger.AlignRouteStart = true;
+        }
+
+        bool RerouteGateQueue(Passenger passenger, GateFact gate) {
+            if (passenger.Path.Length <= 1 || simTime <= passenger.GatePatienceAt ||
+                    patienceReplans >= RerouteReplanPerTick) return false;
+            patienceReplans++;
+            ResetGatePatience(passenger);
+            int from = GateSearchStart(passenger, passenger.Path[passenger.PathIndex]);
+            var segments = passenger.Route.Segments;
+            int goal = segments[segments.Length - 1][^1];
+            if (from == goal) return false;
+            var route = PlanRoute(from, goal, passenger.Needs);
+            if (route == null || FirstQueueServer(route.Segments[0]) == gate.Server) return false;
+
+            gate.Queue.Remove(passenger.Id);
+            gate.QueuedByDirection[passenger.GateDir + 1]--;
+            passenger.GateChosen = false;
+            passenger.Phase = Phase.Walking;
+            passenger.Server = -1;
+            passenger.ServerId = "";
+            passenger.Activity = StationPassengerActivity.Walk;
+            SetWalkingRoute(passenger, route);
+            return true;
+        }
+
+        int FirstQueueServer(int[] path) {
+            for (int i = 1; i < path.Length; i++) {
+                int server = EdgeServer(path[i - 1], path[i], out _);
+                if (rideByServer.ContainsKey(server)) return server;
+                if (gateByNode.TryGetValue(path[i], out var gate)) return gate.Server;
+            }
+            return -1;
+        }
+
+        void SpreadWalkingRoute(Passenger passenger, int from) {
+            if (walkReplans >= 4 || graph.ServerForNode.ContainsKey(from)) return;
+            int start = passenger.PathIndex, end = start;
+            double distance = 0;
+            bool crowded = false;
+            while (end + 1 < passenger.Path.Length) {
+                int a = passenger.Path[end], b = passenger.Path[end + 1];
+                if (double.IsInfinity(planner.WalkingCost(passenger.Path, end, end + 1))) break;
+                double dx = graph.NodeX[a] - graph.NodeX[b], dy = graph.NodeY[a] - graph.NodeY[b];
+                distance += Math.Sqrt(dx * dx + dy * dy);
+                if (distance > 8) break;
+                end++;
+                crowded |= CongestionAt(b) >= 3 * StationRoutePlanner.CongestionSeconds;
+            }
+            if (!crowded) return;
+            walkReplans++;
+            var detour = planner.Astar(from, passenger.Path[end], passenger.Needs, walkOnly: true);
+            if (detour == null || planner.WalkingCost(detour, 0, detour.Length - 1) + 2 >=
+                    planner.WalkingCost(passenger.Path, start, end)) return;
+            var path = new int[start + detour.Length + passenger.Path.Length - end - 1];
+            Array.Copy(passenger.Path, path, start);
+            detour.CopyTo(path, start);
+            Array.Copy(passenger.Path, end + 1, path, start + detour.Length, passenger.Path.Length - end - 1);
+            passenger.Path = path;
+            passenger.Route.Segments[passenger.Segment] = path;
         }
 
         void PublishServerCounts() {
@@ -1328,37 +2052,30 @@ namespace Metro.Sim {
 
         // --------------------------------------------------------------- routing
 
-        ServiceRoute PlanRoute(int from, int to, StationRouteNeeds needs) {
-            if (from < 0 || to < 0 || planner == null) return null;
-            var direct = planner.Search(from, to, needs);
-            if (direct.Found) return new ServiceRoute { Segments = new[] { direct.Nodes }, Cost = direct.Cost };
-            ServiceRoute best = null;
-            for (int i = 0; i < lifts.Count; i++) {
-                var lift = lifts[i];
-                TryLiftRoute(from, to, needs, lift, lift.NodeA, lift.NodeB, ref best);
-                TryLiftRoute(from, to, needs, lift, lift.NodeB, lift.NodeA, ref best);
+        static double LiftQueueWait(LiftConnector lift) => Math.Min(600, lift.Queue.Count * LiftCycleSeconds / LiftBatch);
+
+        ServiceRoute PlanRoute(int from, int to, StationRouteNeeds needs, int avoidServer = -1) {
+            if (planner == null) return null;
+            var path = planner.Astar(from, to, needs, avoidServer: avoidServer, useLifts: true);
+            if (path == null) return null;
+            double cost = planner.LastSearchCost(to);
+            List<int[]> segments = null;
+            List<string> takenLifts = null;
+            int segmentStart = 0;
+            for (int i = 1; i < path.Length; i++) {
+                string liftId = planner.LastSearchLiftInto(path[i]);
+                if (liftId == null) continue;
+                if (segments == null) {
+                    segments = new List<int[]>();
+                    takenLifts = new List<string>();
+                }
+                segments.Add(path[segmentStart..i]);
+                takenLifts.Add(liftId);
+                segmentStart = i;
             }
-            return best;
-        }
-
-        void TryLiftRoute(int from, int to, StationRouteNeeds needs, LiftConnector lift, int board, int dest, ref ServiceRoute best) {
-            if (board < 0 || dest < 0 || board == dest) return;
-            var first = planner.Search(from, board, needs);
-            if (!first.Found) return;
-            var second = planner.Search(dest, to, needs);
-            if (!second.Found) return;
-            int boardStop = board == lift.NodeA ? lift.StopA : lift.StopB;
-            int destStop = board == lift.NodeA ? lift.StopB : lift.StopA;
-            double cost = first.Cost + LiftRideSeconds(lift, boardStop, destStop) + second.Cost;
-            if (best != null && cost >= best.Cost) return;
-            best = new ServiceRoute { Segments = new[] { first.Nodes, second.Nodes }, Lifts = new[] { lift.Id }, Cost = cost };
-        }
-
-        static double LiftRideSeconds(LiftConnector lift, int fromStop, int toStop) {
-            if (lift.Stops.Length == 0) return 1.5;
-            double fromZ = lift.Stops[Math.Max(0, Math.Min(lift.Stops.Length - 1, fromStop))];
-            double toZ = lift.Stops[Math.Max(0, Math.Min(lift.Stops.Length - 1, toStop))];
-            return Math.Max(1.5, Math.Abs(toZ - fromZ) / StationSimConstants.LiftSpeed) + StationSimConstants.LiftDwellSeconds;
+            if (segments == null) return new ServiceRoute { Segments = new[] { path }, Cost = cost };
+            segments.Add(path[segmentStart..]);
+            return new ServiceRoute { Segments = segments.ToArray(), Lifts = takenLifts.ToArray(), Cost = cost };
         }
 
         /// <summary>
@@ -1404,6 +2121,9 @@ namespace Metro.Sim {
         void BeginSegment(Passenger passenger) {
             var segments = passenger.Route?.Segments;
             if (segments == null || passenger.Segment >= segments.Length) { Kill(passenger); return; }
+            ReleaseGateReservation(passenger);
+            passenger.GateChosen = false;
+            passenger.AlignRouteStart = false;
             passenger.Path = segments[passenger.Segment] ?? Array.Empty<int>();
             passenger.PathIndex = 0;
             passenger.Phase = Phase.Walking;
@@ -1416,19 +2136,19 @@ namespace Metro.Sim {
         }
 
         void EndSegment(Passenger passenger) {
+            ReleaseGateReservation(passenger);
             var segments = passenger.Route?.Segments;
             if (segments == null) { Kill(passenger); return; }
             if (passenger.Segment + 1 < segments.Length) {
                 string liftId = passenger.Route.Lifts[passenger.Segment];
                 if (!liftById.TryGetValue(liftId, out LiftConnector car)) { Stuck++; Kill(passenger); return; }
                 int node = passenger.Path.Length > 0 ? passenger.Path[passenger.Path.Length - 1] : -1;
-                if (node == car.NodeA) {
-                    passenger.LiftBoardNode = car.NodeA; passenger.LiftDestNode = car.NodeB;
-                    passenger.LiftBoardStop = car.StopA; passenger.LiftDestStop = car.StopB;
-                } else if (node == car.NodeB) {
-                    passenger.LiftBoardNode = car.NodeB; passenger.LiftDestNode = car.NodeA;
-                    passenger.LiftBoardStop = car.StopB; passenger.LiftDestStop = car.StopA;
-                } else { Stuck++; Kill(passenger); return; }
+                int dest = segments[passenger.Segment + 1][0];
+                int boardStop = Array.IndexOf(car.Landings, node);
+                int destStop = Array.IndexOf(car.Landings, dest);
+                if (node < 0 || boardStop < 0 || destStop < 0) { Stuck++; Kill(passenger); return; }
+                passenger.LiftBoardNode = node; passenger.LiftDestNode = dest;
+                passenger.LiftBoardStop = boardStop; passenger.LiftDestStop = destStop;
                 passenger.LiftId = liftId;
                 passenger.Phase = Phase.LiftQueuing;
                 passenger.ServerId = "lift:" + liftId;
@@ -1447,6 +2167,7 @@ namespace Metro.Sim {
                     passenger.Phase = Phase.Queuing;
                     passenger.Server = door.Server;
                     passenger.ServerId = "door:" + door.Id;
+                    passenger.DoorNode = endNode;
                     passenger.Activity = StationPassengerActivity.Queue;
                     passenger.ActivityStart = simTime;
                     passenger.ActivityTotal = 12;
@@ -1477,12 +2198,24 @@ namespace Metro.Sim {
                 gate.Cooldown -= Dt;
                 while (gate.Cooldown <= 0 && gate.Queue.Count > 0) {
                     int at = NextGateIndex(gate);
-                    if (at < 0) { gate.Lane = 0; break; }
+                    if (at < 0 && gate.Lane != 0) {
+                        gate.Lane = 0;
+                        at = NextGateIndex(gate);
+                    }
+                    if (at < 0) break;
                     int id = gate.Queue[at];
-                    gate.Queue.RemoveAt(at);
                     var passenger = Find(id);
+                    if (passenger != null && passenger.Path.Length > 0) {
+                        GateStance(passenger, gate);
+                        if (Math.Abs(passenger.X - passenger.StandX) + Math.Abs(passenger.Y - passenger.StandY) > .12) {
+                            gate.Cooldown = 0;
+                            break;
+                        }
+                    }
+                    gate.Queue.RemoveAt(at);
                     gate.Cooldown += 1 / Math.Max(1e-9, gate.Rate);
                     if (passenger == null) continue;
+                    gate.QueuedByDirection[passenger.GateDir + 1]--;
                     gate.Served++;
                     gate.Admitted++;
                     // A two-way lane is one lane: the first arrival commits its direction
@@ -1558,37 +2291,41 @@ namespace Metro.Sim {
                     int id = ride.Queue[0];
                     ride.Queue.RemoveAt(0);
                     var passenger = Find(id);
+                    double offset = Math.Max(-Dt, Math.Min(0, -Dt - ride.Cooldown));
                     ride.Cooldown += 1 / ride.Rate;
                     if (passenger == null) continue;
                     ride.Served++;
                     ride.Admitted++;
-                    StartRide(passenger, ride);
+                    StartRide(passenger, ride, offset);
                 }
                 if (ride.Cooldown < 0 && ride.Queue.Count == 0) ride.Cooldown = 0;
                 if (ride.Cooldown < -Dt) ride.Cooldown = -Dt;
             }
         }
 
-        void StartRide(Passenger passenger, RideFact ride) {
+        void StartRide(Passenger passenger, RideFact ride, double elapsedOffset) {
+            ReleaseGateReservation(passenger);
             passenger.Phase = Phase.Riding;
             passenger.Server = -1;
             passenger.ServerId = "ride:" + ride.Server;
-            passenger.RideT = 0;
+            passenger.RideT = elapsedOffset;
             passenger.RideTotal = Math.Max(0.2, ride.Ride);
-            passenger.FromX = passenger.X;
-            passenger.FromY = passenger.Y;
-            passenger.FromZ = passenger.Z;
+            passenger.RidePath = ride.Path;
+            passenger.RideReverse = ride.Reverse;
+            passenger.RideColumn = ride.Columns > 1 ? (ride.Served % 2 == 0 ? -.35 : .35) : 0;
+            passenger.FromX = graph.NodeX[ride.Node];
+            passenger.FromY = graph.NodeY[ride.Node];
+            passenger.FromZ = graph.NodeZ[ride.Node];
             passenger.ToX = graph.NodeX[ride.ExitNode];
             passenger.ToY = graph.NodeY[ride.ExitNode];
             passenger.ToZ = graph.NodeZ[ride.ExitNode];
             if (ride.Kind == WalkEdgeKind.Escalator) {
                 passenger.WalkWeight = 0;
-                passenger.Activity = IdentityUnit(passenger.Id, 0x62a3) < 0.5
-                    ? StationPassengerActivity.EscalatorLeft : StationPassengerActivity.Escalator;
+                bool left = ride.Columns > 1 ? passenger.RideColumn > 0 : IdentityUnit(passenger.Id, 0x62a3) < 0.5;
+                passenger.Activity = left ? StationPassengerActivity.EscalatorLeft : StationPassengerActivity.Escalator;
+                passenger.RailVariant = (ride.Columns > 1 ? 1 : 0) + (passenger.ToZ < passenger.FromZ ? 2 : 0);
             } else {
-                // A stair (or a moving walkway) is a capacity-limited ride that is
-                // animated as walking, as the source's `rideWalking` decides.
-                passenger.WalkWeight = 1;
+                passenger.WalkWeight = ride.Kind == WalkEdgeKind.Stair ? 1 : 0;
                 passenger.Activity = StationPassengerActivity.Walk;
             }
             passenger.ActivityStart = simTime;
@@ -1687,6 +2424,7 @@ namespace Metro.Sim {
         void StepPassengers() {
             for (int i = 0; i < passengers.Count; i++) {
                 var passenger = passengers[i];
+                if (passenger.Phase != Phase.Riding) passenger.RidePath = null;
                 switch (passenger.Phase) {
                     case Phase.Walking: StepWalk(passenger); break;
                     case Phase.Queuing: StepQueue(passenger); break;
@@ -1703,29 +2441,67 @@ namespace Metro.Sim {
         void StepWalk(Passenger passenger) {
             if (passenger.AwaitingRoute) { passenger.WalkWeight = 0; return; }
             double timeLeft = Dt;
+            bool checkCrowd = (passenger.Id + (long)simTime) % 8 == 0;
             int guard = 0;
             while (guard++ < 64 && timeLeft > 1e-9) {
-                if (passenger.Path.Length == 0 || passenger.PathIndex >= passenger.Path.Length - 1) { EndSegment(passenger); return; }
+                if (passenger.Path.Length == 0) { EndSegment(passenger); return; }
+                if (ChooseApproachingGate(passenger)) return;
+                if (passenger.AlignRouteStart) {
+                    int start = passenger.Path[0];
+                    if (!WalkToward(passenger, start, start, start, ref timeLeft, out bool atStart) || !atStart) return;
+                    passenger.AlignRouteStart = false;
+                    if (timeLeft <= 1e-9) return;
+                }
+                if (passenger.PathIndex >= passenger.Path.Length - 1) { EndSegment(passenger); return; }
                 int from = passenger.Path[passenger.PathIndex];
+                if (checkCrowd && Math.Abs(passenger.X - graph.NodeX[from]) + Math.Abs(passenger.Y - graph.NodeY[from]) < .05) {
+                    checkCrowd = false;
+                    SpreadWalkingRoute(passenger, from);
+                }
                 int to = passenger.Path[passenger.PathIndex + 1];
                 if (gateByNode.TryGetValue(to, out GateFact gate) && gate.Server != passenger.GateServer) {
-                    if (!WalkToward(passenger, to, from, to, ref timeLeft, out bool gateArrived)) return;
-                    if (!gateArrived) return;
-                    // The crossing direction is read across the gate, not onto it: the
-                    // next waypoint is the cell on the far side of the fare line.
-                    int after = passenger.PathIndex + 2 < passenger.Path.Length ? passenger.Path[passenger.PathIndex + 2] : to;
-                    JoinGate(passenger, gate, from, after);
+                    JoinGate(passenger, gate, from);
                     return;
                 }
                 int server = EdgeServer(from, to, out WalkEdgeKind kind);
                 if (server >= 0 && kind != WalkEdgeKind.Walk && rideByServer.TryGetValue(server, out RideFact ride)) {
+                    if (ride.Queue.Count >= 3 && TryAvoidQueue(passenger, from, ride.Server)) continue;
                     JoinRide(passenger, ride);
                     return;
                 }
                 if (!WalkToward(passenger, to, from, to, ref timeLeft, out bool arrived)) return;
                 if (!arrived) return;
                 passenger.PathIndex++;
+                if (gateByNode.ContainsKey(from)) passenger.GateServer = -1;
             }
+        }
+
+        bool TryAvoidQueue(Passenger passenger, int from, int server) {
+            if (queueReplans >= 4 ||
+                Math.Abs(passenger.X - graph.NodeX[from]) + Math.Abs(passenger.Y - graph.NodeY[from]) > .15) return false;
+            var segments = passenger.Route.Segments;
+            int goal = segments[segments.Length - 1][^1];
+            if (from == goal) return false;
+            queueReplans++;
+            var alternative = PlanRoute(from, goal, passenger.Needs, avoidServer: server);
+            if (alternative == null || alternative.Cost + 2 >= RemainingRouteCost(passenger)) return false;
+            SetWalkingRoute(passenger, alternative);
+            passenger.AlignRouteStart = false;
+            ReserveGate(passenger);
+            return true;
+        }
+
+        double RemainingRouteCost(Passenger passenger) {
+            var route = passenger.Route;
+            double cost = planner.RouteCost(passenger.Path, passenger.PathIndex, passenger.Needs);
+            double liftPenalty = StationRoutePlanner.LiftPenalty(passenger.Needs);
+            for (int i = passenger.Segment; i < route.Lifts.Length; i++) {
+                var lift = liftById[route.Lifts[i]];
+                var nextSegment = route.Segments[i + 1];
+                cost += LiftCycleSeconds + liftPenalty + LiftQueueWait(lift) + CongestionAt(nextSegment[0]);
+                cost += planner.RouteCost(nextSegment, 0, passenger.Needs);
+            }
+            return cost;
         }
 
         int EdgeServer(int from, int to, out WalkEdgeKind kind) {
@@ -1751,6 +2527,7 @@ namespace Metro.Sim {
             double dx = tx - passenger.X, dy = ty - passenger.Y;
             double dist = Math.Sqrt(dx * dx + dy * dy);
             if (dist > 1e-9) passenger.Heading = Math.Atan2(dy, dx);
+            bool tappingGate = passenger.GateServer >= 0 && simTime - passenger.ActivityStart <= 2;
             double floorSpeed = (fromNode >= 0 && toNode >= 0 && fromNode < graph.NodeSpeed.Length && toNode < graph.NodeSpeed.Length)
                 ? (graph.NodeSpeed[fromNode] + graph.NodeSpeed[toNode]) * 0.5
                 : 1.0;
@@ -1764,9 +2541,9 @@ namespace Metro.Sim {
                 }
                 passenger.X = tx; passenger.Y = ty; passenger.Z = tz;
                 arrived = true;
-                passenger.Activity = StationPassengerActivity.Walk;
+                if (!tappingGate) passenger.Activity = StationPassengerActivity.Walk;
                 passenger.WalkWeight = 1;
-                return timeLeft > 1e-9;
+                return true;
             }
             double step = budget / dist;
             passenger.X += dx * step;
@@ -1775,25 +2552,26 @@ namespace Metro.Sim {
             passenger.WalkDistance += budget;
             if (speed > 0) timeLeft -= budget / speed;
             else timeLeft = 0;
-            passenger.Activity = StationPassengerActivity.Walk;
+            if (!tappingGate) passenger.Activity = StationPassengerActivity.Walk;
             passenger.WalkWeight = 1;
             return false;
         }
 
-        void JoinGate(Passenger passenger, GateFact gate, int from, int to) {
+        void JoinGate(Passenger passenger, GateFact gate, int from) {
             passenger.Phase = Phase.Queuing;
             passenger.Server = gate.Server;
             passenger.ServerId = "gate:" + gate.Id;
-            passenger.GateDir = CrossingDir(graph.NodeZone[from], graph.NodeZone[to]);
+            passenger.GateDir = DirectionAtGate(gate, from, gate.Node);
             passenger.Activity = StationPassengerActivity.Wait;
             passenger.ActivityStart = simTime;
             passenger.ActivityTotal = 12;
             passenger.WalkWeight = 0;
-            gate.Queue.Add(passenger.Id);
-            StandAt(passenger, gate.Node);
+            RegisterGateQueue(passenger, gate);
+            GateStance(passenger, gate);
         }
 
         void JoinRide(Passenger passenger, RideFact ride) {
+            ReleaseGateReservation(passenger);
             passenger.Phase = Phase.Queuing;
             passenger.Server = ride.Server;
             passenger.ServerId = "ride:" + ride.Server;
@@ -1806,13 +2584,21 @@ namespace Metro.Sim {
         }
 
         void StepRide(Passenger passenger) {
-            passenger.RideT += Dt;
-            double k = passenger.RideTotal > 0 ? Math.Min(1, passenger.RideT / passenger.RideTotal) : 1;
-            passenger.X = passenger.FromX + (passenger.ToX - passenger.FromX) * k;
-            passenger.Y = passenger.FromY + (passenger.ToY - passenger.FromY) * k;
-            passenger.Z = passenger.FromZ + (passenger.ToZ - passenger.FromZ) * k;
-            double dx = passenger.ToX - passenger.FromX, dy = passenger.ToY - passenger.FromY;
-            if (Math.Abs(dx) + Math.Abs(dy) > 1e-9) passenger.Heading = Math.Atan2(dy, dx);
+            double before = Math.Max(0, passenger.RideT);
+            passenger.RideT = Math.Min(passenger.RideTotal, passenger.RideT + Dt);
+            double k = passenger.RideT / passenger.RideTotal;
+            if (passenger.RidePath != null) {
+                passenger.RidePath.Sample(k, passenger.RideReverse, passenger.RideColumn,
+                    out passenger.X, out passenger.Y, out passenger.Z, out passenger.Heading);
+            } else {
+                passenger.X = passenger.FromX + (passenger.ToX - passenger.FromX) * k;
+                passenger.Y = passenger.FromY + (passenger.ToY - passenger.FromY) * k;
+                passenger.Z = passenger.FromZ + (passenger.ToZ - passenger.FromZ) * k;
+                passenger.Heading = Math.Atan2(passenger.ToY - passenger.FromY, passenger.ToX - passenger.FromX);
+            }
+            if (passenger.Activity == StationPassengerActivity.Walk && passenger.WalkWeight > .5)
+                passenger.WalkDistance += ((passenger.RidePath?.Length ?? passenger.RideTotal) / passenger.RideTotal) *
+                    (passenger.RideT - before);
             if (k < 1) return;
             passenger.Phase = Phase.Walking;
             passenger.ServerId = "";
@@ -1852,7 +2638,8 @@ namespace Metro.Sim {
             passenger.Activity = StationPassengerActivity.Walk;
             passenger.WalkWeight = 1;
             int exit = passenger.DestExit >= 0 ? passenger.DestExit : ResolveExitNode(passenger.DestExitId);
-            var route = PlanRoute(passenger.DoorNode, exit, StationRouteNeeds.Walking);
+            var route = PlanRoute(passenger.DoorNode, exit, passenger.Needs);
+            passenger.DoorNode = -1;
             if (route == null) { Stuck++; Kill(passenger); return; }
             passenger.Phase = Phase.Walking;
             BeginRoute(passenger, route);
@@ -1860,11 +2647,10 @@ namespace Metro.Sim {
 
         void StepLiftRide(Passenger passenger) {
             if (passenger.LiftId == null || !liftById.TryGetValue(passenger.LiftId, out LiftConnector car)) { passenger.Phase = Phase.Walking; return; }
-            if (passenger.LiftBoardNode >= 0) {
-                passenger.X = graph.NodeX[passenger.LiftBoardNode] + (passenger.Id % 3 - 1) * 0.06;
-                passenger.Y = graph.NodeY[passenger.LiftBoardNode] + (passenger.Id % 2) * 0.06;
-            }
-            passenger.Z = car.CarZ;
+            int seat = car.Riders.IndexOf(passenger.Id);
+            passenger.X = car.X + (seat % 3 - 1) * .36;
+            passenger.Y = car.Y + (seat / 3 - 2) * .27;
+            passenger.Z = car.CarZ + 1;
             passenger.WalkWeight = 0;
         }
 
@@ -1877,10 +2663,24 @@ namespace Metro.Sim {
                 return;
             }
             if (passenger.Server < 0) { passenger.Phase = Phase.Walking; return; }
+            if (gateByServer.TryGetValue(passenger.Server, out var gate) && passenger.Path.Length > 0) {
+                if (RerouteGateQueue(passenger, gate)) return;
+                GateStance(passenger, gate);
+                int approach = Math.Min(passenger.PathIndex + 1, passenger.Path.Length - 1);
+                if (passenger.Path[approach] != gate.Node) return;
+            }
             double dx = passenger.StandX - passenger.X, dy = passenger.StandY - passenger.Y;
             double dist = Math.Sqrt(dx * dx + dy * dy);
             if (dist > 1e-9) passenger.Heading = Math.Atan2(dy, dx);
             double budget = passenger.Speed * Dt;
+            if (dist > .05) {
+                passenger.Activity = StationPassengerActivity.Walk;
+                passenger.WalkWeight = 1;
+            } else if (passenger.Activity == StationPassengerActivity.Walk) {
+                passenger.Activity = StationPassengerActivity.Wait;
+                passenger.ActivityStart = simTime;
+                passenger.WalkWeight = 0;
+            }
             if (dist <= budget) { passenger.WalkDistance += dist; passenger.X = passenger.StandX; passenger.Y = passenger.StandY; return; }
             double step = budget / dist;
             passenger.X += dx * step;
@@ -2060,8 +2860,12 @@ namespace Metro.Sim {
                 // `sampleTripFromTrain`), not when the rider reaches the platform.
                 DestExit = destExit,
                 DestExitId = destExitId,
-                Needs = StationRouteNeeds.Walking,
                 RouteGraphEpoch = graphEpoch,
+            };
+            // Sample the same mobility mix as street arrivals without changing the demand RNG.
+            passenger.Needs = new StationRouteNeeds {
+                StepFree = IdentityUnit(passenger.Id, 0x17832bd1u) < StepFreeChance,
+                Luggage = IdentityUnit(passenger.Id, 0xb17f0c83u) < LuggageChance,
             };
             passenger.IdentityFactor = 0.9 + IdentityUnit(passenger.Id, 0x85a308d3u) * 0.2;
             passenger.Speed = WalkSpeed * passenger.IdentityFactor;
@@ -2213,13 +3017,36 @@ namespace Metro.Sim {
 
         // ---------------------------------------------------------------- helpers
 
-        static int CrossingDir(int fromZone, int toZone) {
-            // ZONES: 0=none, 1=outside, 2=unpaid, 3=paid, 4=platform, 5=restricted.
-            bool fromPaid = fromZone >= 3 && fromZone <= 5;
-            bool toPaid = toZone >= 3 && toZone <= 5;
-            if (!fromPaid && toPaid) return 1;
-            if (fromPaid && !toPaid) return -1;
-            return 0;
+        int DirectionAtGate(GateFact gate, int from, int to) =>
+            StationWalkGraphBuilder.GateTravelDirection(gate.Rotation, (int)(graph.NodeX[to] - graph.NodeX[from]),
+                (int)(graph.NodeY[to] - graph.NodeY[from]));
+
+        void GateStance(Passenger passenger, GateFact gate) {
+            int rank = 0;
+            for (int i = 0; i < gate.Queue.Count && gate.Queue[i] != passenger.Id; i++) {
+                var ahead = Find(gate.Queue[i]);
+                if (ahead != null && ahead.GateDir == passenger.GateDir) rank++;
+            }
+            int side = passenger.GateDir == 0 ? 1 : passenger.GateDir;
+            int rot = (gate.Rotation % 4 + 4) % 4;
+            int dx = rot == 1 ? -side : rot == 3 ? side : 0;
+            int dy = rot == 0 ? side : rot == 2 ? -side : 0;
+            double x = graph.NodeX[gate.Node], y = graph.NodeY[gate.Node];
+            int cx = (int)Math.Floor(x), cy = (int)Math.Floor(y);
+            int z = JsRound(graph.NodeZ[gate.Node]) - 1;
+            int last = gate.Node;
+            double tail = .65 + .58 * rank;
+            double reached = 0;
+            for (int n = 1; n <= Math.Ceiling(tail); n++) {
+                if (!graph.TryNode(cx - dx * n, cy - dy * n, z, out int next) ||
+                    graph.ServerForNode.ContainsKey(next) || Array.IndexOf(graph.AdjTo[last], next) < 0) break;
+                last = next;
+                reached = n;
+            }
+            double offset = Math.Min(tail, reached);
+            passenger.GateQueueOverflow = tail > reached && rank > 0;
+            passenger.StandX = x - dx * offset;
+            passenger.StandY = y - dy * offset;
         }
 
         void StandAt(Passenger passenger, int node) {
@@ -2254,6 +3081,7 @@ namespace Metro.Sim {
         }
 
         void Kill(Passenger passenger) {
+            ReleaseGateReservation(passenger);
             passenger.Phase = Phase.Dead;
         }
 
@@ -2272,6 +3100,12 @@ namespace Metro.Sim {
                 X = passenger.X, Y = passenger.Y, Z = passenger.Z,
                 Heading = passenger.Heading,
                 Activity = passenger.Activity,
+                RidePath = passenger.RidePath,
+                RideProgress = passenger.RideTotal > 0 ? passenger.RideT / passenger.RideTotal : 0,
+                RideSeconds = passenger.RideTotal,
+                RideColumn = passenger.RideColumn,
+                RideReverse = passenger.RideReverse,
+                RailVariant = passenger.RailVariant,
                 WalkDistance = passenger.WalkDistance,
                 WalkPhase = passenger.WalkPhase,
                 WalkWeight = passenger.WalkWeight,
@@ -2282,7 +3116,7 @@ namespace Metro.Sim {
             switch (passenger.Phase) {
                 case Phase.Walking:
                     frame.State = StationPassengerState.Walking;
-                    frame.ActivitySeconds = 0;
+                    frame.ActivitySeconds = Math.Max(0, elapsed);
                     break;
                 case Phase.Queuing:
                 case Phase.LiftQueuing:
@@ -2290,6 +3124,9 @@ namespace Metro.Sim {
                     frame.ActivitySeconds = passenger.ActivityTotal > 0 ? Clamp(elapsed, 0, passenger.ActivityTotal) : 0;
                     break;
                 case Phase.Riding:
+                    frame.State = StationPassengerState.Riding;
+                    frame.ActivitySeconds = passenger.RideT;
+                    break;
                 case Phase.LiftRiding:
                     frame.State = StationPassengerState.Riding;
                     frame.ActivitySeconds = passenger.ActivityTotal > 0 ? Clamp(elapsed, 0, passenger.ActivityTotal) : 0;

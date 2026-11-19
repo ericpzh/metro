@@ -564,7 +564,7 @@ namespace Metro.App.Views {
                     : null;
                 var scope = current?.Displays;
                 if (scope == null) return;
-                var host = UnityEngine.Object.FindAnyObjectByType<StationGameHost>();
+                var host = StationGameHost.ResolveActive();
                 var session = host != null ? (host.Simulation as StationSimulationHost)?.Session : null;
                 if (session == null) return;
                 var frame = session.Snapshot();

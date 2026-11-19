@@ -130,6 +130,13 @@ namespace Metro.App {
 
         public bool IsWorkerRunning => workerProcess != null && !workerProcess.HasExited;
         public bool IsWebReady => webReady;
+
+        /// <summary>
+        /// When true (`-metroBenchOut`), ignores physical OS mouse/keyboard polling so synthetic
+        /// benchmark pointer gestures are never perturbed by ambient cursor movement while keeping
+        /// the full WebView2 RawImage overlay visible and composited every frame.
+        /// </summary>
+        public bool SuppressPhysicalInput { get; set; }
         public int PresentedFrameCount => presentedFrames;
         public int TextureWidth => surfaceTexture != null ? surfaceTexture.width : 0;
         public int TextureHeight => surfaceTexture != null ? surfaceTexture.height : 0;
@@ -306,7 +313,7 @@ namespace Metro.App {
             }
 
             SyncViewportSize();
-            if (!smokeSuppressed) {
+            if (!smokeSuppressed && !SuppressPhysicalInput) {
                 ForwardMouseInput();
                 ForwardKeyboardButtons();
             }
@@ -537,7 +544,7 @@ namespace Metro.App {
 
         void OnMouseButtonEvent(InputEventPtr inputEvent, InputDevice device) {
             if (!webReady || activeClient == null || !isActiveAndEnabled ||
-                smokeSuppressed || device is not Mouse mouse || mouse != Mouse.current) return;
+                smokeSuppressed || SuppressPhysicalInput || device is not Mouse mouse || mouse != Mouse.current) return;
 
             int previous =
                 (mouse.leftButton.isPressed ? 1 : 0) |
@@ -651,6 +658,9 @@ namespace Metro.App {
             SendKey(ev, vk, domKey, domCode, modifiers);
 
         void SendMouse(string ev, double x, double y, string button, int buttons, int modifiers, int clicks, double dx, double dy) {
+            if (string.Equals(ev, "up", StringComparison.Ordinal)) {
+                StationEditProfiling.NoteNativePointerRelease();
+            }
             EnqueueToWorker(new JObject {
                 ["kind"] = "mouse",
                 ["ev"] = ev,
@@ -703,7 +713,7 @@ namespace Metro.App {
         }
 
         void OnTextInput(char ch) {
-            if (!webReady || activeClient == null || smokeSuppressed) return;
+            if (!webReady || activeClient == null || smokeSuppressed || SuppressPhysicalInput) return;
             if (ch < ' ' || ch == 127) return;
             var kb = Keyboard.current;
             if (kb != null && (kb.ctrlKey.isPressed || kb.altKey.isPressed || kb.leftMetaKey.isPressed || kb.rightMetaKey.isPressed)) {
@@ -983,6 +993,7 @@ namespace Metro.App {
 #else
         public bool IsWorkerRunning => false;
         public bool IsWebReady => false;
+        public bool SuppressPhysicalInput { get; set; }
         public int PresentedFrameCount => 0;
         public int TextureWidth => 0;
         public int TextureHeight => 0;

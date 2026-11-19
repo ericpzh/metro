@@ -56,6 +56,20 @@ namespace Metro.App {
     }
 
     /// <summary>
+    /// Optional local-delta staging support on top of <see cref="IStationSimulationHost"/> so
+    /// ordinary cell/module edits stage incremental topology without scanning the full document,
+    /// while custom mock <see cref="IStationSimulationHost"/> implementations remain compatible.
+    /// </summary>
+    public interface IStationLocalSimulationHost : IStationSimulationHost {
+        void StageLocalInstall(
+            StationDocument document,
+            StationIndex index,
+            StationReadResult committedRead,
+            StationReadResult nextRead,
+            StationDocumentEditKind? editKind = null);
+    }
+
+    /// <summary>
     /// A snapshot key a packet owns (camera/view/finishes/…). The host merges every
     /// contributor into each `state`/commit payload, so no packet edits the host.
     /// </summary>
@@ -92,6 +106,7 @@ namespace Metro.App {
         public StationDocumentEditKind? EditKind;
         public StationCameraBounds CameraBounds;
         public StationViewSummary View;
+        public StationLocalViewCommit LocalView;
         public IReadOnlyList<StationDiagnostic> Diagnostics;
     }
 
@@ -130,11 +145,14 @@ namespace Metro.App {
         /// and project only the records it touched (plan 30 §3).
         /// </summary>
         StationReadResult committedRead;
+        StationReadResult previousCommittedRead;
+        int previousCommittedRevision;
         StationCameraBounds cameraBounds;
         IStationSimulationHost simulation;
         int revision;
         string sourceId = "";
         string sourceHash = "";
+        int sourceHashRevision = -1;
         bool disposed;
 
         public StationLoadCoordinator(Transform parent) {
@@ -153,11 +171,24 @@ namespace Metro.App {
         public StationIndex Index => index;
         /// <summary>The committed read result, including the normalized envelope tree (plan 30 §3).</summary>
         public StationReadResult CommittedRead => committedRead;
+        public StationReadResult PreviousCommittedRead => previousCommittedRead;
+        public int PreviousCommittedRevision => previousCommittedRevision;
         public StationWorldView World => world;
         public StationCameraBounds CameraBounds => cameraBounds;
         public int Revision => revision;
         public string SourceId => sourceId;
-        public string SourceHash => sourceHash;
+        public string SourceHash => EnsureSourceHash();
+        public int SourceHashRevision => sourceHashRevision;
+        public bool HasCurrentSourceHash => !string.IsNullOrEmpty(sourceHash) && sourceHashRevision == revision;
+        public string PeekSourceHash() => HasCurrentSourceHash ? sourceHash : null;
+
+        public string EnsureSourceHash() {
+            if (HasCurrentSourceHash) return sourceHash;
+            if (document == null) return "";
+            sourceHash = document.EnsureContentHash() ?? "";
+            sourceHashRevision = revision;
+            return sourceHash;
+        }
         public bool IsLoaded => document != null;
         public IStationSimulationHost Simulation => simulation;
         /// <summary>Scene assets copied into every candidate world before Build().</summary>
@@ -236,20 +267,32 @@ namespace Metro.App {
                     : StationEditClassifier.Classify(document, read.Document); }
                 catch (Exception) { editKind = StationDocumentEditKind.Structural; }
             }
-            StationWorldView.LocalModuleStage localView = null;
+            StationWorldView.LocalWorldStage localView = null;
             try {
-                if (isEdit && world != null && ReferenceEquals(read.LocalParent, committedRead))
-                    localView = world.StageLocalModules(read.Document, read.Index, read.LocalDelta);
+                if (isEdit && world != null && ReferenceEquals(read.LocalParent, committedRead) && read.LocalDelta != null)
+                    localView = world.StageLocalWorld(read.Document, read.Index, read.LocalDelta);
+            } catch (StationViewBuildException error) {
+                return StationLoadResult.Rejected(new StationRejection("render-failed", StationRecordKind.Document,
+                    "renderer", error.Role, error.Message), revision);
             } catch (Exception error) {
                 return StationLoadResult.Rejected(new StationRejection("render-failed", StationRecordKind.Document,
-                    "renderer", "local-modules", error.Message), revision);
+                    "renderer", "local-world", error.Message), revision);
             }
+            bool isLocalChild = isEdit && document != null &&
+                                ReferenceEquals(read.LocalParent, committedRead) &&
+                                read.LocalDelta != null;
             bool retained = localView != null;
             var candidate = retained ? world : new StationWorldView(parent, "Station " + (string.IsNullOrEmpty(id) ? read.Document.Name : id), renderers, Assets);
             IStationSimulationHost stageTarget = simulation;
             try {
                 if (!retained) candidate.Build(read.Document, read.Index);
-                if (stageTarget != null) stageTarget.StageInstall(read.Document, read.Index, isEdit && document != null, editKind);
+                if (stageTarget != null) {
+                    if (isLocalChild && stageTarget is IStationLocalSimulationHost localSim) {
+                        localSim.StageLocalInstall(read.Document, read.Index, committedRead, read, editKind);
+                    } else {
+                        stageTarget.StageInstall(read.Document, read.Index, isEdit && document != null, editKind);
+                    }
+                }
             } catch (StationViewBuildException error) {
                 AbortLocal(candidate, stageTarget, localView);
                 return StationLoadResult.Rejected(new StationRejection("render-failed", StationRecordKind.Document,
@@ -269,10 +312,15 @@ namespace Metro.App {
             }
 
             var previous = world;
+            previousCommittedRead = committedRead;
+            previousCommittedRevision = revision;
             var nextRevision = revision + 1;
             world = candidate;
-            if (retained) world.CommitLocalModules(localView);
-            else {
+            StationLocalViewCommit localCommit = null;
+            if (retained) {
+                localCommit = world.CommitLocalWorld(localView);
+                StationScenePicker.ApplyLocalCommit(world, localCommit, read.LocalDelta);
+            } else {
                 world.Activate();
                 BeforePreviousDispose?.Invoke(previous);
                 previous?.Dispose();
@@ -281,14 +329,20 @@ namespace Metro.App {
             index = read.Index;
             committedRead = read;
             revision = nextRevision;
-            sourceId = string.IsNullOrEmpty(id) ? read.Document.Source.Hash : id;
-            sourceHash = read.Document.Source.Hash;
+            string materializedHash = read.Document.PeekMaterializedHash();
+            sourceId = !string.IsNullOrEmpty(id) ? id : (!string.IsNullOrEmpty(materializedHash) ? materializedHash : sourceId);
+            if (!string.IsNullOrEmpty(materializedHash)) {
+                sourceHash = materializedHash;
+                sourceHashRevision = revision;
+            } else {
+                sourceHash = "";
+            }
             cameraBounds = ComputeCameraBounds(read.Index);
 
             var info = new StationCommitInfo {
                 Document = document, Index = index, Revision = revision, SourceId = sourceId,
-                SourceHash = sourceHash, IsEdit = isEdit && previous != null, EditKind = editKind,
-                CameraBounds = cameraBounds,
+                SourceHash = PeekSourceHash() ?? "", IsEdit = isEdit && previous != null, EditKind = editKind,
+                CameraBounds = cameraBounds, LocalView = localCommit,
                 View = world.Summary(), Diagnostics = Merge(read.Diagnostics, world.Unresolved),
             };
             Committed?.Invoke(info);
@@ -298,7 +352,7 @@ namespace Metro.App {
             };
         }
 
-        static void AbortLocal(StationWorldView candidate, IStationSimulationHost simulation, StationWorldView.LocalModuleStage local) {
+        static void AbortLocal(StationWorldView candidate, IStationSimulationHost simulation, StationWorldView.LocalWorldStage local) {
             if (local == null) { Abort(candidate, simulation); return; }
             try { simulation?.AbortInstall(); } catch (Exception) { }
             local.Dispose();
@@ -414,7 +468,9 @@ namespace Metro.App {
     /// the session's flat projection from the typed document; the session itself
     /// never sees JSON, Prefabs or the scene.
     /// </summary>
-    public sealed class StationSimulationHost : IStationSimulationHost, IStationSimulationCommands {
+    public sealed class StationSimulationHost : IStationLocalSimulationHost, IStationSimulationCommands {
+        public static Action<StationDocument> SimStageFailureInjector { get; set; }
+
         StationSimulationSession pendingSession;
         StagedStationDocumentEdit pendingEdit;
         StationDocument pendingDocument;
@@ -427,26 +483,65 @@ namespace Metro.App {
         public void StageInstall(StationDocument document, StationIndex index, bool isEdit = false,
             StationDocumentEditKind? editKind = null) {
             using var editSample = StationEditProfiling.Measure("StationEdit.StageInstall");
+            using var traceSample = StationEditTrace.Measure("Sim.StageInstall");
             pendingSession = null;
             pendingEdit = null;
             pendingDocument = document;
             pendingIsEdit = false;
+            SimStageFailureInjector?.Invoke(document);
             if (isEdit && session != null && committedDocument != null) {
+                StationEditTrace.NoteSimFallback("full-stage-install");
                 var kind = editKind ?? StationEditClassifier.Classify(committedDocument, document);
                 var projectedDoc = StationSessionProjection.Document(document, index);
                 var projectedDay = StationSessionProjection.Day(document.Day);
                 pendingEdit = session.StageDocumentEdit(projectedDoc, projectedDay, kind);
                 pendingIsEdit = true;
+                StationEditTrace.SetGraphCounts(pendingEdit.WalkGraph?.NodeCount ?? 0, pendingEdit.RebuiltNodeCount, 0);
                 return;
             }
             var setup = StationSessionProjection.Setup(document, index, "sim-" + (document.Source.Hash ?? ""));
             pendingSession = new StationSimulationSession(setup);
         }
 
+        public void StageLocalInstall(
+            StationDocument document,
+            StationIndex index,
+            StationReadResult committedRead,
+            StationReadResult nextRead,
+            StationDocumentEditKind? editKind = null) {
+            using var editSample = StationEditProfiling.Measure("StationEdit.StageLocalInstall");
+            using var traceSample = StationEditTrace.Measure("Sim.StageLocalInstall");
+            pendingSession = null;
+            pendingEdit = null;
+            pendingDocument = document;
+            pendingIsEdit = false;
+            SimStageFailureInjector?.Invoke(document);
+            if (session == null || committedDocument == null || committedRead == null || nextRead == null ||
+                !ReferenceEquals(committedDocument, committedRead.Document) || nextRead.LocalDelta == null) {
+                StationEditTrace.NoteSimFallback("missing-local-parent");
+                StageInstall(document, index, isEdit: true, editKind: editKind);
+                return;
+            }
+            var kind = editKind ?? StationEditClassifier.ClassifyLocal(committedRead, nextRead);
+            var simDelta = StationSessionProjection.Delta(nextRead.LocalDelta, document, committedRead.Index, index);
+            var projectedDay = StationSessionProjection.Day(document.Day);
+            string nextStationId = string.IsNullOrEmpty(document.Source.Hash) ? null : document.Source.Hash;
+            pendingEdit = session.StageCellDelta(nextStationId, document.LevelBase, projectedDay, simDelta, kind);
+            pendingIsEdit = true;
+            if (pendingEdit.UsedIncrementalGraph) {
+                StationEditTrace.NoteIncrementalGraph();
+            } else if (!string.IsNullOrEmpty(pendingEdit.FallbackReason)) {
+                StationEditTrace.NoteSimFallback(pendingEdit.FallbackReason);
+            }
+            StationEditTrace.SetGraphCounts(pendingEdit.WalkGraph?.NodeCount ?? 0, pendingEdit.RebuiltNodeCount, 0);
+        }
+
         public void CommitInstall() {
             using var editSample = StationEditProfiling.Measure("StationEdit.CommitInstall");
+            using var traceSample = StationEditTrace.Measure("Sim.CommitInstall");
             if (pendingIsEdit && session != null) {
                 session.CommitDocumentEdit(pendingEdit);
+                StationEditTrace.SetGraphCounts(session.WalkGraph?.NodeCount ?? 0, 0, session.Services?.LastReconciledPassengers ?? 0);
                 committedDocument = pendingDocument;
                 pendingEdit = null;
                 pendingDocument = null;
@@ -567,52 +662,201 @@ namespace Metro.App {
             return StationClock.NormalizeDay(raw);
         }
 
+        public static StationCellFact CellFact(StationCellRecord cell) {
+            return new StationCellFact {
+                X = cell.X, Y = cell.Y, Z = cell.Z,
+                Solid = cell.IsSolid,
+                Zone = ZoneIndex(cell.Zone),
+                Speed = cell.IsSolid ? FloorSpeed(cell.FinishTop) : 0,
+            };
+        }
+
+        public static StationModuleFact ModuleFact(StationModuleRecord module, IReadOnlyList<ModuleFacts> exits = null) {
+            var cfg = module.Config;
+            var fact = new StationModuleFact {
+                Id = module.Id, Type = module.Type,
+                X = module.X, Y = module.Y, Z = module.Z, Rot = module.Rotation,
+                Width = module.Width, Depth = module.Depth, Height = module.Height,
+                LineId = cfg.Text("line"),
+                Name = cfg.Text("name"),
+                HeadHouse = module.Type == "exit" && (!cfg.Has("headHouse") || cfg.Bool("headHouse")),
+                Dir = cfg.Text("dir"),
+                Side = cfg.Text("side"),
+                Variant = cfg.Text("variant"),
+                RailId = cfg.Text("from"),
+                GateDir = GateDir(cfg.Text("dir")),
+                GateOpen = module.Type == "gate",
+                GateHasLane = module.Type != "gate" || OpeningModuleViews.GateHasLane(cfg.Text("door")),
+                Tunnel = cfg.Bool("tunnel"),
+                Bridge = cfg.Bool("bridge"),
+                Block = cfg.Bool("block"),
+                HasEndpoints = module.HasFrom && module.HasTo,
+                RunLength = 0,
+            };
+            if (module.HasFrom) {
+                fact.FromX = (int)Math.Round(module.From.Value.X);
+                fact.FromY = (int)Math.Round(module.From.Value.Y);
+                fact.FromZ = (int)Math.Round(module.From.Value.Z);
+            }
+            if (module.HasTo) {
+                fact.ToX = (int)Math.Round(module.To.Value.X);
+                fact.ToY = (int)Math.Round(module.To.Value.Y);
+                fact.ToZ = (int)Math.Round(module.To.Value.Z);
+            }
+            if (fact.Type == "lift") {
+                fact.Width = cfg.Number("size", 2) == 3 ? 3 : 2;
+                var riseObject = SafeLine("{\"rises\":" + cfg.Json("rises") + "}");
+                var rises = new List<int>();
+                if (riseObject?["rises"] is JArray riseArray)
+                    foreach (var rise in riseArray) rises.Add(rise.Type == JTokenType.Integer ? (int)rise : 0);
+                fact.LiftRises = rises.ToArray();
+                var doors = SafeLine(cfg.Json("doors"));
+                fact.LiftDoorMasks = new Dictionary<int, int>();
+                if (doors != null) foreach (var entry in doors.Properties()) {
+                    if (!int.TryParse(entry.Name, out int level) || entry.Value.Type != JTokenType.String) continue;
+                    var side = (string)entry.Value;
+                    fact.LiftDoorMasks[level] = side == "none" ? 0 : side == "back" ? 2 : side == "both" ? 3 : 1;
+                }
+            }
+            if (fact.HasEndpoints && (fact.Type == "stair" || fact.Type == "escalator" || fact.Type == "walkway")) {
+                fact.RidePath = RampWalkingLine(module, exits);
+                if (fact.Type != "stair")
+                    fact.RideColumns = StationRunGeometry.EscalatorWidth(module.Facts) > 1 ? 2 : 1;
+            }
+            return fact;
+        }
+
+        static StationRidePath RampWalkingLine(StationModuleRecord module, IReadOnlyList<ModuleFacts> exits) {
+            var m = module.Facts;
+            if (m == null || m.From.HasValue == false || m.To.HasValue == false) return null;
+            var points = new List<(double X, double Y, double Z)>();
+            void Add(StationRunPoint p, double lift = 0) {
+                var point = (p.X + .5, p.Y + .5, p.Z + 1 + lift);
+                if (points.Count == 0 || points[points.Count - 1] != point) points.Add(point);
+            }
+
+            var start = new StationRunPoint(m.From.X, m.From.Y, m.From.Z);
+            var end = new StationRunPoint(m.To.X, m.To.Y, m.To.Z);
+            Add(start);
+            if (module.Type == "stair") {
+                var flights = StationRunGeometry.StairFlights(m);
+                var slides = StationRunGeometry.StairFlightSlides(m, flights);
+                for (int i = 0; i < flights.Count; i++) {
+                    var flight = flights[i];
+                    var a = flight.From;
+                    var b = flight.To;
+                    double dx = b.X - a.X, dy = b.Y - a.Y;
+                    double run = Math.Sqrt(dx * dx + dy * dy);
+                    var slide = slides[i];
+                    double trim = run > 0 && !module.Config.Bool("block") ? StationRunGeometry.StairTreadTrim(run) / run : 0;
+                    double liftA = StationRampOpenings.ExitLandingHeight(exits, a);
+                    double liftB = StationRampOpenings.ExitLandingHeight(exits, b);
+                    Add(new StationRunPoint(a.X + slide.X, a.Y + slide.Y, a.Z), liftA);
+                    Add(new StationRunPoint(a.X + slide.X + dx * trim, a.Y + slide.Y + dy * trim, a.Z), liftA);
+                    Add(new StationRunPoint(b.X + slide.X - dx * trim, b.Y + slide.Y - dy * trim, b.Z), liftB);
+                    Add(new StationRunPoint(b.X + slide.X, b.Y + slide.Y, b.Z), liftB);
+                }
+            } else {
+                double liftA = StationRampOpenings.ExitLandingHeight(exits, start);
+                double liftB = StationRampOpenings.ExitLandingHeight(exits, end);
+                StationRunGeometry.EscalatorRun(m, out var a, out var b);
+                StationRunGeometry.EscalatorInclineRun(m, out var innerA, out var innerB, out _, liftB - liftA);
+                Add(a, liftA);
+                Add(innerA, liftA);
+                Add(innerB, liftB);
+                Add(b, liftB);
+            }
+            Add(end);
+            return points.Count > 1 ? new StationRidePath(points.ToArray()) : null;
+        }
+
+        static List<ModuleFacts> ExitFacts(StationDocument document, StationIndex index = null) {
+            var result = new List<ModuleFacts>();
+            if (index != null) {
+                var exits = index.ModulesOfType("exit");
+                for (int i = 0; i < exits.Count; i++) result.Add(exits[i].Facts);
+                return result;
+            }
+            if (document != null) foreach (var m in document.Modules) if (m.Type == "exit") result.Add(m.Facts);
+            return result;
+        }
+
+        public static StationSessionDelta Delta(
+            StationIndexDelta delta,
+            StationDocument nextDocument = null,
+            StationIndex prevIndex = null,
+            StationIndex nextIndex = null) {
+            var result = new StationSessionDelta();
+            if (delta == null) return result;
+            for (int i = 0; i < delta.RemovedCells.Count; i++) {
+                var key = delta.RemovedCells[i];
+                result.RemovedCells.Add((key.X, key.Y, key.Z));
+            }
+            for (int i = 0; i < delta.ChangedCells.Count; i++) {
+                result.ChangedCells.Add(CellFact(delta.ChangedCells[i]));
+            }
+            for (int i = 0; i < delta.RemovedModules.Count; i++) {
+                result.RemovedModules.Add(delta.RemovedModules[i]);
+            }
+
+            bool hasModuleDelta = delta.ChangedModules.Count > 0 || delta.RemovedModules.Count > 0;
+            bool exitChanged = false;
+            if (hasModuleDelta) {
+                for (int i = 0; i < delta.ChangedModules.Count; i++) {
+                    if (delta.ChangedModules[i].Type == "exit") { exitChanged = true; break; }
+                    if (prevIndex != null && prevIndex.TryGetModule(delta.ChangedModules[i].Id, out var pm) && pm.Type == "exit") {
+                        exitChanged = true; break;
+                    }
+                }
+                if (!exitChanged && delta.RemovedModules.Count > 0) {
+                    if (prevIndex != null) {
+                        for (int i = 0; i < delta.RemovedModules.Count; i++) {
+                            if (prevIndex.TryGetModule(delta.RemovedModules[i], out var rm) && rm.Type == "exit") {
+                                exitChanged = true; break;
+                            }
+                        }
+                    } else {
+                        exitChanged = true;
+                    }
+                }
+            }
+
+            var exits = delta.ChangedModules.Count > 0 || exitChanged ? ExitFacts(nextDocument, nextIndex) : null;
+            for (int i = 0; i < delta.ChangedModules.Count; i++) {
+                result.ChangedModules.Add(ModuleFact(delta.ChangedModules[i], exits));
+            }
+            if (nextDocument != null && hasModuleDelta) {
+                if (exitChanged) {
+                    var ordered = new List<StationModuleFact>(nextDocument.Modules.Count);
+                    for (int i = 0; i < nextDocument.Modules.Count; i++) {
+                        ordered.Add(ModuleFact(nextDocument.Modules[i], exits));
+                    }
+                    result.OrderedModules = ordered;
+                } else if (delta.ChangedModules.Count > 0) {
+                    var ids = new string[nextDocument.Modules.Count];
+                    for (int i = 0; i < ids.Length; i++) {
+                        ids[i] = nextDocument.Modules[i].Id;
+                    }
+                    result.OrderedModuleIds = ids;
+                }
+            }
+            StationEditTrace.AddScanned(
+                delta.RemovedCells.Count + delta.ChangedCells.Count +
+                delta.RemovedModules.Count + delta.ChangedModules.Count);
+            return result;
+        }
+
         public static StationSessionDocument Document(StationDocument document, StationIndex index) {
             var projected = new StationSessionDocument {
                 StationId = document.Source.Hash ?? "",
                 LevelBase = document.LevelBase,
             };
             foreach (var cell in document.Cells) {
-                projected.Cells.Add(new StationCellFact {
-                    X = cell.X, Y = cell.Y, Z = cell.Z,
-                    Solid = cell.IsSolid,
-                    Zone = ZoneIndex(cell.Zone),
-                    Speed = cell.IsSolid ? FloorSpeed(cell.FinishTop) : 0,
-                });
+                projected.Cells.Add(CellFact(cell));
             }
+            var exits = ExitFacts(document, index);
             foreach (var module in document.Modules) {
-                var cfg = module.Config;
-                var fact = new StationModuleFact {
-                    Id = module.Id, Type = module.Type,
-                    X = module.X, Y = module.Y, Z = module.Z, Rot = module.Rotation,
-                    Width = module.Width, Depth = module.Depth, Height = module.Height,
-                    LineId = cfg.Text("line"),
-                    Name = cfg.Text("name"),
-                    HeadHouse = module.Type == "exit" && (!cfg.Has("headHouse") || cfg.Bool("headHouse")),
-                    Dir = cfg.Text("dir"),
-                    Side = cfg.Text("side"),
-                    Variant = cfg.Text("variant"),
-                    RailId = cfg.Text("from"),
-                    GateDir = GateDir(cfg.Text("dir")),
-                    GateOpen = module.Type == "gate",
-                    GateHasLane = module.Type != "gate" || !cfg.Has("door") || cfg.Text("door") != "none",
-                    Tunnel = cfg.Bool("tunnel"),
-                    Bridge = cfg.Bool("bridge"),
-                    Block = cfg.Bool("block"),
-                    HasEndpoints = module.HasFrom && module.HasTo,
-                    RunLength = 0,
-                };
-                if (module.HasFrom) {
-                    fact.FromX = (int)Math.Round(module.From.Value.X);
-                    fact.FromY = (int)Math.Round(module.From.Value.Y);
-                    fact.FromZ = (int)Math.Round(module.From.Value.Z);
-                }
-                if (module.HasTo) {
-                    fact.ToX = (int)Math.Round(module.To.Value.X);
-                    fact.ToY = (int)Math.Round(module.To.Value.Y);
-                    fact.ToZ = (int)Math.Round(module.To.Value.Z);
-                }
-                projected.Modules.Add(fact);
+                projected.Modules.Add(ModuleFact(module, exits));
             }
             foreach (var line in document.Lines) {
                 var fact = new StationLineFact {
@@ -812,25 +1056,40 @@ namespace Metro.App {
                 return Classify(before?.Document, after?.Document);
             if (!SameExtraRootTrees(before.Envelope, after.Envelope)) return StationDocumentEditKind.Structural;
             var delta = after.LocalDelta;
-            if (delta.RemovedCells.Count == 0 && delta.ChangedCells.Count == 0) {
-                foreach (var id in delta.RemovedModules) {
-                    var module = before.Index.GetModule(id);
-                    if (module != null && !IsSimInertDecorModule(module)) return StationDocumentEditKind.Structural;
-                }
-                foreach (var module in delta.ChangedModules) {
-                    var old = before.Index.GetModule(module.Id);
-                    if (!IsSimInertDecorModule(module) || (old != null && !IsSimInertDecorModule(old))) return StationDocumentEditKind.Structural;
-                }
-                GroundWindow(before.Document, out var x0, out var y0, out var x1, out var y1);
-                GroundWindow(after.Document, out var nx0, out var ny0, out var nx1, out var ny1);
-                return x0 == nx0 && y0 == ny0 && x1 == nx1 && y1 == ny1
-                    ? StationDocumentEditKind.Cosmetic : StationDocumentEditKind.Structural;
+            for (int i = 0; i < delta.RemovedModules.Count; i++) {
+                var module = before.Index.GetModule(delta.RemovedModules[i]);
+                StationEditTrace.AddScanned(1);
+                if (module != null && !IsSimInertDecorModule(module)) return StationDocumentEditKind.Structural;
             }
-            return ClassifyCore(before.Document, after.Document, true);
+            for (int i = 0; i < delta.ChangedModules.Count; i++) {
+                var module = delta.ChangedModules[i];
+                var old = before.Index.GetModule(module.Id);
+                StationEditTrace.AddScanned(1);
+                if (!IsSimInertDecorModule(module) || (old != null && !IsSimInertDecorModule(old))) return StationDocumentEditKind.Structural;
+            }
+            if (delta.RemovedCells.Count > 0) return StationDocumentEditKind.Structural;
+            for (int i = 0; i < delta.ChangedCells.Count; i++) {
+                var nextCell = delta.ChangedCells[i];
+                var oldCell = before.Index.GetCell(nextCell.Key);
+                StationEditTrace.AddScanned(1);
+                if (oldCell == null || !IsCellChangeCosmetic(oldCell, nextCell)) return StationDocumentEditKind.Structural;
+            }
+            before.Index.GetGroundWindow(out var x0, out var y0, out var x1, out var y1);
+            after.Index.GetGroundWindow(out var nx0, out var ny0, out var nx1, out var ny1);
+            return x0 == nx0 && y0 == ny0 && x1 == nx1 && y1 == ny1
+                ? StationDocumentEditKind.Cosmetic : StationDocumentEditKind.Structural;
         }
 
         public static StationDocumentEditKind Classify(StationDocument before, StationDocument after) =>
-            ClassifyCore(before, after, before != null && after != null && SameExtraRootFields(before.NormalizedJson, after.NormalizedJson));
+            ClassifyCore(before, after, before != null && after != null && SameExtraRootMetadata(before, after));
+
+        static bool SameExtraRootMetadata(StationDocument before, StationDocument after) {
+            if (before.RawRootJson != null && after.RawRootJson != null) {
+                if (string.Equals(before.RawRootJson, after.RawRootJson, StringComparison.Ordinal)) return true;
+                return SameExtraRootFields(before.RawRootJson, after.RawRootJson);
+            }
+            return SameExtraRootFields(before.NormalizedJson, after.NormalizedJson);
+        }
 
         static StationDocumentEditKind ClassifyCore(StationDocument before, StationDocument after, bool extraRootsEqual) {
             if (before == null || after == null) return StationDocumentEditKind.Structural;
@@ -951,31 +1210,33 @@ namespace Metro.App {
         static bool SameCellsCosmetic(IReadOnlyList<StationCellRecord> a, IReadOnlyList<StationCellRecord> b) {
             if (a.Count != b.Count) return false;
             for (int i = 0; i < a.Count; i++) {
-                var oldCell = a[i];
-                var nextCell = b[i];
-                if (SameCellExact(oldCell, nextCell)) continue;
-                if (oldCell.X != nextCell.X || oldCell.Y != nextCell.Y || oldCell.Z != nextCell.Z) return false;
-                if (!string.Equals(oldCell.Shape, nextCell.Shape, StringComparison.Ordinal)) return false;
-                if (!string.Equals(oldCell.Fill, nextCell.Fill, StringComparison.Ordinal)) return false;
-                if (!string.Equals(oldCell.Zone, nextCell.Zone, StringComparison.Ordinal)) return false;
-                if (!string.Equals(oldCell.Room, nextCell.Room, StringComparison.Ordinal)) return false;
-                if (!SameStringList(oldCell.Tags, nextCell.Tags)) return false;
-                if (!SameJsonExcept(oldCell.RawJson, nextCell.RawJson, new HashSet<string>(StringComparer.Ordinal) { "finish" })) {
-                    return false;
-                }
-                string oldTop = string.IsNullOrEmpty(oldCell.FinishTop) ? "floor.concrete" : oldCell.FinishTop;
-                string nextTop = string.IsNullOrEmpty(nextCell.FinishTop) ? "floor.concrete" : nextCell.FinishTop;
-                string oldBase = StationSessionProjection.BaseFinishId(oldTop);
-                string nextBase = StationSessionProjection.BaseFinishId(nextTop);
-                if (!StationSessionProjection.IsKnownStockFinish(oldBase) ||
-                    !StationSessionProjection.IsKnownStockFinish(nextBase)) {
-                    if (!string.Equals(oldTop, nextTop, StringComparison.Ordinal)) return false;
-                }
-                StationSessionProjection.TopFinishBehaviour(oldTop, out double oldSpeed, out bool oldCover, out bool oldTrack);
-                StationSessionProjection.TopFinishBehaviour(nextTop, out double nextSpeed, out bool nextCover, out bool nextTrack);
-                if (oldSpeed != nextSpeed || oldCover != nextCover || oldTrack != nextTrack) return false;
+                if (!IsCellChangeCosmetic(a[i], b[i])) return false;
             }
             return true;
+        }
+
+        static bool IsCellChangeCosmetic(StationCellRecord oldCell, StationCellRecord nextCell) {
+            if (SameCellExact(oldCell, nextCell)) return true;
+            if (oldCell.X != nextCell.X || oldCell.Y != nextCell.Y || oldCell.Z != nextCell.Z) return false;
+            if (!string.Equals(oldCell.Shape, nextCell.Shape, StringComparison.Ordinal)) return false;
+            if (!string.Equals(oldCell.Fill, nextCell.Fill, StringComparison.Ordinal)) return false;
+            if (!string.Equals(oldCell.Zone, nextCell.Zone, StringComparison.Ordinal)) return false;
+            if (!string.Equals(oldCell.Room, nextCell.Room, StringComparison.Ordinal)) return false;
+            if (!SameStringList(oldCell.Tags, nextCell.Tags)) return false;
+            if (!SameJsonExcept(oldCell.RawJson, nextCell.RawJson, new HashSet<string>(StringComparer.Ordinal) { "finish" })) {
+                return false;
+            }
+            string oldTop = string.IsNullOrEmpty(oldCell.FinishTop) ? "floor.concrete" : oldCell.FinishTop;
+            string nextTop = string.IsNullOrEmpty(nextCell.FinishTop) ? "floor.concrete" : nextCell.FinishTop;
+            string oldBase = StationSessionProjection.BaseFinishId(oldTop);
+            string nextBase = StationSessionProjection.BaseFinishId(nextTop);
+            if (!StationSessionProjection.IsKnownStockFinish(oldBase) ||
+                !StationSessionProjection.IsKnownStockFinish(nextBase)) {
+                if (!string.Equals(oldTop, nextTop, StringComparison.Ordinal)) return false;
+            }
+            StationSessionProjection.TopFinishBehaviour(oldTop, out double oldSpeed, out bool oldCover, out bool oldTrack);
+            StationSessionProjection.TopFinishBehaviour(nextTop, out double nextSpeed, out bool nextCover, out bool nextTrack);
+            return oldSpeed == nextSpeed && oldCover == nextCover && oldTrack == nextTrack;
         }
 
         static bool SameLinesExact(IReadOnlyList<StationLineRecord> a, IReadOnlyList<StationLineRecord> b) {

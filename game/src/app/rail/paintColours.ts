@@ -7,9 +7,10 @@ import type { FinishId } from '../../sim/types.ts'
 import type { StationState } from '../../build/model.ts'
 
 export function customPaintColoursInStation(
-  station: Pick<StationState, 'cells' | 'modules'>,
+  station: Pick<StationState, 'cells' | 'modules'> | null | undefined,
   base: FinishId,
 ): number[] {
+  if (!station) return []
   const found = new Set<number>()
   const stockTint = finishDef(base).tint
   const defaultEnamelTint = finishDef('wall.enamel').tint
@@ -20,12 +21,17 @@ export function customPaintColoursInStation(
   }
 
   for (const cell of station.cells) {
-    for (const finish of Object.values(cell.finish ?? {})) add(finish)
+    const finishes = cell.finish
+    if (!finishes) continue
+    for (const side in finishes) add(finishes[side as keyof typeof finishes])
   }
   for (const module of station.modules) {
     if ('finish' in module.cfg) add(module.cfg.finish)
     if ('bridgeFinish' in module.cfg) add(module.cfg.bridgeFinish)
-    if ('surfaceFinishes' in module.cfg) for (const finish of Object.values(module.cfg.surfaceFinishes ?? {})) add(finish)
+    if ('surfaceFinishes' in module.cfg && module.cfg.surfaceFinishes) {
+      const sf = module.cfg.surfaceFinishes
+      for (const key in sf) add(sf[key as keyof typeof sf])
+    }
   }
   return [...found].sort((a, b) => a - b)
 }

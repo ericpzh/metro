@@ -962,11 +962,12 @@ async function runExplodedViewCase() {
 
       // 2. Real left-press tray pick & drag (Plan 19 §5.6: drag -15 m on Zoo, -5 m on Tanwei)
       const dragElev = id === 'zoo' ? -15 : (expInitial.rows[1]?.elevation ?? expInitial.rows[0]?.elevation)
-      const pickAim = await page.evaluate(`(() => {
+      const pickAim = await page.evaluate(`(async () => {
         const snap = window.__metroStationBridge.getSnapshot()
         const exp = snap.state.exploded
         const cam = exp?.camera
-        const doc = JSON.parse(snap.document)
+        const docText = await window.__metroStationBridge.readCommittedDocument()
+        const doc = docText ? JSON.parse(docText) : null
         const canvas = document.querySelector('dialog.explodedViewer canvas')
         if (!exp || !cam || !doc || !canvas) return null
         const r = canvas.getBoundingClientRect()
@@ -1939,8 +1940,8 @@ async function runSignCommitCase() {
   const revision = () => page.evaluate('window.__metroStationBridge.getSnapshot().revision')
   const send = (payload, expectedRevision) => page.evaluate(
     `window.__metroStationBridge.send('sign.commit', ${JSON.stringify(payload)}, { expectedRevision: ${Number(expectedRevision)} })`)
-  const signOf = `(() => {
-    const text = window.__metroStationBridge.getSnapshot().document
+  const signOf = `(async () => {
+    const text = await window.__metroStationBridge.readCommittedDocument()
     if (!text) return null
     const modules = JSON.parse(text).static?.modules ?? []
     const module = modules.find(row => row.type === 'sign' && row.cfg && Array.isArray(row.cfg.front))
@@ -1959,8 +1960,8 @@ async function runSignCommitCase() {
   } catch { problems.push('sign.commit did not commit a revision') }
   const committedRevision = await revision()
   if (committedRevision !== before + 1) problems.push('the sign edit moved the revision by ' + (committedRevision - before))
-  const committedFront = await page.evaluate(`(() => {
-    const text = window.__metroStationBridge.getSnapshot().document
+  const committedFront = await page.evaluate(`(async () => {
+    const text = await window.__metroStationBridge.readCommittedDocument()
     if (!text) return null
     const module = (JSON.parse(text).static?.modules ?? []).find(row => row.id === ${JSON.stringify(sign.id)})
     return module && module.cfg && module.cfg.front ? JSON.stringify(module.cfg.front) : null
@@ -1983,8 +1984,8 @@ async function runSignCommitCase() {
   try {
     await poll(`window.__metroStationBridge.getSnapshot().revision === ${repeatedRevision + 1}`, 'sign restore', Math.min(timeoutMs, 300000))
   } catch { problems.push('restoring the original sign face did not commit') }
-  const restoredFront = await page.evaluate(`(() => {
-    const text = window.__metroStationBridge.getSnapshot().document
+  const restoredFront = await page.evaluate(`(async () => {
+    const text = await window.__metroStationBridge.readCommittedDocument()
     if (!text) return null
     const module = (JSON.parse(text).static?.modules ?? []).find(row => row.id === ${JSON.stringify(sign.id)})
     return module && module.cfg && module.cfg.front ? JSON.stringify(module.cfg.front) : null
@@ -2074,9 +2075,9 @@ async function runPsdHeaderCase() {
     })
     return true
   })()`)
-  const edited = await page.evaluate(`(() => {
+  const edited = await page.evaluate(`(async () => {
     const bridge = window.__metroStationBridge
-    const text = bridge.getSnapshot().document
+    const text = await bridge.readCommittedDocument()
     if (!text) return { ok: false, why: 'no committed document' }
     const edited = JSON.parse(text)
     const line = (edited.static?.lines ?? []).find(candidate => candidate.id === '5')
@@ -2904,8 +2905,10 @@ async function runPaintCase() {
   // Paint on a tiny slice of the demo rather than on all 14 066 cells: the commit path
   // is the same host transaction, and rebuilding a full station in the headless
   // software renderer blocks far past any sane verifier budget.
-  const tiny = await page.evaluate(`(() => {
-    const source = JSON.parse(window.__metroStationBridge.getSnapshot().document)
+  const tiny = await page.evaluate(`(async () => {
+    const raw = await window.__metroStationBridge.readCommittedDocument()
+    if (!raw) return null
+    const source = JSON.parse(raw)
     const cells = source.static.cells.filter(cell => cell.fill === 'solid').slice(0, 3)
     source.name = 'Paint probe'
     source.nameEn = 'Paint probe'
@@ -2915,7 +2918,7 @@ async function runPaintCase() {
   if (!tiny || !tiny.document) { problems.push('could not build the paint probe document'); return finishCase(record, false, { problems }) }
   await page.evaluate(`window.__metroStationBridge.send('station.open', { document: ${JSON.stringify(tiny.document)} })`)
   try {
-    await poll(`window.__metroStationBridge.getSnapshot().revision > ${before.revision} && window.__metroStationBridge.getSnapshot().document.length < 20000`, 'tiny paint probe commit', Math.min(timeoutMs, 60000))
+    await poll(`window.__metroStationBridge.getSnapshot().revision > ${before.revision} && window.__metroStationBridge.getSnapshot().document && window.__metroStationBridge.getSnapshot().document.length < 20000`, 'tiny paint probe commit', Math.min(timeoutMs, 60000))
   } catch { problems.push('the tiny paint probe station did not open') }
   const probeRevision = await page.evaluate('window.__metroStationBridge.getSnapshot().revision')
   const send = (payload) => page.evaluate(`window.__metroStationBridge.send('face.paint', ${JSON.stringify(payload)})`)
@@ -2926,15 +2929,15 @@ async function runPaintCase() {
     await poll(`window.__metroStationBridge.getSnapshot().revision > ${probeRevision}`, 'paint commit', Math.min(timeoutMs, 60000))
     painted = await revision()
   } catch { problems.push('face.paint never committed a revision') }
-  const document = await page.evaluate('window.__metroStationBridge.getSnapshot().document')
-  if (document && !document.includes('floor.marble')) problems.push('the committed document does not carry the painted finish')
+  const document = await page.evaluate('window.__metroStationBridge.readCommittedDocument()')
+  if (!document || !document.includes('floor.marble')) problems.push('the committed document does not carry the painted finish')
   await screenshot('station-game-paint')
   // Restore the surface so the probe station is left as it was found.
   await send({ cell: tiny.cell, face: 'top', finish: tiny.finish ?? 'floor.concrete', mode: 'single' })
   try {
     await poll(`window.__metroStationBridge.getSnapshot().revision > ${painted}`, 'paint restore commit', Math.min(timeoutMs, 60000))
   } catch { problems.push('the restoring paint did not commit') }
-  const restored = await page.evaluate('window.__metroStationBridge.getSnapshot().document')
+  const restored = await page.evaluate('window.__metroStationBridge.readCommittedDocument()')
   if (restored && restored.includes('floor.marble')) problems.push('the restoring paint left the painted finish behind')
   return finishCase(record, problems.length === 0, { problems, revision: await revision() })
 }
@@ -2964,8 +2967,8 @@ async function runStationBlockToolCase() {
   const revision = async () => (await snapshot()).revision
   const send = (type, payload) => page.evaluate(
     `window.__metroStationBridge.send(${JSON.stringify(type)}, ${JSON.stringify(payload)})`)
-  const documentCells = () => page.evaluate(`(() => {
-    const text = window.__metroStationBridge.getSnapshot().document
+  const documentCells = () => page.evaluate(`(async () => {
+    const text = await window.__metroStationBridge.readCommittedDocument()
     return text ? (JSON.parse(text).static?.cells ?? []) : []
   })()`)
   const solidAt = async (cell) => (await documentCells()).some(
@@ -3185,8 +3188,8 @@ async function runStationStructureTilesCase() {
   const editState = () => page.evaluate('window.__metroStationBridge.getSnapshot().state.edit ?? null')
   const send = (type, payload) => page.evaluate(
     `window.__metroStationBridge.send(${JSON.stringify(type)}, ${JSON.stringify(payload)})`)
-  const modules = () => page.evaluate(`(() => {
-    const text = window.__metroStationBridge.getSnapshot().document
+  const modules = () => page.evaluate(`(async () => {
+    const text = await window.__metroStationBridge.readCommittedDocument()
     return text ? (JSON.parse(text).static?.modules ?? []) : []
   })()`)
   const tool = async (name, settings) => {
@@ -3366,12 +3369,12 @@ async function runStationWallDeleteCase() {
   const revision = async () => (await snapshot()).revision
   const send = (type, payload) => page.evaluate(
     `window.__metroStationBridge.send(${JSON.stringify(type)}, ${JSON.stringify(payload)})`)
-  const documentCells = () => page.evaluate(`(() => {
-    const text = window.__metroStationBridge.getSnapshot().document
+  const documentCells = () => page.evaluate(`(async () => {
+    const text = await window.__metroStationBridge.readCommittedDocument()
     return text ? (JSON.parse(text).static?.cells ?? []) : []
   })()`)
-  const documentModules = () => page.evaluate(`(() => {
-    const text = window.__metroStationBridge.getSnapshot().document
+  const documentModules = () => page.evaluate(`(async () => {
+    const text = await window.__metroStationBridge.readCommittedDocument()
     return text ? (JSON.parse(text).static?.modules ?? []) : []
   })()`)
   const solidAt = async (cell, list) => (list ?? await documentCells()).some(
@@ -3589,12 +3592,12 @@ async function runStationRunPaintCase() {
   const revision = async () => (await snapshot()).revision
   const send = (type, payload) => page.evaluate(
     `window.__metroStationBridge.send(${JSON.stringify(type)}, ${JSON.stringify(payload)})`)
-  const documentModules = () => page.evaluate(`(() => {
-    const text = window.__metroStationBridge.getSnapshot().document
+  const documentModules = () => page.evaluate(`(async () => {
+    const text = await window.__metroStationBridge.readCommittedDocument()
     return text ? (JSON.parse(text).static?.modules ?? []) : []
   })()`)
-  const documentHasFinish = () => page.evaluate(`(() => {
-    const text = window.__metroStationBridge.getSnapshot().document
+  const documentHasFinish = () => page.evaluate(`(async () => {
+    const text = await window.__metroStationBridge.readCommittedDocument()
     if (!text) return false
     return (JSON.parse(text).static?.cells ?? []).some(cell => cell.finish && cell.finish.top === 'floor.marble')
   })()`)
@@ -3758,8 +3761,8 @@ async function runStationZoneCase() {
   const revision = async () => (await snapshot()).revision
   const send = (type, payload) => page.evaluate(
     `window.__metroStationBridge.send(${JSON.stringify(type)}, ${JSON.stringify(payload)})`)
-  const documentCells = () => page.evaluate(`(() => {
-    const text = window.__metroStationBridge.getSnapshot().document
+  const documentCells = () => page.evaluate(`(async () => {
+    const text = await window.__metroStationBridge.readCommittedDocument()
     return text ? (JSON.parse(text).static?.cells ?? []) : []
   })()`)
   const zoneAt = async (cell) => {
@@ -3927,8 +3930,8 @@ async function runStationEditingCase() {
   // what a player sees after stepping storeys and pressing Home.
   await send('camera.home', {})
   await sleep(1500)
-  const modules = () => page.evaluate(`(() => {
-    const text = window.__metroStationBridge.getSnapshot().document
+  const modules = () => page.evaluate(`(async () => {
+    const text = await window.__metroStationBridge.readCommittedDocument()
     return text ? (JSON.parse(text).static?.modules ?? []) : []
   })()`)
   const probe = async (payload, probeId) => {
@@ -4543,8 +4546,8 @@ async function runRoadGeometryCase() {
   if (!(await ensureDemo('zoo'))) problems.push('could not commit the Zoo document before reading its roads')
   // Geometry is judged from the committed save text, exactly the record a reopen reads:
   // the two authored Zoo roads, their explicit endpoints, direction and width.
-  const roads = await page.evaluate(`(() => {
-    const text = window.__metroStationBridge.getSnapshot().document
+  const roads = await page.evaluate(`(async () => {
+    const text = await window.__metroStationBridge.readCommittedDocument()
     if (!text) return null
     return (JSON.parse(text).static?.modules ?? [])
       .filter(module => module.type === 'road')

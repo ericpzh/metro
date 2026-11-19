@@ -288,6 +288,20 @@ public class PassengerCatalogueTests {
     }
 
     [Test]
+    public void RailRideUsesExactlyOneReachHoldReleaseSequence() {
+        for (int variant = 0; variant < 4; variant++) {
+            double frame = 10.0 / 23;
+            double start = variant * 6 * frame;
+            Assert.That(PassengerAppearance.RailTimeline(0, 24, variant), Is.EqualTo(start).Within(1e-8));
+            for (int seconds = 2; seconds <= 22; seconds++) {
+                Assert.That(PassengerAppearance.RailTimeline(seconds, 24, variant),
+                    Is.InRange(start + 2 * frame - 1e-8, start + 3 * frame + 1e-8));
+            }
+            Assert.That(PassengerAppearance.RailTimeline(24, 24, variant), Is.EqualTo(start + 5 * frame).Within(1e-8));
+        }
+    }
+
+    [Test]
     public void WalkDistanceMatchesTheOracle() {
         Assert.That(oracle.walkDistance.Length, Is.EqualTo(10));
         foreach (var row in oracle.walkDistance) {
@@ -343,6 +357,11 @@ public class PassengerCatalogueTests {
         Assert.That(actor.ClipName, Is.EqualTo(PassengerAppearance.WalkClipName(look.WalkProfile)));
         Assert.That(actor.ClipTime, Is.EqualTo((float)gait.SampleTime).Within(1e-4f), "TS stride/phase sample time");
         Assert.That(actor.Sampled, Is.True);
+
+        var ray = new Ray(actor.Skin.bounds.center + Vector3.back * 3, Vector3.forward);
+        Assert.That(view.TryPick(ray, float.PositiveInfinity, out int selected), Is.True);
+        Assert.That(selected, Is.EqualTo(pose.SimId));
+        Assert.That(view.TryPick(ray, 1, out _), Is.False, "station geometry hides the actor behind it");
 
         // Pause: the same frame samples the same time, not a clock-advanced one.
         view.Render(new[] { pose }, 120);

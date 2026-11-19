@@ -14,12 +14,64 @@ namespace Metro.Persistence {
             var data = JObject.Parse(json);
             var cells = data["cells"] as JArray ?? throw new FormatException("Missing cells");
             var modules = data["modules"] as JArray ?? throw new FormatException("Missing modules");
-            var keptCells = new JArray(); var keptModules = new JArray();
-            foreach (var token in cells) if (GridPoint(token)) keptCells.Add(token.DeepClone());
-            foreach (var token in modules) if (GridModule(token)) keptModules.Add(token.DeepClone());
+            RepairArrays(cells, modules, consumeInput: true, out var keptCells, out var keptModules, out int droppedCells, out int droppedModules);
             return new JObject { ["cells"] = keptCells, ["modules"] = keptModules,
-                ["droppedCells"] = cells.Count - keptCells.Count,
-                ["droppedModules"] = modules.Count - keptModules.Count }.ToString(Formatting.None);
+                ["droppedCells"] = droppedCells,
+                ["droppedModules"] = droppedModules }.ToString(Formatting.None);
+        }
+
+        static void DetachFromParent(JToken token) {
+            if (token?.Parent == null) return;
+            if (token.Parent is JProperty prop) {
+                prop.Value = JValue.CreateNull();
+                if (prop.Parent != null) prop.Remove();
+            } else {
+                token.Remove();
+            }
+        }
+
+        internal static void RepairArrays(JArray cells, JArray modules, bool consumeInput,
+            out JArray keptCells, out JArray keptModules, out int droppedCells, out int droppedModules) {
+            if (cells == null) throw new FormatException("Missing cells");
+            if (modules == null) throw new FormatException("Missing modules");
+            int badCells = 0;
+            for (int i = 0; i < cells.Count; i++) {
+                if (!GridPoint(cells[i])) badCells++;
+            }
+            int badModules = 0;
+            for (int i = 0; i < modules.Count; i++) {
+                if (!GridModule(modules[i])) badModules++;
+            }
+            droppedCells = badCells;
+            droppedModules = badModules;
+            if (consumeInput && badCells == 0) {
+                DetachFromParent(cells);
+                keptCells = cells;
+            } else {
+                keptCells = new JArray();
+                for (int i = 0; i < cells.Count; i++) {
+                    var token = cells[i];
+                    if (GridPoint(token)) keptCells.Add(token.DeepClone());
+                }
+                if (consumeInput) {
+                    cells.Clear();
+                    DetachFromParent(cells);
+                }
+            }
+            if (consumeInput && badModules == 0) {
+                DetachFromParent(modules);
+                keptModules = modules;
+            } else {
+                keptModules = new JArray();
+                for (int i = 0; i < modules.Count; i++) {
+                    var token = modules[i];
+                    if (GridModule(token)) keptModules.Add(token.DeepClone());
+                }
+                if (consumeInput) {
+                    modules.Clear();
+                    DetachFromParent(modules);
+                }
+            }
         }
         static bool Number(JToken v, out double n) {
             n = 0;

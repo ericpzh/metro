@@ -111,6 +111,32 @@ namespace Metro.Sim {
             return byDirection;
         }
 
+        static bool TryPlatformEdgeFact(StationSessionDocument document, StationModuleFact track, string lineId,
+            string direction, out StationModuleFact foundEdge) {
+            foundEdge = default;
+            if (document == null) return false;
+            var edges = document.ModulesOfType("platform-edge");
+            bool haveByDir = false;
+            for (int i = 0; i < edges.Count; i++) {
+                var module = edges[i];
+                if (!string.Equals(module.LineId, lineId, StringComparison.Ordinal)) continue;
+                var from = module.RailId ?? "";
+                if (from.Length > 0) {
+                    if (string.Equals(from, track.Id, StringComparison.Ordinal)) {
+                        foundEdge = module;
+                        return true;
+                    }
+                    continue;
+                }
+                if (haveByDir) continue;
+                if (string.Equals(module.Dir, direction, StringComparison.Ordinal)) {
+                    foundEdge = module;
+                    haveByDir = true;
+                }
+            }
+            return haveByDir;
+        }
+
         /// <summary>`trackTrainCentreV`: the vehicle centre across the bed, from its local −y edge.</summary>
         public static double TrainCentreV(StationSessionDocument document, StationModuleFact track, double vehicleWidth,
             string lineId, string lineDirection) {
@@ -118,9 +144,7 @@ namespace Metro.Sim {
             if (IsTunnelOrBridge(track)) return depth * .5;
             var direction = track.Dir ?? "";
             if (direction.Length == 0) direction = string.IsNullOrEmpty(lineDirection) ? "up" : lineDirection;
-            int edgeIndex = PlatformEdgeFor(document, track, lineId, direction);
-            if (edgeIndex < 0) return depth * .5;
-            var edge = document.Modules[edgeIndex];
+            if (!TryPlatformEdgeFact(document, track, lineId, direction, out var edge)) return depth * .5;
             if (string.Equals(edge.Side, "left", StringComparison.Ordinal)) {
                 double low = vehicleWidth * .5, high = depth - PlatformGap - vehicleWidth * .5;
                 return low <= high ? Math.Min(high, Math.Max(low, depth * .5)) : low;
@@ -142,9 +166,9 @@ namespace Metro.Sim {
             RotateLocal(rotation, 0, 1, out double sx, out double sy);
             double depth = Depth(track);
             var spans = new List<(double lo, double hi)>();
-            for (int i = 0; i < document.Modules.Count; i++) {
-                var module = document.Modules[i];
-                if (module.Type != "track") continue;
+            var tracks = document.ModulesOfType("track");
+            for (int i = 0; i < tracks.Count; i++) {
+                var module = tracks[i];
                 if (!string.Equals(module.LineId, track.LineId, StringComparison.Ordinal)) continue;
                 if (module.Z != track.Z) continue;
                 if (NormTurn(module.Rot) != rotation) continue;
@@ -184,9 +208,10 @@ namespace Metro.Sim {
             if (document == null) { failure = "no-document"; return false; }
             StationModuleFact track = default;
             bool found = false;
-            for (int i = 0; i < document.Modules.Count; i++) {
-                var module = document.Modules[i];
-                if (module.Type != "track" || !string.Equals(module.Id, trackId, StringComparison.Ordinal)) continue;
+            var tracks = document.ModulesOfType("track");
+            for (int i = 0; i < tracks.Count; i++) {
+                var module = tracks[i];
+                if (!string.Equals(module.Id, trackId, StringComparison.Ordinal)) continue;
                 track = module;
                 found = true;
                 break;
@@ -203,7 +228,7 @@ namespace Metro.Sim {
             ConnectedRun(document, track, out double back, out double forward);
             var direction = track.Dir ?? "";
             if (direction.Length == 0) direction = haveLine ? line.Direction : "up";
-            int edgeIndex = PlatformEdgeFor(document, track, line.Id ?? "", direction);
+            bool hasEdge = TryPlatformEdgeFact(document, track, line.Id ?? "", direction, out var edge);
             var entry = new StationTrainBerth {
                 LineId = line.Id ?? track.LineId ?? "",
                 TrackId = track.Id ?? "",
@@ -218,10 +243,9 @@ namespace Metro.Sim {
                 HalfLength = stock.Length * Math.Max(0, line.Cars) * modelScale * .5,
                 ApproachRun = back,
                 DepartRun = forward,
-                HasPlatform = edgeIndex >= 0,
+                HasPlatform = hasEdge,
             };
-            if (edgeIndex >= 0) {
-                var edge = document.Modules[edgeIndex];
+            if (hasEdge) {
                 entry.PlatformX = edge.X + .5;
                 entry.PlatformY = edge.Y + .5;
                 entry.PlatformZ = edge.Z + .5;

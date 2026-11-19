@@ -32,6 +32,16 @@ namespace Metro.App {
             public string SourceId;
             public string Label;
             public StationReadResult LocalTarget, LocalExpected;
+            public StationIndexDelta InverseDelta;
+
+            public string GetOrMaterializeDocumentJson() {
+                if (!string.IsNullOrEmpty(Document)) return Document;
+                if (LocalTarget?.Document != null) {
+                    Document = LocalTarget.Document.NormalizedJson;
+                    return Document;
+                }
+                return "";
+            }
         }
 
         static readonly List<HistoryFrame> undos = new List<HistoryFrame>();
@@ -251,6 +261,12 @@ namespace Metro.App {
             SelectionLabel = "(" + cell.X + ", " + cell.Y + ", " + cell.Z + ")";
         }
 
+        public static void SelectPassenger(int simId) {
+            SelectionKind = "agent";
+            SelectionKey = simId.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            SelectionLabel = SelectionKey;
+        }
+
         public static void ClearSelection() {
             SelectionKind = SelectionKey = SelectionLabel = "";
         }
@@ -268,13 +284,12 @@ namespace Metro.App {
             code = null;
             if (host == null || !host.IsLoaded) { code = "no-session"; return false; }
             if (IsDuplicate(host, commandId, out code)) return false;
-            // Plan 30 §3: one module record the load-time repairs do not own installs from the
-            // committed document and index. Anything else falls through to the complete envelope
-            // path below, with the identical document, revision and undo frame.
-            var before = host.CommittedDocumentJson;
             var beforeRead = host.Coordinator.CommittedRead;
-            var local = host.TryApplyLocalModule(mode, draft, removeId, host.CurrentSourceId, out code);
-            if (local != null) return FinishLocalEdit(host, local, before, beforeRead, label, commandId, out result, out code);
+            var local = host.TryApplyLocalModule(mode, draft, removeId, host.CurrentSourceId, out var localCode);
+            if (local != null) {
+                return FinishLocalEdit(host, local, beforeRead, label, commandId, out result, out code);
+            }
+            StationEditTrace.NoteDocumentFallback(localCode);
             var saved = host.SaveDocument();
             if (string.IsNullOrEmpty(saved)) { code = "no-document"; return false; }
             var next = StationModuleEdits.Apply(saved, mode, draft, removeId, out code);
@@ -285,7 +300,7 @@ namespace Metro.App {
         /// <summary>
         /// Apply one **cell** patch and install it: the same transaction, the same history and
         /// the same revision rule as a module edit. The planner names the writes; the committed
-        /// envelope is patched by <see cref="Metro.Persistence.StationCellEdits"/>.
+        /// envelope is patched locally when whitelisted or via <see cref="Metro.Persistence.StationCellEdits"/>.
         /// </summary>
         public static bool TryApplyCells(StationGameHost host, Metro.Build.StationCellPatch patch,
             string label, string commandId, out StationLoadResult result, out string code) {
@@ -293,14 +308,12 @@ namespace Metro.App {
             code = null;
             if (host == null || !host.IsLoaded) { code = "no-session"; return false; }
             if (IsDuplicate(host, commandId, out code)) return false;
-            // Plan 30 §3: a block/module patch the local whitelist can derive exactly is installed
-            // from the committed typed document instead of a re-serialized whole save. A patch
-            // outside the whitelist (line adds, rail/sign/road rewrites, a record a load-time
-            // repair owns) falls through to the complete envelope path with the same result.
-            var before = host.CommittedDocumentJson;
             var beforeRead = host.Coordinator.CommittedRead;
-            var local = host.TryApplyLocalCells(patch, host.CurrentSourceId, out code);
-            if (local != null) return FinishLocalEdit(host, local, before, beforeRead, label, commandId, out result, out code);
+            var local = host.TryApplyLocalCells(patch, host.CurrentSourceId, out var localCode);
+            if (local != null) {
+                return FinishLocalEdit(host, local, beforeRead, label, commandId, out result, out code);
+            }
+            StationEditTrace.NoteDocumentFallback(localCode);
             var saved = host.SaveDocument();
             if (string.IsNullOrEmpty(saved)) { code = "no-document"; return false; }
             var next = StationCellEdits.Apply(saved, patch, out code);
@@ -308,12 +321,7 @@ namespace Metro.App {
             return TryApplyPatch(host, next, label, commandId, out result, out code);
         }
 
-        /// <summary>
-        /// Finish a **local** edit's transaction: a refusal leaves everything untouched, and an
-        /// accepted install pushes exactly one undo frame (the committed envelope text, which the
-        /// host already holds) and clears redo — the same history rule as the full path.
-        /// </summary>
-        static bool FinishLocalEdit(StationGameHost host, StationLoadResult candidate, string before, StationReadResult beforeRead, string label,
+        static bool FinishLocalEdit(StationGameHost host, StationLoadResult candidate, StationReadResult beforeRead, string label,
             string commandId, out StationLoadResult result, out string code) {
             code = null;
             result = candidate;
@@ -322,7 +330,11 @@ namespace Metro.App {
                 return false;
             }
             LocalEdits++;
-            CommitHistory(host, before, label, commandId, beforeRead);
+            var afterRead = host.Coordinator.CommittedRead;
+            var inverseDelta = beforeRead != null && afterRead != null && ReferenceEquals(afterRead.LocalParent, beforeRead)
+                ? StationLocalEdit.BuildInverseDelta(beforeRead.Index, afterRead.Index, afterRead.LocalDelta)
+                : null;
+            CommitHistory(host, null, label, commandId, beforeRead, inverseDelta);
             return true;
         }
 
@@ -355,12 +367,20 @@ namespace Metro.App {
         /// belong to another station are dropped first, so a switch can never make one station's
         /// undo land on another's document.
         /// </summary>
-        static void CommitHistory(StationGameHost host, string before, string label, string commandId, StationReadResult localBefore = null) {
+        static void CommitHistory(StationGameHost host, string before, string label, string commandId,
+            StationReadResult localBefore = null, StationIndexDelta inverseDelta = null) {
             using var sample = StationEditProfiling.Measure("StationEdit.CommitHistory");
             if (!string.IsNullOrEmpty(commandId)) Remember(commandId);
             PruneHistory(host.CurrentSourceId);
-            if (!string.IsNullOrEmpty(before)) {
-                undos.Add(new HistoryFrame { Document = before, SourceId = host.CurrentSourceId, Label = label ?? "", LocalTarget = localBefore, LocalExpected = localBefore == null ? null : host.Coordinator.CommittedRead });
+            if (localBefore != null || !string.IsNullOrEmpty(before)) {
+                undos.Add(new HistoryFrame {
+                    Document = before,
+                    SourceId = host.CurrentSourceId,
+                    Label = label ?? "",
+                    LocalTarget = localBefore,
+                    LocalExpected = localBefore == null ? null : host.Coordinator.CommittedRead,
+                    InverseDelta = inverseDelta,
+                });
                 if (undos.Count > MaxHistory) undos.RemoveAt(0);
             }
             redos.Clear();
@@ -383,6 +403,15 @@ namespace Metro.App {
             return TryStep(host, redos, undos, out result, out code);
         }
 
+        static bool MatchesExpectedRead(StationReadResult expected, StationReadResult actual) {
+            if (expected == null || actual == null) return false;
+            if (ReferenceEquals(expected, actual)) return true;
+            return expected.Document != null && actual.Document != null &&
+                   ReferenceEquals(expected.Document.CellPages, actual.Document.CellPages) &&
+                   ReferenceEquals(expected.Document.ModulePages, actual.Document.ModulePages) &&
+                   ReferenceEquals(expected.Document.Lines, actual.Document.Lines);
+        }
+
         static bool TryStep(StationGameHost host, List<HistoryFrame> from, List<HistoryFrame> to,
             out StationLoadResult result, out string code) {
             result = null;
@@ -397,19 +426,41 @@ namespace Metro.App {
                 return false;
             }
             var currentRead = host.Coordinator.CommittedRead;
-            var current = host.CommittedDocumentJson;
-            bool localHistory = frame.LocalTarget != null && ReferenceEquals(frame.LocalExpected, currentRead);
+            bool localHistory = frame.LocalTarget != null && MatchesExpectedRead(frame.LocalExpected, currentRead);
+            StationIndexDelta reverseOfInverse = null;
             if (localHistory) {
-                var read = StationLocalEdit.TryRestore(currentRead, frame.LocalTarget, host.CurrentSourceId, out code);
-                if (read != null) result = host.ApplyLocalHistory(read);
+                var read = StationLocalEdit.TryRestore(currentRead, frame.LocalTarget, frame.InverseDelta, host.CurrentSourceId, out var restoreCode);
+                if (read != null) {
+                    reverseOfInverse = StationLocalEdit.BuildInverseDelta(currentRead.Index, read.Index, read.LocalDelta);
+                    result = host.ApplyLocalHistory(read);
+                } else {
+                    StationEditTrace.NoteDocumentFallback(restoreCode);
+                }
             }
-            if (result == null) { localHistory = false; result = host.ApplyDocumentEdit(frame.Document, host.CurrentSourceId); }
+            string fallbackBeforeJson = null;
+            if (result == null) {
+                localHistory = false;
+                StationEditTrace.NoteDocumentFallback("history-full-envelope");
+                fallbackBeforeJson = host.SaveDocument();
+                var targetJson = frame.GetOrMaterializeDocumentJson();
+                if (string.IsNullOrEmpty(targetJson)) { code = "no-document"; return false; }
+                result = host.ApplyDocumentEdit(targetJson, host.CurrentSourceId);
+            }
             if (result == null || !result.Accepted) {
                 code = result?.Rejection?.Code ?? "rejected";
                 return false;
             }
+            if (localHistory) LocalEdits++;
+            else FullEdits++;
             from.RemoveAt(from.Count - 1);
-            to.Add(new HistoryFrame { Document = current, SourceId = host.CurrentSourceId, Label = frame.Label, LocalTarget = localHistory ? currentRead : null, LocalExpected = localHistory ? host.Coordinator.CommittedRead : null });
+            to.Add(new HistoryFrame {
+                Document = localHistory ? null : fallbackBeforeJson,
+                SourceId = host.CurrentSourceId,
+                Label = frame.Label,
+                LocalTarget = localHistory ? currentRead : null,
+                LocalExpected = localHistory ? host.Coordinator.CommittedRead : null,
+                InverseDelta = localHistory ? reverseOfInverse : null,
+            });
             if (to.Count > MaxHistory) to.RemoveAt(0);
             code = null;
             return true;
@@ -597,10 +648,23 @@ namespace Metro.App {
         public void Bind(StationGameHost host) {
             EnsurePreview();
             boundIndex = host != null ? host.Index : null;
-            if (StationEditSession.SelectionKind == "module" && boundIndex?.GetModule(StationEditSession.SelectionKey) == null)
+            if (StationEditSession.SelectionKind == "module" && boundIndex?.GetModule(StationEditSession.SelectionKey) == null) {
                 StationEditSession.ClearSelection();
+            } else if (StationEditSession.SelectionKind == "cell" && !HasSelectedSolidCell(boundIndex, StationEditSession.SelectionKey)) {
+                StationEditSession.ClearSelection();
+            }
             if (StationEditSession.SelectionKind != "module") Preview.ClearSelection();
             Preview.Bind(boundIndex);
+        }
+
+        static bool HasSelectedSolidCell(StationIndex index, string keyText) {
+            if (index == null || string.IsNullOrEmpty(keyText)) return false;
+            var parts = keyText.Split(',');
+            if (parts.Length != 3) return false;
+            if (!int.TryParse(parts[0], out int x) || !int.TryParse(parts[1], out int y) || !int.TryParse(parts[2], out int z))
+                return false;
+            var cell = index.GetCell(x, y, z);
+            return cell != null && cell.IsSolid;
         }
 
         /// <summary>

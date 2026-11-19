@@ -8,13 +8,11 @@ namespace Metro.Sim {
     // The cost model is the source's: an edge costs its own seconds, plus the crowd
     // charge arriving at its far end (§7.3), plus `STAIR_AVOID_S` for a stair, plus
     // a lift's passenger-dependent `levelPenalty` (§7.2), plus any live queue wait.
-    // Congestion and queue waits are zero today because the crowd is not ported —
-    // that is the source's own answer for an empty station, not a placeholder cost.
+    // A standalone planner sees an empty crowd. The live session supplies the current density and queues.
     //
     // A `stepFree` search skips stair and escalator edges entirely (§7.4a): the only
-    // vertical route a passenger who cannot use a step has is the lift. No lift edges
-    // are built yet (see `StationWalkGraphBuilder`), so such a route correctly reports
-    // "not found" instead of inventing one.
+    // vertical route a passenger who cannot use a step has is the lift. Live service
+    // searches add the installed shafts to the walking graph.
     public struct StationRouteNeeds {
         public bool StepFree;
         public bool Luggage;
@@ -45,17 +43,51 @@ namespace Metro.Sim {
         public const int CongestionCap = 10;
 
         readonly StationWalkGraph graph;
+        readonly int[] serverAtNode;
         double[] gScore;
         int[] cameFrom;
+        string[] cameByLift;
         int[] seen;
         int epoch;
+        internal Func<int, double> Congestion;
+        internal Func<int, int, double> GateWait;
         readonly MinHeap heap = new MinHeap();
+        readonly Dictionary<int, List<LiftEdge>> liftEdges = new Dictionary<int, List<LiftEdge>>();
+
+        readonly struct LiftEdge {
+            public readonly int To;
+            public readonly string Id;
+            public readonly Func<double> QueueWait;
+
+            public LiftEdge(int to, string id, Func<double> queueWait) {
+                To = to;
+                Id = id;
+                QueueWait = queueWait;
+            }
+        }
+
+        internal void AddLift(string id, int[] landings, Func<double> queueWait) {
+            foreach (int from in landings) {
+                if (from < 0) continue;
+                foreach (int to in landings) {
+                    if (to < 0 || graph.NodeZ[from] == graph.NodeZ[to]) continue;
+                    if (!liftEdges.TryGetValue(from, out var edges)) liftEdges[from] = edges = new List<LiftEdge>();
+                    edges.Add(new LiftEdge(to, id, queueWait));
+                }
+            }
+        }
 
         public StationRoutePlanner(StationWalkGraph graph) {
             this.graph = graph ?? throw new ArgumentNullException(nameof(graph));
             gScore = new double[graph.NodeCount];
             cameFrom = new int[graph.NodeCount];
+            cameByLift = new string[graph.NodeCount];
             seen = new int[graph.NodeCount];
+            serverAtNode = new int[graph.NodeCount];
+            Array.Fill(serverAtNode, -1);
+            foreach (var kv in graph.ServerForNode) {
+                if (kv.Key >= 0 && kv.Key < serverAtNode.Length) serverAtNode[kv.Key] = kv.Value;
+            }
         }
 
         public StationWalkGraph Graph => graph;
@@ -82,7 +114,7 @@ namespace Metro.Sim {
             for (int i = 1; i < nodes.Length; i++) kinds[i - 1] = ChosenKind(nodes[i - 1], nodes[i]);
             var keys = new string[nodes.Length];
             for (int i = 0; i < nodes.Length; i++) keys[i] = graph.NodeKey[nodes[i]];
-            return new StationRoute { Found = true, Nodes = nodes, Keys = keys, Kinds = kinds, Cost = graph.PathCost(nodes) };
+            return new StationRoute { Found = true, Nodes = nodes, Keys = keys, Kinds = kinds, Cost = Congestion == null ? graph.PathCost(nodes) : gScore[goal] };
         }
 
         public StationRoute Search(string startKey, string goalKey, StationRouteNeeds needs) {
@@ -94,30 +126,53 @@ namespace Metro.Sim {
         WalkEdgeKind ChosenKind(int from, int to) {
             var kind = WalkEdgeKind.Walk;
             double best = double.PositiveInfinity;
-            for (int e = 0; e < graph.AdjTo[from].Length; e++) {
-                if (graph.AdjTo[from][e] != to || graph.AdjCost[from][e] >= best) continue;
-                best = graph.AdjCost[from][e];
-                kind = (WalkEdgeKind)graph.AdjKind[from][e];
+            var neighbors = graph.AdjToRaw != null ? graph.AdjToRaw[from] : graph.AdjTo[from];
+            var costs = graph.AdjCostRaw != null ? graph.AdjCostRaw[from] : graph.AdjCost[from];
+            var kinds = graph.AdjKindRaw != null ? graph.AdjKindRaw[from] : graph.AdjKind[from];
+            for (int e = 0; e < neighbors.Length; e++) {
+                if (neighbors[e] != to || costs[e] >= best) continue;
+                best = costs[e];
+                kind = (WalkEdgeKind)kinds[e];
             }
             return kind;
         }
 
-        /// <summary>Plain A* over the adjacency lists. Returns node ids from start to goal, or null.</summary>
-        int[] Astar(int start, int goal, StationRouteNeeds needs) {
+        /// <summary>Returns node ids from start to goal, or null.</summary>
+        internal int[] Astar(int start, int goal, StationRouteNeeds needs, bool walkOnly = false, int avoidServer = -1, bool useLifts = false) {
             int count = graph.NodeCount;
-            if (gScore.Length != count) {
+            if ((uint)start >= (uint)count || (uint)goal >= (uint)count) return null;
+            useLifts = useLifts && !walkOnly && liftEdges.Count > 0;
+            if (!useLifts && !graph.CanReach(start, goal, needs.StepFree)) return null;
+            if (gScore.Length < count) {
                 gScore = new double[count];
                 cameFrom = new int[count];
+                cameByLift = new string[count];
                 seen = new int[count];
             }
             epoch++;
             int ep = epoch;
             double lift = LiftPenalty(needs);
+            var adjToRaw = graph.AdjToRaw;
+            var adjCostRaw = graph.AdjCostRaw;
+            var adjKindRaw = graph.AdjKindRaw;
+            var adjServerRaw = graph.AdjServerRaw;
+            var nodeX = graph.NodeX;
+            var nodeY = graph.NodeY;
+            var nodeZ = graph.NodeZ;
+            var srvAtNode = serverAtNode;
+            var serversList = graph.Servers;
+            var congestionFn = Congestion;
+            var gateWaitFn = GateWait;
+            double goalX = nodeX[goal], goalY = nodeY[goal], goalZ = nodeZ[goal];
             heap.Clear();
             gScore[start] = 0;
             seen[start] = ep;
             cameFrom[start] = -1;
-            heap.Push(start, Heuristic(start, goal));
+            cameByLift[start] = null;
+            {
+                double hdx = nodeX[start] - goalX, hdy = nodeY[start] - goalY, hdz = nodeZ[start] - goalZ;
+                heap.Push(start, Math.Sqrt(hdx * hdx + hdy * hdy + hdz * hdz) / WalkSpeed);
+            }
             while (heap.Count > 0) {
                 int current = heap.Pop();
                 if (current == goal) {
@@ -127,28 +182,132 @@ namespace Metro.Sim {
                     return path.ToArray();
                 }
                 double gs = gScore[current];
-                var to = graph.AdjTo[current];
+                double curX = nodeX[current], curY = nodeY[current], curZ = nodeZ[current];
+                int curSrvIdx = (uint)current < (uint)srvAtNode.Length ? srvAtNode[current] : -1;
+                StationServerFact curGateSrv = null;
+                if (curSrvIdx >= 0) {
+                    var cs = serversList[curSrvIdx];
+                    if (cs.Kind == "gate" && cs.GateMode != 0) curGateSrv = cs;
+                }
+                var to = adjToRaw != null ? adjToRaw[current] : graph.AdjTo[current];
+                var edgeKinds = adjKindRaw != null ? adjKindRaw[current] : graph.AdjKind[current];
+                var edgeCosts = adjCostRaw != null ? adjCostRaw[current] : graph.AdjCost[current];
+                var edgeServers = adjServerRaw != null ? adjServerRaw[current] : graph.AdjServer[current];
                 for (int e = 0; e < to.Length; e++) {
-                    var kind = (WalkEdgeKind)graph.AdjKind[current][e];
+                    var kind = (WalkEdgeKind)edgeKinds[e];
                     if (needs.StepFree && (kind == WalkEdgeKind.Stair || kind == WalkEdgeKind.Escalator)) continue;
                     int next = to[e];
-                    // The edge's own cost, then what arriving at its far end costs. The
-                    // congestion array is empty until the crowd is ported, so this is zero.
-                    double edgeCost = graph.AdjCost[current][e];
+                    int atNode = (uint)next < (uint)srvAtNode.Length ? srvAtNode[next] : -1;
+                    if (walkOnly && (kind != WalkEdgeKind.Walk || curZ != nodeZ[next] || atNode >= 0)) continue;
+                    int direction = 0;
+                    if (kind == WalkEdgeKind.Walk) {
+                        if (curGateSrv != null) {
+                            int dx = (int)(nodeX[next] - curX), dy = (int)(nodeY[next] - curY);
+                            if (StationWalkGraphBuilder.GateTravelDirection(curGateSrv.GateRotation, dx, dy) != curGateSrv.GateMode)
+                                continue;
+                        }
+                        if (atNode >= 0) {
+                            var endSrv = serversList[atNode];
+                            if (endSrv.Kind == "gate") {
+                                int dx = (int)(nodeX[next] - curX), dy = (int)(nodeY[next] - curY);
+                                direction = StationWalkGraphBuilder.GateTravelDirection(endSrv.GateRotation, dx, dy);
+                                if (endSrv.GateMode != 0 && endSrv.GateMode != direction) continue;
+                            }
+                        }
+                    }
+                    double edgeCost = edgeCosts[e] + (congestionFn != null ? congestionFn(next) : 0);
                     if (kind == WalkEdgeKind.Stair) edgeCost += StairAvoidSeconds;
                     if (kind == WalkEdgeKind.Lift) edgeCost += lift;
-                    int server = graph.AdjServer[current][e];
-                    if (server >= 0) edgeCost += QueueWait(graph.Servers[server]);
+                    int server = edgeServers[e];
+                    if (server >= 0 && server == avoidServer) continue;
+                    if (server >= 0) edgeCost += QueueWait(serversList[server]);
                     double candidate = gs + edgeCost;
-                    if (graph.ServerForNode.TryGetValue(next, out int atNode)) candidate += QueueWait(graph.Servers[atNode]);
-                    if (seen[next] == ep && gScore[next] <= candidate) continue;
-                    seen[next] = ep;
-                    gScore[next] = candidate;
-                    cameFrom[next] = current;
-                    heap.Push(next, candidate + Heuristic(next, goal));
+                    if (atNode >= 0) {
+                        if (atNode == avoidServer) continue;
+                        var service = serversList[atNode];
+                        candidate += service.Kind == "gate" && gateWaitFn != null ? gateWaitFn(atNode, direction) : QueueWait(service);
+                    }
+                    Relax(current, next, candidate, null);
+                }
+                if (useLifts && liftEdges.TryGetValue(current, out var liftOptions)) {
+                    foreach (var edge in liftOptions) {
+                        double candidate = gs + StationServiceRuntime.LiftCycleSeconds + lift + edge.QueueWait()
+                            + (congestionFn?.Invoke(edge.To) ?? 0);
+                        Relax(current, edge.To, candidate, edge.Id);
+                    }
                 }
             }
             return null;
+
+            void Relax(int from, int to, double candidate, string liftId) {
+                if (seen[to] == ep && gScore[to] <= candidate) return;
+                seen[to] = ep;
+                gScore[to] = candidate;
+                cameFrom[to] = from;
+                cameByLift[to] = liftId;
+                double dx = nodeX[to] - goalX, dy = nodeY[to] - goalY, dz = nodeZ[to] - goalZ;
+                heap.Push(to, candidate + Math.Sqrt(dx * dx + dy * dy + dz * dz) / WalkSpeed);
+            }
+        }
+
+        internal bool GatePassage(int from, int to, out int direction) {
+            int dx = (int)(graph.NodeX[to] - graph.NodeX[from]);
+            int dy = (int)(graph.NodeY[to] - graph.NodeY[from]);
+            direction = 0;
+            if (graph.ServerForNode.TryGetValue(from, out int start)) {
+                var server = graph.Servers[start];
+                if (server.Kind == "gate" && server.GateMode != 0 &&
+                    StationWalkGraphBuilder.GateTravelDirection(server.GateRotation, dx, dy) != server.GateMode)
+                    return false;
+            }
+            if (graph.ServerForNode.TryGetValue(to, out int end)) {
+                var server = graph.Servers[end];
+                if (server.Kind == "gate") {
+                    direction = StationWalkGraphBuilder.GateTravelDirection(server.GateRotation, dx, dy);
+                    return server.GateMode == 0 || server.GateMode == direction;
+                }
+            }
+            return true;
+        }
+
+        internal double LastSearchCost(int goal) => gScore[goal];
+        internal string LastSearchLiftInto(int node) => cameByLift[node];
+
+        internal double RouteCost(int[] path, int start, StationRouteNeeds needs) {
+            double cost = 0;
+            for (int i = start + 1; i < path.Length; i++) {
+                int from = path[i - 1], to = path[i];
+                int e = Array.IndexOf(graph.AdjTo[from], to);
+                if (e < 0) return double.PositiveInfinity;
+                var kind = (WalkEdgeKind)graph.AdjKind[from][e];
+                if (kind == WalkEdgeKind.Walk && !GatePassage(from, to, out _)) return double.PositiveInfinity;
+                cost += graph.AdjCost[from][e] + (Congestion?.Invoke(to) ?? 0);
+                if (kind == WalkEdgeKind.Stair) cost += StairAvoidSeconds;
+                if (kind == WalkEdgeKind.Lift) cost += LiftPenalty(needs);
+                int server = graph.AdjServer[from][e];
+                if (server >= 0) cost += QueueWait(graph.Servers[server]);
+                if (graph.ServerForNode.TryGetValue(to, out int atNode)) {
+                    var service = graph.Servers[atNode];
+                    GatePassage(from, to, out int direction);
+                    cost += service.Kind == "gate" && GateWait != null ? GateWait(atNode, direction) : QueueWait(service);
+                }
+            }
+            return cost;
+        }
+
+        internal double WalkingCost(int[] path, int start, int end) {
+            double cost = 0;
+            for (int i = start; i < end; i++) {
+                int from = path[i], to = path[i + 1];
+                if (graph.ServerForNode.ContainsKey(to) || graph.NodeZ[from] != graph.NodeZ[to])
+                    return double.PositiveInfinity;
+                var neighbors = graph.AdjTo[from];
+                int e = Array.IndexOf(neighbors, to);
+                if (e < 0 || graph.AdjKind[from][e] != (int)WalkEdgeKind.Walk)
+                    return double.PositiveInfinity;
+                cost += graph.AdjCost[from][e] + (Congestion?.Invoke(to) ?? 0);
+            }
+            return cost;
         }
 
         /// <summary>Estimated wait at a capacity-limited edge, seconds, capped so A* stays sane.</summary>

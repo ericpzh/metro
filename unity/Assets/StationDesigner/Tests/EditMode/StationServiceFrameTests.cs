@@ -47,7 +47,7 @@ public class StationServiceFrameTests {
                 document.Cells.Add(Cell(x, y, 0, 3));
         document.Modules.Add(new StationModuleFact { Id = "exit", Type = "exit", X = 10, Y = 4, Z = 0, Name = "A" });
         document.Modules.Add(new StationModuleFact {
-            Id = GateId, Type = "gate", X = 12, Y = 4, Z = 0, Rot = 0, GateDir = 0, GateOpen = true, GateHasLane = true,
+            Id = GateId, Type = "gate", X = 12, Y = 4, Z = 0, Rot = 3, GateDir = 0, GateOpen = true, GateHasLane = true,
         });
         document.Modules.Add(new StationModuleFact {
             Id = TrackId, Type = "track", X = 14, Y = 2, Z = 0, Rot = 0, Width = 10, Depth = 1, LineId = LineId,
@@ -353,6 +353,128 @@ public class StationServiceFrameTests {
     }
 
     [Test]
+    public void GateBankSplitsTheApproachingWaveBeforeEitherLaneHasAQueue() {
+        var doc = new StationSessionDocument();
+        for (int x = 0; x <= 14; x++) for (int y = 0; y <= 5; y++) {
+            if (x == 6 && y != 1 && y != 4) continue;
+            doc.Cells.Add(Cell(x, y, 0, x < 6 ? 2 : 3));
+        }
+        doc.Modules.Add(new StationModuleFact { Id = "origin", Type = "exit", X = 0, Y = 1 });
+        doc.Modules.Add(new StationModuleFact { Id = "destination", Type = "exit", X = 14, Y = 1 });
+        foreach (int y in new[] { 1, 4 })
+            doc.Modules.Add(new StationModuleFact {
+                Id = "gate-" + y, Type = "gate", GateHasLane = true, X = 6, Y = y, Rot = 3,
+            });
+
+        var session = Session(doc, services: new StationServiceOptions { ExitInRatePerHour = 72000 });
+        var graph = session.WalkGraph;
+        var empty = new StationRoutePlanner(graph);
+        var shortest = empty.Search("0,1,0", "14,1,0", StationRouteNeeds.Walking);
+        Assert.Contains("6,1,0", shortest.Keys);
+        Assert.IsFalse(shortest.Keys.Contains("6,4,0"));
+
+        Run(session, 1);
+        Assert.That(session.GateFrames().All(gate => gate.Queue == 0 && gate.Served == 0));
+        var route = new List<(double X, double Y, double Z)>();
+        var plannedLanes = new HashSet<double>();
+        foreach (var passenger in session.PassengerFrames()) {
+            if (!session.Services.TryReadPassengerRoute(passenger.SimId, route)) continue;
+            foreach (var point in route)
+                if (point.X == 6.5) plannedLanes.Add(point.Y);
+        }
+        CollectionAssert.AreEquivalent(new[] { 1.5, 4.5 }, plannedLanes,
+            "same-tick incoming reservations must price the near lane before anyone joins it");
+
+        Run(session, 90);
+        Assert.That(session.GateFrames().All(gate => gate.Served > 6),
+            "both working lanes must admit passengers under sustained demand");
+    }
+
+    [Test]
+    public void ZooFareGateBanksHaveConnectedLanesInBothDirections() {
+        string path = Path.Combine(Application.dataPath, "StationDesigner/Demos/zoo.metro.json");
+        var source = Metro.Persistence.StationDocumentReader.Read(File.ReadAllText(path), Metro.Build.StationSource.None);
+        var doc = StationSessionProjection.Document(source.Document, source.Index);
+        var graph = StationWalkGraphBuilder.BuildWorkspace(doc).Graph;
+        var planner = new StationRoutePlanner(graph);
+        int checkedLanes = 0;
+        foreach (var gate in doc.Modules.Where(m => m.Type == "gate" && m.GateHasLane && m.Z == -15)) {
+            // Zoo's three authored banks at this level all run along the document y-axis.
+            string lane = StationWalkGraph.CellKey(gate.X, gate.Y, gate.Z);
+            string north = StationWalkGraph.CellKey(gate.X, gate.Y + 1, gate.Z);
+            string south = StationWalkGraph.CellKey(gate.X, gate.Y - 1, gate.Z);
+            CollectionAssert.AreEqual(new[] { north, lane, south }, planner.Search(north, south, StationRouteNeeds.Walking).Keys, gate.Id);
+            CollectionAssert.AreEqual(new[] { south, lane, north }, planner.Search(south, north, StationRouteNeeds.Walking).Keys, gate.Id);
+            checkedLanes++;
+        }
+        Assert.AreEqual(12, checkedLanes);
+    }
+
+    [Test]
+    public void ParallelEscalatorsShareDemandWhenTheShorterLaneQueues() {
+        var doc = new StationSessionDocument();
+        // Isolated floors joined by two up escalators. The y=0 lane is
+        // shorter from the street and remains the empty-station preference.
+        for (int y = 0; y <= 3; y++) {
+            for (int x = 0; x <= 3; x++) doc.Cells.Add(Cell(x, y, 0, 2));
+            for (int x = 7; x <= 10; x++) doc.Cells.Add(Cell(x, y, 5, 3));
+        }
+        doc.Modules.Add(new StationModuleFact { Id = "street", Type = "exit", X = 0 });
+        doc.Modules.Add(new StationModuleFact { Id = "upper", Type = "exit", X = 10, Z = 5 });
+        foreach (int lane in new[] { 0, 3 }) {
+            doc.Modules.Add(new StationModuleFact {
+                Id = "esc-" + lane, Type = "escalator", HasEndpoints = true, Width = 1,
+                X = 3, Y = lane, FromX = 3, FromY = lane, ToX = 7, ToY = lane, ToZ = 5, Dir = "up",
+            });
+        }
+        var session = Session(doc, services: new StationServiceOptions { ExitInRatePerHour = 36000 });
+        var rides = session.WalkGraph.Servers.Where(server => server.Kind == "escalator").ToArray();
+        Assert.AreEqual(2, rides.Length);
+        Run(session, 60);
+        Assert.Greater(rides[0].Served, 5, "the shorter escalator remains in use");
+        Assert.Greater(rides[1].Served, 5, "the parallel escalator also gets passengers");
+    }
+
+    [Test]
+    public void ZooSwitchbackRouteFollowsBothFlightsAndFractionalLanding() {
+        string path = Path.Combine(Application.dataPath, "StationDesigner/Demos/zoo.metro.json");
+        var source = Metro.Persistence.StationDocumentReader.Read(File.ReadAllText(path), Metro.Build.StationSource.None);
+        var projected = StationSessionProjection.Document(source.Document, source.Index);
+        var stair = projected.Modules.First(m => m.Type == "stair" && m.FromX == 53 && m.FromY == 14);
+        Assert.IsNotNull(stair.RidePath);
+        var points = stair.RidePath.Remaining(0, false, 0);
+        Assert.IsTrue(points.Any(p => Math.Abs(p.Z - (stair.FromZ + stair.ToZ) * .5 - 1) < 1e-6));
+        Assert.Greater(points.Max(p => Math.Abs(p.Y - (stair.FromY + .5))), 1,
+            "the two-flight route extends into the switchback instead of crossing the open shaft");
+        stair.RidePath.Sample(.45, false, 0, out double x, out double y, out double z, out _);
+        stair.RidePath.Sample(.55, true, 0, out double rx, out double ry, out double rz, out _);
+        Assert.That(rx, Is.EqualTo(x).Within(1e-6));
+        Assert.That(ry, Is.EqualTo(y).Within(1e-6));
+        Assert.That(rz, Is.EqualTo(z).Within(1e-6));
+
+        var graph = StationWalkGraphBuilder.BuildWorkspace(projected).Graph;
+        Assert.That(graph.Servers.Any(server => server.RidePath == stair.RidePath));
+        foreach (var fence in source.Document.Modules.Where(m => m.Type == "gate" && m.Config.Text("door") == "fence"))
+            Assert.IsFalse(graph.TryNode(fence.X, fence.Y, fence.Z, out _), "fence gate " + fence.Id);
+    }
+
+    [Test]
+    public void FenceGateAndOneWayLaneUseTheirPhysicalGeometry() {
+        var doc = new StationSessionDocument();
+        for (int x = 0; x < 3; x++) doc.Cells.Add(Cell(x, 0, 0, x < 2 ? 2 : 3));
+        doc.Modules.Add(new StationModuleFact { Id = GateId, Type = "gate", X = 1, Rot = 3, GateHasLane = false });
+        var opts = new StationWalkGraphOptions { IncludeGround = false, ZoneBarriers = true };
+        var blocked = StationWalkGraphBuilder.BuildWorkspace(doc, opts).Graph;
+        Assert.IsFalse(blocked.TryNode(1, 0, 0, out _));
+        Assert.IsEmpty(blocked.Servers);
+        doc.Modules[0] = new StationModuleFact { Id = GateId, Type = "gate", X = 1, Rot = 3, GateHasLane = true, GateDir = 1 };
+        var open = StationWalkGraphBuilder.BuildWorkspace(doc, opts).Graph;
+        var planner = new StationRoutePlanner(open);
+        Assert.IsTrue(planner.Search("0,0,0", "2,0,0", StationRouteNeeds.Walking).Found);
+        Assert.IsFalse(planner.Search("2,0,0", "0,0,0", StationRouteNeeds.Walking).Found);
+    }
+
+    [Test]
     public void GateLaneCommitsAndPublishesTheLeafCurve() {
         var session = Session(GatePlatformDocument(), 0);
         Assert.AreEqual(3, session.Services.SeedGateRiders(GateId, 3), "three entry riders join the lane queue");
@@ -459,6 +581,7 @@ public class StationServiceFrameTests {
             for (int i = 0; i < frame.Passengers.Length; i++) {
                 var passenger = frame.Passengers[i];
                 if (passenger.State != StationPassengerState.Queuing || passenger.ServerId != "gate:" + GateId) continue;
+                Assert.LessOrEqual(passenger.X, 12.5 - .6, "a waiting passenger stays out of the gate");
                 nowQueued.Add(passenger.SimId);
                 if (!queued.Contains(passenger.SimId)) joinOrder.Add(passenger.SimId);
             }
@@ -595,6 +718,78 @@ public class StationServiceFrameTests {
     // ----------------------------------------------------------------- lift
 
     [Test]
+    public void ZooPeakPassengersRideBothAuthoredLifts() {
+        string path = Path.Combine(Application.dataPath, "StationDesigner/Demos/zoo.metro.json");
+        var source = Metro.Persistence.StationDocumentReader.Read(File.ReadAllText(path), Metro.Build.StationSource.None);
+        var setup = StationSessionProjection.Setup(source.Document, source.Index, "zoo-lift-regression");
+        setup.StartSimTime = 8 * 3600;
+        setup.StartPlaying = true;
+        var session = new StationSimulationSession(setup);
+        var riders = new Dictionary<string, HashSet<int>>();
+        Run(session, 600, frame => {
+            foreach (var person in frame.Passengers) {
+                if (person.Activity != StationPassengerActivity.Lift || person.State != StationPassengerState.Riding) continue;
+                if (!riders.TryGetValue(person.ServerId, out var ids)) riders[person.ServerId] = ids = new HashSet<int>();
+                ids.Add(person.SimId);
+            }
+        });
+        TestContext.WriteLine($"Zoo lift riders: {string.Join(", ", riders.Select(pair => $"{pair.Key}={pair.Value.Count}"))}");
+        CollectionAssert.AreEquivalent(new[] { "lift:lift-15", "lift:lift-4076" }, riders.Keys,
+            "both authored shafts should carry passengers during the morning peak");
+    }
+
+    [Test]
+    public void APassengerCanTransferBetweenTwoLiftsOnOneTrip() {
+        var doc = LiftOnlyDocument();
+        doc.Cells.AddRange(doc.Cells.Where(cell => cell.Z == -5)
+            .Select(cell => Cell(cell.X, cell.Y, -10, cell.Zone)).ToArray());
+        for (int i = 0; i < doc.Modules.Count; i++) {
+            var module = doc.Modules[i];
+            if (module.Type != "track" && module.Type != "platform-edge") continue;
+            module.Z = -10;
+            doc.Modules[i] = module;
+        }
+        doc.Modules.Add(new StationModuleFact {
+            Id = "lift-2", Type = "lift", X = 2, Y = 5, Z = -10, Width = 2, Depth = 2,
+            HasEndpoints = true, FromX = 2, FromY = 5, FromZ = -10, ToX = 2, ToY = 5, ToZ = -5,
+        });
+        var session = Session(doc);
+        var upperRiders = new HashSet<int>();
+        var lowerRiders = new HashSet<int>();
+        Run(session, 180, frame => {
+            foreach (var person in frame.Passengers) {
+                if (person.Activity != StationPassengerActivity.Lift) continue;
+                if (person.ServerId == "lift:lift-1") upperRiders.Add(person.SimId);
+                if (person.ServerId == "lift:lift-2") lowerRiders.Add(person.SimId);
+            }
+        });
+        Assert.IsTrue(upperRiders.Overlaps(lowerRiders), "a passenger must ride both shafts to reach the platform");
+    }
+
+    [Test]
+    public void AuthoredLiftCallsTheIntermediateLandingAndIgnoresTheShaftCap() {
+        var doc = LiftOnlyDocument();
+        int i = doc.Modules.FindIndex(m => m.Type == "lift");
+        var lift = doc.Modules[i];
+        lift.ToZ = 4;
+        lift.LiftRises = new[] { 5, 4 };
+        doc.Modules[i] = lift;
+        CollectionAssert.AreEqual(new[] { -5, 0 }, StationLiftStops.Levels(lift));
+        var session = Session(doc, 0);
+        bool inCabin = false;
+        Run(session, 120, frame => {
+            foreach (var person in frame.Passengers) {
+                if (person.Activity != StationPassengerActivity.Lift) continue;
+                Assert.That(person.X, Is.InRange(5.0, 7.0));
+                Assert.That(person.Y, Is.InRange(5.0, 7.0));
+                Assert.That(person.Z, Is.EqualTo(frame.Lifts[0].Z + 1).Within(1e-8));
+                inCabin = true;
+            }
+        });
+        Assert.IsTrue(inCabin);
+    }
+
+    [Test]
     public void APassengerOnALiftEdgeCallsTheCarAndRidesIt() {
         var session = Session(LiftOnlyDocument(), 0);
         bool sawCall = false;
@@ -613,7 +808,7 @@ public class StationServiceFrameTests {
                 if (passenger.Activity != StationPassengerActivity.Lift) continue;
                 if (passenger.State != StationPassengerState.Riding) continue;
                 sawRider = true;
-                Assert.AreEqual(lift.Z, passenger.Z, 1e-9, "a rider is pinned to its car's floor");
+                Assert.AreEqual(lift.Z + 1, passenger.Z, 1e-9, "a rider is pinned to its car's floor");
                 Assert.IsFalse(double.IsNaN(passenger.Z) || double.IsInfinity(passenger.Z));
             }
         }

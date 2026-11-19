@@ -99,7 +99,13 @@ namespace Metro.Persistence {
         }
         static (double,double,double) Coordinates(JObject c) => ((double)c["x"],(double)c["y"],(double)c["z"]);
         public static string NormalizeJson(string json) {
-            var cells=JArray.Parse(json);var solids=new Dictionary<(double,double,double),Shape>();
+            var cells=JArray.Parse(json);
+            NormalizeArrayInPlace(cells);
+            return cells.ToString(Formatting.None);
+        }
+
+        internal static void NormalizeArrayInPlace(JArray cells) {
+            var solids=new Dictionary<(double,double,double),Shape>(cells.Count);
             foreach(var value in cells) {
                 if(!(value is JObject c))throw new FormatException("Invalid cell");
                 if((string)c["fill"]=="solid"&&!Tagged(c,"suspended-ceiling"))solids[Coordinates(c)]=ShapeOf(c);
@@ -115,7 +121,6 @@ namespace Metro.Persistence {
                 }
                 if(changed&&!finish.HasValues)c.Remove("finish");
             }
-            return cells.ToString(Formatting.None);
         }
 
         /// <summary>

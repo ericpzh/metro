@@ -487,6 +487,14 @@ public class ModuleMotionTests {
                 "no landing opens while the car is parked with its doors shut");
         }
 
+        var moving = LiftFrame("lift-test", 0, view.Stops.Count, 0);
+        moving.HasCarElevation = true;
+        moving.Z = view.Stops[0] + 1.5;
+        frame.Lifts = new[] { moving };
+        dispatch.Apply(frame);
+        Assert.That(view.CabinFloorZ, Is.EqualTo(parked + 1.5).Within(1e-5),
+            "the car moves before its stop index changes");
+
         // Move one interval (fraction 0.5 of the shaft) and open: the aligned landing opens.
         frame.Lifts = new[] { LiftFrame("lift-test", 1, view.Stops.Count, 1) };
         dispatch.Apply(frame);

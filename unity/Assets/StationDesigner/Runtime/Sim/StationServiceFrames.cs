@@ -38,6 +38,72 @@ namespace Metro.Sim {
         Boarding = 4,
     }
 
+    /// <summary>The distance-parameterized walking line over a ramp and its landings.</summary>
+    public sealed class StationRidePath {
+        readonly (double X, double Y, double Z)[] points;
+        readonly double[] distances;
+        public double Length => distances[distances.Length - 1];
+
+        public StationRidePath((double X, double Y, double Z)[] points) {
+            if (points == null || points.Length < 2) throw new ArgumentException("A ride needs two or more points.", nameof(points));
+            this.points = points;
+            distances = new double[points.Length];
+            for (int i = 1; i < points.Length; i++) {
+                var a = points[i - 1];
+                var b = points[i];
+                double x = b.X - a.X, y = b.Y - a.Y, z = b.Z - a.Z;
+                distances[i] = distances[i - 1] + System.Math.Sqrt(x * x + y * y + z * z);
+            }
+        }
+
+        public bool SameGeometry(StationRidePath other) {
+            if (ReferenceEquals(this, other)) return true;
+            if (other == null || other.points.Length != points.Length) return false;
+            for (int i = 0; i < points.Length; i++) if (points[i] != other.points[i]) return false;
+            return true;
+        }
+
+        public (double X, double Y, double Z)[] Remaining(double progress, bool reverse, double column) {
+            var result = new List<(double X, double Y, double Z)>();
+            double distance = (reverse ? 1 - progress : progress) * Length;
+            int i = reverse ? points.Length - 2 : 1;
+            int step = reverse ? -1 : 1;
+            for (; i >= 0 && i < points.Length; i += step) {
+                if (reverse ? distances[i] >= distance : distances[i] <= distance) continue;
+                result.Add(Point(i, column));
+            }
+            return result.ToArray();
+        }
+
+        (double X, double Y, double Z) Point(int i, double column) {
+            var p = points[i];
+            if (column == 0 || i == 0 || i == points.Length - 1) return p;
+            var a = points[0]; var b = points[points.Length - 1];
+            double dx = b.X - a.X, dy = b.Y - a.Y;
+            double run = System.Math.Sqrt(dx * dx + dy * dy);
+            return run > 0 ? (p.X + dy / run * column, p.Y - dx / run * column, p.Z) : p;
+        }
+
+        public void Sample(double progress, bool reverse, double column,
+            out double x, out double y, out double z, out double heading) {
+            double d = Math.Max(0, Math.Min(1, reverse ? 1 - progress : progress)) * Length;
+            int i = 1;
+            while (i + 1 < distances.Length && distances[i] <= d) i++;
+            double length = distances[i] - distances[i - 1];
+            double t = length > 0 ? (d - distances[i - 1]) / length : 0;
+            var a = Point(i - 1, column); var b = Point(i, column);
+            x = a.X + (b.X - a.X) * t;
+            y = a.Y + (b.Y - a.Y) * t;
+            z = a.Z + (b.Z - a.Z) * t;
+            // A lifted exit may have a vertical seam. Keep the facing of the adjoining run.
+            if (a.X == b.X && a.Y == b.Y) {
+                if (i + 1 < points.Length) b = Point(i + 1, column);
+                else if (i > 1) a = Point(i - 2, column);
+            }
+            heading = System.Math.Atan2(reverse ? a.Y - b.Y : b.Y - a.Y, reverse ? a.X - b.X : b.X - a.X);
+        }
+    }
+
     /// <summary>One passenger's published pose and service state, in document axes.</summary>
     public struct StationPassengerFrame {
         /// <summary>Stable simulation identity; selects the recipe and the gait profile.</summary>
@@ -53,6 +119,10 @@ namespace Metro.Sim {
         public StationPassengerActivity Activity;
         /// <summary>Seconds into the activity's own duration.</summary>
         public double ActivitySeconds;
+        public StationRidePath RidePath;
+        public double RideProgress, RideColumn, RideSeconds;
+        public bool RideReverse;
+        public int RailVariant;
         /// <summary>Cumulative walked metres since spawn (the source's travel-driven gait).</summary>
         public double WalkDistance;
         /// <summary>Gait phase at spawn, 0–1; walk distance advances it.</summary>
@@ -187,6 +257,22 @@ namespace Metro.Sim {
             var stops = new List<int>();
             if (!m.HasEndpoints) { stops.Add(m.Z); return stops; }
             int lo = Math.Min(m.FromZ, m.ToZ), hi = Math.Max(m.FromZ, m.ToZ);
+            if (m.LiftRises != null) {
+                int sum = 0;
+                bool valid = m.LiftRises.Length > 0;
+                foreach (int rise in m.LiftRises) {
+                    if (rise <= 0 || rise > hi - lo) valid = false;
+                    else sum += rise;
+                }
+                if (valid && sum == hi - lo) {
+                    int z = lo;
+                    foreach (int rise in m.LiftRises) { stops.Add(z); z += rise; }
+                } else {
+                    for (int z = lo; z < hi; z += 5) stops.Add(z);
+                }
+                return stops;
+            }
+            // Plain service fixtures can supply the terminal landing explicitly.
             for (int z = lo; z <= hi; z += 5) stops.Add(z);
             if (stops.Count == 0 || stops[stops.Count - 1] != hi) stops.Add(hi);
             return stops;

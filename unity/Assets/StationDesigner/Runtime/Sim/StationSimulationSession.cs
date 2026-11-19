@@ -116,6 +116,10 @@ namespace Metro.Sim {
         public int FromX, FromY, FromZ, ToX, ToY, ToZ;
         /// <summary>The moving band's chain length in metres for a ramp piece; 0 = unknown.</summary>
         public double RunLength;
+        public StationRidePath RidePath;
+        public int RideColumns;
+        public Dictionary<int, int> LiftDoorMasks;
+        public int[] LiftRises;
     }
 
     /// <summary>One line's dispatch-relevant facts (`headwayProfile`, stock, authored wave).</summary>
@@ -155,11 +159,181 @@ namespace Metro.Sim {
     /// JSON and never holds a live document object.
     /// </summary>
     public sealed class StationSessionDocument {
+        static readonly StationModuleFact[] EmptyModuleFacts = Array.Empty<StationModuleFact>();
+
         public string StationId = "";
         public int LevelBase;
         public List<StationCellFact> Cells = new List<StationCellFact>();
         public List<StationModuleFact> Modules = new List<StationModuleFact>();
         public List<StationLineFact> Lines = new List<StationLineFact>();
+
+        internal Func<List<StationCellFact>> LazyCells;
+        Dictionary<string, List<StationModuleFact>> cachedByType;
+        Dictionary<string, int> cachedIndexById;
+        List<StationModuleFact> cachedMovingBands;
+        int cachedModulesCount = -1;
+        int cachedIndexByIdSourceCount = -1;
+
+        static bool IsIndexedSimModuleType(string t) =>
+            t == "track" || t == "platform-edge" || t == "gate" || t == "lift" ||
+            t == "road" || t == "escalator" || t == "walkway";
+
+        internal List<StationCellFact> EnsureCells() {
+            if ((Cells == null || Cells.Count == 0) && LazyCells != null) {
+                Cells = LazyCells();
+                LazyCells = null;
+            }
+            return Cells ?? (Cells = new List<StationCellFact>());
+        }
+
+        void EnsureModuleTypeIndex() {
+            if (cachedByType != null && cachedModulesCount == Modules.Count) return;
+            var map = new Dictionary<string, List<StationModuleFact>>(8, StringComparer.Ordinal);
+            var bands = new List<StationModuleFact>();
+            for (int i = 0; i < Modules.Count; i++) {
+                var m = Modules[i];
+                string t = m.Type ?? "";
+                if (!IsIndexedSimModuleType(t)) continue;
+                if (!map.TryGetValue(t, out var list)) map[t] = list = new List<StationModuleFact>();
+                list.Add(m);
+                if (t == "escalator" || t == "walkway") bands.Add(m);
+            }
+            cachedByType = map;
+            cachedMovingBands = bands;
+            cachedModulesCount = Modules.Count;
+        }
+
+        public IReadOnlyList<StationModuleFact> ModulesOfType(string type) {
+            if (string.IsNullOrEmpty(type) || Modules == null || Modules.Count == 0) return EmptyModuleFacts;
+            EnsureModuleTypeIndex();
+            return cachedByType.TryGetValue(type, out var list) ? (IReadOnlyList<StationModuleFact>)list : EmptyModuleFacts;
+        }
+
+        internal IReadOnlyList<StationModuleFact> MovingBandsInOrder() {
+            if (Modules == null || Modules.Count == 0) return EmptyModuleFacts;
+            EnsureModuleTypeIndex();
+            return cachedMovingBands;
+        }
+
+        /// <summary>
+        /// Build a child <see cref="StationSessionDocument"/> from a bounded <see cref="StationSessionDelta"/>
+        /// without scanning or copying untouched cell/module lists.
+        /// </summary>
+        public StationSessionDocument ApplyDelta(
+            string stationId,
+            int levelBase,
+            StationSessionDelta delta,
+            Func<List<StationCellFact>> lazyCellExport = null) {
+            var next = new StationSessionDocument {
+                StationId = stationId ?? StationId ?? "",
+                LevelBase = levelBase,
+                Lines = Lines,
+                LazyCells = lazyCellExport ?? (() => EnsureCells()),
+            };
+            if (delta == null || !delta.HasModuleChanges) {
+                EnsureModuleTypeIndex();
+                next.Modules = Modules;
+                next.cachedByType = cachedByType;
+                next.cachedIndexById = cachedIndexById;
+                next.cachedIndexByIdSourceCount = cachedIndexByIdSourceCount;
+                next.cachedMovingBands = cachedMovingBands;
+                next.cachedModulesCount = cachedModulesCount;
+                return next;
+            }
+            if (delta.OrderedModules != null) {
+                next.Modules = delta.OrderedModules;
+                return next;
+            }
+
+            EnsureModuleTypeIndex();
+            bool simBucketsChanged = false;
+            Dictionary<string, StationModuleFact> changedById = null;
+            if (delta.ChangedModules.Count > 0) {
+                changedById = new Dictionary<string, StationModuleFact>(delta.ChangedModules.Count, StringComparer.Ordinal);
+                for (int i = 0; i < delta.ChangedModules.Count; i++) {
+                    var cm = delta.ChangedModules[i];
+                    if (IsIndexedSimModuleType(cm.Type ?? "")) simBucketsChanged = true;
+                    if (!string.IsNullOrEmpty(cm.Id)) changedById[cm.Id] = cm;
+                }
+            }
+            if (!simBucketsChanged && cachedByType != null && (delta.RemovedModules.Count > 0 || changedById != null)) {
+                foreach (var kv in cachedByType) {
+                    var bucket = kv.Value;
+                    for (int b = 0; b < bucket.Count; b++) {
+                        string bid = bucket[b].Id ?? "";
+                        if (changedById != null && changedById.ContainsKey(bid)) { simBucketsChanged = true; break; }
+                        for (int r = 0; r < delta.RemovedModules.Count; r++) {
+                            if (string.Equals(delta.RemovedModules[r], bid, StringComparison.Ordinal)) { simBucketsChanged = true; break; }
+                        }
+                        if (simBucketsChanged) break;
+                    }
+                    if (simBucketsChanged) break;
+                }
+            }
+
+            if (delta.OrderedModuleIds != null) {
+                if (cachedIndexById == null || cachedIndexByIdSourceCount != Modules.Count) {
+                    var idMap = new Dictionary<string, int>(Modules.Count, StringComparer.Ordinal);
+                    for (int i = 0; i < Modules.Count; i++) {
+                        var m = Modules[i];
+                        if (!string.IsNullOrEmpty(m.Id)) idMap[m.Id] = i;
+                    }
+                    cachedIndexById = idMap;
+                    cachedIndexByIdSourceCount = Modules.Count;
+                }
+                var ids = delta.OrderedModuleIds;
+                var orderedMods = new List<StationModuleFact>(ids.Length);
+                for (int i = 0; i < ids.Length; i++) {
+                    string id = ids[i] ?? "";
+                    if (changedById != null && changedById.TryGetValue(id, out var cm)) {
+                        orderedMods.Add(cm);
+                    } else if (cachedIndexById.TryGetValue(id, out int oldIdx)) {
+                        orderedMods.Add(Modules[oldIdx]);
+                    }
+                }
+                next.Modules = orderedMods;
+                if (!simBucketsChanged && cachedByType != null) {
+                    next.cachedByType = cachedByType;
+                    next.cachedMovingBands = cachedMovingBands;
+                    next.cachedModulesCount = orderedMods.Count;
+                }
+                return next;
+            }
+
+            var removedSet = delta.RemovedModules.Count > 0
+                ? new HashSet<string>(delta.RemovedModules, StringComparer.Ordinal)
+                : null;
+
+            var nextMods = new List<StationModuleFact>(Modules.Count + delta.ChangedModules.Count);
+            HashSet<string> placedChanged = changedById != null ? new HashSet<string>(StringComparer.Ordinal) : null;
+            for (int i = 0; i < Modules.Count; i++) {
+                var m = Modules[i];
+                string id = m.Id ?? "";
+                if (removedSet != null && removedSet.Contains(id)) continue;
+                if (changedById != null && changedById.TryGetValue(id, out var replacement)) {
+                    nextMods.Add(replacement);
+                    placedChanged.Add(id);
+                } else {
+                    nextMods.Add(m);
+                }
+            }
+            if (delta.ChangedModules.Count > 0) {
+                for (int i = 0; i < delta.ChangedModules.Count; i++) {
+                    var cm = delta.ChangedModules[i];
+                    string id = cm.Id ?? "";
+                    if (placedChanged == null || !placedChanged.Contains(id)) {
+                        nextMods.Add(cm);
+                    }
+                }
+            }
+            next.Modules = nextMods;
+            if (!simBucketsChanged && cachedByType != null) {
+                next.cachedByType = cachedByType;
+                next.cachedMovingBands = cachedMovingBands;
+                next.cachedModulesCount = nextMods.Count;
+            }
+            return next;
+        }
 
         /// <summary>
         /// The rails a line runs trains on: one consist per (line, track). Tunnel and
@@ -168,9 +342,10 @@ namespace Metro.Sim {
         /// </summary>
         public List<StationModuleFact> ServiceTracks(string lineId) {
             var bound = new List<StationModuleFact>();
-            for (int i = 0; i < Modules.Count; i++) {
-                var m = Modules[i];
-                if (m.Type == "track" && m.LineId == lineId) bound.Add(m);
+            var tracks = ModulesOfType("track");
+            for (int i = 0; i < tracks.Count; i++) {
+                var m = tracks[i];
+                if (m.LineId == lineId) bound.Add(m);
             }
             var platforms = new List<StationModuleFact>();
             for (int i = 0; i < bound.Count; i++) if (!bound[i].Tunnel && !bound[i].Bridge) platforms.Add(bound[i]);
@@ -180,9 +355,9 @@ namespace Metro.Sim {
         /// <summary>Platform edges bound to a (line, track) pair, document order.</summary>
         public List<StationModuleFact> PlatformEdges(string lineId, string trackId) {
             var result = new List<StationModuleFact>();
-            for (int i = 0; i < Modules.Count; i++) {
-                var m = Modules[i];
-                if (m.Type != "platform-edge") continue;
+            var edges = ModulesOfType("platform-edge");
+            for (int i = 0; i < edges.Count; i++) {
+                var m = edges[i];
                 if (m.LineId != lineId) continue;
                 if (string.IsNullOrEmpty(m.RailId)) continue;
                 if (m.RailId == trackId) result.Add(m);
@@ -301,8 +476,9 @@ namespace Metro.Sim {
         public int StopCount;
         /// <summary>The stop this car has been called to, or -1 when nobody is waiting.</summary>
         public int Call;
-        /// <summary>The cabin floor's own elevation, in document metres.</summary>
+        /// <summary>The car's cell elevation. The cabin floor is one metre above it.</summary>
         public double Z;
+        public bool HasCarElevation;
     }
 
     /// <summary>One platform edge's screen doors, keyed by its module id.</summary>
@@ -357,6 +533,12 @@ namespace Metro.Sim {
         public StationDayData Day { get; }
         public StationDocumentEditKind Kind { get; }
         public StationWalkGraph WalkGraph { get; }
+        public bool UsedIncrementalGraph { get; }
+        public int RebuiltNodeCount { get; }
+        public int RebuiltEdgeCount { get; }
+        public string FallbackReason { get; }
+        internal StationWalkGraphWorkspace WalkWorkspace { get; }
+        internal StationWalkGraphDelta GraphDelta { get; }
         internal StationServiceRuntime.StagedServiceFacts ServiceFacts { get; }
 
         internal StagedStationDocumentEdit(
@@ -364,12 +546,22 @@ namespace Metro.Sim {
             StationDayData day,
             StationDocumentEditKind kind,
             StationWalkGraph walkGraph,
-            StationServiceRuntime.StagedServiceFacts serviceFacts) {
+            StationServiceRuntime.StagedServiceFacts serviceFacts,
+            StationWalkGraphWorkspace walkWorkspace = null,
+            StationWalkGraphDelta graphDelta = null,
+            bool usedIncrementalGraph = false,
+            string fallbackReason = null) {
             Document = document;
             Day = day;
             Kind = kind;
             WalkGraph = walkGraph;
             ServiceFacts = serviceFacts;
+            WalkWorkspace = walkWorkspace;
+            GraphDelta = graphDelta;
+            UsedIncrementalGraph = usedIncrementalGraph;
+            RebuiltNodeCount = graphDelta != null ? graphDelta.RebuiltNodeCount : (walkGraph?.NodeCount ?? 0);
+            RebuiltEdgeCount = graphDelta != null ? graphDelta.RebuiltEdgeNodeCount : (walkGraph?.NodeCount ?? 0);
+            FallbackReason = fallbackReason;
         }
     }
 
@@ -429,11 +621,22 @@ namespace Metro.Sim {
         long sessionRevision;
         long presentationEpoch;
         string sessionId;
+        bool hasCachedSnapshot;
+        long cachedSnapshotTick = long.MinValue;
+        long cachedSnapshotRevision = long.MinValue;
+        long cachedSnapshotEpoch = long.MinValue;
+        bool cachedSnapshotPlaying;
+        int cachedSnapshotSpeed;
+        double cachedSnapshotSimTime = double.NaN;
+        StationSessionDocument cachedSnapshotDoc;
+        StationMotionFrame cachedSnapshot;
         /// <summary>The bounded crowd/gate/boarding slice (plan 11 C3).</summary>
         readonly StationServiceRuntime services;
         readonly StationWalkGraphOptions walkOptions;
         readonly bool recordTransitions;
         StationWalkGraph walkGraph;
+        StationWalkGraphWorkspace walkWorkspace;
+        readonly StationWalkGraphScratchPool walkScratchPool = new StationWalkGraphScratchPool();
         readonly StationStatisticsHistory history = new StationStatisticsHistory();
         StationStatisticsSnapshot statistics;
         string statisticsRunId = "";
@@ -616,16 +819,60 @@ namespace Metro.Sim {
             var doc = next ?? new StationSessionDocument();
             var normalizedDay = StationClock.NormalizeDay(day);
             if (kind != StationDocumentEditKind.Structural) {
-                stagedEdit = new StagedStationDocumentEdit(doc, normalizedDay, kind, walkGraph, null);
+                stagedEdit = new StagedStationDocumentEdit(doc, normalizedDay, kind, walkGraph, null, walkWorkspace, null, false);
                 return stagedEdit;
             }
+            StationWalkGraphWorkspace candidateWorkspace = null;
             StationWalkGraph candidateGraph = null;
-            try { candidateGraph = StationWalkGraphBuilder.Build(doc, walkOptions); }
-            catch (Exception) { candidateGraph = null; }
+            try {
+                candidateWorkspace = StationWalkGraphBuilder.BuildWorkspace(doc, walkOptions);
+                candidateGraph = candidateWorkspace.Graph;
+            } catch (Exception) {
+                candidateWorkspace = null;
+                candidateGraph = null;
+            }
             var candidateFacts = StationServiceRuntime.BuildServiceFacts(doc, candidateGraph);
-            stagedEdit = new StagedStationDocumentEdit(doc, normalizedDay, StationDocumentEditKind.Structural, candidateGraph, candidateFacts);
+            stagedEdit = new StagedStationDocumentEdit(doc, normalizedDay, StationDocumentEditKind.Structural, candidateGraph, candidateFacts, candidateWorkspace, null, false, "full-stage");
             return stagedEdit;
         }
+
+        /// <summary>
+        /// Stage an incremental cell/module delta against the retained walk-graph workspace without
+        /// scanning untouched station records or mutating active simulation actors.
+        /// </summary>
+        public StagedStationDocumentEdit StageCellDelta(
+            string stationId,
+            int levelBase,
+            StationDayData day,
+            StationSessionDelta delta,
+            StationDocumentEditKind kind = StationDocumentEditKind.Structural) {
+            var normalizedDay = StationClock.NormalizeDay(day);
+            var baseDoc = document ?? new StationSessionDocument();
+            if (kind != StationDocumentEditKind.Structural) {
+                var nonStructDoc = baseDoc.ApplyDelta(stationId, levelBase, delta, walkWorkspace != null ? (Func<List<StationCellFact>>)walkWorkspace.ExportAuthoredCells : null);
+                stagedEdit = new StagedStationDocumentEdit(nonStructDoc, normalizedDay, kind, walkGraph, null, walkWorkspace, null, true);
+                return stagedEdit;
+            }
+            if (walkWorkspace == null || delta == null) {
+                var fullDoc = baseDoc.ApplyDelta(stationId, levelBase, delta);
+                var fallback = StageDocumentEdit(fullDoc, normalizedDay, StationDocumentEditKind.Structural);
+                stagedEdit = new StagedStationDocumentEdit(
+                    fallback.Document, fallback.Day, fallback.Kind, fallback.WalkGraph, fallback.ServiceFacts,
+                    fallback.WalkWorkspace, null, false, walkWorkspace == null ? "no-walk-workspace" : "null-delta");
+                return stagedEdit;
+            }
+            var nextDoc = baseDoc.ApplyDelta(stationId, levelBase, delta);
+            var stagedGraph = StationWalkGraphBuilder.StageCellDelta(walkWorkspace, nextDoc, delta, walkScratchPool.StagingSlot);
+            nextDoc.LazyCells = stagedGraph.Workspace.ExportAuthoredCells;
+            var candidateFacts = StationServiceRuntime.StageCellDelta(nextDoc, stagedGraph.Graph, stagedGraph.Delta);
+            stagedEdit = new StagedStationDocumentEdit(
+                nextDoc, normalizedDay, StationDocumentEditKind.Structural,
+                stagedGraph.Graph, candidateFacts, stagedGraph.Workspace, stagedGraph.Delta, true);
+            return stagedEdit;
+        }
+
+        public StationSessionDocument CommittedDocument => document;
+        public StationWalkGraphWorkspace WalkWorkspace => walkWorkspace;
 
         /// <summary>Discard any staged document edit without touching the running session.</summary>
         public void AbortDocumentEdit() {
@@ -654,9 +901,18 @@ namespace Metro.Sim {
                     document = committed.Document;
                     Clock.SetDay(committed.Day);
                     walkGraph = committed.WalkGraph;
-                    RebuildServices(resetLifts: true);
-                    PruneOrphanedTrains();
-                    services.ApplyStagedEdit(committed.ServiceFacts);
+                    walkWorkspace = committed.WalkWorkspace;
+                    if (committed.UsedIncrementalGraph && committed.GraphDelta != null) {
+                        walkScratchPool.CommitSwap();
+                        RebuildServices(resetLifts: false, preserveDispatch: true);
+                        PruneOrphanedTrains();
+                        services.ApplyIncrementalStagedEdit(committed.ServiceFacts, committed.GraphDelta);
+                    } else {
+                        walkScratchPool.Preallocate(walkGraph?.NodeCount ?? 0);
+                        RebuildServices(resetLifts: true, preserveDispatch: false);
+                        PruneOrphanedTrains();
+                        services.ApplyStagedEdit(committed.ServiceFacts);
+                    }
                     presentationEpoch++;
                     sessionRevision++;
                     RefreshStatistics(0);
@@ -734,13 +990,20 @@ namespace Metro.Sim {
 
         void LoadDerived(StationSessionDocument next) {
             document = next ?? new StationSessionDocument();
-            RebuildServices(resetLifts: true);
+            RebuildServices(resetLifts: true, preserveDispatch: false);
             // The walk graph is derived from the committed document only: a rebuilt
             // station is a different graph, and a build that refuses (a disconnected
             // or absurd document) still leaves a clock that runs.
             walkGraph = null;
-            try { walkGraph = StationWalkGraphBuilder.Build(document, walkOptions); }
-            catch (Exception) { walkGraph = null; }
+            walkWorkspace = null;
+            try {
+                walkWorkspace = StationWalkGraphBuilder.BuildWorkspace(document, walkOptions);
+                walkGraph = walkWorkspace.Graph;
+            } catch (Exception) {
+                walkWorkspace = null;
+                walkGraph = null;
+            }
+            walkScratchPool.Preallocate(walkGraph?.NodeCount ?? 0);
             services.Build(document, walkGraph, seed);
         }
 
@@ -764,12 +1027,12 @@ namespace Metro.Sim {
         }
 
         /// <summary>The source <c>rebuild()</c> tail: re-read the document's service actors and re-stagger dispatch.</summary>
-        void RebuildServices(bool resetLifts = false) {
+        void RebuildServices(bool resetLifts = false, bool preserveDispatch = false) {
             // A rebuild keeps each band where it had rolled to: an edit that leaves a run
             // alone must not make its steps jump back to zero.
-            var phases = new Dictionary<string, double>();
-            for (int i = 0; i < escalators.Count; i++) phases[escalators[i].Id] = escalators[i].Phase;
-            var cars = new Dictionary<string, LiftRun>();
+            var phases = new Dictionary<string, double>(escalators.Count, StringComparer.Ordinal);
+            for (int i = 0; i < escalators.Count; i++) phases[escalators[i].Id ?? ""] = escalators[i].Phase;
+            var cars = new Dictionary<string, LiftRun>(lifts.Count, StringComparer.Ordinal);
             if (!resetLifts) {
                 for (int i = 0; i < lifts.Count; i++) cars[lifts[i].Id ?? ""] = lifts[i];
             }
@@ -777,59 +1040,92 @@ namespace Metro.Sim {
             lifts.Clear();
             serviceTracks.Clear();
             if (document != null) {
-                for (int i = 0; i < document.Modules.Count; i++) {
-                    var m = document.Modules[i];
-                    if (m.Type == "escalator" || m.Type == "walkway") {
-                        // The graph edge and the band both travel from→to; an ascending run
-                        // rolls with a positive sign, a descending one against it
-                        // (`buildRampBand`'s `dir`/`roll.dir`).
-                        int direction = m.HasEndpoints && m.ToZ < m.FromZ ? -1 : 1;
-                        escalators.Add(new EscalatorRun {
-                            Id = m.Id, Direction = direction,
-                            Phase = phases.TryGetValue(m.Id ?? "", out double held) ? held : 0,
-                            RunLength = m.RunLength > 0 ? m.RunLength : 0,
-                        });
-                    } else if (m.Type == "lift") {
-                        var stops = StationLiftStops.Levels(m);
-                        LiftRun held = default;
-                        bool known = !resetLifts && cars.TryGetValue(m.Id ?? "", out held) && held.Stops != null && held.Stops.Length == stops.Count;
-                        int stop = known ? Math.Max(0, Math.Min(stops.Count - 1, held.Stop)) : 0;
-                        double z = known ? held.Z : (stops.Count > 0 ? stops[stop] : m.Z);
-                        lifts.Add(new LiftRun {
-                            Id = m.Id, Phase = known ? held.Phase : "idle",
-                            Door = known ? held.Door : 0,
-                            Stop = stop, StopCount = stops.Count,
-                            Stops = stops.ToArray(),
-                            Z = z,
-                            From = known ? held.From : stop, To = known ? held.To : stop,
-                            MoveT = known ? held.MoveT : 0, MoveTotal = known ? held.MoveTotal : 0,
-                            T = known ? held.T : 0, Call = known ? held.Call : -1,
-                        });
-                    }
+                var bands = document.MovingBandsInOrder();
+                for (int i = 0; i < bands.Count; i++) {
+                    var m = bands[i];
+                    int direction = m.HasEndpoints && m.ToZ < m.FromZ ? -1 : 1;
+                    escalators.Add(new EscalatorRun {
+                        Id = m.Id, Direction = direction,
+                        Phase = phases.TryGetValue(m.Id ?? "", out double held) ? held : 0,
+                        RunLength = m.RunLength > 0 ? m.RunLength : 0,
+                    });
+                }
+                var liftMods = document.ModulesOfType("lift");
+                for (int i = 0; i < liftMods.Count; i++) {
+                    var m = liftMods[i];
+                    var stops = StationLiftStops.Levels(m);
+                    LiftRun held = default;
+                    bool known = !resetLifts && cars.TryGetValue(m.Id ?? "", out held) && held.Stops != null && held.Stops.Length == stops.Count;
+                    int stop = known ? Math.Max(0, Math.Min(stops.Count - 1, held.Stop)) : 0;
+                    double z = known ? held.Z : (stops.Count > 0 ? stops[stop] : m.Z);
+                    lifts.Add(new LiftRun {
+                        Id = m.Id, Phase = known ? held.Phase : "idle",
+                        Door = known ? held.Door : 0,
+                        Stop = stop, StopCount = stops.Count,
+                        Stops = stops.ToArray(),
+                        Z = z,
+                        From = known ? held.From : stop, To = known ? held.To : stop,
+                        MoveT = known ? held.MoveT : 0, MoveTotal = known ? held.MoveTotal : 0,
+                        T = known ? held.T : 0, Call = known ? held.Call : -1,
+                    });
                 }
                 for (int i = 0; i < document.Lines.Count; i++) {
                     var line = document.Lines[i];
                     var tracks = document.ServiceTracks(line.Id);
-                    var ids = new List<string>();
+                    var ids = new List<string>(tracks.Count);
                     for (int t = 0; t < tracks.Count; t++) ids.Add(tracks[t].Id);
                     serviceTracks[line.Id] = ids;
                 }
             }
-            nextDispatch.Clear();
-            if (document == null) return;
-            double stagger = 0;
+            if (!preserveDispatch) {
+                nextDispatch.Clear();
+                if (document == null) return;
+                double stagger = 0;
+                for (int i = 0; i < document.Lines.Count; i++) {
+                    var line = document.Lines[i];
+                    var ids = serviceTracks[line.Id];
+                    if (ids.Count == 0) {
+                        nextDispatch[ServiceKey(line.Id, "")] = Clock.SimTime + stagger;
+                        stagger += 13;
+                        continue;
+                    }
+                    for (int t = 0; t < ids.Count; t++) {
+                        nextDispatch[ServiceKey(line.Id, ids[t])] = Clock.SimTime + stagger;
+                        stagger += 13;
+                    }
+                }
+                return;
+            }
+
+            if (document == null) {
+                nextDispatch.Clear();
+                return;
+            }
+            var activeKeys = new HashSet<string>(StringComparer.Ordinal);
+            double newStagger = 0;
             for (int i = 0; i < document.Lines.Count; i++) {
                 var line = document.Lines[i];
                 var ids = serviceTracks[line.Id];
                 if (ids.Count == 0) {
-                    nextDispatch[ServiceKey(line.Id, "")] = Clock.SimTime + stagger;
-                    stagger += 13;
+                    string key = ServiceKey(line.Id, "");
+                    activeKeys.Add(key);
+                    if (!nextDispatch.ContainsKey(key)) nextDispatch[key] = Clock.SimTime + newStagger;
+                    newStagger += 13;
                     continue;
                 }
                 for (int t = 0; t < ids.Count; t++) {
-                    nextDispatch[ServiceKey(line.Id, ids[t])] = Clock.SimTime + stagger;
-                    stagger += 13;
+                    string key = ServiceKey(line.Id, ids[t]);
+                    activeKeys.Add(key);
+                    if (!nextDispatch.ContainsKey(key)) nextDispatch[key] = Clock.SimTime + newStagger;
+                    newStagger += 13;
                 }
+            }
+            if (nextDispatch.Count != activeKeys.Count) {
+                var stale = new List<string>();
+                foreach (var k in nextDispatch.Keys) {
+                    if (!activeKeys.Contains(k)) stale.Add(k);
+                }
+                for (int i = 0; i < stale.Count; i++) nextDispatch.Remove(stale[i]);
             }
         }
 
@@ -1125,7 +1421,24 @@ namespace Metro.Sim {
 
         // ---------------------------------------------------------------- frames
 
+        static readonly double[] TrainStopDurations = {
+            StationSimConstants.TrainApproachSeconds, StationSimConstants.TrainBerthHold,
+            StationSimConstants.TrainDoorTravel, StationSimConstants.TrainDwell,
+            StationSimConstants.TrainDoorTravel, StationSimConstants.TrainDepartHold,
+            StationSimConstants.TrainDepartSeconds,
+        };
+
         public StationMotionFrame Snapshot() {
+            if (hasCachedSnapshot &&
+                cachedSnapshotTick == tick &&
+                cachedSnapshotRevision == sessionRevision &&
+                cachedSnapshotEpoch == presentationEpoch &&
+                cachedSnapshotPlaying == Playing &&
+                cachedSnapshotSpeed == Speed &&
+                cachedSnapshotSimTime == Clock.SimTime &&
+                ReferenceEquals(cachedSnapshotDoc, document)) {
+                return cachedSnapshot;
+            }
             var stamp = Clock.Stamp();
             var clock = new StationClockFrame {
                 SimTimeSeconds = Clock.SimTime,
@@ -1174,11 +1487,11 @@ namespace Metro.Sim {
                 var car = lifts[i];
                 liftFrames[i] = new StationLiftFrame {
                     Id = car.Id, Phase = car.Phase, DoorFraction = car.Door,
-                    Stop = car.Stop, StopCount = car.StopCount, Call = car.Call, Z = car.Z,
+                    Stop = car.Stop, StopCount = car.StopCount, Call = car.Call, Z = car.Z, HasCarElevation = true,
                 };
             }
             var doorFrames = DoorFrames();
-            return new StationMotionFrame {
+            cachedSnapshot = new StationMotionFrame {
                 SessionId = sessionId,
                 SessionRevision = sessionRevision,
                 Clock = clock,
@@ -1190,6 +1503,15 @@ namespace Metro.Sim {
                 Gates = services.GateFrames(),
                 Capabilities = StationSessionCapabilities.Current,
             };
+            hasCachedSnapshot = true;
+            cachedSnapshotTick = tick;
+            cachedSnapshotRevision = sessionRevision;
+            cachedSnapshotEpoch = presentationEpoch;
+            cachedSnapshotPlaying = Playing;
+            cachedSnapshotSpeed = Speed;
+            cachedSnapshotSimTime = Clock.SimTime;
+            cachedSnapshotDoc = document;
+            return cachedSnapshot;
         }
 
         StationTrainFrame TrainFrame(StationLineFact line, string trackId) {
@@ -1220,12 +1542,7 @@ namespace Metro.Sim {
         void ForecastArrivals(double now, double next, TrainRun? active, StationLineFact line, double[] seconds, bool[] atPlatform) {
             const double dt = StationSimConstants.SimSecondsPerTick;
             double freeAt = now + dt;
-            double[] durations = {
-                StationSimConstants.TrainApproachSeconds, StationSimConstants.TrainBerthHold,
-                StationSimConstants.TrainDoorTravel, StationSimConstants.TrainDwell,
-                StationSimConstants.TrainDoorTravel, StationSimConstants.TrainDepartHold,
-                StationSimConstants.TrainDepartSeconds,
-            };
+            var durations = TrainStopDurations;
             int slot = 0;
             if (active.HasValue) {
                 int phase = (int)active.Value.Phase - 1;
@@ -1258,19 +1575,20 @@ namespace Metro.Sim {
         static double Ticks(double seconds) => Math.Max(0, Math.Ceiling(seconds / StationSimConstants.SimSecondsPerTick)) * StationSimConstants.SimSecondsPerTick;
 
         StationDoorFrame[] DoorFrames() {
-            var frames = new List<StationDoorFrame>();
-            if (document == null) return frames.ToArray();
-            for (int i = 0; i < document.Modules.Count; i++) {
-                var edge = document.Modules[i];
-                if (edge.Type != "platform-edge") continue;
+            if (document == null) return Array.Empty<StationDoorFrame>();
+            var edges = document.ModulesOfType("platform-edge");
+            if (edges.Count == 0) return Array.Empty<StationDoorFrame>();
+            var frames = new StationDoorFrame[edges.Count];
+            for (int i = 0; i < edges.Count; i++) {
+                var edge = edges[i];
                 var active = ActiveTrain(edge.LineId, edge.RailId);
                 double fraction = active.HasValue ? DoorFractionOf(active.Value.Phase, active.Value.T) : 0;
-                frames.Add(new StationDoorFrame {
+                frames[i] = new StationDoorFrame {
                     PlatformId = edge.Id, LineId = edge.LineId, TrackId = edge.RailId,
                     DoorFraction = fraction, TrainPhase = active?.Phase ?? TrainPhase.None,
-                });
+                };
             }
-            return frames.ToArray();
+            return frames;
         }
 
         // ------------------------------------------------------------------ json

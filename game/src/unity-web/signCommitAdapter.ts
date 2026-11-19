@@ -86,9 +86,10 @@ export function signCommitPayload(moduleId: string, boards: SignBoards, locale?:
  */
 export function unityHostOwnsStation(port: SignCommitPort = stationBridge): boolean {
   const snapshot = port.getSnapshot()
-  return snapshot.ready === true &&
-    typeof snapshot.document === 'string' && snapshot.document.length > 0 &&
-    snapshot.revision >= 0 && snapshot.documentRevision === snapshot.revision
+  if (snapshot.ready !== true || snapshot.revision < 0 || snapshot.resyncNeeded === true) return false
+  const hasFull = typeof snapshot.document === 'string' && snapshot.document.length > 0 && snapshot.documentRevision === snapshot.revision
+  const hasAdoptedDelta = snapshot.adoptedRevision === snapshot.revision || snapshot.delta?.revision === snapshot.revision
+  return hasFull || hasAdoptedDelta
 }
 
 /**

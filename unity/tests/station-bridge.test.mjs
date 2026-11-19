@@ -2,7 +2,10 @@
 // the queue that lets the UI ask for a station before Unity has finished booting.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { envelope, reduce, stationBridge, SCHEMA_VERSION } from '../../game/src/unity-web/stationBridge.ts'
+import { envelope, reduce, stationBridge, SCHEMA_VERSION, STATION_DELTA_SCHEMA_VERSION } from '../../game/src/unity-web/stationBridge.ts'
+import { applyStationDelta, seedStationCellIndex } from '../../game/src/unity-web/stationDelta.ts'
+import { unityHostOwnsStation } from '../../game/src/unity-web/signCommitAdapter.ts'
+import { parse } from '../../game/src/persistence/save.ts'
 
 const empty = { ready: false, sessionId: 's-1', revision: -1, sourceId: null, sourceHash: null, document: null, documentRevision: -1, state: {}, capabilities: {}, rejects: [] }
 
@@ -26,6 +29,8 @@ test('a commit adopts the document once and keeps the rest of the state', () => 
   assert.equal(next.document, '{"format":"metro-save"}')
   assert.equal(next.documentRevision, 4)
   assert.equal(next.sourceId, 'zoo')
+  assert.equal(next.sourceHash, 'abc')
+  assert.equal(next.sourceHashRevision, 4)
   assert.equal(next.capabilities.paint, true)
   assert.equal(next.state.level, 0)
 })
@@ -103,6 +108,232 @@ test('the frame-cadence camera pose channel is fenced by session and skips the r
       payload: { camera: cubeCamera(0.9, 4), sequence: 4 },
     }))
     assert.equal(poses.length, 1, 'another session cannot steer this cube')
+  } finally {
+    stop()
+    stationBridge.unregister()
+  }
+})
+
+/* ----------------------------------------------------- plan 32 §F delta commits */
+
+test('sequential delta commits update revision, clear deferred sourceHash, reject duplicates, and preserve module/line references', () => {
+  const baseDoc = JSON.stringify({
+    format: 'metro-save',
+    formatVersion: 1,
+    gameVersion: '0.2.0',
+    savedAt: '2026-01-01T00:00:00Z',
+    name: 'Delta Probe',
+    nameEn: 'Delta Probe',
+    city: 'guangzhou',
+    seed: 42,
+    levelBase: 0,
+    storeyHeight: 5,
+    static: {
+      cells: [
+        { x: 0, y: 0, z: -5, fill: 'solid' },
+        { x: 1, y: 0, z: -5, fill: 'solid' },
+      ],
+      modules: [
+        { id: 'tvm-1', type: 'tvm', x: 0, y: 0, z: -5, rot: 0, cfg: {} },
+      ],
+      lines: [
+        { id: '1', name: 'Line 1', colour: '#f0b429', direction: 'both', stock: 'B', cars: 6, power: 'overhead' },
+      ],
+    },
+  })
+
+  const parsed0 = parse(baseDoc)
+  assert.equal(parsed0.ok, true)
+  seedStationCellIndex(parsed0.state.cells)
+
+  const snap0 = reduce({ ...empty, ready: true }, {
+    sessionId: 's-1',
+    kind: 'commit',
+    revision: 0,
+    payload: { document: baseDoc, sourceId: 'probe', sourceHash: 'hash-0', sourceHashRevision: 0 },
+  })
+  assert.equal(unityHostOwnsStation({ getSnapshot: () => snap0, send: () => '' }), true)
+
+  // Apply cell-only delta (rev 0 -> 1) with deferred sourceHash (""):
+  const delta1 = {
+    schemaVersion: STATION_DELTA_SCHEMA_VERSION,
+    baseRevision: 0,
+    revision: 1,
+    removedCells: [[1, 0, -5]],
+    changedCells: [{ x: 2, y: 0, z: -5, fill: 'solid', finish: { top: 'floor.marble' } }],
+    removedModules: [],
+    changedModules: [],
+    sourceHash: '',
+    sourceHashRevision: 0,
+  }
+  const snap1 = reduce(snap0, {
+    sessionId: 's-1',
+    kind: 'commit',
+    revision: 1,
+    payload: { delta: delta1, sourceId: 'probe', sourceHash: '', sourceHashRevision: 0, level: -5 },
+  })
+  assert.equal(snap1.revision, 1)
+  assert.equal(snap1.document, null, 'stale save string is cleared on delta commit')
+  assert.equal(snap1.documentRevision, 0)
+  assert.equal(snap1.sourceHash, null, 'deferred hash is null rather than pretending hash-0 belongs to rev 1')
+  assert.equal(snap1.sourceHashRevision, 0)
+  assert.equal(snap1.resyncNeeded, false)
+  assert.equal(unityHostOwnsStation({ getSnapshot: () => snap1, send: () => '' }), true)
+
+  // Duplicate and out-of-order deltas are rejected cleanly:
+  assert.equal(reduce(snap1, { sessionId: 's-1', kind: 'commit', revision: 1, payload: { delta: delta1 } }), snap1)
+  assert.equal(reduce(snap1, { sessionId: 's-1', kind: 'commit', revision: 0, payload: { delta: delta1 } }), snap1)
+
+  const state1 = applyStationDelta(parsed0.state, snap1.delta)
+  assert.equal(state1.modules, parsed0.state.modules, 'untouched modules array keeps exact reference identity')
+  assert.equal(state1.lines, parsed0.state.lines, 'untouched lines array keeps exact reference identity')
+  assert.equal(state1.cells.length, 2)
+  assert.equal(state1.cells.some(c => c.x === 1 && c.y === 0 && c.z === -5), false)
+  assert.equal(state1.cells.find(c => c.x === 2 && c.y === 0 && c.z === -5)?.finish?.top, 'floor.marble')
+
+  // Apply module delta (rev 1 -> 2):
+  const delta2 = {
+    schemaVersion: STATION_DELTA_SCHEMA_VERSION,
+    baseRevision: 1,
+    revision: 2,
+    removedCells: [],
+    changedCells: [],
+    removedModules: ['tvm-1'],
+    changedModules: [{ id: 'bench-2', type: 'bench', x: 2, y: 0, z: -5, rot: 1, cfg: {} }],
+  }
+  const snap2 = reduce({ ...snap1, adoptedRevision: 1 }, {
+    sessionId: 's-1',
+    kind: 'commit',
+    revision: 2,
+    payload: { delta: delta2, sourceId: 'probe', sourceHash: '', sourceHashRevision: 0 },
+  })
+  assert.equal(snap2.revision, 2)
+  const state2 = applyStationDelta(state1, snap2.delta)
+  assert.equal(state2.cells, state1.cells, 'untouched cells array keeps exact reference identity')
+  assert.equal(state2.modules.length, 1)
+  assert.equal(state2.modules[0].id, 'bench-2')
+})
+
+test('a revision gap on a delta commit requests one coalesced station.resync and recovers on full snapshot', async () => {
+  const sent = []
+  const commits = []
+  const stop = stationBridge.onCommit(s => commits.push(s.revision))
+  try {
+    stationBridge.register({
+      SendMessage: (_obj, _method, raw) => {
+        const msg = JSON.parse(raw)
+        sent.push(msg)
+        if (msg.type === 'station.save') {
+          stationBridge.receive(JSON.stringify({
+            schemaVersion: 2,
+            kind: 'ack',
+            id: msg.id,
+            sessionId: msg.sessionId,
+            revision: stationBridge.getSnapshot().revision,
+            accepted: true,
+            payload: { revision: stationBridge.getSnapshot().revision, sourceId: 'zoo', sourceHash: 'hash-saved', document: '{"format":"metro-save","saved":true}' },
+          }))
+        }
+      },
+    })
+    const session = stationBridge.getSnapshot().sessionId
+    stationBridge.receive(JSON.stringify({
+      schemaVersion: 2,
+      kind: 'commit',
+      id: 'c-open',
+      sessionId: session,
+      revision: 0,
+      payload: { document: '{"format":"metro-save","rev":0}', sourceId: 'zoo', sourceHash: 'h0' },
+    }))
+    stationBridge.noteAdopted(0, 0.2)
+    assert.deepEqual(commits, [0])
+
+    // Send a delta with a revision gap (baseRevision 2 != current 0):
+    sent.length = 0
+    stationBridge.receive(JSON.stringify({
+      schemaVersion: 2,
+      kind: 'commit',
+      id: 'c-gap-1',
+      sessionId: session,
+      revision: 3,
+      payload: {
+        delta: {
+          schemaVersion: STATION_DELTA_SCHEMA_VERSION,
+          baseRevision: 2,
+          revision: 3,
+          removedCells: [],
+          changedCells: [],
+          removedModules: [],
+          changedModules: [],
+        },
+      },
+    }))
+    // A second gapped delta while resync is already in flight must NOT spam a second resync:
+    stationBridge.receive(JSON.stringify({
+      schemaVersion: 2,
+      kind: 'commit',
+      id: 'c-gap-2',
+      sessionId: session,
+      revision: 4,
+      payload: {
+        delta: {
+          schemaVersion: STATION_DELTA_SCHEMA_VERSION,
+          baseRevision: 3,
+          revision: 4,
+          removedCells: [],
+          changedCells: [],
+          removedModules: [],
+          changedModules: [],
+        },
+      },
+    }))
+    assert.equal(stationBridge.getSnapshot().resyncNeeded, true)
+    assert.equal(stationBridge.getSnapshot().revision, 0, 'unapplied gapped delta does not advance revision')
+    assert.equal(sent.filter(m => m.type === 'station.resync').length, 1, 'exactly one coalesced station.resync is sent')
+    assert.deepEqual(commits, [0], 'commit listeners are not fired for unapplied gapped deltas')
+
+    // Host replies to station.resync with full document at revision 4:
+    stationBridge.receive(JSON.stringify({
+      schemaVersion: 2,
+      kind: 'commit',
+      id: sent[0].id,
+      sessionId: session,
+      revision: 4,
+      payload: { document: '{"format":"metro-save","rev":4}', sourceId: 'zoo', sourceHash: 'h4', sourceHashRevision: 4 },
+    }))
+    stationBridge.noteAdopted(4, 0.4)
+    assert.equal(stationBridge.getSnapshot().resyncNeeded, false)
+    assert.equal(stationBridge.getSnapshot().revision, 4)
+    assert.equal(stationBridge.getSnapshot().documentRevision, 4)
+    assert.deepEqual(commits, [0, 4])
+
+    // Next sequential delta (4 -> 5) succeeds, and readCommittedDocument() materializes via station.save on demand:
+    stationBridge.receive(JSON.stringify({
+      schemaVersion: 2,
+      kind: 'commit',
+      id: 'c-delta-5',
+      sessionId: session,
+      revision: 5,
+      payload: {
+        delta: {
+          schemaVersion: STATION_DELTA_SCHEMA_VERSION,
+          baseRevision: 4,
+          revision: 5,
+          removedCells: [],
+          changedCells: [{ x: 1, y: 2, z: 0, fill: 'solid' }],
+          removedModules: [],
+          changedModules: [],
+        },
+        sourceHash: '',
+        sourceHashRevision: 4,
+      },
+    }))
+    assert.equal(stationBridge.getSnapshot().revision, 5)
+    assert.equal(stationBridge.getSnapshot().document, null)
+    const exported = await stationBridge.readCommittedDocument()
+    assert.equal(exported, '{"format":"metro-save","saved":true}')
+    assert.equal(stationBridge.getSnapshot().documentRevision, 5)
+    assert.equal(stationBridge.getSnapshot().sourceHash, 'hash-saved')
   } finally {
     stop()
     stationBridge.unregister()

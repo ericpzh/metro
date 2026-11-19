@@ -18,7 +18,7 @@ namespace Metro.App.Views {
     /// which `StationVisibilityRules` already answers with "hidden only while Hide UI is
     /// on" — the lattice is never sliced away by the storey policy.
     /// </summary>
-    public sealed class StationGridRenderer : IStationViewRenderer {
+    public sealed class StationGridRenderer : IStationViewRenderer, IStationLocalViewRenderer {
         public const string RoleName = "grid";
         /// <summary>Line colour from the source (`GridSystem`): 0x2a3444 at 0.8 alpha.</summary>
         public static readonly Color LineColour = new Color32(42, 52, 68, 204);
@@ -34,6 +34,56 @@ namespace Metro.App.Views {
             public Material Material;
             public Bounds DocumentBounds;
             public int Lines;
+            public int X0, X1, Y0, Y1;
+        }
+
+        sealed class StagedGridDelta : IStationLocalRendererStage {
+            readonly GridState state;
+            readonly Bounds nextBounds;
+            readonly int x0, x1, y0, y1;
+            readonly Mesh nextMesh;
+            readonly int nextLines;
+            readonly bool swapMesh;
+            bool committed;
+
+            public StagedGridDelta(GridState state, Bounds nextBounds, int x0, int x1, int y0, int y1,
+                Mesh nextMesh, int nextLines, bool swapMesh) {
+                this.state = state;
+                this.nextBounds = nextBounds;
+                this.x0 = x0; this.x1 = x1; this.y0 = y0; this.y1 = y1;
+                this.nextMesh = nextMesh;
+                this.nextLines = nextLines;
+                this.swapMesh = swapMesh;
+            }
+
+            public void Commit(StationWorldView world, StationLocalViewCommit commit) {
+                committed = true;
+                state.DocumentBounds = nextBounds;
+                state.X0 = x0; state.X1 = x1; state.Y0 = y0; state.Y1 = y1;
+                if (swapMesh) {
+                    if (state.Mesh != null) commit.RetiredMeshes.Add(state.Mesh);
+                    state.Mesh = nextMesh;
+                    state.Lines = nextLines;
+                    if (state.Root != null && state.Root.TryGetComponent<MeshFilter>(out var filter)) {
+                        filter.sharedMesh = nextMesh;
+                    }
+                }
+                float z = nextBounds.min.y;
+                var nextBox = new StationBox(nextBounds.min.x, nextBounds.min.z, z, nextBounds.max.x, nextBounds.max.z, z + 1f);
+                var records = world.Records;
+                for (int i = 0; i < records.Count; i++) {
+                    var rec = records[i];
+                    if (rec != null && rec.Role == RoleName && rec.View == state.Root) {
+                        rec.Bounds = nextBox;
+                        rec.HasBounds = true;
+                        break;
+                    }
+                }
+            }
+
+            public void Dispose() {
+                if (!committed && swapMesh && nextMesh != null) Destroy(nextMesh);
+            }
         }
 
         static readonly List<GridState> states = new List<GridState>();
@@ -54,6 +104,13 @@ namespace Metro.App.Views {
             }
         }
 
+        static GridState StateOf(StationWorldView world) {
+            for (var i = states.Count - 1; i >= 0; i--) {
+                if (states[i].World == world) return states[i];
+            }
+            return null;
+        }
+
         /// <summary>Move the lattice to a document storey (the rig calls this every tick).</summary>
         public static void SetLevel(int documentLevel) {
             var live = Live;
@@ -64,11 +121,22 @@ namespace Metro.App.Views {
             live.Root.transform.position = new Vector3(0f, y, 0f);
         }
 
+        static void QuantizeGridExtent(Bounds bounds, out int x0, out int x1, out int y0, out int y1) {
+            x0 = Mathf.FloorToInt(bounds.min.x / 5f) * 5 - 5;
+            x1 = Mathf.CeilToInt(bounds.max.x / 5f) * 5 + 5;
+            y0 = Mathf.FloorToInt(bounds.min.y / 5f) * 5 - 5;
+            y1 = Mathf.CeilToInt(bounds.max.y / 5f) * 5 + 5;
+        }
+
         public void Build(StationViewBuildContext context) {
             if (context == null) throw new ArgumentNullException(nameof(context));
             Purge();
-            var bounds = DocumentBounds(context.Document);
-            var state = new GridState { World = context.World, DocumentBounds = bounds };
+            var bounds = DocumentBounds(context.Document, context.Index);
+            QuantizeGridExtent(bounds, out int x0, out int x1, out int y0, out int y1);
+            var state = new GridState {
+                World = context.World, DocumentBounds = bounds,
+                X0 = x0, X1 = x1, Y0 = y0, Y1 = y1,
+            };
             states.Add(state);
 
             var root = new GameObject("Station grid");
@@ -78,7 +146,7 @@ namespace Metro.App.Views {
             var mesh = BuildMesh(bounds, out int lines);
             if (mesh == null || lines == 0) {
                 context.ReportUnresolved("grid-empty", "renderer", RoleName, "The station has no bounds to draw a lattice over.");
-                UnityEngine.Object.Destroy(root);
+                Destroy(root);
                 states.Remove(state);
                 return;
             }
@@ -102,6 +170,34 @@ namespace Metro.App.Views {
             current = this;
         }
 
+        public bool TryStageLocalDelta(
+            StationLocalDeltaContext context,
+            out IStationLocalRendererStage stage,
+            out string fallbackReason) {
+            stage = null;
+            fallbackReason = null;
+            var state = StateOf(context.World);
+            var nextBounds = DocumentBounds(context.NextDocument, context.NextIndex);
+            QuantizeGridExtent(nextBounds, out int nx0, out int nx1, out int ny0, out int ny1);
+            if (state == null || state.Root == null) {
+                fallbackReason = "grid-not-built";
+                return false;
+            }
+            if (nx0 == state.X0 && nx1 == state.X1 && ny0 == state.Y0 && ny1 == state.Y1) {
+                if (nextBounds == state.DocumentBounds) return true;
+                stage = new StagedGridDelta(state, nextBounds, nx0, nx1, ny0, ny1, null, state.Lines, swapMesh: false);
+                return true;
+            }
+            var nextMesh = BuildMesh(nextBounds, out int nextLines);
+            if (nextMesh == null || nextLines == 0) {
+                if (nextMesh != null) Destroy(nextMesh);
+                fallbackReason = "grid-empty";
+                return false;
+            }
+            stage = new StagedGridDelta(state, nextBounds, nx0, nx1, ny0, ny1, nextMesh, nextLines, swapMesh: true);
+            return true;
+        }
+
         public void Release() => Purge();
 
         static void Purge() {
@@ -112,6 +208,28 @@ namespace Metro.App.Views {
                 if (state.Material) Destroy(state.Material);
                 states.RemoveAt(i);
             }
+        }
+
+        /// <summary>The camera's own station bounds, in document axes, in O(1) when an index is supplied.</summary>
+        public static Bounds DocumentBounds(StationDocument document, StationIndex index) {
+            if (document != null && index != null && !index.Bounds.IsEmpty) {
+                if (document.ModuleCount > 0) {
+                    var b = index.Bounds;
+                    var min = new Vector3(b.MinX + 0.5f, b.MinY + 0.5f, b.MinZ);
+                    var max = new Vector3(b.MaxX + 0.5f, b.MaxY + 0.5f, b.MaxZ);
+                    var fast = new Bounds((min + max) * 0.5f, max - min);
+                    return fast;
+                }
+                if (document.LevelBase != 0) {
+                    var b = index.Bounds;
+                    var fast = new Bounds(new Vector3(0f, 0f, document.LevelBase), Vector3.zero);
+                    fast.Encapsulate(new Vector3(b.MinX + 0.5f, b.MinY + 0.5f, b.MinZ));
+                    fast.Encapsulate(new Vector3(b.MaxX + 0.5f, b.MaxY + 0.5f, b.MaxZ));
+                    return fast;
+                }
+                return new Bounds(Vector3.zero, Vector3.zero);
+            }
+            return DocumentBounds(document);
         }
 
         /// <summary>The camera's own station bounds, in document axes.</summary>

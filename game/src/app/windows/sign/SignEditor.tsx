@@ -112,7 +112,7 @@ export function SignEditor(): React.ReactElement | null {
   const ready = usePictogramsReady()
   const open = useStore((s) => s.signEditorFor !== null || s.signComposing)
   const target = useStore((s) => s.signEditorFor)
-  const station = useStore((s) => s.station)
+  const station = useStore((s) => (s.signEditorFor !== null || s.signComposing ? s.station : null)) ?? useStore.getState().station
   const currentBoards = useStore((s) => s.currentBoards)
   /** The armed palette tile: what the 自定义 tile composes for when nothing is placed. */
   const moduleType = useStore((s) => s.moduleType)

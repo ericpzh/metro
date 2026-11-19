@@ -518,26 +518,88 @@ namespace Metro.Build {
         public int Revision = -1;
 
         readonly Dictionary<StationCellKey, StationCellRecord> byKey = new Dictionary<StationCellKey, StationCellRecord>();
+        readonly Dictionary<StationCellKey, int> slotByKey = new Dictionary<StationCellKey, int>();
         readonly Dictionary<StationCellKey, StationCellShape> shapes = new Dictionary<StationCellKey, StationCellShape>();
+        readonly HashSet<StationCellKey> suspendedCeilings = new HashSet<StationCellKey>();
+        internal IEnumerable<StationCellKey> SuspendedCeilingKeys => suspendedCeilings;
 
         /// <summary>Index the cells by key. Call after the fields are set.</summary>
         public StationPaintSnapshot Index() {
             byKey.Clear();
+            slotByKey.Clear();
             shapes.Clear();
-            foreach (var cell in Cells) {
-                byKey[cell.Key] = cell;
-                shapes[cell.Key] = StationCellRules.ShapeOf(cell.Tags);
-                if (!cell.IsSolid) Voids.Add(cell.Key);
+            suspendedCeilings.Clear();
+            for (int i = 0; i < Cells.Count; i++) {
+                var cell = Cells[i];
+                var key = cell.Key;
+                byKey[key] = cell;
+                slotByKey[key] = i;
+                shapes[key] = StationCellRules.ShapeOf(cell.Tags);
+                if (!cell.IsSolid) Voids.Add(key);
+                else if (cell.HasTag("suspended-ceiling")) suspendedCeilings.Add(key);
             }
             return this;
         }
 
         public StationPaintSnapshot Add(StationCellRecord cell) {
-            Cells.Add(cell);
-            byKey[cell.Key] = cell;
-            shapes[cell.Key] = StationCellRules.ShapeOf(cell.Tags);
-            if (!cell.IsSolid) Voids.Add(cell.Key);
+            var key = cell.Key;
+            if (slotByKey.TryGetValue(key, out int existingSlot)) {
+                Cells[existingSlot] = cell;
+            } else {
+                slotByKey[key] = Cells.Count;
+                Cells.Add(cell);
+            }
+            byKey[key] = cell;
+            shapes[key] = StationCellRules.ShapeOf(cell.Tags);
+            if (!cell.IsSolid) {
+                Voids.Add(key);
+                suspendedCeilings.Remove(key);
+            } else {
+                Voids.Remove(key);
+                if (cell.HasTag("suspended-ceiling")) suspendedCeilings.Add(key);
+                else suspendedCeilings.Remove(key);
+            }
             return this;
+        }
+
+        void RemoveRecord(StationCellKey key) {
+            if (slotByKey.TryGetValue(key, out int slot)) {
+                int last = Cells.Count - 1;
+                if (slot != last) {
+                    var tail = Cells[last];
+                    Cells[slot] = tail;
+                    slotByKey[tail.Key] = slot;
+                }
+                Cells.RemoveAt(last);
+                slotByKey.Remove(key);
+            }
+            byKey.Remove(key);
+            shapes.Remove(key);
+            Voids.Remove(key);
+            suspendedCeilings.Remove(key);
+        }
+
+        /// <summary>Advance this paint snapshot across a committed local delta in O(|delta|).</summary>
+        public void ApplyLocalDelta(StationDocument nextDoc, StationIndexDelta delta,
+            HashSet<StationCellKey> nextGroundHoles, bool hasGroundWindow, int gx0, int gx1, int gy0, int gy1, int revision = -1) {
+            if (nextDoc != null) {
+                LevelBase = nextDoc.LevelBase;
+                StoreyHeight = nextDoc.StoreyHeight;
+            }
+            Revision = revision;
+            if (delta != null) {
+                for (int i = 0; i < delta.RemovedCells.Count; i++) RemoveRecord(delta.RemovedCells[i]);
+                for (int i = 0; i < delta.ChangedCells.Count; i++) Add(delta.ChangedCells[i]);
+            }
+            if (nextGroundHoles != null) {
+                GroundHoles.Clear();
+                foreach (var hole in nextGroundHoles) GroundHoles.Add(hole);
+            }
+            HasGroundWindow = hasGroundWindow;
+            GroundX0 = gx0;
+            GroundX1 = gx1;
+            GroundY0 = gy0;
+            GroundY1 = gy1;
         }
 
         /// <summary>Test/host convenience: one cell from raw fields (tags + face finishes).</summary>
@@ -836,9 +898,7 @@ namespace Metro.Build {
             var anchorZ = anchor.Z;
             if (vertical) {
                 StationFaces.Step(face, out var sx, out var sy, out var sz);
-                foreach (var cell in snapshot.Cells) {
-                    if (!cell.IsSolid || !cell.HasTag("suspended-ceiling")) continue;
-                    var key = cell.Key;
+                foreach (var key in snapshot.SuspendedCeilingKeys) {
                     ceilings.Add(key);
                     var column = new StationCellKey(key.X - sx, key.Y - sy, 0);
                     if (!ceilingLevels.TryGetValue(column, out var levels)) ceilingLevels[column] = levels = new List<int>();

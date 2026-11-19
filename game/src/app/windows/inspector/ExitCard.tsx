@@ -15,7 +15,6 @@ import type { Module } from '../../../sim/types.ts'
  */
 export function ExitCard({ mod }: { mod: Extract<Module, { type: 'exit' }> }): React.ReactElement {
   useLanguage()
-  const station = useStore((s) => s.station)
   const commit = useStore((s) => s.commit)
   const selected = useStore((s) => s.selected)
   const select = useStore((s) => s.select)
@@ -29,6 +28,7 @@ export function ExitCard({ mod }: { mod: Extract<Module, { type: 'exit' }> }): R
   }, [isSelected])
 
   const patch = (p: Partial<{ name: string; inRate: number; open: boolean }>): void => {
+    const station = useStore.getState().station
     const modules = station.modules.map((m) => (m.id === mod.id && m.type === 'exit' ? { ...m, cfg: { ...m.cfg, ...p } } : m))
     commit({ ...station, modules })
   }

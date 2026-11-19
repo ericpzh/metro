@@ -92,6 +92,9 @@ namespace Metro.Persistence {
         /// <summary>Read an already-parsed envelope (one parse for the whole load path).</summary>
         public static StationSaveV1 Read(JObject source) => Read(StationSaveCandidate.InspectV1(source));
 
+        /// <summary>Read an owned parsed envelope, detaching static arrays in place to bound peak load memory.</summary>
+        internal static StationSaveV1 ReadOwned(JObject ownedSource) => Read(StationSaveCandidate.InspectOwnedV1(ownedSource));
+
         static StationSaveV1 Read(StationSaveCandidate candidate) {
             var state=candidate.Normalized;
             var modules=(JArray)state["modules"];
@@ -114,7 +117,7 @@ namespace Metro.Persistence {
         /// but a caller that patches it must clone it first, because the reader hands the same
         /// instance to <see cref="StationDocumentReader"/>.
         /// </summary>
-        internal JObject WriteTree(DateTimeOffset savedAt) {
+        internal JObject WriteRootHeader(DateTimeOffset savedAt, JObject originalEnvelope = null) {
             var data=new JObject {
                 ["format"]="metro-save",["formatVersion"]=1,["gameVersion"]="0.2.0",
                 ["savedAt"]=savedAt.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'",CultureInfo.InvariantCulture),
@@ -122,9 +125,20 @@ namespace Metro.Persistence {
                 ["city"]=document["cityStyle"].DeepClone(),["seed"]=document["seed"].DeepClone(),
                 ["levelBase"]=document["levelBase"].DeepClone(),["storeyHeight"]=5,
                 ["service"]=document["service"].DeepClone(),["peaks"]=document["peaks"].DeepClone(),
-                ["demand"]=document["demand"].DeepClone(),["calendar"]=document["calendar"].DeepClone(),
-                ["static"]=new JObject {["cells"]=document["cells"].DeepClone(),["modules"]=document["modules"].DeepClone(),["lines"]=document["lines"].DeepClone()}
+                ["demand"]=document["demand"].DeepClone(),["calendar"]=document["calendar"].DeepClone()
             };
+            if (originalEnvelope != null) {
+                foreach (var prop in originalEnvelope.Properties()) {
+                    if (prop.Name == "static" || prop.Name == "cityStyle" || data.Property(prop.Name) != null) continue;
+                    data[prop.Name] = prop.Value.DeepClone();
+                }
+            }
+            return data;
+        }
+
+        internal JObject WriteTree(DateTimeOffset savedAt) {
+            var data = WriteRootHeader(savedAt);
+            data["static"]=new JObject {["cells"]=document["cells"].DeepClone(),["modules"]=document["modules"].DeepClone(),["lines"]=document["lines"].DeepClone()};
             return data;
         }
     }

@@ -98,17 +98,23 @@ namespace Metro.App.Views {
     /// (the host reuses renderer singletons across staged worlds) and free only the worlds
     /// that are actually disposed.
     /// </summary>
-    public abstract class StationModuleGroupRenderer : IStationViewRenderer {
+    public abstract class StationModuleGroupRenderer : IStationViewRenderer, IStationLocalViewRenderer {
         public sealed class BuiltModule {
             public string ModuleId;
             public string Type;
             public GameObject View;
             public string Key;
+            public bool CeilingHung;
+            public bool MeasuredAttach;
+            public float AttachHeight;
+            public double Underside;
         }
 
         public sealed class WorldState {
             public StationWorldView World;
             public readonly List<BuiltModule> Modules = new List<BuiltModule>();
+            public readonly Dictionary<string, BuiltModule> ById = new Dictionary<string, BuiltModule>(StringComparer.Ordinal);
+            public readonly Dictionary<long, List<BuiltModule>> CeilingByColumn = new Dictionary<long, List<BuiltModule>>();
             public readonly List<Mesh> Meshes = new List<Mesh>();
             public readonly List<Material> Materials = new List<Material>();
             public int Count;
@@ -141,6 +147,116 @@ namespace Metro.App.Views {
             public StationMaterials Palette;
         }
 
+        protected readonly struct StagedCeilingMove {
+            public readonly BuiltModule Built;
+            public readonly float NewElevation;
+            public readonly float DeltaElevation;
+            public readonly double NewUnderside;
+
+            public StagedCeilingMove(BuiltModule built, float newElevation, float deltaElevation, double newUnderside) {
+                Built = built;
+                NewElevation = newElevation;
+                DeltaElevation = deltaElevation;
+                NewUnderside = newUnderside;
+            }
+        }
+
+        protected sealed class StagedPlacedItem {
+            public ModuleFacts Module;
+            public BuiltModule Built;
+            public StationViewRecord Record;
+        }
+
+        sealed class StagedPrefabGroupDelta : IStationLocalRendererStage {
+            readonly StationModuleGroupRenderer owner;
+            readonly WorldState state;
+            readonly ModuleFacts[] station;
+            readonly HashSet<string> retiredIds;
+            readonly List<StagedCeilingMove> ceilingMoves;
+            readonly List<StagedPlacedItem> stagedItems;
+            bool committed;
+
+            public StagedPrefabGroupDelta(
+                StationModuleGroupRenderer owner,
+                WorldState state,
+                ModuleFacts[] station,
+                HashSet<string> retiredIds,
+                List<StagedCeilingMove> ceilingMoves,
+                List<StagedPlacedItem> stagedItems) {
+                this.owner = owner;
+                this.state = state;
+                this.station = station;
+                this.retiredIds = retiredIds;
+                this.ceilingMoves = ceilingMoves;
+                this.stagedItems = stagedItems;
+            }
+
+            public void Commit(StationWorldView world, StationLocalViewCommit commit) {
+                committed = true;
+                if (retiredIds != null && retiredIds.Count > 0) {
+                    world.RetireRecordsWhere(rec => rec.Role == owner.Role && retiredIds.Contains(rec.ModuleId),
+                        commit, retireViewObjects: true);
+                    state.Modules.RemoveAll(m => retiredIds.Contains(m.ModuleId));
+                    foreach (var id in retiredIds) state.ById.Remove(id);
+                    foreach (var pair in state.CeilingByColumn) {
+                        pair.Value.RemoveAll(m => retiredIds.Contains(m.ModuleId));
+                    }
+                }
+
+                if (ceilingMoves != null && ceilingMoves.Count > 0) {
+                    var records = world.Records;
+                    for (int m = 0; m < ceilingMoves.Count; m++) {
+                        var move = ceilingMoves[m];
+                        var built = move.Built;
+                        if (built?.View == null) continue;
+                        var pos = built.View.transform.position;
+                        built.View.transform.position = new Vector3(pos.x, move.NewElevation, pos.z);
+                        built.Underside = move.NewUnderside;
+                        for (int r = 0; r < records.Count; r++) {
+                            var rec = records[r];
+                            if (rec != null && rec.Role == owner.Role && rec.View == built.View) {
+                                if (rec.HasBounds) {
+                                    var b = rec.Bounds;
+                                    rec.Bounds = new StationBox(b.X0, b.Y0, b.Z0 + move.DeltaElevation,
+                                        b.X1, b.Y1, b.Z1 + move.DeltaElevation);
+                                }
+                                commit.UpdatedRecords.Add(rec);
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if (stagedItems != null && stagedItems.Count > 0) {
+                    var roleRoot = world.RoleRoot(owner.Role);
+                    for (int i = 0; i < stagedItems.Count; i++) {
+                        var item = stagedItems[i];
+                        item.Built.View.transform.SetParent(roleRoot, false);
+                        state.Modules.Add(item.Built);
+                        if (!string.IsNullOrEmpty(item.Built.ModuleId)) state.ById[item.Built.ModuleId] = item.Built;
+                        if (item.Built.CeilingHung) {
+                            long col = StationLocalDeltaContext.PackColumn(item.Module.X, item.Module.Y);
+                            if (!state.CeilingByColumn.TryGetValue(col, out var list)) {
+                                state.CeilingByColumn[col] = list = new List<BuiltModule>(2);
+                            }
+                            list.Add(item.Built);
+                        }
+                        world.AddLocalRecord(item.Record, commit);
+                        owner.OnLocalModuleCommitted(world, station, state, item.Module, item.Built.View);
+                    }
+                }
+                state.Count = state.Modules.Count;
+            }
+
+            public void Dispose() {
+                if (committed || stagedItems == null) return;
+                for (int i = 0; i < stagedItems.Count; i++) {
+                    if (stagedItems[i]?.Built?.View != null) Destroy(stagedItems[i].Built.View);
+                }
+                stagedItems.Clear();
+            }
+        }
+
         readonly List<WorldState> states = new List<WorldState>();
         protected abstract string Group { get; }
         public abstract string Role { get; }
@@ -154,6 +270,13 @@ namespace Metro.App.Views {
                 }
                 return null;
             }
+        }
+
+        protected WorldState StateOf(StationWorldView world) {
+            for (var i = states.Count - 1; i >= 0; i--) {
+                if (states[i].World == world) return states[i];
+            }
+            return null;
         }
 
         public int BuiltCount => Current?.Count ?? 0;
@@ -178,6 +301,171 @@ namespace Metro.App.Views {
 
         /// <summary>True when the saved type belongs to this renderer's group.</summary>
         protected bool Owns(string type) => StationModuleClaims.GroupOf(type) == Group;
+
+        protected virtual bool IsLocalPrefabSupported(string type) => true;
+
+        protected virtual bool UsesCeilingMountInLocal(ModuleFacts module) =>
+            module.CeilingAnchored || StationFootprints.IsCeilingHung(module);
+
+        protected virtual void OnLocalModuleCommitted(
+            StationWorldView world, ModuleFacts[] station, WorldState state, ModuleFacts module, GameObject root) { }
+
+        public virtual bool TryStageLocalDelta(
+            StationLocalDeltaContext context,
+            out IStationLocalRendererStage stage,
+            out string fallbackReason) {
+            var state = StateOf(context.World);
+            if (state == null) {
+                stage = null;
+                fallbackReason = "no-group-state:" + Role;
+                return false;
+            }
+            return TryStagePrefabGroupDelta(context, state, out stage, out fallbackReason);
+        }
+
+        protected bool TryStagePrefabGroupDelta(
+            StationLocalDeltaContext context,
+            WorldState state,
+            out IStationLocalRendererStage stage,
+            out string fallbackReason) {
+            stage = null;
+            fallbackReason = null;
+
+            var removedIds = new HashSet<string>(StringComparer.Ordinal);
+            var dirtyIds = new HashSet<string>(StringComparer.Ordinal);
+            var delta = context.Delta;
+
+            for (int i = 0; i < delta.RemovedModules.Count; i++) {
+                var id = delta.RemovedModules[i];
+                if (!context.PrevIndex.TryGetModule(id, out var oldMod) || oldMod == null || !Owns(oldMod.Type)) continue;
+                if (!IsLocalPrefabSupported(oldMod.Type)) {
+                    fallbackReason = "local-module-family:" + oldMod.Type;
+                    return false;
+                }
+                removedIds.Add(id);
+            }
+            for (int i = 0; i < delta.ChangedModules.Count; i++) {
+                var mod = delta.ChangedModules[i];
+                if (mod == null || !Owns(mod.Type)) continue;
+                if (!IsLocalPrefabSupported(mod.Type)) {
+                    fallbackReason = "local-module-family:" + mod.Type;
+                    return false;
+                }
+                dirtyIds.Add(mod.Id);
+            }
+
+            int storeyHeight = Math.Max(1, context.NextDocument.StoreyHeight);
+            List<StagedCeilingMove> ceilingMoves = null;
+            if (context.CellsChanged && state.CeilingByColumn.Count > 0) {
+                var mounts = context.GetNextCeilingMounts();
+                foreach (long col in context.TouchedColumns) {
+                    if (!state.CeilingByColumn.TryGetValue(col, out var list)) continue;
+                    for (int i = 0; i < list.Count; i++) {
+                        var built = list[i];
+                        if (built == null || built.View == null) continue;
+                        if (removedIds.Contains(built.ModuleId) || dirtyIds.Contains(built.ModuleId)) continue;
+                        if (!context.NextIndex.TryGetModule(built.ModuleId, out var modRecord) || modRecord == null) continue;
+                        var mount = mounts.Resolve(modRecord.Facts, StationCeilingMounts.FallbackFor(modRecord.Facts, storeyHeight));
+                        if (Math.Abs(mount.Underside - built.Underside) <= 1e-5) continue;
+                        float oldY = built.View.transform.position.y;
+                        float newY = built.MeasuredAttach ? (float)mount.Underside - built.AttachHeight : oldY;
+                        (ceilingMoves ??= new List<StagedCeilingMove>()).Add(
+                            new StagedCeilingMove(built, newY, newY - oldY, mount.Underside));
+                    }
+                }
+            }
+
+            if (removedIds.Count == 0 && dirtyIds.Count == 0 && ceilingMoves == null) return true;
+
+            var catalogue = context.World.Catalogue;
+            if (dirtyIds.Count > 0 && catalogue == null) {
+                fallbackReason = "no-catalogue:" + Role;
+                return false;
+            }
+
+            var retiredIds = new HashSet<string>(removedIds, StringComparer.Ordinal);
+            List<StagedPlacedItem> stagedItems = null;
+            var station = dirtyIds.Count > 0
+                ? (Owns("tv") ? context.GetNextFactsOfTypes("tv") : Array.Empty<ModuleFacts>())
+                : null;
+            var grid = StationLevelGrid.FromDocument(context.NextDocument.LevelBase, context.NextDocument.StoreyHeight);
+
+            try {
+                foreach (var id in dirtyIds) {
+                    retiredIds.Add(id);
+                    if (!context.NextIndex.TryGetModule(id, out var modRecord) || modRecord == null || !Owns(modRecord.Type)) continue;
+                    var module = modRecord.Facts;
+                    var visual = ModuleViews.Resolve(module, station, catalogue);
+                    if (visual.Kind == ModuleViewKind.None) continue;
+                    if (!visual.HasModel) {
+                        context.ReportUnresolved("module-group", module.Type, module.Id,
+                            "unresolved:" + (visual.Detail.Length > 0 ? visual.Detail : "no-view"));
+                        continue;
+                    }
+                    if (!catalogue.TryGet(visual.Key, out var entry) || entry.prefab == null) {
+                        context.ReportUnresolved("module-group", module.Type, module.Id, "unresolved:no-prefab:" + visual.Key);
+                        continue;
+                    }
+
+                    var go = UnityEngine.Object.Instantiate(entry.prefab, context.StagingRoot, false);
+                    go.name = (string.IsNullOrEmpty(module.Id) ? "module" : module.Id) + " " + module.Type;
+                    StationEditTrace.AddInstantiatedPrefab();
+
+                    BuiltModule built;
+                    StationViewRecord viewRecord;
+                    if (UsesCeilingMountInLocal(module)) {
+                        var mount = context.GetNextCeilingMounts().Resolve(module, StationCeilingMounts.FallbackFor(module, storeyHeight));
+                        var rotation = ModulePlacement.Rotation(module);
+                        var pivot = Pivot(module, entry);
+                        bool measured = TryAttachHeight(entry, visual.Key, out float attach);
+                        float elevation = measured ? (float)mount.Underside - attach : pivot.y;
+                        go.transform.SetPositionAndRotation(new Vector3(pivot.x, elevation, pivot.z), rotation);
+                        var bands = StationModuleLevels.Of(module, grid);
+                        int levelMin = bands.Length > 0 ? bands[0] : StationModuleLevels.Band(grid, module.Z);
+                        int levelMax = bands.Length > 0 ? bands[bands.Length - 1] : levelMin;
+                        bool hasBounds = TryDocumentBounds(go.transform, context.World.Root, out var bounds);
+                        built = new BuiltModule {
+                            ModuleId = module.Id, Type = module.Type, View = go, Key = visual.Key,
+                            CeilingHung = true, MeasuredAttach = measured, AttachHeight = attach, Underside = mount.Underside,
+                        };
+                        viewRecord = new StationViewRecord {
+                            Role = Role, ModuleId = module.Id, Part = "ceiling-fixture", View = go,
+                            Bounds = hasBounds ? bounds : BoxOf(module), HasBounds = true,
+                            LevelMin = levelMin, LevelMax = levelMax, LevelBands = bands,
+                        };
+                    } else if (module.Type == "court") {
+                        go.transform.SetPositionAndRotation(ModulePlacement.Position(module, entry), ModulePlacement.Rotation(module.Rotation));
+                        int band = StationModuleLevels.Band(grid, module.Z);
+                        bool hasBounds = TryDocumentBounds(go.transform, context.World.Root, out var bounds);
+                        built = new BuiltModule { ModuleId = module.Id, Type = module.Type, View = go, Key = visual.Key };
+                        viewRecord = new StationViewRecord {
+                            Role = Role, ModuleId = module.Id, Part = visual.Key, View = go,
+                            Bounds = hasBounds ? bounds : default, HasBounds = hasBounds,
+                            LevelMin = band, LevelMax = band, LevelBands = new[] { band },
+                        };
+                    } else {
+                        go.transform.SetPositionAndRotation(ModulePlacement.Resolve(modRecord, entry, context.NextIndex), ModulePlacement.Rotation(module.Rotation));
+                        built = new BuiltModule { ModuleId = module.Id, Type = module.Type, View = go, Key = visual.Key };
+                        viewRecord = new StationViewRecord {
+                            Role = Role, ModuleId = module.Id, View = go,
+                            LevelMin = module.Z, LevelMax = module.Z + 1,
+                        };
+                    }
+                    (stagedItems ??= new List<StagedPlacedItem>()).Add(new StagedPlacedItem {
+                        Module = module, Built = built, Record = viewRecord,
+                    });
+                }
+                stage = new StagedPrefabGroupDelta(this, state, station, retiredIds, ceilingMoves, stagedItems);
+                return true;
+            } catch {
+                if (stagedItems != null) {
+                    for (int i = 0; i < stagedItems.Count; i++) {
+                        if (stagedItems[i]?.Built?.View != null) Destroy(stagedItems[i].Built.View);
+                    }
+                }
+                throw;
+            }
+        }
 
         /// <summary>
         /// Resolve one module's catalogue entry; returns false and reports why not.
@@ -225,6 +513,7 @@ namespace Metro.App.Views {
             context.World.RegisterModule(Role, module.Id, go, part, null, module.Z, module.Z + 1);
             var built = new BuiltModule { ModuleId = module.Id, Type = module.Type, View = go, Key = key };
             state.Modules.Add(built);
+            if (!string.IsNullOrEmpty(module.Id)) state.ById[module.Id] = built;
             state.Count++;
             return built;
         }
@@ -236,29 +525,6 @@ namespace Metro.App.Views {
         /// </summary>
         readonly Dictionary<string, float> attachHeights = new Dictionary<string, float>(StringComparer.Ordinal);
 
-        /// <summary>
-        /// Mount one hung piece under the surface it actually hangs from (RCA 15 §1, port of
-        /// `LightModel.build` / `CctvModel.build` with <c>hangCeilingLocal</c>).
-        ///
-        /// Two things the generic <see cref="StationModuleGroupRenderer.Place"/> cannot do:
-        /// resolve **where the support is** (an authored ceiling anchor, an overhead solid,
-        /// the virtual street, or a 站台 / 轨道桥 bed), and know **where on the prefab the
-        /// attachment is**.
-        ///
-        /// The second is not academic. Measured on the shipped export, the promoted fixtures bake
-        /// the source's **fallback** ceiling into their geometry: `light-rectangular` spans local
-        /// 3.92…4.00 and `cctv` 3.52…4.00, i.e. `STOREY_HEIGHT − 1`. A root placed at the cell's
-        /// own top (`offset.z = 1`, exactly what the catalogue records) therefore leaves the
-        /// housing four metres up in the air. For `light-rectangular-401` — saved at `z = −1`,
-        /// ceiling-anchored, so its true ceiling is the street plane at elevation 0 — that is the
-        /// light floating at ground level. So the root is placed by aligning the **measured top**
-        /// of the prefab to the resolved underside, which corrects the anchored and overhead
-        /// branches and leaves the fallback branch alone (there the two offsets agree).
-        ///
-        /// The record keeps the storey membership from <see cref="StationModuleLevels"/> with the
-        /// measured geometry bounds separate, so a fixture is sliced by the storey it belongs to
-        /// while its pick box is its real geometry.
-        /// </summary>
         protected bool PlaceCeilingFixture(StationViewBuildContext context, ModuleFacts module, ModuleFacts[] station,
             WorldState state, StationCeilingMounts mounts, int storeyHeight,
             Action<ModuleFacts, StationCeilingMounts.Mount, StationBox, bool> placed = null) {
@@ -285,7 +551,17 @@ namespace Metro.App.Views {
                     " m; the catalogue offset is used unchanged.");
             }
             go.transform.SetPositionAndRotation(new Vector3(pivot.x, elevation, pivot.z), rotation);
-            state.Modules.Add(new BuiltModule { ModuleId = module.Id, Type = module.Type, View = go, Key = key });
+            var built = new BuiltModule {
+                ModuleId = module.Id, Type = module.Type, View = go, Key = key,
+                CeilingHung = true, MeasuredAttach = measured, AttachHeight = attach, Underside = mount.Underside,
+            };
+            state.Modules.Add(built);
+            if (!string.IsNullOrEmpty(module.Id)) state.ById[module.Id] = built;
+            long col = StationLocalDeltaContext.PackColumn(module.X, module.Y);
+            if (!state.CeilingByColumn.TryGetValue(col, out var colList)) {
+                state.CeilingByColumn[col] = colList = new List<BuiltModule>(2);
+            }
+            colList.Add(built);
             state.Count++;
             var grid = StationLevelGrid.FromDocument(context.Document.LevelBase, context.Document.StoreyHeight);
             var bands = StationModuleLevels.Of(module, grid);
@@ -353,18 +629,6 @@ namespace Metro.App.Views {
             return !bounds.IsEmpty;
         }
 
-        internal void AdoptLocalModules(StationWorldView world, ISet<string> ids, IReadOnlyList<StationViewRecord> records) {
-            foreach (var state in states) {
-                if (state.World != world) continue;
-                state.Modules.RemoveAll(module => ids.Contains(module.ModuleId));
-                foreach (var record in records) {
-                    var module = world.Index.GetModule(record.ModuleId);
-                    state.Modules.Add(new BuiltModule { ModuleId = record.ModuleId, Type = module.Type, View = record.View });
-                }
-                state.Count = state.Modules.Count;
-            }
-        }
-
         /// <summary>Drop the states of worlds that are already disposed; never a live one.</summary>
         protected void Purge() {
             for (int i = states.Count - 1; i >= 0; i--) {
@@ -379,6 +643,8 @@ namespace Metro.App.Views {
                 state.Meshes.Clear();
                 state.Materials.Clear();
                 state.Modules.Clear();
+                state.ById.Clear();
+                state.CeilingByColumn.Clear();
                 states.RemoveAt(i);
             }
         }
@@ -431,6 +697,125 @@ namespace Metro.App.Views {
 
         const int ChunkSize = 16;
 
+        sealed class SurfaceChunkBucket {
+            public readonly List<GameObject> Views = new List<GameObject>();
+            public readonly List<Mesh> Meshes = new List<Mesh>();
+            public readonly List<BuiltModule> BuiltModules = new List<BuiltModule>();
+            public readonly List<StationViewRecord> Records = new List<StationViewRecord>();
+            public readonly HashSet<string> AllModuleIds = new HashSet<string>(StringComparer.Ordinal);
+        }
+
+        sealed class SurfaceWorldCache {
+            public StationWorldView World;
+            public readonly Dictionary<(int CX, int CY), SurfaceChunkBucket> Chunks =
+                new Dictionary<(int CX, int CY), SurfaceChunkBucket>();
+        }
+
+        sealed class StagedSurfaceDelta : IStationLocalRendererStage {
+            readonly WorldState state;
+            readonly SurfaceWorldCache cache;
+            readonly List<(int CX, int CY)> dirtyChunks;
+            readonly Dictionary<(int CX, int CY), SurfaceChunkBucket> stagedChunks;
+            bool committed;
+
+            public StagedSurfaceDelta(
+                WorldState state,
+                SurfaceWorldCache cache,
+                List<(int CX, int CY)> dirtyChunks,
+                Dictionary<(int CX, int CY), SurfaceChunkBucket> stagedChunks) {
+                this.state = state;
+                this.cache = cache;
+                this.dirtyChunks = dirtyChunks;
+                this.stagedChunks = stagedChunks;
+            }
+
+            public void Commit(StationWorldView world, StationLocalViewCommit commit) {
+                committed = true;
+                var retiredViews = new HashSet<GameObject>();
+                var retiredBuiltIds = new HashSet<string>(StringComparer.Ordinal);
+
+                for (int i = 0; i < dirtyChunks.Count; i++) {
+                    var ck = dirtyChunks[i];
+                    if (!cache.Chunks.TryGetValue(ck, out var oldBucket)) continue;
+                    cache.Chunks.Remove(ck);
+                    state.Count = Math.Max(0, state.Count - oldBucket.AllModuleIds.Count);
+                    for (int v = 0; v < oldBucket.Views.Count; v++) {
+                        if (oldBucket.Views[v] != null) retiredViews.Add(oldBucket.Views[v]);
+                    }
+                    for (int m = 0; m < oldBucket.Meshes.Count; m++) {
+                        var mesh = oldBucket.Meshes[m];
+                        if (mesh == null) continue;
+                        state.Meshes.Remove(mesh);
+                        commit.RetiredMeshes.Add(mesh);
+                    }
+                    for (int b = 0; b < oldBucket.BuiltModules.Count; b++) {
+                        if (!string.IsNullOrEmpty(oldBucket.BuiltModules[b].ModuleId)) {
+                            retiredBuiltIds.Add(oldBucket.BuiltModules[b].ModuleId);
+                        }
+                    }
+                }
+
+                if (retiredViews.Count > 0) {
+                    world.RetireRecordsWhere(rec => rec.Role == StationModuleClaims.Surfaces && retiredViews.Contains(rec.View), commit);
+                    foreach (var go in retiredViews) commit.RetiredViews.Add(go);
+                }
+                if (retiredBuiltIds.Count > 0) {
+                    state.Modules.RemoveAll(m => retiredBuiltIds.Contains(m.ModuleId));
+                    foreach (var id in retiredBuiltIds) state.ById.Remove(id);
+                }
+
+                var roleRoot = world.RoleRoot(StationModuleClaims.Surfaces);
+                for (int i = 0; i < dirtyChunks.Count; i++) {
+                    var ck = dirtyChunks[i];
+                    if (!stagedChunks.TryGetValue(ck, out var newBucket) || newBucket.Views.Count == 0) continue;
+                    cache.Chunks[ck] = newBucket;
+                    state.Count += newBucket.AllModuleIds.Count;
+                    state.Meshes.AddRange(newBucket.Meshes);
+                    for (int b = 0; b < newBucket.BuiltModules.Count; b++) {
+                        var built = newBucket.BuiltModules[b];
+                        state.Modules.Add(built);
+                        if (!string.IsNullOrEmpty(built.ModuleId)) state.ById[built.ModuleId] = built;
+                    }
+                    for (int v = 0; v < newBucket.Views.Count; v++) {
+                        newBucket.Views[v].transform.SetParent(roleRoot, false);
+                    }
+                    for (int r = 0; r < newBucket.Records.Count; r++) {
+                        world.AddLocalRecord(newBucket.Records[r], commit);
+                    }
+                }
+            }
+
+            public void Dispose() {
+                if (committed) return;
+                foreach (var bucket in stagedChunks.Values) {
+                    for (int m = 0; m < bucket.Meshes.Count; m++) {
+                        if (bucket.Meshes[m] != null) Destroy(bucket.Meshes[m]);
+                    }
+                    for (int v = 0; v < bucket.Views.Count; v++) {
+                        if (bucket.Views[v] != null) Destroy(bucket.Views[v]);
+                    }
+                }
+                stagedChunks.Clear();
+            }
+        }
+
+        readonly List<SurfaceWorldCache> surfaceCaches = new List<SurfaceWorldCache>();
+
+        SurfaceWorldCache SurfaceCacheOf(StationWorldView world) {
+            for (int i = surfaceCaches.Count - 1; i >= 0; i--) {
+                if (surfaceCaches[i].World == world) return surfaceCaches[i];
+            }
+            return null;
+        }
+
+        void PurgeSurfaceCaches() {
+            for (int i = surfaceCaches.Count - 1; i >= 0; i--) {
+                if (surfaceCaches[i].World == null || surfaceCaches[i].World.IsDisposed) surfaceCaches.RemoveAt(i);
+            }
+        }
+
+        static int ChunkCoord(int value) => value >= 0 ? value / ChunkSize : (value - (ChunkSize - 1)) / ChunkSize;
+
         /// <summary>
         /// How many tactile arm meshes this build composed (RCA 15 §4), so a probe can tell a
         /// composed junction from a tile that merely happened to have no arm.
@@ -449,8 +834,18 @@ namespace Metro.App.Views {
         /// </summary>
         public int UnportedRampRuns => lastHidden?.UnportedRampRuns ?? 0;
 
+        static SurfaceChunkBucket EnsureChunkBucket(Dictionary<(int CX, int CY), SurfaceChunkBucket> map, int cx, int cy) {
+            if (!map.TryGetValue((cx, cy), out var bucket)) map[(cx, cy)] = bucket = new SurfaceChunkBucket();
+            return bucket;
+        }
+
         protected override void BuildGroup(StationViewBuildContext context, ModuleFacts[] station, WorldState state) {
+            PurgeSurfaceCaches();
+            var surfaceCache = new SurfaceWorldCache { World = context.World };
+            surfaceCaches.Add(surfaceCache);
+
             var buckets = new Dictionary<string, List<CombineInstance>>(StringComparer.Ordinal);
+            var bucketChunk = new Dictionary<string, (int CX, int CY)>(StringComparer.Ordinal);
             var bucketMaterial = new Dictionary<string, Material>(StringComparer.Ordinal);
             var bucketBounds = new Dictionary<string, Bounds>(StringComparer.Ordinal);
             var bucketLevel = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -459,38 +854,39 @@ namespace Metro.App.Views {
             var bucketSpans = new Dictionary<string, List<StationBatchSpan>>(StringComparer.Ordinal);
             var bucketTriangles = new Dictionary<string, int>(StringComparer.Ordinal);
             var bucketItems = new Dictionary<string, List<(ModuleFacts module, RuntimeCatalogue.Entry entry, string key)>>(StringComparer.Ordinal);
-            // 20 §4: a batch is grade furniture when the tiles it combines are, and the bucket is
-            // keyed by the **exact saved module Z**, so a chunk that happens to span 0 m still
-            // answers per elevation instead of by its bounding box.
             var bucketGrade = new Dictionary<string, bool>(StringComparer.Ordinal);
             var fallback = new List<(ModuleFacts module, RuntimeCatalogue.Entry entry, string key)>();
             var parts = new List<SurfacePart>(8);
             TactileArmParts = 0;
             HiddenTiles = 0;
-            var hidden = new SurfaceHidden(context.Document, station);
+            var hidden = context.Index != null
+                ? new SurfaceHidden(context.Index, station)
+                : new SurfaceHidden(context.Document, station);
             lastHidden = hidden;
 
             for (int i = 0; i < station.Length; i++) {
                 var module = station[i];
                 if (!Owns(module.Type)) continue;
-                // RCA 15 §6.2: the same opening description the cell mesher and the exit pad use
-                // also decides which tiles are not drawn (`outdoorSurfaceHidden`): a paved tile
-                // under an exit's floor plate, a dug void, or a run landing at street level.
-                // The record is still registered — with no geometry — so the tile is a **deliberate**
-                // no-view carrying its reason, never a silent drop or an unowned family row.
+                var chunkX = ChunkCoord(module.X);
+                var chunkY = ChunkCoord(module.Y);
                 if (hidden.IsHidden(module, out var hiddenReason)) {
                     HiddenTiles++;
                     var placeholder = new GameObject((string.IsNullOrEmpty(module.Id) ? "tile" : module.Id) + " hidden");
                     placeholder.transform.SetParent(context.RoleRoot(Role), false);
                     placeholder.transform.SetPositionAndRotation(ModulePlacement.Position(module, (RuntimeCatalogue.Entry)null),
                         ModulePlacement.Rotation(module.Rotation));
-                    state.Modules.Add(new BuiltModule { ModuleId = module.Id, Type = module.Type, View = placeholder, Key = "" });
+                    var builtHidden = new BuiltModule { ModuleId = module.Id, Type = module.Type, View = placeholder, Key = "" };
+                    state.Modules.Add(builtHidden);
+                    if (!string.IsNullOrEmpty(module.Id)) state.ById[module.Id] = builtHidden;
                     context.World.RegisterModule(Role, module.Id, placeholder, "hidden", BoxOf(module), module.Z, module.Z + 1);
                     context.ReportUnresolved("outdoor-surface-hidden", module.Type, module.Id, hiddenReason);
+                    var cb = EnsureChunkBucket(surfaceCache.Chunks, chunkX, chunkY);
+                    cb.Views.Add(placeholder);
+                    cb.BuiltModules.Add(builtHidden);
+                    if (!string.IsNullOrEmpty(module.Id)) cb.AllModuleIds.Add(module.Id);
                     continue;
                 }
                 if (!TryResolve(context, module, station, out var entry, out var key, out var diagnostic)) {
-                    // A deliberate no-view (pair-panel) has no diagnostic and is not a gap.
                     if (diagnostic != null) context.ReportUnresolved("module-group", module.Type, module.Id, diagnostic);
                     continue;
                 }
@@ -506,52 +902,32 @@ namespace Metro.App.Views {
                     break;
                 }
                 if (!readable) {
-                    // `Mesh.CombineMeshes` refuses a non-readable source; the tile is still
-                    // drawn as its own prefab instance below rather than dropped.
                     fallback.Add((module, entry, key));
                     continue;
                 }
-                // RCA 15 §4: derive the warning tile's connectivity from `tactileArms` before
-                // batching and append one arm mesh per computed arm. The arm is generated in the
-                // tile's own frame (the source rotates the world step back by the tile's `rot`), so
-                // it composes under `placement` exactly like the prefab's own parts and a join that
-                // crosses a 16×16 chunk boundary is composed by both tiles.
                 if (StationTactileArms.Applies(module)) {
                     var arms = StationTactileArms.Arms(module, station);
                     bool strip = string.Equals(module.Config.Text("variant"), "warning-strip", StringComparison.Ordinal);
                     var armMaterial = parts[0].Material;
                     for (int a = 0; a < arms.Count; a++) {
-                        // The arm is a **signed** local step: `TactileModel.build` places the
-                        // slab at `dx*0.3625, dy*0.3625`, so a west or south arm must be emitted
-                        // on that side. The tile's own rotation then maps it to the document edge.
                         var armMesh = TactileArmMesh(strip, arms[a].DX, arms[a].DY);
                         if (!armMesh || !armMaterial) continue;
                         parts.Add(new SurfacePart(armMesh, 0, armMaterial, Matrix4x4.identity));
                         TactileArmParts++;
                     }
                 }
-                // RCA 16 §3.2: a floor vinyl's authored `cfg.offset` is a **world** offset.
-                // The generic pivot is only the cell centre (or the run centre for a
-                // multi-cell tile); `FloorMarkPivot` adds the saved offset in document axes,
-                // so a boarding mark lands on the doorway `snapBoardingMark` aligned it to.
                 var pivot = string.Equals(module.Type, "floor-mark", StringComparison.Ordinal)
                     ? FloorMarkPivot(module, entry)
                     : Pivot(module, entry);
                 var placement = Matrix4x4.TRS(pivot, ModulePlacement.Rotation(module.Rotation), Vector3.one);
-                var chunkX = Mathf.FloorToInt(module.X / (float)ChunkSize);
-                var chunkY = Mathf.FloorToInt(module.Y / (float)ChunkSize);
-                // The tile's own document box, so a batched surface contributes one pickable
-                // body per authored module instead of one box for a 16 × 16 chunk.
                 StationBox tileBox = default;
                 bool hasTileBox = !string.IsNullOrEmpty(module.Id) && TryDocumentBounds(placement, parts, out tileBox);
                 for (int p = 0; p < parts.Count; p++) {
                     var part = parts[p];
-                    // One bucket per material: combining two materials into one mesh would
-                    // keep only the first, which is how tile detail went missing. The
-                    // prefab key + material name identifies it without an engine id.
                     var bucketKey = chunkX + "," + chunkY + "|" + module.Z + "|" + key + "|" + part.Material.name;
                     if (!buckets.TryGetValue(bucketKey, out var list)) {
                         buckets[bucketKey] = list = new List<CombineInstance>();
+                        bucketChunk[bucketKey] = (chunkX, chunkY);
                         bucketMaterial[bucketKey] = part.Material;
                         bucketBounds[bucketKey] = new Bounds(pivot, Vector3.zero);
                         bucketLevel[bucketKey] = module.Z;
@@ -605,10 +981,9 @@ namespace Metro.App.Views {
 
             var batchedIds = new HashSet<string>(StringComparer.Ordinal);
             foreach (var pair in buckets) {
+                var (cx, cy) = bucketChunk[pair.Key];
+                var cb = EnsureChunkBucket(surfaceCache.Chunks, cx, cy);
                 var mesh = new Mesh { name = "surface " + pair.Key };
-                // 32-bit indices are needed by the *vertex* count, not the instance count:
-                // a 24-vertex tile combined 3,000 times overflows UInt16 and `CombineMeshes`
-                // throws (one 16×16 chunk of Zoo's paving failed exactly this way).
                 long vertices = 0;
                 for (int i = 0; i < pair.Value.Count; i++) {
                     var source = pair.Value[i].mesh;
@@ -621,14 +996,15 @@ namespace Metro.App.Views {
                     mesh.CombineMeshes(pair.Value.ToArray(), true, true);
                 } catch (Exception error) {
                     Destroy(mesh);
-                    // The pieces are drawn individually rather than dropped, and the batch
-                    // names why it could not be combined (RCA 14 §2.2 / plan B3).
                     context.ReportUnresolved("surface-combine-failed", "renderer", Role,
                         pair.Key + " (" + bucketIds[pair.Key].Count + " modules): " + error.Message);
                     if (bucketItems.TryGetValue(pair.Key, out var individually)) {
                         for (int i = 0; i < individually.Count; i++) {
                             var item = individually[i];
-                            Place(context, item.module, item.entry, item.key, state);
+                            var placed = Place(context, item.module, item.entry, item.key, state);
+                            cb.Views.Add(placed.View);
+                            cb.BuiltModules.Add(placed);
+                            if (!string.IsNullOrEmpty(item.module.Id)) cb.AllModuleIds.Add(item.module.Id);
                         }
                     }
                     continue;
@@ -640,9 +1016,12 @@ namespace Metro.App.Views {
                 renderer.sharedMaterial = bucketMaterial[pair.Key];
                 renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
                 state.Meshes.Add(mesh);
-                // A batch counts as the modules it draws: the coverage figure must not
-                // read zero just because the tiles were combined instead of instanced.
-                for (int i = 0; i < bucketIds[pair.Key].Count; i++) batchedIds.Add(bucketIds[pair.Key][i]);
+                cb.Meshes.Add(mesh);
+                cb.Views.Add(go);
+                for (int i = 0; i < bucketIds[pair.Key].Count; i++) {
+                    batchedIds.Add(bucketIds[pair.Key][i]);
+                    cb.AllModuleIds.Add(bucketIds[pair.Key][i]);
+                }
                 var bounds = bucketBounds[pair.Key];
                 int band = StationModuleLevels.Band(
                     StationLevelGrid.FromDocument(context.Document.LevelBase, context.Document.StoreyHeight),
@@ -655,17 +1034,347 @@ namespace Metro.App.Views {
                     bucketSpans[pair.Key].ToArray());
             }
 
-            // Unresolved or unreadable tiles are still drawn: one prefab instance each.
-            // Zoo's sidewalk and lawn tiles land here when the glTF import does not mark
-            // the mesh readable.
             state.Count += batchedIds.Count;
             foreach (var item in fallback) {
-                Place(context, item.module, item.entry, item.key, state);
+                var placed = Place(context, item.module, item.entry, item.key, state);
+                var cb = EnsureChunkBucket(surfaceCache.Chunks, ChunkCoord(item.module.X), ChunkCoord(item.module.Y));
+                cb.Views.Add(placed.View);
+                cb.BuiltModules.Add(placed);
+                if (!string.IsNullOrEmpty(item.module.Id)) cb.AllModuleIds.Add(item.module.Id);
             }
 
             if (state.Count == 0 && buckets.Count == 0) {
                 context.ReportUnresolved("surface-empty", "renderer", Role,
                     "No sidewalk/lawn/tactile/floor-mark tile was drawn for this station.");
+            }
+        }
+
+        static bool IsRampType(string type) =>
+            type == "stair" || type == "escalator" || type == "walkway";
+
+        static bool AffectsTactile(string type) =>
+            type == "tactile" || type == "gate" || type == "door" || type == "psd" || type == "stair" || type == "escalator";
+
+        static void MarkTactileNeighbourChunks(HashSet<(int CX, int CY)> dirtyChunks, StationModuleRecord mod) {
+            if (mod == null) return;
+            int x0 = mod.X - 1, x1 = mod.X + Math.Max(1, mod.Width);
+            int y0 = mod.Y - 1, y1 = mod.Y + Math.Max(1, mod.Depth);
+            for (int cy = ChunkCoord(y0); cy <= ChunkCoord(y1); cy++) {
+                for (int cx = ChunkCoord(x0); cx <= ChunkCoord(x1); cx++) {
+                    dirtyChunks.Add((cx, cy));
+                }
+            }
+        }
+
+        public override bool TryStageLocalDelta(
+            StationLocalDeltaContext context,
+            out IStationLocalRendererStage stage,
+            out string fallbackReason) {
+            stage = null;
+            fallbackReason = null;
+            var state = StateOf(context.World);
+            var cache = SurfaceCacheOf(context.World);
+            if (state == null || cache == null) {
+                fallbackReason = "no-surface-state";
+                return false;
+            }
+
+            var dirtyChunks = new HashSet<(int CX, int CY)>();
+            var delta = context.Delta;
+
+            for (int i = 0; i < delta.RemovedModules.Count; i++) {
+                var id = delta.RemovedModules[i];
+                if (!context.PrevIndex.TryGetModule(id, out var oldMod) || oldMod == null) continue;
+                if (oldMod.Type == "exit") {
+                    fallbackReason = "local-module-family:exit";
+                    return false;
+                }
+                if (Owns(oldMod.Type)) dirtyChunks.Add((ChunkCoord(oldMod.X), ChunkCoord(oldMod.Y)));
+                if (AffectsTactile(oldMod.Type)) MarkTactileNeighbourChunks(dirtyChunks, oldMod);
+                if (IsRampType(oldMod.Type)) {
+                    var holes = StationRampOpenings.RampOpeningsAtLevel(new[] { oldMod.Facts }, StationPaintSnapshot.GroundZ);
+                    foreach (var hole in holes) dirtyChunks.Add((ChunkCoord(hole.X), ChunkCoord(hole.Y)));
+                }
+            }
+            for (int i = 0; i < delta.ChangedModules.Count; i++) {
+                var mod = delta.ChangedModules[i];
+                if (mod == null) continue;
+                if (mod.Type == "exit") {
+                    fallbackReason = "local-module-family:exit";
+                    return false;
+                }
+                if (Owns(mod.Type)) {
+                    dirtyChunks.Add((ChunkCoord(mod.X), ChunkCoord(mod.Y)));
+                    if (context.PrevIndex.TryGetModule(mod.Id, out var prevMod) && prevMod != null) {
+                        dirtyChunks.Add((ChunkCoord(prevMod.X), ChunkCoord(prevMod.Y)));
+                    }
+                }
+                if (AffectsTactile(mod.Type)) MarkTactileNeighbourChunks(dirtyChunks, mod);
+                if (IsRampType(mod.Type)) {
+                    var holes = StationRampOpenings.RampOpeningsAtLevel(new[] { mod.Facts }, StationPaintSnapshot.GroundZ);
+                    foreach (var hole in holes) dirtyChunks.Add((ChunkCoord(hole.X), ChunkCoord(hole.Y)));
+                    if (context.PrevIndex.TryGetModule(mod.Id, out var prevRamp) && prevRamp != null) {
+                        var prevHoles = StationRampOpenings.RampOpeningsAtLevel(new[] { prevRamp.Facts }, StationPaintSnapshot.GroundZ);
+                        foreach (var hole in prevHoles) dirtyChunks.Add((ChunkCoord(hole.X), ChunkCoord(hole.Y)));
+                    }
+                }
+            }
+
+            if (context.CellsChanged) {
+                for (int i = 0; i < delta.RemovedCells.Count; i++) {
+                    var k = delta.RemovedCells[i];
+                    bool wasVoid = context.PrevIndex.GetCell(k.X, k.Y, k.Z) is StationCellRecord pc && !pc.IsSolid;
+                    if (wasVoid) {
+                        var ck = (ChunkCoord(k.X), ChunkCoord(k.Y));
+                        if (cache.Chunks.ContainsKey(ck)) dirtyChunks.Add(ck);
+                    }
+                }
+                for (int i = 0; i < delta.ChangedCells.Count; i++) {
+                    var c = delta.ChangedCells[i];
+                    bool wasVoid = context.PrevIndex.GetCell(c.X, c.Y, c.Z) is StationCellRecord pc && !pc.IsSolid;
+                    bool isVoid = !c.IsSolid;
+                    if (wasVoid != isVoid) {
+                        var ck = (ChunkCoord(c.X), ChunkCoord(c.Y));
+                        if (cache.Chunks.ContainsKey(ck)) dirtyChunks.Add(ck);
+                    }
+                }
+            }
+
+            if (dirtyChunks.Count == 0) return true;
+
+            var catalogue = context.World.Catalogue;
+            if (catalogue == null) {
+                fallbackReason = "surface-no-catalogue";
+                return false;
+            }
+
+            var dirtyList = new List<(int CX, int CY)>(dirtyChunks);
+            var stagedChunks = new Dictionary<(int CX, int CY), SurfaceChunkBucket>(dirtyList.Count);
+            var station = context.GetNextFactsOfTypes("stair", "escalator", "walkway", "exit");
+            var hidden = new SurfaceHidden(context.NextIndex, station);
+            var grid = StationLevelGrid.FromDocument(context.NextDocument.LevelBase, context.NextDocument.StoreyHeight);
+
+            var candidateTiles = new List<ModuleFacts>();
+            foreach (var surfType in StationModuleClaims.TypesOf(StationModuleClaims.Surfaces)) {
+                var mods = context.NextIndex.ModulesOfType(surfType);
+                for (int i = 0; i < mods.Count; i++) {
+                    var m = mods[i];
+                    if (m != null && dirtyChunks.Contains((ChunkCoord(m.X), ChunkCoord(m.Y)))) {
+                        candidateTiles.Add(m.Facts);
+                    }
+                }
+            }
+
+            var buckets = new Dictionary<string, List<CombineInstance>>(StringComparer.Ordinal);
+            var bucketChunk = new Dictionary<string, (int CX, int CY)>(StringComparer.Ordinal);
+            var bucketMaterial = new Dictionary<string, Material>(StringComparer.Ordinal);
+            var bucketBounds = new Dictionary<string, Bounds>(StringComparer.Ordinal);
+            var bucketLevel = new Dictionary<string, int>(StringComparer.Ordinal);
+            var bucketIds = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+            var bucketBoxes = new Dictionary<string, List<StationBox>>(StringComparer.Ordinal);
+            var bucketSpans = new Dictionary<string, List<StationBatchSpan>>(StringComparer.Ordinal);
+            var bucketTriangles = new Dictionary<string, int>(StringComparer.Ordinal);
+            var bucketItems = new Dictionary<string, List<(ModuleFacts module, RuntimeCatalogue.Entry entry, string key)>>(StringComparer.Ordinal);
+            var bucketGrade = new Dictionary<string, bool>(StringComparer.Ordinal);
+            var fallback = new List<(ModuleFacts module, RuntimeCatalogue.Entry entry, string key)>();
+            var parts = new List<SurfacePart>(8);
+
+            try {
+                for (int i = 0; i < candidateTiles.Count; i++) {
+                    var module = candidateTiles[i];
+                    int chunkX = ChunkCoord(module.X);
+                    int chunkY = ChunkCoord(module.Y);
+                    var cb = EnsureChunkBucket(stagedChunks, chunkX, chunkY);
+
+                    if (hidden.IsHidden(module, out var hiddenReason)) {
+                        var placeholder = new GameObject((string.IsNullOrEmpty(module.Id) ? "tile" : module.Id) + " hidden");
+                        placeholder.transform.SetParent(context.StagingRoot, false);
+                        placeholder.transform.SetPositionAndRotation(ModulePlacement.Position(module, (RuntimeCatalogue.Entry)null),
+                            ModulePlacement.Rotation(module.Rotation));
+                        var builtHidden = new BuiltModule { ModuleId = module.Id, Type = module.Type, View = placeholder, Key = "" };
+                        cb.Views.Add(placeholder);
+                        cb.BuiltModules.Add(builtHidden);
+                        if (!string.IsNullOrEmpty(module.Id)) cb.AllModuleIds.Add(module.Id);
+                        cb.Records.Add(new StationViewRecord {
+                            Role = Role, ModuleId = module.Id, Part = "hidden", View = placeholder,
+                            Bounds = BoxOf(module), HasBounds = true, LevelMin = module.Z, LevelMax = module.Z + 1,
+                        });
+                        context.ReportUnresolved("outdoor-surface-hidden", module.Type, module.Id, hiddenReason);
+                        continue;
+                    }
+
+                    var visual = ModuleViews.Resolve(module, station, catalogue);
+                    if (visual.Kind == ModuleViewKind.None) continue;
+                    if (!visual.HasModel || !catalogue.TryGet(visual.Key, out var entry) || entry.prefab == null) {
+                        if (!visual.HasModel) {
+                            context.ReportUnresolved("module-group", module.Type, module.Id,
+                                "unresolved:" + (visual.Detail.Length > 0 ? visual.Detail : "no-view"));
+                        } else {
+                            context.ReportUnresolved("module-group", module.Type, module.Id, "unresolved:no-prefab:" + visual.Key);
+                        }
+                        continue;
+                    }
+
+                    EnumerateParts(entry.prefab, parts);
+                    bool readable = parts.Count > 0;
+                    for (int p = 0; readable && p < parts.Count; p++) {
+                        if (!parts[p].Mesh.isReadable) readable = false;
+                    }
+                    if (!readable) {
+                        fallback.Add((module, entry, visual.Key));
+                        continue;
+                    }
+
+                    if (StationTactileArms.Applies(module)) {
+                        var arms = StationTactileArms.Arms(module, station);
+                        bool strip = string.Equals(module.Config.Text("variant"), "warning-strip", StringComparison.Ordinal);
+                        var armMaterial = parts[0].Material;
+                        for (int a = 0; a < arms.Count; a++) {
+                            var armMesh = TactileArmMesh(strip, arms[a].DX, arms[a].DY);
+                            if (!armMesh || !armMaterial) continue;
+                            parts.Add(new SurfacePart(armMesh, 0, armMaterial, Matrix4x4.identity));
+                        }
+                    }
+
+                    var pivot = string.Equals(module.Type, "floor-mark", StringComparison.Ordinal)
+                        ? FloorMarkPivot(module, entry)
+                        : Pivot(module, entry);
+                    var placement = Matrix4x4.TRS(pivot, ModulePlacement.Rotation(module.Rotation), Vector3.one);
+                    StationBox tileBox = default;
+                    bool hasTileBox = !string.IsNullOrEmpty(module.Id) && TryDocumentBounds(placement, parts, out tileBox);
+                    for (int p = 0; p < parts.Count; p++) {
+                        var part = parts[p];
+                        var bucketKey = chunkX + "," + chunkY + "|" + module.Z + "|" + visual.Key + "|" + part.Material.name;
+                        if (!buckets.TryGetValue(bucketKey, out var list)) {
+                            buckets[bucketKey] = list = new List<CombineInstance>();
+                            bucketChunk[bucketKey] = (chunkX, chunkY);
+                            bucketMaterial[bucketKey] = part.Material;
+                            bucketBounds[bucketKey] = new Bounds(pivot, Vector3.zero);
+                            bucketLevel[bucketKey] = module.Z;
+                            bucketIds[bucketKey] = new List<string>();
+                            bucketBoxes[bucketKey] = new List<StationBox>();
+                            bucketSpans[bucketKey] = new List<StationBatchSpan>();
+                            bucketTriangles[bucketKey] = 0;
+                            bucketItems[bucketKey] = new List<(ModuleFacts, RuntimeCatalogue.Entry, string)>();
+                            bucketGrade[bucketKey] = string.Equals(module.Type, "sidewalk", StringComparison.Ordinal) ||
+                                string.Equals(module.Type, "lawn", StringComparison.Ordinal);
+                        }
+                        var matrix = placement * part.Local;
+                        int startTriangle = bucketTriangles[bucketKey];
+                        int partTriangles = part.Mesh.GetTopology(part.Submesh) == MeshTopology.Triangles
+                            ? (int)(part.Mesh.GetIndexCount(part.Submesh) / 3)
+                            : 0;
+                        bucketTriangles[bucketKey] = startTriangle + partTriangles;
+                        list.Add(new CombineInstance { mesh = part.Mesh, subMeshIndex = part.Submesh, transform = matrix });
+                        var bounds = bucketBounds[bucketKey];
+                        EncapsulateTransformed(part.Mesh.bounds, matrix, ref bounds);
+                        bucketBounds[bucketKey] = bounds;
+                        var ids = bucketIds[bucketKey];
+                        int sourceIndex = -1;
+                        if (!string.IsNullOrEmpty(module.Id)) {
+                            sourceIndex = ids.IndexOf(module.Id);
+                            if (sourceIndex < 0) {
+                                sourceIndex = ids.Count;
+                                ids.Add(module.Id);
+                                bucketBoxes[bucketKey].Add(hasTileBox ? tileBox : BoxOf(module));
+                            }
+                        }
+                        if (sourceIndex >= 0 && partTriangles > 0) {
+                            var spans = bucketSpans[bucketKey];
+                            if (spans.Count > 0) {
+                                var last = spans[spans.Count - 1];
+                                if (last.SourceIndex == sourceIndex && last.StartTriangle + last.TriangleCount == startTriangle) {
+                                    spans[spans.Count - 1] = new StationBatchSpan(sourceIndex, last.StartTriangle,
+                                        last.TriangleCount + partTriangles);
+                                } else {
+                                    spans.Add(new StationBatchSpan(sourceIndex, startTriangle, partTriangles));
+                                }
+                            } else {
+                                spans.Add(new StationBatchSpan(sourceIndex, startTriangle, partTriangles));
+                            }
+                        }
+                        if (p == 0) bucketItems[bucketKey].Add((module, entry, visual.Key));
+                    }
+                }
+
+                foreach (var pair in buckets) {
+                    var (cx, cy) = bucketChunk[pair.Key];
+                    var cb = EnsureChunkBucket(stagedChunks, cx, cy);
+                    var mesh = new Mesh { name = "surface " + pair.Key };
+                    long vertices = 0;
+                    for (int i = 0; i < pair.Value.Count; i++) {
+                        var source = pair.Value[i].mesh;
+                        if (source) vertices += Math.Max(1, source.vertexCount);
+                    }
+                    mesh.indexFormat = vertices > 60000 || pair.Value.Count > 20000
+                        ? UnityEngine.Rendering.IndexFormat.UInt32
+                        : UnityEngine.Rendering.IndexFormat.UInt16;
+                    try {
+                        mesh.CombineMeshes(pair.Value.ToArray(), true, true);
+                    } catch (Exception error) {
+                        Destroy(mesh);
+                        context.ReportUnresolved("surface-combine-failed", "renderer", Role,
+                            pair.Key + " (" + bucketIds[pair.Key].Count + " modules): " + error.Message);
+                        if (bucketItems.TryGetValue(pair.Key, out var individually)) {
+                            fallback.AddRange(individually);
+                        }
+                        continue;
+                    }
+                    var go = new GameObject("surface " + pair.Key);
+                    go.transform.SetParent(context.StagingRoot, false);
+                    go.AddComponent<MeshFilter>().sharedMesh = mesh;
+                    var renderer = go.AddComponent<MeshRenderer>();
+                    renderer.sharedMaterial = bucketMaterial[pair.Key];
+                    renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                    cb.Meshes.Add(mesh);
+                    cb.Views.Add(go);
+                    for (int i = 0; i < bucketIds[pair.Key].Count; i++) cb.AllModuleIds.Add(bucketIds[pair.Key][i]);
+                    var bounds = bucketBounds[pair.Key];
+                    int band = StationModuleLevels.Band(grid, bucketLevel[pair.Key]);
+                    cb.Records.Add(new StationViewRecord {
+                        Role = Role, ModuleId = "", Part = "batch", View = go,
+                        Bounds = new StationBox(bounds.min.x, bounds.min.z, bounds.min.y, bounds.max.x, bounds.max.z, bounds.max.y),
+                        HasBounds = true, LevelMin = band, LevelMax = band, LevelBands = new[] { band },
+                        SourceIds = bucketIds[pair.Key].ToArray(),
+                        SourceBounds = bucketBoxes[pair.Key].ToArray(),
+                        SourceSpans = bucketSpans[pair.Key].ToArray(),
+                        GradeOwned = bucketGrade.TryGetValue(pair.Key, out bool grade) && grade,
+                        GradeNote = "batch z=" + bucketLevel[pair.Key].ToString(CultureInfo.InvariantCulture),
+                    });
+                }
+
+                for (int i = 0; i < fallback.Count; i++) {
+                    var item = fallback[i];
+                    var modRec = context.NextIndex.GetModule(item.module.Id);
+                    if (modRec == null) continue;
+                    var go = UnityEngine.Object.Instantiate(item.entry.prefab, context.StagingRoot, false);
+                    go.name = (string.IsNullOrEmpty(item.module.Id) ? "module" : item.module.Id) + " " + item.module.Type;
+                    go.transform.SetPositionAndRotation(ModulePlacement.Resolve(modRec, item.entry, context.NextIndex),
+                        ModulePlacement.Rotation(item.module.Rotation));
+                    StationEditTrace.AddInstantiatedPrefab();
+                    var built = new BuiltModule { ModuleId = item.module.Id, Type = item.module.Type, View = go, Key = item.key };
+                    var cb = EnsureChunkBucket(stagedChunks, ChunkCoord(item.module.X), ChunkCoord(item.module.Y));
+                    cb.Views.Add(go);
+                    cb.BuiltModules.Add(built);
+                    if (!string.IsNullOrEmpty(item.module.Id)) cb.AllModuleIds.Add(item.module.Id);
+                    cb.Records.Add(new StationViewRecord {
+                        Role = Role, ModuleId = item.module.Id, View = go,
+                        LevelMin = item.module.Z, LevelMax = item.module.Z + 1,
+                    });
+                }
+
+                stage = new StagedSurfaceDelta(state, cache, dirtyList, stagedChunks);
+                return true;
+            } catch {
+                foreach (var bucket in stagedChunks.Values) {
+                    for (int m = 0; m < bucket.Meshes.Count; m++) {
+                        if (bucket.Meshes[m] != null) Destroy(bucket.Meshes[m]);
+                    }
+                    for (int v = 0; v < bucket.Views.Count; v++) {
+                        if (bucket.Views[v] != null) Destroy(bucket.Views[v]);
+                    }
+                }
+                throw;
             }
         }
 
@@ -822,13 +1531,41 @@ namespace Metro.App.Views {
         /// excluded, which the source derives from the ramp corridor; block stairs lay none.
         /// </summary>
         public sealed class SurfaceHidden {
-            readonly HashSet<long> voids = new HashSet<long>();
+            readonly StationIndex index;
+            readonly HashSet<long> voids;
             readonly HashSet<long> rampOpenings = new HashSet<long>();
             readonly List<StationExitOpenings> exits = new List<StationExitOpenings>();
 
             public int UnportedRampRuns { get; private set; }
 
+            public SurfaceHidden(StationIndex stationIndex, ModuleFacts[] station) {
+                index = stationIndex;
+                if (index != null) {
+                    var exitMods = index.ModulesOfType("exit");
+                    if (exitMods.Count > 0) {
+                        var stairs = index.ModulesOfType("stair");
+                        var escalators = index.ModulesOfType("escalator");
+                        var walkways = index.ModulesOfType("walkway");
+                        var rampRecords = new List<StationModuleRecord>(stairs.Count + escalators.Count + walkways.Count);
+                        for (int i = 0; i < stairs.Count; i++) rampRecords.Add(stairs[i]);
+                        for (int i = 0; i < escalators.Count; i++) rampRecords.Add(escalators[i]);
+                        for (int i = 0; i < walkways.Count; i++) rampRecords.Add(walkways[i]);
+                        for (int i = 0; i < exitMods.Count; i++) {
+                            var record = exitMods[i];
+                            if (record?.Facts == null) continue;
+                            var openings = StationExitOpenings.For(rampRecords, record);
+                            if (openings != null && openings.IsHeadHouse) exits.Add(openings);
+                        }
+                    }
+                }
+                if (station != null && station.Length > 0) {
+                    var gradeHoles = StationRampOpenings.RampOpeningsAtLevel(station, StationPaintSnapshot.GroundZ);
+                    foreach (var hole in gradeHoles) rampOpenings.Add(CellKey(hole.X, hole.Y, hole.Z));
+                }
+            }
+
             public SurfaceHidden(StationDocument document, ModuleFacts[] station) {
+                voids = new HashSet<long>();
                 foreach (var cell in document.Cells) if (!cell.IsSolid) voids.Add(CellKey(cell.X, cell.Y, cell.Z));
                 foreach (var record in document.Modules) {
                     if (record?.Facts == null || !string.Equals(record.Facts.Type, "exit", StringComparison.Ordinal)) continue;
@@ -848,7 +1585,13 @@ namespace Metro.App.Views {
                 if (module == null) return false;
                 if (!string.Equals(module.Type, "sidewalk", StringComparison.Ordinal) &&
                     !string.Equals(module.Type, "lawn", StringComparison.Ordinal)) return false;
-                if (voids.Contains(CellKey(module.X, module.Y, module.Z))) { reason = "void"; return true; }
+                if (index != null) {
+                    var cell = index.GetCell(module.X, module.Y, module.Z);
+                    if (cell != null && !cell.IsSolid) { reason = "void"; return true; }
+                } else if (voids != null && voids.Contains(CellKey(module.X, module.Y, module.Z))) {
+                    reason = "void";
+                    return true;
+                }
                 for (int i = 0; i < exits.Count; i++) {
                     var exit = exits[i];
                     if (exit.Exit.Facts.Z != module.Z || !exit.CoversCell(module.X, module.Y)) continue;
@@ -975,6 +1718,9 @@ namespace Metro.App.Views {
         protected override string Group => StationModuleClaims.Street;
         public override string Role => StationModuleClaims.Street;
 
+        protected override bool IsLocalPrefabSupported(string type) =>
+            type != "track" && type != "exit" && type != "guidepost";
+
         protected override void BuildGroup(StationViewBuildContext context, ModuleFacts[] station, WorldState state) {
             StationCeilingMounts ceilingMounts = null;
             int storeyHeight = Math.Max(1, context.Document.StoreyHeight);
@@ -1000,7 +1746,11 @@ namespace Metro.App.Views {
                 // RCA 15 §1: a 风口 is ceiling-hung even though `StationModuleClaims` files it
                 // with the street furniture, so this group needs the same mount resolver.
                 if (module.CeilingAnchored || StationFootprints.IsCeilingHung(module)) {
-                    if (ceilingMounts == null) ceilingMounts = StationCeilingMounts.For(context.Document);
+                    if (ceilingMounts == null) {
+                        ceilingMounts = context.Index != null
+                            ? StationCeilingMounts.ForIndex(context.Index)
+                            : StationCeilingMounts.For(context.Document);
+                    }
                     if (PlaceCeilingFixture(context, module, station, state, ceilingMounts, storeyHeight)) continue;
                 }
                 if (!TryResolve(context, module, station, out var entry, out var key, out var diagnostic)) {
@@ -1514,6 +2264,9 @@ namespace Metro.App.Views {
         protected override string Group => StationModuleClaims.Equipment;
         public override string Role => StationModuleClaims.Equipment;
 
+        protected override bool IsLocalPrefabSupported(string type) =>
+            type != "glass" && type != "booth";
+
         protected override void BuildGroup(StationViewBuildContext context, ModuleFacts[] station, WorldState state) {
             StationMaterials palette = null;
             StationCeilingMounts ceilingMounts = null;
@@ -1540,7 +2293,11 @@ namespace Metro.App.Views {
                 // generic catalogue placement cannot resolve. The lookup is built lazily so a
                 // station with no hung equipment pays nothing.
                 if (module.CeilingAnchored || StationFootprints.IsCeilingHung(module)) {
-                    if (ceilingMounts == null) ceilingMounts = StationCeilingMounts.For(context.Document);
+                    if (ceilingMounts == null) {
+                        ceilingMounts = context.Index != null
+                            ? StationCeilingMounts.ForIndex(context.Index)
+                            : StationCeilingMounts.For(context.Document);
+                    }
                     if (PlaceCeilingFixture(context, module, station, state, ceilingMounts, storeyHeight)) continue;
                 }
                 if (!TryResolve(context, module, station, out var entry, out var key, out var diagnostic)) {
@@ -1577,7 +2334,9 @@ namespace Metro.App.Views {
             } else {
                 context.World.RegisterModule(Role, module.Id, go, key, null, band, band, new[] { band });
             }
-            state.Modules.Add(new BuiltModule { ModuleId = module.Id, Type = module.Type, View = go, Key = key });
+            var built = new BuiltModule { ModuleId = module.Id, Type = module.Type, View = go, Key = key };
+            state.Modules.Add(built);
+            if (!string.IsNullOrEmpty(module.Id)) state.ById[module.Id] = built;
             state.Count++;
         }
 
@@ -1944,6 +2703,36 @@ namespace Metro.App.Views {
         protected override string Group => StationModuleClaims.Displays;
         public override string Role => StationModuleClaims.Displays;
 
+        protected override bool IsLocalPrefabSupported(string type) =>
+            type != "tv" && type != "calligraphy" && type != "linemap";
+
+        protected override bool UsesCeilingMountInLocal(ModuleFacts module) =>
+            StationFootprints.IsCeilingHung(module);
+
+        protected override void OnLocalModuleCommitted(
+            StationWorldView world, ModuleFacts[] station, WorldState state, ModuleFacts module, GameObject root) {
+            if (root == null || world == null || module == null) return;
+            switch (module.Type) {
+                case "billboard": {
+                    var scope = DisplayArtworkForWorld(world, state);
+                    StationDisplayArtwork.BindBillboard(scope, world, root, module);
+                    break;
+                }
+                case "clock": {
+                    var scope = DisplayArtworkForWorld(world, state);
+                    StationClockArtwork.Bind(scope, root, module, ClockFrame(), world);
+                    break;
+                }
+            }
+        }
+
+        StationDisplayArtwork.Scope DisplayArtworkForWorld(StationWorldView world, WorldState state) {
+            if (state.Displays != null && state.Displays.gameObject != null) return state.Displays;
+            state.Displays = StationDisplayArtwork.CreateScope(world.RoleRoot(Role));
+            state.Displays.Font = world.Font;
+            return state.Displays;
+        }
+
         /// <summary>
         /// One record per hung display: the support branch, the resolved underside, the
         /// prefab's own attachment point and the resulting measured renderer bounds. A
@@ -1981,7 +2770,11 @@ namespace Metro.App.Views {
                 // so the ceiling-mount resolver owns their placement; a wall billboard, a
                 // calligraphy run and a line-map board or totem keep the ordinary placement.
                 if (StationFootprints.IsCeilingHung(module)) {
-                    if (ceilingMounts == null) ceilingMounts = StationCeilingMounts.For(context.Document);
+                    if (ceilingMounts == null) {
+                        ceilingMounts = context.Index != null
+                            ? StationCeilingMounts.ForIndex(context.Index)
+                            : StationCeilingMounts.For(context.Document);
+                    }
                     int before = state.Modules.Count;
                     if (PlaceCeilingFixture(context, module, station, state, ceilingMounts, storeyHeight,
                             (facts, appliedMount, bounds, hasBounds) => CeilingNotes.Add(

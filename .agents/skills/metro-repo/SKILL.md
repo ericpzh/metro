@@ -246,15 +246,32 @@ button's release still cancels. A 删除 press freezes its mode (one normalized 
 family on one storey, a block rectangle, or the reference's road/roof/tactile/fence/
 divider line/area erase) and samples the pointer's 6 px / 24-sample screen path; keep
 it one patch and one undo frame, with `StationSweep.FamilyOf` mirroring the web spec
-defaults and `StationModuleTeardown` adding dependent records. A single block/module
-edit installs through `StationLocalEdit` from the committed document/index (the
-parsed envelope is retained on `StationReadResult.Envelope`; `StationIndex.TryCreateIncremental`
-applies the delta) and only falls back to the complete read for line adds, records a
-load-time repair owns, off-grid/duplicate records and the Open/New/resync/undo-redo
-paths — keep that whitelist conservative. Station-name artwork takes the same
-browser-painter route as sign/exit/PSD faces (`calligraphyFaceProvider.ts` +
-`StationCalligraphyFaceCache`), keyed by the shared `sim/calligraphyFonts.ts` manifest
-version, with native Noto Sans as the deliberate fallback.
+defaults and `StationModuleTeardown` adding dependent records. Ordinary Unity
+block/module edits and `edit.undo`/`edit.redo` commit end-to-end on the retained
+incremental path (`metro-unity`): `StationLocalEdit` normalizes only the 1-ring
+neighborhood onto copy-on-write `StationRecordPages<T>` with deferred
+`NormalizedJson`/`EnsureContentHash` and sharded `StationIndex.TryCreateIncremental`;
+`StationWorldView.StageLocalWorld`/`CommitLocalWorld` updates only dirty
+`16 × 16 × storey × role × finish` `StationCellMeshWorkspace` chunks, affected
+module families and `StationScenePicker.ApplyLocalCommit`;
+`StationWalkGraphWorkspace.StageCellDelta` repairs walk topology into ping-pong
+`StationWalkGraphScratchPool` buffers (with dense `serverAtNode` A* lookup and
+selective `StationServiceRuntime.ApplyIncrementalStagedEdit` reconciliation); and
+`StationGameHost.BuildCommitPayload` publishes versioned `delta` (`schemaVersion: 1`)
+commits adopted incrementally by `game/src/unity-web/stationDelta.ts` (fetching full
+saves via `stationBridge.readCommittedDocument()` on export and falling back to
+`station.resync` on gaps). Keep the complete-read fallback conservative for line adds,
+load-time repair-owned records, off-grid/duplicate records and Open/New/resync.
+Automatic-wall deletion ownership is pinned against production web by
+`node tools/unity-parity/record-auto-wall-edits.mjs --check`; reference-builder
+equivalence and boundary rollback are pinned by
+`StationPlan32EquivalenceAndRollbackTests`; and the `< 100 ms` hardware-GPU
+Windows (`metro player_benchmark_start` / `StationPlayerBenchmark`) and WebGL
+(`METRO_BROWSER_GPU=hardware`) results live under "Current block commit stages" in
+[the performance reference](references/performance.md). Station-name artwork takes
+the same browser-painter route as sign/exit/PSD faces (`calligraphyFaceProvider.ts`
++ `StationCalligraphyFaceCache`), keyed by the shared `sim/calligraphyFonts.ts`
+manifest version, with native Noto Sans as the deliberate fallback.
 
 When auditing placement invalidation, check every equipment, structure and decor
 module against the inputs its builder actually reads; unknown dependencies must

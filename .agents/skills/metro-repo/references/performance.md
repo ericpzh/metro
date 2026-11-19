@@ -1628,6 +1628,28 @@ Reproduce from repo root with `powershell -NoProfile -ExecutionPolicy Bypass -Fi
 What is still whole-document on a local edit: `StationWorldView.Build` (every renderer still builds the whole station into a fresh world, and the transaction still disposes the previous one), `StationEditClassifier.Classify` and the simulation projection/graph build inside `StageInstall`, the commit payload (`BuildCommitPayload` serializes the whole normalized envelope and all 13 contributor snapshots), React's adoption of that payload, and `Save`, Open/New, resync, undo/redo and every fallback edit (line adds, rail/sign/road rewrites, a record a load-time repair owns, an off-grid record) which keep the complete envelope path. The local path itself is not yet wired to dirty `StationWorldView` chunks or module groups; that renderer half is the remaining step. The measured chain excludes pointer input, the view build and disposal, the bridge, React and every presented frame, and the live Editor still reports `STATUS_PIPELINE_LOAD_PENDING`, so the 100 ms first-visible budget is **not** claimed here.
 
 
+#### Split local edit classification and simulation costs, Plan 31
+
+On 2026-11-17 at `a85bed54fffeb87d2aa7c446c1130403227d43ea`, a fresh build of all four check assemblies (`check-unity-compile.ps1 -OutSuffix Plan31`) isolated local patch/projection, `StationEditClassifier.Classify`, `StationSessionProjection.Document`, `StationWalkGraphBuilder.Build` and `StationServiceRuntime.BuildServiceFacts`. Each synthetic case adds one record to the same normalized demo snapshot at the previously unused `(42,37,−12)` coordinate. It measures one block, a bench and a bin separately, checks the resulting index and does not invoke the UI placement validator. Four iterations per case were run serially. The first iteration was discarded, leaving three repeated samples per case. These are managed diagnostic stages and allocation counts, with no scene rendering or presentation boundary.
+
+| Demo | Added record / classification | Local patch + projection ms | Classify ms | Sim projection ms | Graph ms | Service facts ms |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| Zoo | Block / Structural | 172 | 247 | 2.8 | 113 | 1.4 |
+| Zoo | Bench / Structural | 101 | 271 | 2.8 | 104 | 1.2 |
+| Zoo | Bin / Cosmetic | 132 | 266 | 2.6 | — | — |
+| Tanwei | Block / Structural | 168 | 399 | 4.3 | 251 | 4.7 |
+| Tanwei | Bench / Structural | 156 | 468 | 4.3 | 250 | 3.9 |
+| Tanwei | Bin / Cosmetic | 172 | 508 | 4.2 | — | — |
+| Tianhe Park | Block / Structural | 2,065 | 2,677 | 32 | 2,002 | 115 |
+| Tianhe Park | Bench / Structural | 1,049 | 1,814 | 36 | 1,852 | 106 |
+| Tianhe Park | Bin / Cosmetic | 1,101 | 3,308 | 32 | — | — |
+
+An additional diagnostic called `SameExtraRootFields` by itself after classification. It reparses both complete normalized saves to compare only their unknown root properties. Thread allocations were **116.8 MiB for Zoo, 156.0 MiB for Tanwei and 1,237.7 MiB for Tianhe** for that method alone. They account for all or nearly all of the complete classifier's allocations (116.8–117.9 / 156.0–157.4 / 1,237.7–1,249.0 MiB respectively). The local patch/projection allocated another 60.2 / 80.4 / 634.8 MiB. The graph rebuild allocated about 79.6 / 207.9 / 923.3 MiB for 15,151 / 37,092 / 153,827 nodes. Even an inert bin skips the graph while still paying full-save parsing in classification. The private-method timing is recorded separately and must not be added to the production chain. Its extra allocations and resulting GC activity can affect later samples, so these rows identify expensive stages rather than establishing stable player percentiles or a before/after speedup.
+
+The current source also confirms that `InstallLocalEdit` calls `Install`, which still builds every renderer in a new `StationWorldView` and disposes the old world. Its Unity/GPU costs remain unmeasured in this probe. The Editor Game view was inspected live after foregrounding its window, but the Pipeline endpoint still returned `STATUS_PIPELINE_LOAD_PENDING`. A presented-frame capture remains necessary to measure the reported placement/deletion pause end to end.
+
+Reproduce from the repo root with `powershell -NoProfile -ExecutionPolicy Bypass -File tools/unity-parity/check-unity-compile.ps1 -OutSuffix Plan31`, then `dotnet run -c Release --project .preview/unity/plan31-stages/Stages.csproj > .preview/unity/plan31-stages/results.json`. The final harness, 27 retained samples, allocation counts, fixture hashes and diagnostic stderr are in `.preview/unity/plan31-stages/`. Both `CheckCore` and `CheckUnity` come from that same current-source build. Machine is the same Windows/i7-14700KF host, .NET SDK 10.0.403 and runtime .NET 10.0.14. Fixture hashes match the Zoo/Tanwei/Tianhe hashes listed above. The initial attempt was interrupted before returning a complete report, then rerun with stage progress logging. Only the complete rerun is reported.
+
 ### Unity Tianhe synthetic scale spike (unmatched workload)
 
 On 2026-11-10, three serial runs of `node tools/unity-feasibility/measure-web.mjs .preview/unity/feasibility .preview/unity/feasibility/visible-run-N` exercised a Unity 6000.6.8f1 Web Release player built from the dirty `7ad810fe1867fc85c1fdae21571949fddd943ce8` checkout, Windows 11, i7-14700KF, RTX 4080 SUPER, headless Chrome 157, DPR 1, 1384 × 805 canvas. Reports and screenshots are under `.preview/unity/feasibility/visible-run-{1,2,3}/`; each records the source/artifact digests. The graph digest is `52003505ee5da485bc74a375eac3b58bd7741f2fe81f2d52a7a01e40b30593e2` and WASM digest `e3dea0af59c2bd84e540057e45d04325383f6680ab3a3bc305ea975dc0fc1b89`. A prior attempt against the older `web-release-final` artifact failed its visual check (zero blue pixels); it is not a valid measurement.
@@ -1669,33 +1691,83 @@ Reproduce: `powershell -NoProfile -ExecutionPolicy Bypass -File tools/unity-pari
 The view can now stage independent prefab-only bin/TVM/vending/bench/shelf/extinguisher edits in the existing world when the ground window is unchanged. It swaps only their records/views after simulation staging succeeds; cells, unrelated prefabs and artwork remain owned by that world. Other families, cell edits and ground-window changes keep the conservative full view path. The local inverse history path reaches the same furniture retention path.
 Limits: this is not an input-to-present measurement or a <100 ms budget pass. Full envelope cloning/materialization, structural graph/service staging and the full commit transport remain. Dirty cell chunks, versioned background graph handover and the all-demo Windows/WebGL pointer-and-presentation matrix are still outstanding. The live Editor status capture `.preview/unity/editor/20261117-102638-status-81bdd9/run.json` reports `STATUS_PIPELINE_LOAD_PENDING`. Isolated rendered tests can run with `metro-unity.ps1 test -Graphics`; their pixel assertions prove highlight coverage/occlusion, not native input latency.
 
-### Current block commit stages (November 17, 2026)
+### Current block commit stages (November 19, 2026)
 
-At `812118377bc023d0650a021b17d84fd51e82995f`, the typed local classifier is cheap for a one-block addition, but the document and graph stages still exceed the strict <100 ms interaction target. `StationWorldView.StageLocalModules` explicitly refuses cell deltas, so cells also retain full world rendering/install work outside the managed probe. The earlier full-classifier reparsing diagnosis does not describe the current local block classifier.
+At dirty checkout `343a298e275782e92a7dff1d2e25f4df9deee2c9` on Windows 11 (`10.0.26200`), Intel Core i7-14700KF (`28` logical cores), `65,299 MiB` RAM, NVIDIA GeForce RTX 4080 SUPER (`16,045 MiB` VRAM, driver `32.0.16.1742`), Unity `6000.6.8f1 (237b6593792b)` Release builds (`PC_RPAsset` URP quality `PC`), ordinary one-block placement, deletion, `Ctrl+Z` undo and `Ctrl+Y` redo commit end-to-end through paged `StationRecordPages` documents, sharded `StationIndex` deltas, retained `16 × 16 × storey × role × finish` `StationCellMeshWorkspace` chunks (`StageLocalWorld`), incremental `StationWalkGraphWorkspace.StageCellDelta` with ping-pong `StationWalkGraphScratchPool` buffers and dense `serverAtNode` A* lookup, selective `StationServiceRuntime` actor/queue reconciliation, and versioned `delta` (`schemaVersion: 1`) bridge commits adopted incrementally by `stationDelta.ts` without serializing or reparsing the whole save.
 
-Engine-free .NET 10.0.14 probe on the shared Windows 11/i7-14700KF workstation: read each shipped demo, add one untagged solid at empty `(42,37,-12)` with `StationLocalEdit.TryApplyCells`, call the production `ClassifyLocal`, project the simulation document, build its complete walking graph and build service facts. Four iterations per fixture against the same immutable before-state; first separate, remaining three summarized. `CheckCore` and `CheckUnity` were rebuilt from this source with **Release / Optimize=true**, and the harness runs Release. Unity's generated projects hardcode the output directory `Temp/bin/Debug` even for this Release build. `metadata.json` records the settings and assembly hashes. Opt-in nested trace scopes collect stage allocations; their overlapping times are not added to the top-level subtotal. No forced GC or private full-envelope diagnostic runs occur between these stages.
+Both hardware-GPU players were measured serially with zero concurrent CPU/GPU tasks across first-use and repeated edits, auto-walls on (`deliberateAutoFloor` 1-cell floor + perimeter wall sync) and off, cut blocks (`halfWall`), `z = 0` grade dig/restore, `16 m` chunk-seam corners, equipment-supported slab deletion cascades + undo, and a 24-operation live-simulation sequence (`08:00` Monday morning peak, `speed = 1` after `35 s` crowd/train warm-up):
 
-| Demo | Local patch/projection median, ms | Local classifier median, ms | Simulation projection median, ms | Graph median, ms | Service facts median, ms | Disjoint stage subtotal median (range), ms | First subtotal, ms |
+- **Windows Standalone Release (`MetroStation.exe`):** Direct3D 12, `1600 × 900` windowed swapchain and `1600 × 900` offscreen WebView2 `ScreenSpaceOverlay` UI surface (`vSyncCount = 0`, `targetFrameRate = -1`), real pointer/key events dispatched through `StationDesktopUiPresenter` → `MetroEditorWebView.exe` CDP → `StationGameHost.BrowserCommand` → URP `EndCameraRendering` + `WaitForEndOfFrame`. Executable SHA-256: `8060790b33cf3ca520e289bf961094e2ed5473c7fad5d6148d8489e96055d27b` (`667,136` bytes).
+- **WebGL Release (`StationGameLocalWeb.unity` with 15-recipe 3D passenger cohort):** Headless Chrome `157.0.0.0` with `METRO_BROWSER_GPU=hardware` (`ANGLE (NVIDIA, NVIDIA GeForce RTX 4080 SUPER Direct3D11 vs_5_0 ps_5_0, D3D11)`), `1584 × 805` viewport, `1052 × 715` canvas (`DPR = 1`), real CDP `Input.dispatchMouseEvent` / `Input.dispatchKeyEvent` measured from DOM `pointerup`/`mouseup`/`keydown` through `stationBridge` commit receipt, `adopt` (`reactAdoptMs`) and next `requestAnimationFrame`. Pack `pack-20261119072350758` digests: `manifest.json` `d6e9bc661d3da521d5aeba2e9ba910675910cae36bef5b30bdfad11ae7fbb09f`, `provenance.json` `64cd33c6b16331b43551fb47a2b89aef2b0e57d210e87b86c841033ddda3f1ed`, `web-Release.wasm.part0` `e39acc351ce144e47820fa2728ac826a8619131bb7f3ec8ab31c712ec39d0bd9`, `part1` `a521efa8ac1edcdee926493297a67eb330b48c54acadcccbd57527af59153ce1`, `part2` `70aebeee03f8b83d444be4e484cb2cfff9fe4db3f794243608fd620c0d6fb7ba`.
+- **Station fixture SHA-256 digests:** Zoo `1be9b3a20804b0d0944ba361bc80f8c7ede8eef7b233767eecd92e2f2ca5194e` (`14,066` cells / `4,299` modules / `15,147` graph nodes, edited on `-5 m` & `0 m`), Tanwei `620e8b459850f0d080127191eac41463dd913ffbd28b722ffd80489b11f368a4` (`16,725` cells / `9,678` modules / `37,085` graph nodes, edited on `-5 m` & `0 m`), Tianhe `efc73693ef4606fe7df7ba7db93bbab2fa871ae7457fd83776b324ca2a63654e` (`151,852` cells / `76,438` modules / `153,795` graph nodes, edited on `-5 m` & `0 m`).
+
+#### End-to-end ordinary one-block latency (`< 100 ms` gate)
+
+Every measured ordinary one-block sample (`212/212` on Windows across Zoo, Tanwei and Tianhe; `138/138` on WebGL across Zoo and Tanwei) committed on the incremental fast path (`misses = 0`, `fallbacks = 0`) with **both** `release -> authoritative commit` and `release -> first committed frame` strictly below `100 ms`:
+
+| Platform & demo | Ordinary samples (paused / running) | Misses / fallbacks | `release -> commit` first / median / p95 / max, ms | `release -> first frame` first / median / p95 / max, ms | React `adopt` first / median / p95 / max, ms | Managed alloc median / max, MiB | Interactive frame tail median / p95 / max, ms |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| Zoo | 157.28 | 0.03 | 2.35 | 150.44 | 15.87 | 325.80 (287.68–343.13) | 669.96 |
-| Tanwei | 171.01 | 0.04 | 2.53 | 281.45 | 2.28 | 457.14 (347.79–525.67) | 378.33 |
-| Tianhe | 1239.71 | 0.03 | 17.17 | 1011.43 | 50.59 | 2916.46 (2195.31–3590.37) | 2849.11 |
+| Windows — Zoo | 74 (50 / 24) | 0 / 0 | 82.12 / 17.93 / 29.59 / **82.12** | 85.99 / 20.50 / 33.70 / **85.99** | — | 4.87 / 14.41 | 1.08 / 3.62 / 938.38 |
+| Windows — Tanwei | 64 (40 / 24) | 0 / 0 | 25.49 / 20.57 / 34.53 / **44.30** | 27.91 / 24.05 / 39.96 / **47.82** | — | 7.24 / 14.20 | 1.52 / 5.13 / 8,556.75 |
+| Windows — Tianhe | 74 (50 / 24) | 0 / 0 | 31.26 / 37.17 / 72.96 / **78.32** | 35.64 / 42.20 / 78.60 / **83.96** | — | 12.85 / 30.94 | 4.95 / 29.94 / 44,422.55 |
+| WebGL — Zoo | 74 (50 / 24) | 0 / 0 | 40.50 / 19.70 / 22.20 / **40.50** | 51.60 / 26.40 / 45.80 / **51.60** | 5.50 / 0.10 / 3.60 / 5.50 | 4.60 / 7.96 | 16.70 / 16.80 / 350.40 |
+| WebGL — Tanwei | 64 (40 / 24) | 0 / 0 | 45.20 / 21.90 / 30.20 / **45.20** | 84.70 / 30.90 / 63.60 / **84.70** | 7.30 / 0.10 / 0.40 / 7.50 | 6.52 / 14.36 | 16.70 / 16.80 / 83.50 |
+| WebGL — Tianhe | 0 (cold-open OOM) | — | — | — | — | — | — |
 
-Subtotal medians are medians of per-iteration sums, not sums of column medians. Nested `TryPatchEnvelope` (full clone plus writer) medians were 96.68 / 151.99 / 1020.38 ms, allocating 51.36 / 68.52 / 542.77 MiB for Zoo/Tanwei/Tianhe. Complete local patch/projection allocated 60.21 / 80.41 / 634.84 MiB; graph construction allocated 79.65 / 207.88 / 923.33 MiB. These identify remaining document-wide work and allocation pressure. Three repetitions are insufficient for stable percentiles, and shared desktop/Editor activity and GC account for substantial variability. An earlier Debug-assembly capture is retained as `stage-results.json`; it is not a matched engine comparison or a claimed optimization result.
+- **Tianhe in 32-bit WebGL:** Opening Tianhe (`151,852` cells, `76,438` instantiated module objects/meshes; `~6.4 GiB` live working set in 64-bit `MetroStation.exe`) still aborts with `abort("OOM")` inside `_emscripten_resize_heap` at the `4,096 MiB` (`4,080 MiB` `getHeapMax`) Wasm32 ceiling (`webgl-report.json` records `status: "load-failed", reason: "wasm32-4gib-oom-on-open"`). Do not raise `webGLMaximumMemorySize > 4096` on Unity `6000.6.8f1` (triggers Emscripten memory64/`BigInt` startup failure). Note also that Windows `frameTailMs.max` on Tanwei/Tianhe includes the synchronous `host.Coordinator.Tick(35.0)` simulation fast-forward used to populate Scenario 7's active morning-peak crowd between scenarios, not an edit frame.
+- **Per-scenario maxima (`release -> commit` / `release -> first frame`, ms):**
+  - `ordinaryAutoWallsOnPaused` (`14` ops incl. cold first-use + `Ctrl+Z`/`Ctrl+Y`): Windows `82.12 / 85.99` (Zoo cold JIT first op; median `20.85 / 24.04`), `25.49 / 27.91` (Tanwei), `55.07 / 77.52` (Tianhe); WebGL `40.50 / 51.60` (Zoo), `45.20 / 84.70` (Tanwei).
+  - `ordinaryAutoWallsOffPaused` (`8` ops): Windows `15.08 / 17.82` (Zoo), `20.34 / 27.80` (Tanwei), `59.40 / 63.63` (Tianhe); WebGL `19.60 / 43.10` (Zoo), `28.50 / 63.60` (Tanwei).
+  - `cutBlockPaused` (`8` ops): Windows `12.46 / 14.48` (Zoo), `32.30 / 35.43` (Tanwei), `50.42 / 54.94` (Tianhe); WebGL `20.00 / 26.80` (Zoo), `21.60 / 55.30` (Tanwei).
+  - `gradeVoidPaused` (`8` Zoo/Tianhe, `4` Tanwei `z = 0` dig/restore ops): Windows `31.45 / 35.59` (Zoo), `30.82 / 34.86` (Tanwei), `75.69 / 79.39` (Tianhe); WebGL `23.50 / 45.80` (Zoo), `30.20 / 63.60` (Tanwei).
+  - `chunkBoundaryPaused` (`6` ops on `16 m` chunk corner): Windows `25.08 / 27.36` (Zoo), `20.47 / 24.59` (Tanwei), `46.81 / 54.42` (Tianhe); WebGL `21.60 / 45.80` (Zoo), `30.10 / 63.10` (Tanwei).
+  - `nearEquipmentCascadePaused` (`6` ops deleting/restoring equipment-bearing floor): Windows `20.96 / 23.23` (Zoo), `75.39 / 79.84` (Tianhe); WebGL `24.60 / 47.00` (Zoo).
+  - `runningProlongedAlternatingSequence` (`24` ops during live `08:00` peak crowd & trains): Windows `27.03 / 29.77` (Zoo), `44.30 / 47.82` (Tanwei), `78.32 / 83.96` (Tianhe); WebGL `20.80 / 47.40` (Zoo), `22.30 / 64.90` (Tanwei).
 
-This bypasses pointer validation and measures a low-level one-cell addition. It excludes planner/automatic-wall synchronization, Unity renderer construction, native mesh/GPU work, simulation commit actor reconciliation, visibility, old-world teardown, history publication, commit JSON transport and React adoption. It is neither a Windows/WebGL player latency measurement nor a numerical lower bound for a differently compiled Unity runtime. No native <100 ms pass is established. The live-editor status attempt `.preview/unity/editor/20261117-110016-status-e2fe00/run.json` still reports `STATUS_PIPELINE_LOAD_PENDING`; that prevented a fresh native pointer-to-present capture through the supported live harness.
+#### Stage timing breakdown versus engineering budget targets
 
-Reproduce from the repository root:
+Engineering implementation targets per ordinary one-block commit: `10 ms` planning, `15 ms` document/index/history, `25 ms` cell/world view staging, `25 ms` walk-graph/service staging + commit, `10 ms` commit payload publication (`15 ms` transport/frame headroom):
+
+| Platform & demo | `CellPlan` p50 / p95 / max (`<= 10 ms`) | `TryApplyCells` p50 / p95 / max (`<= 15 ms`) | `StageLocalWorld` p50 / p95 / max (`<= 25 ms`) | `Sim.StageLocal` + `Commit` p50 / p95 / max (`<= 25 ms`) | `BuildCommitPayload` p50 / p95 / max (`<= 10 ms`) | Total C# `CellFinish` p50 / p95 / max, ms |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Windows — Zoo | 0.00 / 0.01 / 0.01 | 0.19 / 0.72 / 8.72 | 11.92 / 20.85 / 38.99 | 0.43 / 4.40 / 12.42 | 0.88 / 3.62 / 3.90 | 13.87 / 21.09 / 71.63 |
+| Windows — Tanwei | 0.00 / 0.01 / 0.01 | 0.19 / 0.26 / 0.27 | 11.81 / 22.32 / 26.10 | 0.95 / 5.88 / 9.43 | 1.26 / 3.12 / 6.40 | 15.12 / 27.91 / 30.25 |
+| Windows — Tianhe | 0.00 / 0.01 / 0.01 | 0.23 / 0.42 / 3.58 | 2.60 / 17.40 / 23.89 | 2.50 / 22.08 / 34.86 | 1.89 / 5.69 / 8.27 | 12.15 / 30.51 / 47.99 |
+| WebGL — Zoo | 0.20 / 0.20 / 0.50 | 1.30 / 1.70 / 7.30 | 9.60 / 12.30 / 19.50 | 0.70 / 1.60 / 3.80 | 0.70 / 1.00 / 1.10 | 15.10 / 17.60 / 35.70 |
+| WebGL — Tanwei | 0.10 / 0.20 / 0.30 | 1.20 / 1.50 / 3.10 | 11.00 / 17.40 / 25.90 | 1.00 / 2.20 / 4.40 | 0.80 / 1.10 / 1.20 | 14.90 / 24.00 / 38.80 |
+
+#### Separate multi-cell drag bounds (`4 × 3` footprint)
+
+Reported separately from single-block claims (`12` floor cells + `18` perimeter auto-wall cells = `30` cells with auto-walls on, and `12` bare floor cells with auto-walls off):
+
+- **Windows (`multiCellDrag4x3Bounds`):** Zoo `4/4` `release -> commit` median `49.76 ms` (max `56.79 ms`), `first frame` median `52.64 ms` (max `59.57 ms`); Tanwei `4/4` `release -> commit` median `122.55 ms` (max `125.08 ms`), `first frame` median `126.05 ms` (max `128.46 ms`); Tianhe `3/4` (`1` `drag-4x3-floor-delete` boundary pick miss retained) `release -> commit` median `294.34 ms` (max `384.21 ms`), `first frame` median `299.53 ms` (max `388.97 ms`).
+- **WebGL (`multiCellDrag4x3Bounds`):** Zoo `4/4` `release -> commit` median `40.90 ms` (max `41.10 ms`), `first frame` median `58.90 ms` (max `66.60 ms`); Tanwei `4/4` `release -> commit` median `63.00 ms` (max `64.60 ms`), `first frame` median `106.70 ms` (max `107.40 ms`).
+
+#### Raw artifacts, retained diagnostic iterations & reproduction
+
+All raw JSON captures, intermediate diagnostic attempts and player logs are retained under `.preview/unity/plan32-bench/`:
+- Final reports: `windows-report.json` (`windows-report-attempt6.json`) and `webgl-report.json` (`webgl-report-attempt7.json`).
+- Retained earlier diagnostic iterations (showing pre-fix `station.resync` on `SendForTest("station.openDemo")`, `37 MiB` walk-graph scratch allocations, unindexed module/display scans, `[DefaultExecutionOrder(-50)]` same-frame `RefreshHover` penalty, and Tanwei `z = 0` direct-refill vs undo): `windows-zoo-smoke.json`, `windows-report-attempt{1..5}.json`, `webgl-zoo-check.json`, and `webgl-report-attempt{1..6}.json`.
+
+Reproduce from the repository root with zero concurrent workloads:
 
 ```powershell
-& tools/unity-parity/check-unity-compile.ps1 -OutSuffix Plan32
-dotnet build unity/Temp/acheckPlan32/CheckUnity.csproj -c Release -v q --nologo
-dotnet run -c Release --project .preview/unity/plan32-review/Review.csproj
+# 1. Build fresh UI bundle & standalone Windows Release player in an isolated scratch project
+npm --prefix game run build:unity-ui
+foreach ($d in @('Assets','Packages','ProjectSettings')) { robocopy "unity\$d" ".preview\unity\plan31-project\$d" /MIR | Out-Null }
+$p = Start-Process -FilePath "C:\Program Files\Unity\Hub\Editor\6000.6.8f1\Editor\Unity.exe" -WindowStyle Hidden -PassThru -ArgumentList @(
+  '-batchmode','-nographics','-quit','-projectPath',"$PWD\.preview\unity\plan31-project",'-buildTarget','Win64',
+  '-executeMethod','Metro.Editor.BuildWindows.Run','-metroOut',"$PWD\.preview\unity\plan32-win-repro",'-metroConfiguration','Release','-metroScene','StationGameLocal'
+)
+$p.WaitForExit()
+unity --no-banner --no-pager --format json command --project-path "$PWD/unity" --timeout 20 metro player_benchmark_start `
+  --exe "$PWD\.preview\unity\plan32-win-repro\MetroStation.exe" --out-path "$PWD\.preview\unity\plan32-bench\windows-repro.json" --demos zoo,tanwei,tianhe
+
+# 2. Build isolated WebGL Release pack & run hardware-GPU browser matrix
+node tools/unity-web/start-unity.mjs --build-only
+$env:METRO_BROWSER_GPU = 'hardware'
+node .preview/unity/plan32-bench/bench-webgl.mjs .preview/unity/dev-workspace/packs/<latest-pack> .preview/unity/plan32-bench/webgl-repro.json zoo,tanwei,tianhe
 ```
-
-Raw evidence: `.preview/unity/plan32-review/{Program.cs,Review.csproj,release-stage-results.json,release-stage-results.err.txt,metadata.json,release-compile.log}`. Core SHA-256: `ad12d7feac52b9bbb698482cd8b7c18a14a516babb945121ee479d737fd71d81`; App/View SHA-256: `b14c1548cea7535f6c9bcda7136c26b792b8065bebf5a9579b47907a0a3fedce`. Fixture hashes remain Zoo `1be9b3a20804b0d0944ba361bc80f8c7ede8eef7b233767eecd92e2f2ca5194e`, Tanwei `620e8b459850f0d080127191eac41463dd913ffbd28b722ffd80489b11f368a4`, Tianhe `efc73693ef4606fe7df7ba7db93bbab2fa871ae7457fd83776b324ca2a63654e`.
-
-The ordinary-block completion gate is release→authoritative commit **and** release→first rendered committed revision strictly <100 ms, including first use, repeated edits and undo/redo. A ghost, acknowledgement, postponed main-thread rebuild or stale simulation topology does not pass. Retained cell chunks, bounded record/index updates, structural graph/service deltas and a local commit transport remain necessary work; the native all-demo pointer matrix must verify their result.
 
 #### Automatic-wall deletion planning (November 17, 2026)
 
@@ -1706,6 +1778,4 @@ After the ownership fix, a matched managed probe compared copying the full solid
 | Zoo | 60.71 / 1.13 | 48.25 / 1.08 | 621,048 / 200,608 |
 | Tanwei | 0.46 / 0.58 | 0.42 / 0.26 | 1,295,000 / 1,904 |
 
-The first Zoo iteration also includes managed first-call and lazy opening/equipment work. The measurements exclude pointer input, world preparation, preview drawing, commit, transport and rendering. Raw samples and the probe are in `.preview/unity/plan32-implementation/planner-measure/`. The commands were `check-unity-compile.ps1 -OutSuffix plan32` for copied coverage and `-OutSuffix plan32Final` for effective coverage, then `dotnet run --project .preview/unity/plan32-implementation/planner-measure/Planner.csproj` with the corresponding assembly references. The intended comparison is allocation within the planner, and the isolated timings do not establish an interaction budget pass.
-
-The opt-in `StationEditProfiling.CommitSample` reports native command receipt through authoritative commit, reply serialization, publication and the first completed station-camera render for a matching revision. It also reports when a revision is superseded before rendering. The clock starts after native command decoding and the render callback measures Unity camera completion. Browser input transit, pixel presentation, React adoption and the Windows/WebGL acceptance matrix still need measurements.
+The first Zoo iteration also includes managed first-call and lazy opening/equipment work. The measurements exclude pointer input, world preparation, preview drawing, commit, transport and rendering. Raw samples and the probe are in `.preview/unity/plan32-implementation/planner-measure/`. The commands were `check-unity-compile.ps1 -OutSuffix plan32` for copied coverage and `-OutSuffix plan32Final` for effective coverage, then `dotnet run --project .preview/unity/plan32-implementation/planner-measure/Planner.csproj` with the corresponding assembly references. For the complete end-to-end Windows and WebGL pointer-to-present latency matrix, see "Current block commit stages" above.

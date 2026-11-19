@@ -35,6 +35,7 @@ import { applyUnityClock, bindSimulationPort, createSimulationPort, receiveHostS
 import { applyHostStatistics, createStatisticsAdapter } from './statisticsAdapter.ts'
 import { stationBridge } from './stationBridge.ts'
 import type { StationSnapshot } from './stationBridge.ts'
+import { applyStationDelta, seedStationCellIndex } from './stationDelta.ts'
 import { commitSignBoardsToHost, unityHostOwnsStation } from './signCommitAdapter.ts'
 import { registerStationHostCommit } from '../app/stationHostBridge.ts'
 import '../styles.css'
@@ -114,34 +115,64 @@ function runWithGameLoading(
   window.setTimeout(runOnce, 80)
 }
 
+let adoptedStoreRevision = -1
+let adoptedStoreSession = ''
+
 /**
- * Adopt a committed document into the shared store. The store is the UI's view
- * of the committed revision, never an edit buffer: a commit replaces it whole,
- * exactly as the C# transaction replaced the station.
+ * Adopt a committed document or local delta into the shared store. The store is the
+ * UI's view of the committed revision, never an edit buffer: full commits replace it
+ * whole, and sequential local deltas patch only changed/removed records (plan 32 §F).
  */
 function adopt(snapshot: StationSnapshot): void {
-  if (!snapshot.document || snapshot.documentRevision !== snapshot.revision) return
-  const parsed = parse(snapshot.document)
-  if (!parsed.ok) {
-    loadingToken += 1
-    showGameLoading(false)
-    useStore.getState().setNotice(document.documentElement.lang === 'en' ? 'Could not read the committed station.' : '无法读取已提交的车站。')
+  if (snapshot.resyncNeeded) return
+  const t0 = typeof performance !== 'undefined' ? performance.now() : Date.now()
+  if (snapshot.document && snapshot.documentRevision === snapshot.revision) {
+    const parsed = parse(snapshot.document)
+    if (!parsed.ok) {
+      loadingToken += 1
+      showGameLoading(false)
+      useStore.getState().setNotice(document.documentElement.lang === 'en' ? 'Could not read the committed station.' : '无法读取已提交的车站。')
+      return
+    }
+    seedStationCellIndex(parsed.state.cells)
+    const state = snapshot.state
+    const level = number(state.level, openingLevel(parsed.state))
+    const speed = number(state.speed, 1)
+    const running = state.playing === true || state.running === true || state.playing === 'true'
+    useStore.setState({ station: parsed.state, activeZ: level, speed, playing: running })
+    adoptedStoreRevision = snapshot.revision
+    adoptedStoreSession = snapshot.sessionId
+    const t1 = typeof performance !== 'undefined' ? performance.now() : Date.now()
+    stationBridge.noteAdopted(snapshot.revision, t1 - t0)
+    // A demo link is a start, not a location: once the document is committed the
+    // URL becomes the plain game path so a reload restores the player's station
+    // (`app/demoRoute.ts`). Applied only after a successful commit.
+    if (demoStationForPath(location.pathname) !== null) {
+      const url = new URL(location.href)
+      url.pathname = gamePathFor(url.pathname)
+      window.history.replaceState(null, '', url)
+    }
+    dismissGameLoadingSoon()
     return
   }
-  const state = snapshot.state
-  const level = number(state.level, openingLevel(parsed.state))
-  const speed = number(state.speed, 1)
-  const running = state.playing === true || state.running === true || state.playing === 'true'
-  useStore.setState({ station: parsed.state, activeZ: level, speed, playing: running })
-  // A demo link is a start, not a location: once the document is committed the
-  // URL becomes the plain game path so a reload restores the player's station
-  // (`app/demoRoute.ts`). Applied only after a successful commit.
-  if (demoStationForPath(location.pathname) !== null) {
-    const url = new URL(location.href)
-    url.pathname = gamePathFor(url.pathname)
-    window.history.replaceState(null, '', url)
+
+  const delta = snapshot.delta
+  if (delta && delta.revision === snapshot.revision) {
+    if (adoptedStoreSession !== snapshot.sessionId || adoptedStoreRevision !== delta.baseRevision) {
+      stationBridge.resync()
+      return
+    }
+    const prevStation = useStore.getState().station
+    const nextStation = applyStationDelta(prevStation, delta)
+    const state = snapshot.state
+    const level = number(state.level, useStore.getState().activeZ)
+    const speed = number(state.speed, 1)
+    const running = state.playing === true || state.running === true || state.playing === 'true'
+    useStore.setState({ station: nextStation, activeZ: level, speed, playing: running })
+    adoptedStoreRevision = snapshot.revision
+    const t1 = typeof performance !== 'undefined' ? performance.now() : Date.now()
+    stationBridge.noteAdopted(snapshot.revision, t1 - t0)
   }
-  dismissGameLoadingSoon()
 }
 
 /**
@@ -284,7 +315,7 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
   // so a right press is never delivered to the camera and the tool (`pointerInput.ts`).
   const rightClaimed = (): boolean => rightClaimedByTool(stationBridge.getSnapshot().state.rightClaim)
   const detachCanvas = attachCanvasCameraGestures(canvas, cameraPort, {
-    blocked: () => document.body.dataset.metroBenchmarkLocked === 'true' || useStore.getState().explodedView,
+    blocked: () => document.body.dataset.metroBenchmarkLocked === 'true' || useStore.getState().explodedView || useStore.getState().followAgentId !== null,
     claimsRight: rightClaimed,
   })
   // The tool pointer stream, on the same canvas and with the same capture rule: a press on a
@@ -335,6 +366,40 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
   // turns their changes into `view.set` commands (level is sent above, and
   // `UnityExplodedView` owns `exploded.open` / `exploded.close`).
   const detachView = attachViewStateBridge(cameraPort, { forwardExploded: false })
+  let eyePointer: number | null = null
+  let acknowledgedEye: number | null = null
+  const detachEyeState = stationBridge.subscribe(() => {
+    const state = useStore.getState()
+    const view = stationBridge.getSnapshot().state.view as { followPassenger?: number } | undefined
+    if (state.followAgentId !== null && view?.followPassenger === state.followAgentId) {
+      acknowledgedEye = state.followAgentId
+    } else if (state.followAgentId !== null && acknowledgedEye === state.followAgentId && view?.followPassenger === -1) {
+      state.endPassengerView()
+    }
+    if (useStore.getState().followAgentId === null) acknowledgedEye = null
+  })
+  const exitEye = (event: KeyboardEvent): void => {
+    if (event.key !== 'Escape' || useStore.getState().followAgentId === null) return
+    event.preventDefault()
+    event.stopImmediatePropagation()
+    useStore.getState().endPassengerView()
+  }
+  const beginEyeDrag = (event: PointerEvent): void => {
+    if (event.button !== 0 || useStore.getState().followAgentId === null) return
+    eyePointer = event.pointerId
+    canvas.setPointerCapture(event.pointerId)
+  }
+  const moveEyeDrag = (event: PointerEvent): void => {
+    if (eyePointer !== event.pointerId || useStore.getState().followAgentId === null) return
+    cameraPort.send({ type: 'camera.orbit', payload: { dx: event.movementX, dy: event.movementY } })
+  }
+  const endEyeDrag = (event: PointerEvent): void => {
+    if (eyePointer === event.pointerId) eyePointer = null
+  }
+  window.addEventListener('keydown', exitEye, true)
+  canvas.addEventListener('pointerdown', beginEyeDrag)
+  canvas.addEventListener('pointermove', moveEyeDrag)
+  canvas.addEventListener('lostpointercapture', endEyeDrag)
 
   // The session clock is C#'s; the store mirrors it so the time panels print the
   // player's time and the controls send `sim.*` instead of a worker message.
@@ -411,10 +476,10 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
     const kind = typeof edit.selectionKind === 'string' ? edit.selectionKind : ''
     const key = typeof edit.selectionKey === 'string' ? edit.selectionKey : ''
     const label = typeof edit.selectionLabel === 'string' ? edit.selectionLabel : ''
-    if ((kind === 'module' || kind === 'cell') && key) {
+    if ((kind === 'module' || kind === 'cell' || kind === 'agent') && key) {
       if (`${kind}|${key}` !== lastSelection) {
         lastSelection = `${kind}|${key}`
-        useStore.getState().select({ kind, key, label })
+        useStore.getState().select({ kind, key, label: kind === 'agent' ? msg('passenger_value', Number(key)) : label })
       }
     } else if (lastSelection) {
       lastSelection = ''
@@ -561,6 +626,11 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
     measureChip.remove()
     detachKeyboard()
     detachView()
+    detachEyeState()
+    window.removeEventListener('keydown', exitEye, true)
+    canvas.removeEventListener('pointerdown', beginEyeDrag)
+    canvas.removeEventListener('pointermove', moveEyeDrag)
+    canvas.removeEventListener('lostpointercapture', endEyeDrag)
     cameraAdapter.dispose()
     cameraPort.dispose()
     root.unmount()

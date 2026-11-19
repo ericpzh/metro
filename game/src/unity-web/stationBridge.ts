@@ -2,12 +2,14 @@
 //
 // The Unity player owns the committed document revision, the camera and the
 // simulation; this module is transport plus a small reducer. It never invents a
-// station: `state` replies replace what C# published and `commit` replies carry
-// the whole save exactly once. A reply from an older session is dropped, so a
-// station switch cannot be overwritten by a late answer from the station the
-// player just left (`11-station-loader-and-zoo-repair.md`, A6).
+// station: `state` replies replace what C# published, full `commit` replies carry
+// the whole save on open/reconnect/resync, and local `commit` replies carry a
+// versioned `delta` against `baseRevision` (plan 32 §F). A reply from an older
+// session is dropped, so a station switch cannot be overwritten by a late answer
+// from the station the player just left (`11-station-loader-and-zoo-repair.md`, A6).
 
 export const SCHEMA_VERSION = 2
+export const STATION_DELTA_SCHEMA_VERSION = 1
 
 export interface Envelope {
   schemaVersion: number
@@ -39,16 +41,43 @@ export interface RejectRecord {
   reason?: string
 }
 
+export interface StationCommitDelta {
+  schemaVersion: number
+  baseRevision: number
+  revision: number
+  savedAt?: string
+  name?: string
+  nameEn?: string
+  city?: string
+  levelBase?: number
+  storeyHeight?: number
+  removedCells: [number, number, number][]
+  changedCells: Record<string, unknown>[]
+  removedModules: string[]
+  changedModules: Record<string, unknown>[]
+  sourceHash?: string | null
+  sourceHashRevision?: number
+}
+
 export interface StationSnapshot {
   ready: boolean
   sessionId: string
   revision: number
   sourceId: string | null
   sourceHash: string | null
-  /** The v1 save text from the latest commit, or null before the first commit. */
+  sourceHashRevision?: number
+  /** The v1 save text from the latest full commit, or null when only a delta is held for `revision`. */
   document: string | null
-  /** Revision whose document is in `document`; the store only re-parses a newer one. */
+  /** Revision whose full save text is in `document`; the store only re-parses when `documentRevision === revision`. */
   documentRevision: number
+  /** Versioned local commit delta when `revision > documentRevision`, or null on full commits. */
+  delta?: StationCommitDelta | null
+  /** Latest revision adopted into the shared UI store (full document or sequential delta). */
+  adoptedRevision?: number
+  /** True when a delta commit arrived with a base gap or invalid schema and `station.resync` is pending. */
+  resyncNeeded?: boolean
+  /** Duration in ms of the latest `adopt` call for profiling. */
+  lastAdoptMs?: number
   state: Record<string, unknown>
   capabilities: Record<string, boolean>
   rejects: RejectRecord[]
@@ -93,14 +122,28 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 5000
 const MAX_RETIRED_REQUEST_IDS = 512
 
 const EMPTY: StationSnapshot = {
-  ready: false, sessionId: '', revision: -1, sourceId: null, sourceHash: null,
-  document: null, documentRevision: -1, state: {}, capabilities: {}, rejects: [],
+  ready: false,
+  sessionId: '',
+  revision: -1,
+  sourceId: null,
+  sourceHash: null,
+  sourceHashRevision: -1,
+  document: null,
+  documentRevision: -1,
+  delta: null,
+  adoptedRevision: -1,
+  resyncNeeded: false,
+  lastAdoptMs: 0,
+  state: {},
+  capabilities: {},
+  rejects: [],
 }
 
 let snapshot: StationSnapshot = EMPTY
 let player: UnityPlayer | null = null
 let objectName = 'StationGame'
 let counter = 0
+let resyncInFlight = false
 const listeners = new Set<() => void>()
 /**
  * The per-frame camera pose channel (plan 29 §5). It is deliberately **outside** the
@@ -143,6 +186,35 @@ function newSessionId(): string {
   return `s-${Date.now().toString(36)}-${counter}`
 }
 
+function parseCommitDelta(raw: unknown): StationCommitDelta | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const r = raw as Record<string, unknown>
+  if (r.schemaVersion !== STATION_DELTA_SCHEMA_VERSION) return null
+  if (typeof r.baseRevision !== 'number' || !Number.isInteger(r.baseRevision)) return null
+  if (typeof r.revision !== 'number' || !Number.isInteger(r.revision)) return null
+  if (!Array.isArray(r.removedCells) || !Array.isArray(r.changedCells) ||
+      !Array.isArray(r.removedModules) || !Array.isArray(r.changedModules)) {
+    return null
+  }
+  return {
+    schemaVersion: r.schemaVersion,
+    baseRevision: r.baseRevision,
+    revision: r.revision,
+    savedAt: typeof r.savedAt === 'string' ? r.savedAt : undefined,
+    name: typeof r.name === 'string' ? r.name : undefined,
+    nameEn: typeof r.nameEn === 'string' ? r.nameEn : undefined,
+    city: typeof r.city === 'string' ? r.city : undefined,
+    levelBase: typeof r.levelBase === 'number' && Number.isFinite(r.levelBase) ? r.levelBase : undefined,
+    storeyHeight: typeof r.storeyHeight === 'number' && Number.isFinite(r.storeyHeight) ? r.storeyHeight : undefined,
+    removedCells: r.removedCells as [number, number, number][],
+    changedCells: r.changedCells as Record<string, unknown>[],
+    removedModules: r.removedModules.filter((id): id is string => typeof id === 'string'),
+    changedModules: r.changedModules as Record<string, unknown>[],
+    sourceHash: typeof r.sourceHash === 'string' && r.sourceHash.length > 0 ? r.sourceHash : null,
+    sourceHashRevision: typeof r.sourceHashRevision === 'number' && Number.isInteger(r.sourceHashRevision) ? r.sourceHashRevision : -1,
+  }
+}
+
 export function envelope(type: string, payload?: unknown, options: { id?: string; sessionId?: string; expectedRevision?: number } = {}): Envelope {
   const id = options.id ?? `c-${++counter}`
   const sessionId = options.sessionId ?? snapshot.sessionId
@@ -160,22 +232,80 @@ export function reduce(current: StationSnapshot, reply: Reply): StationSnapshot 
   const revision = typeof reply.revision === 'number' ? reply.revision : current.revision
   const payload = reply.payload ?? {}
   if (kind === 'commit') {
-    const document = typeof payload.document === 'string' ? payload.document : null
+    const hasDocument = typeof payload.document === 'string'
+    const hasDelta = !hasDocument && payload.delta !== undefined
+    if (hasDocument) {
+      if (revision < current.revision) return current
+      const document = payload.document as string
+      const rawHash = typeof payload.sourceHash === 'string' ? payload.sourceHash : null
+      const sourceHash = rawHash !== null ? (rawHash.length > 0 ? rawHash : null) : current.sourceHash
+      const sourceHashRevision = typeof payload.sourceHashRevision === 'number'
+        ? payload.sourceHashRevision
+        : (sourceHash !== null ? revision : (current.sourceHashRevision ?? -1))
+      const { document: _doc, delta: _del, ...statePayload } = payload
+      return {
+        ...current,
+        revision,
+        document,
+        documentRevision: revision,
+        delta: null,
+        resyncNeeded: false,
+        sourceId: typeof payload.sourceId === 'string' ? payload.sourceId : current.sourceId,
+        sourceHash,
+        sourceHashRevision,
+        capabilities: payload.capabilities && typeof payload.capabilities === 'object'
+          ? { ...current.capabilities, ...(payload.capabilities as Record<string, boolean>) } : current.capabilities,
+        state: { ...current.state, ...statePayload },
+      }
+    }
+    if (hasDelta) {
+      // Reject duplicate or out-of-order delta commits.
+      if (revision <= current.revision) return current
+      const delta = parseCommitDelta(payload.delta)
+      const hasBase = current.revision >= 0 &&
+        (current.documentRevision === current.revision || current.adoptedRevision === current.revision || current.delta?.revision === current.revision)
+      if (!delta || current.resyncNeeded === true || !hasBase || delta.revision !== revision || delta.baseRevision !== current.revision) {
+        return current.resyncNeeded === true ? current : { ...current, resyncNeeded: true }
+      }
+      const rawHash = typeof payload.sourceHash === 'string' ? payload.sourceHash : null
+      const sourceHash = rawHash !== null
+        ? (rawHash.length > 0 ? rawHash : null)
+        : (delta.sourceHash ?? null)
+      const sourceHashRevision = typeof payload.sourceHashRevision === 'number'
+        ? payload.sourceHashRevision
+        : (sourceHash !== null ? revision : (current.sourceHashRevision ?? -1))
+      const { document: _doc, delta: _del, ...statePayload } = payload
+      return {
+        ...current,
+        revision,
+        document: null,
+        delta,
+        resyncNeeded: false,
+        sourceId: typeof payload.sourceId === 'string' ? payload.sourceId : current.sourceId,
+        sourceHash,
+        sourceHashRevision,
+        capabilities: payload.capabilities && typeof payload.capabilities === 'object'
+          ? { ...current.capabilities, ...(payload.capabilities as Record<string, boolean>) } : current.capabilities,
+        state: { ...current.state, ...statePayload },
+      }
+    }
+    if (revision < current.revision) return current
     return {
       ...current,
       revision,
-      document: document ?? current.document,
-      documentRevision: document !== null ? revision : current.documentRevision,
       sourceId: typeof payload.sourceId === 'string' ? payload.sourceId : current.sourceId,
-      sourceHash: typeof payload.sourceHash === 'string' ? payload.sourceHash : current.sourceHash,
+      sourceHash: typeof payload.sourceHash === 'string'
+        ? (payload.sourceHash.length > 0 ? payload.sourceHash : null)
+        : current.sourceHash,
       capabilities: payload.capabilities && typeof payload.capabilities === 'object'
         ? { ...current.capabilities, ...(payload.capabilities as Record<string, boolean>) } : current.capabilities,
       state: { ...current.state, ...payload },
     }
   }
   if (kind === 'ack' || kind === 'reject') {
+    const nextRev = revision > current.revision ? revision : current.revision
     const code = reply.code ?? (kind === 'ack' ? 'ok' : 'rejected')
-    const next: StationSnapshot = { ...current, revision }
+    const next: StationSnapshot = { ...current, revision: nextRev }
     // The camera and view a camera/view command just applied ride its ack, so the shell no
     // longer has to wait for the next 100 ms state interval to hear the result (plan 29 §5).
     const camera = payload.camera
@@ -197,6 +327,7 @@ export function reduce(current: StationSnapshot, reply: Reply): StationSnapshot 
     }
     return next
   }
+  if (revision < current.revision) return current
   return { ...current, revision, state: { ...current.state, ...payload } }
 }
 
@@ -254,16 +385,30 @@ function deliver(text: string): void {
   if (replyId) pending.delete(replyId)
   if (next !== before) {
     snapshot = next
+    if (reply.kind === 'commit' && !next.resyncNeeded && typeof reply.payload?.document === 'string') {
+      resyncInFlight = false
+    }
     listeners.forEach(listener => listener())
   }
-  if (reply.kind === 'commit' && next !== before) commitListeners.forEach(listener => listener(next))
+  if (reply.kind === 'commit') {
+    if (next.resyncNeeded) {
+      if (!resyncInFlight) {
+        resyncInFlight = true
+        stationBridge.resync()
+      }
+      return
+    }
+    if (next !== before) {
+      commitListeners.forEach(listener => listener(next))
+    }
+  }
 }
 
 export const stationBridge = {
   capabilities: { tools: [] as readonly string[], speeds: [1, 4, 16, 64] as readonly number[] },
   subscribe(listener: () => void): () => void { listeners.add(listener); return () => { listeners.delete(listener) } },
   getSnapshot(): StationSnapshot { return snapshot },
-  /** Fires once per accepted commit, so the shell can parse the new document and rewrite the URL. */
+  /** Fires once per accepted commit, so the shell can adopt the document or delta and rewrite the URL. */
   onCommit(listener: (snapshot: StationSnapshot) => void): () => void {
     commitListeners.add(listener)
     return () => { commitListeners.delete(listener) }
@@ -277,10 +422,43 @@ export const stationBridge = {
     cameraPoseListeners.add(listener)
     return () => { cameraPoseListeners.delete(listener) }
   },
+  /** Record that the shell store adopted `revision` (full document or delta) and its adopt duration. */
+  noteAdopted(revision: number, adoptMs = 0): void {
+    if (snapshot.revision !== revision) return
+    snapshot = { ...snapshot, adoptedRevision: revision, lastAdoptMs: adoptMs }
+  },
+  /**
+   * Read the authoritative v1 save text for the current committed revision. Returns
+   * immediately when `snapshot.document` already matches `snapshot.revision`, or requests
+   * `station.save { includeDocument: true }` on demand after delta commits.
+   */
+  async readCommittedDocument(): Promise<string | null> {
+    const cur = snapshot
+    if (typeof cur.document === 'string' && cur.document.length > 0 && cur.documentRevision === cur.revision) {
+      return cur.document
+    }
+    if (!player || cur.revision < 0) return null
+    const saved = await stationBridge.request<{ document?: string; sourceHash?: string; revision?: number }>(
+      'station.save',
+      { includeDocument: true },
+    )
+    const doc = typeof saved.document === 'string' && saved.document.length > 0 ? saved.document : null
+    if (doc && typeof saved.revision === 'number' && saved.revision === snapshot.revision) {
+      snapshot = {
+        ...snapshot,
+        document: doc,
+        documentRevision: saved.revision,
+        sourceHash: typeof saved.sourceHash === 'string' && saved.sourceHash.length > 0 ? saved.sourceHash : snapshot.sourceHash,
+        sourceHashRevision: typeof saved.sourceHash === 'string' && saved.sourceHash.length > 0 ? saved.revision : snapshot.sourceHashRevision,
+      }
+    }
+    return doc
+  },
   register(instance: UnityPlayer, name = 'StationGame'): void {
     cancelPendingRequests('session-changed', 'A new Unity player session registered.')
     player = instance
     objectName = name
+    resyncInFlight = false
     pending.clear()
     snapshot = { ...EMPTY, ready: true, sessionId: newSessionId() }
     listeners.forEach(listener => listener())
@@ -288,6 +466,7 @@ export const stationBridge = {
   },
   unregister(): void {
     player = null
+    resyncInFlight = false
     cancelPendingRequests('disconnected', 'The Unity player unregistered.')
     pending.clear()
     snapshot = EMPTY
@@ -311,13 +490,6 @@ export const stationBridge = {
    * replies settle safely, and non-commit replies return before `reduce` so a
    * late read ack can never roll back `snapshot.revision`.
    */
-  async readCommittedDocument(): Promise<string | null> {
-    const current = snapshot
-    if (current.document && current.documentRevision === current.revision) return current.document
-    if (!player || current.revision < 0) return null
-    const saved = await stationBridge.request<{ document?: string }>('station.save', { includeDocument: true })
-    return typeof saved.document === 'string' && saved.document.length > 0 ? saved.document : null
-  },
   request<TPayload = Record<string, unknown>>(type: string, payload?: unknown, options: RequestOptions = {}): Promise<TPayload> {
     const activePlayer = player
     if (!activePlayer) {

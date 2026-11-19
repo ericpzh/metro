@@ -317,27 +317,45 @@ namespace Metro.Build {
     }
 
     /// <summary>
-    /// The typed, read-only normalized station every consumer builds from. It is
-    /// produced once by <c>StationDocumentReader.Read</c> from the normalized
-    /// <c>StationSaveV1</c> state; no consumer re-parses JSON.
-    ///
-    /// <see cref="NormalizedJson"/> is the complete normalized v1 envelope, so
-    /// saving the committed document is a lossless round trip (unknown module or
-    /// cell fields included), and <see cref="RawJson"/> on each record keeps its
-    /// authored record too.
+    /// The typed, read-only normalized station every consumer builds from. Cells and
+    /// modules live in immutable <see cref="StationRecordPages{T}"/> so local edits share
+    /// unchanged pages and records. <see cref="NormalizedJson"/> and exact export hashes
+    /// materialize lazily on demand outside the ordinary edit transaction and are cached
+    /// per document snapshot.
     /// </summary>
     public sealed class StationDocument {
-        static readonly StationCellRecord[] NoCells = Array.Empty<StationCellRecord>();
-        static readonly StationModuleRecord[] NoModules = Array.Empty<StationModuleRecord>();
         static readonly StationLineRecord[] NoLines = Array.Empty<StationLineRecord>();
-        readonly IReadOnlyList<StationCellRecord> cells;
-        readonly IReadOnlyList<StationModuleRecord> modules;
+        readonly StationRecordPages<StationCellRecord> cellPages;
+        readonly StationRecordPages<StationModuleRecord> modulePages;
         readonly IReadOnlyList<StationLineRecord> lines;
+        readonly Func<StationDocument, string> jsonMaterializer;
+        readonly Func<StationDocument, string> hashMaterializer;
+        string cachedNormalizedJson;
+        string cachedContentHash;
+
+        internal int[] InitialCellPageIds { get; private set; }
+        internal int[] InitialModulePageIds { get; private set; }
 
         public StationDocument(
             string name, string nameEn, string city, long seed, int levelBase, int storeyHeight,
             StationDay day, StationCellRecord[] cells, StationModuleRecord[] modules, StationLineRecord[] lines,
-            int droppedCells, int droppedModules, StationSource source, string savedAt, string normalizedJson) {
+            int droppedCells, int droppedModules, StationSource source, string savedAt, string normalizedJson)
+            : this(name, nameEn, city, seed, levelBase, storeyHeight, day,
+                  StationRecordPages<StationCellRecord>.FromArray(cells, out var cellPageIds),
+                  StationRecordPages<StationModuleRecord>.FromArray(modules, out var modulePageIds),
+                  new ReadOnlyCollection<StationLineRecord>(lines ?? NoLines),
+                  droppedCells, droppedModules, source, savedAt, normalizedJson ?? "", null, null, null) {
+            InitialCellPageIds = cellPageIds;
+            InitialModulePageIds = modulePageIds;
+        }
+
+        public StationDocument(
+            string name, string nameEn, string city, long seed, int levelBase, int storeyHeight,
+            StationDay day, StationRecordPages<StationCellRecord> cellPages, StationRecordPages<StationModuleRecord> modulePages,
+            IReadOnlyList<StationLineRecord> lines, int droppedCells, int droppedModules, StationSource source,
+            string savedAt, string normalizedJson, Func<StationDocument, string> jsonMaterializer,
+            Func<StationDocument, string> hashMaterializer = null, string rawRootJson = null,
+            int[] initialCellPageIds = null, int[] initialModulePageIds = null) {
             Name = name ?? "";
             NameEn = nameEn ?? "";
             City = string.IsNullOrEmpty(city) ? "guangzhou" : city;
@@ -345,14 +363,30 @@ namespace Metro.Build {
             LevelBase = levelBase;
             StoreyHeight = storeyHeight <= 0 ? 5 : storeyHeight;
             Day = day;
-            this.cells = new ReadOnlyCollection<StationCellRecord>(cells ?? NoCells);
-            this.modules = new ReadOnlyCollection<StationModuleRecord>(modules ?? NoModules);
-            this.lines = new ReadOnlyCollection<StationLineRecord>(lines ?? NoLines);
+            this.cellPages = cellPages ?? StationRecordPages<StationCellRecord>.Empty;
+            this.modulePages = modulePages ?? StationRecordPages<StationModuleRecord>.Empty;
+            this.lines = lines ?? new ReadOnlyCollection<StationLineRecord>(NoLines);
             DroppedCells = droppedCells;
             DroppedModules = droppedModules;
             Source = source;
             SavedAt = savedAt ?? "";
-            NormalizedJson = normalizedJson ?? "";
+            cachedNormalizedJson = normalizedJson;
+            this.jsonMaterializer = jsonMaterializer;
+            this.hashMaterializer = hashMaterializer;
+            cachedContentHash = !string.IsNullOrEmpty(source.Hash) ? source.Hash : null;
+            RawRootJson = rawRootJson;
+            InitialCellPageIds = initialCellPageIds;
+            InitialModulePageIds = initialModulePageIds;
+        }
+
+        public StationDocument WithSnapshotMetadata(
+            StationSource source, string savedAt, Func<StationDocument, string> nextJsonMaterializer,
+            Func<StationDocument, string> nextHashMaterializer, string nextRawRootJson) {
+            return new StationDocument(
+                Name, NameEn, City, Seed, LevelBase, StoreyHeight, Day,
+                cellPages, modulePages, lines, DroppedCells, DroppedModules,
+                source, savedAt, null, nextJsonMaterializer ?? jsonMaterializer,
+                nextHashMaterializer ?? hashMaterializer, nextRawRootJson ?? RawRootJson);
         }
 
         public string Name { get; }
@@ -364,18 +398,44 @@ namespace Metro.Build {
         /// <summary>Always five metres for the supported v1 grid.</summary>
         public int StoreyHeight { get; }
         public StationDay Day { get; }
-        public IReadOnlyList<StationCellRecord> Cells => cells;
-        public IReadOnlyList<StationModuleRecord> Modules => modules;
+        public StationRecordPages<StationCellRecord> CellPages => cellPages;
+        public StationRecordPages<StationModuleRecord> ModulePages => modulePages;
+        public IReadOnlyList<StationCellRecord> Cells => cellPages;
+        public IReadOnlyList<StationModuleRecord> Modules => modulePages;
         public IReadOnlyList<StationLineRecord> Lines => lines;
         /// <summary>Cells the grid repair dropped on the way in (reported, never hidden).</summary>
         public int DroppedCells { get; }
         public int DroppedModules { get; }
         public StationSource Source { get; }
         public string SavedAt { get; }
-        /// <summary>The normalized <c>metro-save</c> v1 envelope; writing it is lossless.</summary>
-        public string NormalizedJson { get; }
-        public int CellCount => cells.Count;
-        public int ModuleCount => modules.Count;
+        /// <summary>Canonical root metadata JSON excluding <c>savedAt</c> and <c>static</c>, when tracked.</summary>
+        public string RawRootJson { get; }
+        public bool HasMaterializedJson => cachedNormalizedJson != null;
+        public bool HasMaterializedHash => !string.IsNullOrEmpty(cachedContentHash);
+
+        /// <summary>The normalized <c>metro-save</c> v1 envelope; materialized lazily once when deferred.</summary>
+        public string NormalizedJson {
+            get {
+                if (cachedNormalizedJson != null) return cachedNormalizedJson;
+                cachedNormalizedJson = jsonMaterializer != null ? (jsonMaterializer(this) ?? "") : "";
+                return cachedNormalizedJson;
+            }
+        }
+
+        /// <summary>Materializes and caches the exact content hash on demand when deferred.</summary>
+        public string EnsureContentHash() {
+            if (!string.IsNullOrEmpty(cachedContentHash)) return cachedContentHash;
+            if (hashMaterializer != null) {
+                cachedContentHash = hashMaterializer(this) ?? "";
+                return cachedContentHash;
+            }
+            return Source.Hash ?? "";
+        }
+
+        public string PeekMaterializedHash() => cachedContentHash;
+
+        public int CellCount => cellPages.Count;
+        public int ModuleCount => modulePages.Count;
         public int LineCount => lines.Count;
 
         /// <summary>
@@ -387,12 +447,11 @@ namespace Metro.Build {
         public int OpeningLevel {
             get {
                 int level = LevelBase;
-                for (int i = 0; i < cells.Count; i++) {
-                    int z = cells[i].Z;
+                foreach (var cell in cellPages) {
+                    int z = cell.Z;
                     if (z < level) level = z;
                 }
-                for (int i = 0; i < modules.Count; i++) {
-                    var module = modules[i];
+                foreach (var module in modulePages) {
                     if (module == null) continue;
                     int z = module.Z;
                     if (z < level) level = z;

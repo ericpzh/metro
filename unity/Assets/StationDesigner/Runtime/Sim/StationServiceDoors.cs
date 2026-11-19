@@ -232,9 +232,9 @@ namespace Metro.Sim {
         public static List<StationModuleFact> ServiceTracks(StationSessionDocument document, string lineId) {
             var bound = new List<StationModuleFact>();
             if (document == null) return bound;
-            for (int i = 0; i < document.Modules.Count; i++) {
-                var module = document.Modules[i];
-                if (module.Type != "track") continue;
+            var tracks = document.ModulesOfType("track");
+            for (int i = 0; i < tracks.Count; i++) {
+                var module = tracks[i];
                 if (!string.Equals(module.LineId, lineId, StringComparison.Ordinal)) continue;
                 bound.Add(module);
             }
@@ -297,9 +297,9 @@ namespace Metro.Sim {
             // A service with no track id on a line that runs no rail keeps every edge: there is
             // nothing to attribute its doors to (the source's line-only service).
             bool lineOnly = string.IsNullOrEmpty(trackId) && rails.Count == 0;
-            for (int i = 0; i < document.Modules.Count; i++) {
-                var edge = document.Modules[i];
-                if (edge.Type != "platform-edge") continue;
+            var edges = document.ModulesOfType("platform-edge");
+            for (int i = 0; i < edges.Count; i++) {
+                var edge = edges[i];
                 if (!string.Equals(edge.LineId, lineId, StringComparison.Ordinal)) continue;
                 if (!lineOnly) {
                     var resolved = ResolveEdgeTrack(document, edge, line, haveLine);

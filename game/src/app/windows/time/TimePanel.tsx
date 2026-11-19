@@ -100,8 +100,13 @@ export function TimePanel(): React.ReactElement | null {
   // The clock is the TS run's own when the browser worker is running, else the Unity
   // host's station clock (plan 11 C4): both are seconds since the station's day zero,
   // so `stampAt` below prints the one truth whichever engine is driving.
-  const simTime = useStore((s) => s.metrics?.simTime ?? s.unityClock ?? null)
-  const station = useStore((s) => s.station)
+  const simTime = useStore((s) => (s.timePanel ? (s.metrics?.simTime ?? s.unityClock ?? null) : null))
+  const stationCalendar = useStore((s) => s.station.calendar)
+  const stationDemand = useStore((s) => s.station.demand)
+  const stationService = useStore((s) => s.station.service)
+  const stationPeaks = useStore((s) => s.station.peaks)
+  const stationModules = useStore((s) => s.station.modules)
+  const stationLines = useStore((s) => s.station.lines)
   const setServiceWindow = useStore((s) => s.setServiceWindow)
   const setPeakWindow = useStore((s) => s.setPeakWindow)
   const setDemandKnobs = useStore((s) => s.setDemandKnobs)
@@ -115,7 +120,7 @@ export function TimePanel(): React.ReactElement | null {
   // a subscription: a run that crosses into a new month must not yank the grid out from under a
   // click.
   const [month, setMonth] = useState(() =>
-    simTime === null ? station.calendar.epoch.month : dayAt(simTime, station.calendar).date.month,
+    simTime === null ? stationCalendar.epoch.month : dayAt(simTime, stationCalendar).date.month,
   )
   // Escape closes it, the way it backs out of every other gesture in the game. Closing also
   // **discards an uncommitted draft** — a drag or a slider the player never let go of is a
@@ -137,31 +142,31 @@ export function TimePanel(): React.ReactElement | null {
   // Which of the two saved curves the panel shows: the calendar date the run is
   // standing on decides, so seeking to a Sunday swaps both charts to the 非工作日
   // curves and the knobs author that set.
-  const today = simTime === null ? null : dayAt(simTime, station.calendar)
+  const today = simTime === null ? null : dayAt(simTime, stationCalendar)
   const workday = (today?.dayType ?? 'workday') === 'workday'
   const shown = workday ? 'workday' : 'offday'
   const dayName = translate(DAY_TYPE_LABELS[shown])
 
-  const knobs = knobDraft ?? station.demand[shown]
-  const spans = spanDraft ?? { service: station.service, peaks: station.peaks }
+  const knobs = knobDraft ?? stationDemand[shown]
+  const spans = spanDraft ?? { service: stationService, peaks: stationPeaks }
   const input: DemandInput = useMemo(
     () => ({
       service: spans.service,
       peaks: spans.peaks,
-      workday: shown === 'workday' ? knobs : station.demand.workday,
-      offday: shown === 'offday' ? knobs : station.demand.offday,
+      workday: shown === 'workday' ? knobs : stationDemand.workday,
+      offday: shown === 'offday' ? knobs : stationDemand.offday,
     }),
-    [spans.service, spans.peaks, knobs, shown, station.demand],
+    [spans.service, spans.peaks, knobs, shown, stationDemand],
   )
   // Left axis scale: Σ open exits' inRate — the 人/时 the curve value multiplies in
   // `World.spawnStreet`. Closed exits contribute nothing, so they are left out.
   const baseRate = useMemo(
     () =>
-      station.modules.reduce(
+      stationModules.reduce(
         (sum, m) => (m.type === 'exit' && m.cfg.open ? sum + Math.max(0, m.cfg.inRate) : sum),
         0,
       ),
-    [station.modules],
+    [stationModules],
   )
 
   /**
@@ -209,7 +214,7 @@ export function TimePanel(): React.ReactElement | null {
 
   if (!open) return null
 
-  const calendar = station.calendar
+  const calendar = stationCalendar
   const year = calendar.epoch.year
   const grid = monthGrid(year, month, calendar)
   // The two "now" readouts under the charts: the entrance rate is the curve value
@@ -218,7 +223,7 @@ export function TimePanel(): React.ReactElement | null {
   // draft, so a grip drag or a 线路 edit moves the numbers with the curves.
   const nowEntry = Math.round(demandRate(simTime ?? 0, workday, input) * baseRate).toLocaleString('en-US')
   const nowTrain = Math.round(
-    trainAlightPerHourAt(simTime ?? 0, station.lines, station.modules, spans.service, spans.peaks, workday),
+    trainAlightPerHourAt(simTime ?? 0, stationLines, stationModules, spans.service, spans.peaks, workday),
   ).toLocaleString('en-US')
 
   return (
@@ -291,8 +296,8 @@ export function TimePanel(): React.ReactElement | null {
               <span className="timeBlockNote">{t('train_curve_note')}</span>
             </h4>
             <TrainCurve
-              lines={station.lines}
-              modules={station.modules}
+              lines={stationLines}
+              modules={stationModules}
               service={spans.service}
               peaks={spans.peaks}
               workday={workday}

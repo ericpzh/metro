@@ -58,6 +58,13 @@ namespace Metro.App.Views {
             public string PosterSlug = "";
             /// <summary>The facts the service plate currently prints (its repaint key).</summary>
             public string PlateKey = "";
+            internal long LastSimTick = long.MinValue;
+            internal bool LastHaveFrame;
+            internal object LastModulePages;
+            internal object LastEdgeBucket;
+            internal object LastLines;
+            internal string LastDocName = "";
+            internal string LastLocale = "";
             // Diagnostics the verifier reads through `state.displays`.
             public string TrackId = "", LineId = "", Direction = "", Date = "";
             public int Minute;
@@ -129,6 +136,19 @@ namespace Metro.App.Views {
         /// </summary>
         public const int MaxPublishedFaces = 10;
 
+        public static (object scope, string locale, long swaps) CurrentScopeFingerprint() {
+            var scope = StationDisplayModuleRenderer.Active != null
+                ? StationDisplayModuleRenderer.Active.Current?.Displays
+                : null;
+            if (scope == null || !byScope.TryGetValue(scope, out var entries)) return (null, "", 0L);
+            long swaps = 0;
+            for (int e = 0; e < entries.Count; e++) {
+                var faces = entries[e].Faces;
+                for (int f = 0; f < faces.Count; f++) swaps += faces[f].Swaps;
+            }
+            return (scope, scope.Locale ?? "", swaps);
+        }
+
         public static Newtonsoft.Json.Linq.JObject Publish() {
             var scope = StationDisplayModuleRenderer.Active != null
                 ? StationDisplayModuleRenderer.Active.Current?.Displays
@@ -195,7 +215,10 @@ namespace Metro.App.Views {
                 if (scope == null || scope.Locale == next) continue;
                 scope.Locale = next;
                 for (int e = 0; e < pair.Value.Count; e++) {
-                    for (int f = 0; f < pair.Value[e].Faces.Count; f++) pair.Value[e].Faces[f].PlateKey = "";
+                    for (int f = 0; f < pair.Value[e].Faces.Count; f++) {
+                        pair.Value[e].Faces[f].PlateKey = "";
+                        pair.Value[e].Faces[f].LastLocale = "";
+                    }
                 }
             }
         }
@@ -209,7 +232,7 @@ namespace Metro.App.Views {
                     : null;
                 var scope = current?.Displays;
                 if (scope != null) {
-                    var host = UnityEngine.Object.FindAnyObjectByType<StationGameHost>();
+                    var host = StationGameHost.ResolveActive();
                     var session = host != null ? (host.Simulation as StationSimulationHost)?.Session : null;
                     var doc = document ?? host?.Document;
                     if (session != null && doc != null) {
@@ -444,11 +467,38 @@ namespace Metro.App.Views {
             TvFace face, StationDocument document, StationMotionFrame frame, bool haveFrame,
             StationClockFrame clock) {
             if (face == null || face.Plate == null) return;
+            long simTick = haveFrame ? clock.Tick : -1;
+            var activeIdx = StationGameHost.Active?.Index != null && ReferenceEquals(StationGameHost.Active.Index.Document, document)
+                ? StationGameHost.Active.Index
+                : null;
+            object railToken = activeIdx != null
+                ? (object)activeIdx.ModulesOfType("track")
+                : document?.ModulePages;
+            object edgeToken = activeIdx != null
+                ? (object)activeIdx.ModulesOfType("platform-edge")
+                : document?.ModulePages;
+            if (!string.IsNullOrEmpty(face.PlateKey) &&
+                face.LastSimTick == simTick &&
+                face.LastHaveFrame == haveFrame &&
+                ReferenceEquals(face.LastModulePages, railToken) &&
+                ReferenceEquals(face.LastEdgeBucket, edgeToken) &&
+                ReferenceEquals(face.LastLines, document?.Lines) &&
+                string.Equals(face.LastDocName, document?.Name ?? "", StringComparison.Ordinal) &&
+                string.Equals(face.LastLocale, scope.Locale ?? "", StringComparison.Ordinal)) {
+                return;
+            }
             if (face.PlateSurface == null) {
                 face.PlateSurface = StationDisplayArtwork.BindUprightArtwork(scope, face.Plate);
             }
             var status = StationTvSchedule.Select(document, frame, haveFrame, face.Sample);
             var data = StationTvPlatePainter.Describe(document, status, clock, scope.Locale);
+            face.LastSimTick = simTick;
+            face.LastHaveFrame = haveFrame;
+            face.LastModulePages = railToken;
+            face.LastEdgeBucket = edgeToken;
+            face.LastLines = document?.Lines;
+            face.LastDocName = document?.Name ?? "";
+            face.LastLocale = scope.Locale ?? "";
             face.TrackId = status.TrackId;
             face.LineId = status.LineId;
             face.Direction = status.Direction;
@@ -533,7 +583,7 @@ namespace Metro.App.Views {
                 if (scope == null) return;
                 StationMotionFrame frame = default;
                 bool haveFrame = false;
-                var host = UnityEngine.Object.FindAnyObjectByType<StationGameHost>();
+                var host = StationGameHost.ResolveActive();
                 var session = host != null ? (host.Simulation as StationSimulationHost)?.Session : null;
                 if (session != null) {
                     frame = session.Snapshot();

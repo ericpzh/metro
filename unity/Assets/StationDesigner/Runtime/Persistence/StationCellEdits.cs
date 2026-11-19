@@ -137,6 +137,99 @@ namespace Metro.Persistence {
             return null;
         }
 
+        /// <summary>
+        /// Apply one cell write to an isolated cell <see cref="JObject"/> (null when absent).
+        /// Used by <see cref="StationLocalEdit"/> so single-record patching shares the exact
+        /// field/tag/label semantics of <see cref="ApplyToEnvelope"/> without scanning a JArray.
+        /// </summary>
+        internal static bool ApplyWriteToRecord(JObject current, StationCellWrite write, out JObject next) {
+            next = current;
+            if (write == null) return true;
+            switch (write.Mode) {
+                case StationCellWriteMode.Remove:
+                    next = null;
+                    return true;
+                case StationCellWriteMode.AppendTags: {
+                    if (current == null) return false;
+                    var tags = TagsOf(current);
+                    foreach (var tag in write.Tags) if (!tags.Contains(tag)) tags.Add(tag);
+                    foreach (var tag in write.RemoveTags) tags.Remove(tag);
+                    WriteTags(current, tags);
+                    next = current;
+                    return true;
+                }
+                case StationCellWriteMode.Label: {
+                    if (current == null) {
+                        var zone = write.Zone;
+                        var room = write.Room;
+                        if (string.IsNullOrEmpty(zone) && string.IsNullOrEmpty(room)) {
+                            next = null;
+                            return true;
+                        }
+                        var created = new JObject {
+                            ["x"] = write.Key.X,
+                            ["y"] = write.Key.Y,
+                            ["z"] = write.Key.Z,
+                            ["fill"] = "solid",
+                        };
+                        if (!string.IsNullOrEmpty(zone)) created["zone"] = zone;
+                        if (!string.IsNullOrEmpty(room)) created["room"] = room;
+                        next = created;
+                        return true;
+                    }
+                    WriteLabel(current, "zone", write.Zone);
+                    WriteLabel(current, "room", write.Room);
+                    next = current;
+                    return true;
+                }
+                case StationCellWriteMode.PaintFaces: {
+                    var target = current;
+                    if (target == null) {
+                        if (!write.Materialise) {
+                            next = null;
+                            return true;
+                        }
+                        target = new JObject {
+                            ["x"] = write.Key.X,
+                            ["y"] = write.Key.Y,
+                            ["z"] = write.Key.Z,
+                            ["fill"] = write.Void ? "void" : "solid",
+                        };
+                        if (!string.IsNullOrEmpty(write.Zone)) target["zone"] = write.Zone;
+                        if (write.Tags.Count > 0) WriteTags(target, new List<string>(write.Tags));
+                    }
+                    var finishes = target["finish"] as JObject;
+                    if (finishes == null) {
+                        finishes = new JObject();
+                        target["finish"] = finishes;
+                    }
+                    foreach (var pair in write.Finish) {
+                        if (string.IsNullOrEmpty(pair.Value)) finishes.Remove(pair.Key);
+                        else finishes[pair.Key] = pair.Value;
+                    }
+                    next = target;
+                    return true;
+                }
+                default: {
+                    var record = new JObject {
+                        ["x"] = write.Key.X,
+                        ["y"] = write.Key.Y,
+                        ["z"] = write.Key.Z,
+                        ["fill"] = write.Void ? "void" : "solid",
+                    };
+                    var tags = new List<string>(write.Tags);
+                    WriteTags(record, tags);
+                    if (write.Finish.Count > 0) {
+                        var finish = new JObject();
+                        foreach (var pair in write.Finish) finish[pair.Key] = pair.Value;
+                        record["finish"] = finish;
+                    }
+                    next = record;
+                    return true;
+                }
+            }
+        }
+
         /// <summary>Write one cell record change into the envelope's cell array.</summary>
         static bool ApplyWrite(JArray cells, StationCellWrite write) {
             var existing = Find(cells, write.Key.X, write.Key.Y, write.Key.Z);
@@ -173,6 +266,31 @@ namespace Metro.Persistence {
                     }
                     WriteLabel(existing, "zone", write.Zone);
                     WriteLabel(existing, "room", write.Room);
+                    return true;
+                }
+                case StationCellWriteMode.PaintFaces: {
+                    var target = existing;
+                    if (target == null) {
+                        if (!write.Materialise) return true;
+                        target = new JObject {
+                            ["x"] = write.Key.X,
+                            ["y"] = write.Key.Y,
+                            ["z"] = write.Key.Z,
+                            ["fill"] = write.Void ? "void" : "solid",
+                        };
+                        if (!string.IsNullOrEmpty(write.Zone)) target["zone"] = write.Zone;
+                        if (write.Tags.Count > 0) WriteTags(target, new List<string>(write.Tags));
+                        cells.Add(target);
+                    }
+                    var finishes = target["finish"] as JObject;
+                    if (finishes == null) {
+                        finishes = new JObject();
+                        target["finish"] = finishes;
+                    }
+                    foreach (var pair in write.Finish) {
+                        if (string.IsNullOrEmpty(pair.Value)) finishes.Remove(pair.Key);
+                        else finishes[pair.Key] = pair.Value;
+                    }
                     return true;
                 }
                 default: {

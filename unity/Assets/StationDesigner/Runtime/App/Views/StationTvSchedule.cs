@@ -81,7 +81,19 @@ namespace Metro.App.Views {
         public const int Cards = 3;
 
         static StationDocument anchorDocument;
+        static IReadOnlyList<StationModuleRecord> anchorTracks;
+        static IReadOnlyList<StationModuleRecord> anchorPlatformEdges;
         static Dictionary<string, StationRailAnchor> anchorCache;
+
+        internal static object RailAnchorFingerprint(StationDocument document, StationIndex index = null) {
+            if (document == null) return null;
+            var idx = index != null && ReferenceEquals(index.Document, document)
+                ? index
+                : (StationGameHost.Active?.Index != null && ReferenceEquals(StationGameHost.Active.Index.Document, document)
+                    ? StationGameHost.Active.Index
+                    : null);
+            return idx != null ? (object)(idx.ModulesOfType("track"), idx.ModulesOfType("platform-edge")) : document.ModulePages;
+        }
 
         /// <summary>
         /// Every service track of every authored line, derived from the same berth facts the
@@ -90,7 +102,18 @@ namespace Metro.App.Views {
         /// </summary>
         public static IReadOnlyDictionary<string, StationRailAnchor> Anchors(StationDocument document) {
             if (document == null) return Empty;
-            if (ReferenceEquals(document, anchorDocument) && anchorCache != null) return anchorCache;
+            var activeIdx = StationGameHost.Active?.Index != null && ReferenceEquals(StationGameHost.Active.Index.Document, document)
+                ? StationGameHost.Active.Index
+                : null;
+            var curTracks = activeIdx?.ModulesOfType("track");
+            var curEdges = activeIdx?.ModulesOfType("platform-edge");
+            if (anchorCache != null && anchorDocument != null &&
+                (ReferenceEquals(document, anchorDocument) ||
+                 (ReferenceEquals(document.ModulePages, anchorDocument.ModulePages) && ReferenceEquals(document.Lines, anchorDocument.Lines)) ||
+                 (curTracks != null && ReferenceEquals(curTracks, anchorTracks) && ReferenceEquals(curEdges, anchorPlatformEdges) && ReferenceEquals(document.Lines, anchorDocument.Lines)))) {
+                anchorDocument = document;
+                return anchorCache;
+            }
             var map = new Dictionary<string, StationRailAnchor>(StringComparer.Ordinal);
             var lines = document.Lines;
             for (int l = 0; l < lines.Count; l++) {
@@ -118,6 +141,8 @@ namespace Metro.App.Views {
                 }
             }
             anchorDocument = document;
+            anchorTracks = curTracks;
+            anchorPlatformEdges = curEdges;
             anchorCache = map;
             return map;
         }

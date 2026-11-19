@@ -556,7 +556,30 @@ namespace Metro.App.Views {
     /// Registration is process-wide via <see cref="StationRoadFeature"/>, so the
     /// generic host picks it up without a scene reference or a lead edit.
     /// </summary>
-    public sealed class StationRoadRenderer : Metro.App.IStationViewRenderer {
+    public sealed class StationRoadRenderer : Metro.App.IStationViewRenderer, Metro.App.IStationLocalViewRenderer {
+        public bool TryStageLocalDelta(
+            Metro.App.StationLocalDeltaContext context,
+            out Metro.App.IStationLocalRendererStage stage,
+            out string fallbackReason) {
+            stage = null;
+            fallbackReason = null;
+            var delta = context.Delta;
+            for (int i = 0; i < delta.RemovedModules.Count; i++) {
+                if (context.PrevIndex.TryGetModule(delta.RemovedModules[i], out var oldMod) &&
+                    oldMod != null && oldMod.Type == "road") {
+                    fallbackReason = "local-module-family:road";
+                    return false;
+                }
+            }
+            for (int i = 0; i < delta.ChangedModules.Count; i++) {
+                var mod = delta.ChangedModules[i];
+                if (mod != null && mod.Type == "road") {
+                    fallbackReason = "local-module-family:road";
+                    return false;
+                }
+            }
+            return true;
+        }
         /// <summary>
         /// Per-world render state. The host snapshots one renderer instance into
         /// every staged world, so state must belong to the world: a previous

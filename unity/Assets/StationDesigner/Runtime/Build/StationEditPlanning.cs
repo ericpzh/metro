@@ -670,9 +670,6 @@ namespace Metro.Build {
                 Z = (int)Math.Round(cell.Z),
                 Rotation = rotation,
             };
-            // A hung fitting anchors on the slab it hangs from (`ceilingAnchored`), which is what
-            // tells the clearance rule to reserve the column below it rather than the cell.
-            if (StationCeilingAim.IsCeilingPiece(family.Type)) candidate.CeilingAnchored = true;
             if (family.Type == "exit") {
                 if (!TryParseExit(family.Variant.Length == 0 ? request.ToolType : family.Variant, out var bays, out var covered)) {
                     reason = "unsupported-family";
@@ -752,11 +749,11 @@ namespace Metro.Build {
                     break;
                 case "cctv":
                     candidate.Set("variant", family.Variant);
-                    if (family.Variant == "rectangular" && request.LightPosition.HasValue)
-                        candidate.Set(request.LightPosition.Value, "position");
                     break;
                 case "light":
                     candidate.Set("variant", family.Variant);
+                    if (family.Variant == "rectangular" && request.LightPosition.HasValue)
+                        candidate.Set(request.LightPosition.Value, "position");
                     break;
                 case "gate":
                     candidate.Set("dir", "both");
@@ -927,6 +924,11 @@ namespace Metro.Build {
                     StationPsdEndRules.TrySnapCover(index, candidate, request.TargetModuleId);
                 else
                     StationPsdEndRules.TrySnap(index, candidate);
+            }
+            if (!string.Equals(candidate.Type, "hanger", StringComparison.Ordinal) &&
+                StationFootprints.IsCeilingHung(candidate.Type, new ModuleConfig(candidate.Config))) {
+                candidate.CeilingAnchored = index == null ||
+                    StationCeilingAim.TopBlockOver(index, candidate.X, candidate.Y, candidate.Z);
             }
             draft = candidate;
             return true;
@@ -1143,8 +1145,9 @@ namespace Metro.Build {
             // the pointer is over (`moduleAim`'s wall/ceiling branches). A visible hanger
             // hit supplies its own bar anchor; other wall/ceiling mounts keep their explicit
             // refusal until wall/ceiling plane aim is ported.
-            bool hangerAim = StationFootprints.IsCeilingHung(source) &&
-                HangerAcceptsPiece(source.Type, source.Config.Text("variant"), source.Config.Text("mount")) &&
+            bool hangerProp = StationFootprints.IsCeilingHung(source) &&
+                HangerAcceptsPiece(source.Type, source.Config.Text("variant"), source.Config.Text("mount"));
+            bool hangerAim = hangerProp &&
                 index != null && !string.IsNullOrEmpty(request.TargetModuleId) &&
                 index.TryGetModule(request.TargetModuleId, out var host) &&
                 string.Equals(host.Type, "hanger", StringComparison.Ordinal);
@@ -1152,8 +1155,11 @@ namespace Metro.Build {
             // slab overhead or from a visible hanger's bar; with neither, the move is refused.
             var at = AimCell(index, request);
             int x = (int)Math.Round(at.X), y = (int)Math.Round(at.Y), z = (int)Math.Round(at.Z);
-            if (StationFootprints.IsCeilingHung(source) && !hangerAim &&
-                !(index != null && StationFootprints.IsSolidAt(index, x, y, z + 1))) {
+            bool hangerAtStand = hangerProp && StationCeilingAim.HangerCellAt(index, x, y, z);
+            bool topOver = index != null && StationCeilingAim.TopBlockOver(index, x, y, z);
+            if (StationFootprints.IsCeilingHung(source) &&
+                !string.Equals(source.Type, "hanger", StringComparison.Ordinal) &&
+                !hangerAim && !hangerAtStand && !topOver) {
                 reason = "unsupported-mount";
                 return null;
             }
@@ -1163,7 +1169,10 @@ namespace Metro.Build {
                 draft.Set(request.LightPosition.Value, "position");
             draft.Id = source.Id;
             draft.SourceId = source.Id;
-            if (StationFootprints.IsCeilingHung(source) && !hangerAim) draft.CeilingAnchored = true;
+            if (StationFootprints.IsCeilingHung(source) &&
+                !string.Equals(source.Type, "hanger", StringComparison.Ordinal)) {
+                draft.CeilingAnchored = topOver;
+            }
             // A run's own endpoints are world cells: re-lay them about the carried
             // anchor, stepped in the piece's turn convention (`movedModule`).
             if (source.Type == "stair" || source.Type == "escalator" || source.Type == "walkway") {
@@ -1256,11 +1265,19 @@ namespace Metro.Build {
             // the cut keeps the floor its base stands on, so the run is not refused for the
             // ground it is about to open. A 楼梯块 is a solid box and keeps the block test.
             bool run = StationModuleFamilies.IsRamp(draft.Type) && !draft.Bool("block");
-            if (!hung && !wall && !run && BlockChecked.Contains(draft.Type)) {
-                foreach (var cell in index.Document.Cells) {
-                    if (!cell.IsSolid) continue;
-                    var unit = new StationBox(cell.X, cell.Y, cell.Z, cell.X + 1, cell.Y + 1, cell.Z + 1);
-                    if (box.Overlaps(unit)) return "occupied";
+            if (!hung && !wall && !run && BlockChecked.Contains(draft.Type) && !box.IsEmpty) {
+                int minX = (int)Math.Floor(box.X0), maxX = (int)Math.Ceiling(box.X1) - 1;
+                int minY = (int)Math.Floor(box.Y0), maxY = (int)Math.Ceiling(box.Y1) - 1;
+                int minZ = (int)Math.Floor(box.Z0), maxZ = (int)Math.Ceiling(box.Z1) - 1;
+                for (int cx = minX; cx <= maxX; cx++) {
+                    for (int cy = minY; cy <= maxY; cy++) {
+                        for (int cz = minZ; cz <= maxZ; cz++) {
+                            var cell = index.GetCell(cx, cy, cz);
+                            if (cell == null || !cell.IsSolid) continue;
+                            var unit = new StationBox(cx, cy, cz, cx + 1, cy + 1, cz + 1);
+                            if (box.Overlaps(unit)) return "occupied";
+                        }
+                    }
                 }
             }
             // The pieces in the way are a property of the *candidate*, not of the refusal that

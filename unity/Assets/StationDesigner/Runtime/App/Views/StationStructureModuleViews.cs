@@ -355,7 +355,7 @@ namespace Metro.App.Views {
     /// on the `Roof` visibility role (Hide Roof and the section plane reach them) and a
     /// pillar's parts carry its storey bands.
     /// </summary>
-    public sealed class StationStructureModuleRenderer : StationModuleGroupRenderer {
+    public sealed class StationStructureModuleRenderer : StationModuleGroupRenderer, IStationLocalViewRenderer {
         protected override string Group => StationModuleClaims.Structure;
         public override string Role => StationModuleClaims.Structure;
 
@@ -366,11 +366,124 @@ namespace Metro.App.Views {
         /// <summary>One line per built hanger: its mount, span, bar top and endpoint backing.</summary>
         public List<string> HangerNotes { get; } = new List<string>();
 
+        sealed class StructureHangerCache {
+            public StationWorldView World;
+            public readonly Dictionary<long, HashSet<string>> RoofHangersByColumn = new Dictionary<long, HashSet<string>>();
+            public readonly Dictionary<string, List<Mesh>> MeshesByHangerId = new Dictionary<string, List<Mesh>>(StringComparer.Ordinal);
+        }
+
+        sealed class StagedHangerDelta : IStationLocalRendererStage {
+            readonly WorldState state;
+            readonly StructureHangerCache cache;
+            readonly HashSet<string> retiredIds;
+            readonly List<(ModuleFacts Module, GameObject Root, List<Mesh> Meshes, StationViewRecord Record, long[] EndpointColumns)> staged;
+            bool committed;
+
+            public StagedHangerDelta(
+                WorldState state,
+                StructureHangerCache cache,
+                HashSet<string> retiredIds,
+                List<(ModuleFacts Module, GameObject Root, List<Mesh> Meshes, StationViewRecord Record, long[] EndpointColumns)> staged) {
+                this.state = state;
+                this.cache = cache;
+                this.retiredIds = retiredIds;
+                this.staged = staged;
+            }
+
+            public void Commit(StationWorldView world, StationLocalViewCommit commit) {
+                committed = true;
+                if (retiredIds.Count > 0) {
+                    world.RetireRecordsWhere(rec => rec.Role == StationModuleClaims.Structure && retiredIds.Contains(rec.ModuleId),
+                        commit, retireViewObjects: true);
+                    state.Modules.RemoveAll(m => retiredIds.Contains(m.ModuleId));
+                    foreach (var id in retiredIds) {
+                        state.ById.Remove(id);
+                        if (cache.MeshesByHangerId.TryGetValue(id, out var oldMeshes)) {
+                            cache.MeshesByHangerId.Remove(id);
+                            for (int i = 0; i < oldMeshes.Count; i++) {
+                                var m = oldMeshes[i];
+                                if (m == null) continue;
+                                state.Meshes.Remove(m);
+                                commit.RetiredMeshes.Add(m);
+                            }
+                        }
+                    }
+                    foreach (var pair in cache.RoofHangersByColumn) {
+                        pair.Value.RemoveWhere(id => retiredIds.Contains(id));
+                    }
+                }
+
+                var roleRoot = world.RoleRoot(StationModuleClaims.Structure);
+                for (int i = 0; i < staged.Count; i++) {
+                    var item = staged[i];
+                    item.Root.transform.SetParent(roleRoot, false);
+                    var built = new BuiltModule {
+                        ModuleId = item.Module.Id,
+                        Type = item.Module.Type,
+                        View = item.Root,
+                        Key = "generated:hanger",
+                    };
+                    state.Modules.Add(built);
+                    state.ById[item.Module.Id] = built;
+                    state.Meshes.AddRange(item.Meshes);
+                    cache.MeshesByHangerId[item.Module.Id] = item.Meshes;
+                    if (item.EndpointColumns != null) {
+                        for (int c = 0; c < item.EndpointColumns.Length; c++) {
+                            long col = item.EndpointColumns[c];
+                            if (!cache.RoofHangersByColumn.TryGetValue(col, out var set)) {
+                                cache.RoofHangersByColumn[col] = set = new HashSet<string>(StringComparer.Ordinal);
+                            }
+                            set.Add(item.Module.Id);
+                        }
+                    }
+                    world.AddLocalRecord(item.Record, commit);
+                }
+                state.Count = state.Modules.Count;
+            }
+
+            public void Dispose() {
+                if (committed) return;
+                for (int i = 0; i < staged.Count; i++) {
+                    var item = staged[i];
+                    for (int m = 0; m < item.Meshes.Count; m++) {
+                        if (item.Meshes[m] != null) Destroy(item.Meshes[m]);
+                    }
+                    if (item.Root != null) Destroy(item.Root);
+                }
+                staged.Clear();
+            }
+        }
+
+        readonly List<StructureHangerCache> hangerCaches = new List<StructureHangerCache>();
+
+        StructureHangerCache HangerCacheOf(StationWorldView world) {
+            for (int i = hangerCaches.Count - 1; i >= 0; i--) {
+                if (hangerCaches[i].World == world) return hangerCaches[i];
+            }
+            return null;
+        }
+
+        void PurgeHangerCaches() {
+            for (int i = hangerCaches.Count - 1; i >= 0; i--) {
+                if (hangerCaches[i].World == null || hangerCaches[i].World.IsDisposed) hangerCaches.RemoveAt(i);
+            }
+        }
+
         sealed class HangerBackingIndex {
-            readonly Dictionary<long, List<int>> solidColumns = new Dictionary<long, List<int>>();
+            readonly StationIndex index;
+            readonly Dictionary<long, List<int>> solidColumns;
             readonly List<ModuleFacts> roofs = new List<ModuleFacts>();
 
-            public HangerBackingIndex(IReadOnlyList<StationCellRecord> cells, ModuleFacts[] station) {
+            public HangerBackingIndex(StationIndex stationIndex, IReadOnlyList<StationCellRecord> cells, ModuleFacts[] station) {
+                index = stationIndex;
+                if (index != null) {
+                    var roofMods = index.ModulesOfType("roof");
+                    for (int i = 0; i < roofMods.Count; i++) {
+                        if (roofMods[i]?.Facts != null) roofs.Add(roofMods[i].Facts);
+                    }
+                    return;
+                }
+                solidColumns = new Dictionary<long, List<int>>();
                 if (cells != null) {
                     for (int i = 0; i < cells.Count; i++) {
                         var cell = cells[i];
@@ -396,7 +509,19 @@ namespace Metro.App.Views {
             public double? RoofZ(ModuleFacts hanger, int x, int y) {
                 double barTop = hanger.Z + 1d + StationStructureGeometry.HangerBarTop;
                 double? backing = null;
-                if (solidColumns.TryGetValue(ColumnKey(x, y), out var zs)) {
+                if (index != null) {
+                    var b = index.Bounds;
+                    if (!b.IsEmpty && x >= b.MinX && x <= b.MaxX && y >= b.MinY && y <= b.MaxY) {
+                        int minZ = Math.Max(b.MinZ, (int)Math.Ceiling(barTop - 1e-9));
+                        for (int z = minZ; z <= b.MaxZ; z++) {
+                            var cell = index.GetCell(x, y, z);
+                            if (cell != null && cell.IsSolid) {
+                                backing = z;
+                                break;
+                            }
+                        }
+                    }
+                } else if (solidColumns != null && solidColumns.TryGetValue(ColumnKey(x, y), out var zs)) {
                     for (int i = 0; i < zs.Count; i++) {
                         int z = zs[i];
                         if (z >= barTop && (!backing.HasValue || z < backing.Value)) backing = z;
@@ -413,6 +538,9 @@ namespace Metro.App.Views {
         }
 
         protected override void BuildGroup(StationViewBuildContext context, ModuleFacts[] station, WorldState state) {
+            PurgeHangerCaches();
+            var hangerCache = new StructureHangerCache { World = context.World };
+            hangerCaches.Add(hangerCache);
             RoofNotes.Clear();
             PillarNotes.Clear();
             HangerNotes.Clear();
@@ -425,18 +553,202 @@ namespace Metro.App.Views {
                 // The shared palette is minted for the first structure module only: a station with
                 // neither a roof, pillar nor hanger pays nothing for this renderer.
                 if (palette == null && context.Shader != null) {
-                    palette = new StationMaterials(context.Shader);
-                    for (int slot = 0; slot < StationMaterials.Colours.Length; slot++) state.Materials.Add(palette[slot]);
+                    palette = state.Palette ?? new StationMaterials(context.Shader);
+                    if (state.Palette == null) {
+                        state.Palette = palette;
+                        for (int slot = 0; slot < StationMaterials.Colours.Length; slot++) state.Materials.Add(palette[slot]);
+                    }
                 }
                 if (string.Equals(module.Type, "roof", StringComparison.Ordinal)) {
                     BuildRoof(context, module, state, palette, grid);
                 } else if (string.Equals(module.Type, "hanger", StringComparison.Ordinal)) {
-                    if (hangerBacking == null) hangerBacking = new HangerBackingIndex(context.Document?.Cells, station);
+                    if (hangerBacking == null) hangerBacking = new HangerBackingIndex(context.Index, context.Document?.Cells, station);
+                    int meshesBefore = state.Meshes.Count;
                     BuildHanger(context, module, hangerBacking, state, palette, grid);
+                    RecordHangerCache(hangerCache, module, state, meshesBefore);
                 } else {
                     BuildPillar(context, module, station, state, palette, grid);
                 }
             }
+        }
+
+        static void RecordHangerCache(StructureHangerCache cache, ModuleFacts module, WorldState state, int meshesBefore) {
+            if (cache == null || string.IsNullOrEmpty(module?.Id)) return;
+            var meshes = new List<Mesh>(Math.Max(0, state.Meshes.Count - meshesBefore));
+            for (int m = meshesBefore; m < state.Meshes.Count; m++) meshes.Add(state.Meshes[m]);
+            cache.MeshesByHangerId[module.Id] = meshes;
+            if (!string.Equals(module.Config.Text("mount"), "post", StringComparison.Ordinal)) {
+                var run = StationStructureGeometry.HangerCells(module);
+                int width = Math.Max(1, module.Width);
+                int[] endpoints = { 0, width - 1 };
+                for (int e = 0; e < endpoints.Length; e++) {
+                    var cell = run[endpoints[e]];
+                    long col = StationLocalDeltaContext.PackColumn(cell.X, cell.Y);
+                    if (!cache.RoofHangersByColumn.TryGetValue(col, out var set)) {
+                        cache.RoofHangersByColumn[col] = set = new HashSet<string>(StringComparer.Ordinal);
+                    }
+                    set.Add(module.Id);
+                }
+            }
+        }
+
+        public override bool TryStageLocalDelta(
+            StationLocalDeltaContext context,
+            out IStationLocalRendererStage stage,
+            out string fallbackReason) {
+            stage = null;
+            fallbackReason = null;
+            var state = StateOf(context.World);
+            if (state == null) {
+                fallbackReason = "no-structure-state";
+                return false;
+            }
+            var cache = HangerCacheOf(context.World);
+            if (cache == null) {
+                if (state.Modules.Count > 0) {
+                    fallbackReason = "no-structure-hanger-cache";
+                    return false;
+                }
+                cache = new StructureHangerCache { World = context.World };
+                hangerCaches.Add(cache);
+            }
+
+            var removedIds = new HashSet<string>(StringComparer.Ordinal);
+            var dirtyIds = new HashSet<string>(StringComparer.Ordinal);
+            var delta = context.Delta;
+
+            for (int i = 0; i < delta.RemovedModules.Count; i++) {
+                var id = delta.RemovedModules[i];
+                if (!context.PrevIndex.TryGetModule(id, out var oldMod) || oldMod == null || !Owns(oldMod.Type)) continue;
+                if (oldMod.Type != "hanger") {
+                    fallbackReason = "local-module-family:" + oldMod.Type;
+                    return false;
+                }
+                removedIds.Add(id);
+            }
+            for (int i = 0; i < delta.ChangedModules.Count; i++) {
+                var mod = delta.ChangedModules[i];
+                if (mod == null || !Owns(mod.Type)) continue;
+                if (mod.Type != "hanger") {
+                    fallbackReason = "local-module-family:" + mod.Type;
+                    return false;
+                }
+                dirtyIds.Add(mod.Id);
+            }
+
+            if (context.CellsChanged && cache.RoofHangersByColumn.Count > 0) {
+                foreach (long col in context.TouchedColumns) {
+                    if (!cache.RoofHangersByColumn.TryGetValue(col, out var ids)) continue;
+                    foreach (var id in ids) {
+                        if (!removedIds.Contains(id) && context.NextIndex.TryGetModule(id, out _)) {
+                            dirtyIds.Add(id);
+                        }
+                    }
+                }
+            }
+
+            if (removedIds.Count == 0 && dirtyIds.Count == 0) return true;
+
+            if (dirtyIds.Count > 0 && state.Palette == null && context.World.Shader != null) {
+                state.Palette = new StationMaterials(context.World.Shader);
+                for (int slot = 0; slot < StationMaterials.Colours.Length; slot++) state.Materials.Add(state.Palette[slot]);
+            }
+
+            var backing = dirtyIds.Count > 0 ? new HangerBackingIndex(context.NextIndex, null, null) : null;
+            var grid = StationLevelGrid.FromDocument(context.NextDocument.LevelBase, context.NextDocument.StoreyHeight);
+            var retiredIds = new HashSet<string>(removedIds, StringComparer.Ordinal);
+            var staged = new List<(ModuleFacts Module, GameObject Root, List<Mesh> Meshes, StationViewRecord Record, long[] EndpointColumns)>(dirtyIds.Count);
+
+            try {
+                foreach (var id in dirtyIds) {
+                    retiredIds.Add(id);
+                    if (!context.NextIndex.TryGetModule(id, out var record) || record == null || record.Type != "hanger") continue;
+                    var module = record.Facts;
+                    var parts = BuildHangerParts(module, backing, state);
+                    var root = new GameObject((string.IsNullOrEmpty(module.Id) ? "hanger" : module.Id) + " hanger");
+                    root.transform.SetParent(context.StagingRoot, false);
+                    root.transform.SetPositionAndRotation(
+                        StationCoordinates.Point(new Vector3(module.X + .5f, module.Y + .5f, module.Z + 1f)),
+                        ModulePlacement.Rotation(module.Rotation));
+                    var meshes = new List<Mesh>(4);
+                    parts.Emit(root.transform, meshes, "hanger");
+                    var bands = StationModuleLevels.Of(module, grid);
+                    int levelMin = bands.Length > 0 ? bands[0] : module.Z;
+                    int levelMax = bands.Length > 0 ? bands[bands.Length - 1] : levelMin;
+                    bool hasBounds = TryDocumentBounds(root.transform, context.World.Root, out var bounds);
+                    var viewRecord = new StationViewRecord {
+                        Role = Role,
+                        ModuleId = module.Id,
+                        Part = "hanger",
+                        View = root,
+                        Bounds = hasBounds ? bounds : BoxOf(module),
+                        HasBounds = true,
+                        LevelMin = levelMin,
+                        LevelMax = levelMax,
+                        LevelBands = bands,
+                    };
+                    long[] endpointCols = null;
+                    if (!string.Equals(module.Config.Text("mount"), "post", StringComparison.Ordinal)) {
+                        var run = StationStructureGeometry.HangerCells(module);
+                        int width = Math.Max(1, module.Width);
+                        endpointCols = new[] {
+                            StationLocalDeltaContext.PackColumn(run[0].X, run[0].Y),
+                            StationLocalDeltaContext.PackColumn(run[width - 1].X, run[width - 1].Y),
+                        };
+                    }
+                    StationEditTrace.AddInstantiatedPrefab();
+                    staged.Add((module, root, meshes, viewRecord, endpointCols));
+                }
+                stage = new StagedHangerDelta(state, cache, retiredIds, staged);
+                return true;
+            } catch {
+                for (int i = 0; i < staged.Count; i++) {
+                    for (int m = 0; m < staged[i].Meshes.Count; m++) {
+                        if (staged[i].Meshes[m] != null) Destroy(staged[i].Meshes[m]);
+                    }
+                    if (staged[i].Root != null) Destroy(staged[i].Root);
+                }
+                throw;
+            }
+        }
+
+        StructureParts BuildHangerParts(ModuleFacts module, HangerBackingIndex backing, WorldState state) {
+            var parts = new StructureParts();
+            int width = Math.Max(1, module.Width);
+            string mount = module.Config.Text("mount");
+            bool isRoof = string.Equals(mount, "roof", StringComparison.Ordinal);
+            bool isPost = string.Equals(mount, "post", StringComparison.Ordinal);
+            float barTop = isRoof ? StationStructureGeometry.HangerBarTop : StationStructureGeometry.HangerPostBarTop;
+            float centre = (width - 1) * .5f;
+            var steel = state.Palette != null ? state.Palette[StationMaterials.Steel] : null;
+            if (!steel && state.Finishes != null) steel = state.Finishes.For(StationStructureGeometry.DefaultRoofFinish);
+
+            parts.Box(steel,
+                new Vector3(centre, 0f, barTop - StationStructureGeometry.HangerBarDepth * .5f),
+                new Vector3(width, StationStructureGeometry.HangerBarDepth, StationStructureGeometry.HangerBarDepth));
+
+            if (isPost) {
+                parts.Box(steel,
+                    new Vector3(centre, StationStructureGeometry.HangerPostOffset, StationStructureGeometry.HangerPostBarTop * .5f),
+                    new Vector3(StationStructureGeometry.HangerPostWidth, StationStructureGeometry.HangerPostWidth, StationStructureGeometry.HangerPostBarTop));
+                parts.Box(steel,
+                    new Vector3(centre, StationStructureGeometry.HangerPostOffset, .025f),
+                    new Vector3(.36f, .36f, .05f));
+            } else {
+                var run = StationStructureGeometry.HangerCells(module);
+                int[] endpoints = { 0, width - 1 };
+                for (int e = 0; e < endpoints.Length; e++) {
+                    int index = endpoints[e];
+                    var cell = run[index];
+                    double roofZ = backing.RoofZ(module, cell.X, cell.Y) ?? (module.Z + 5d);
+                    float height = Mathf.Max(0f, (float)(roofZ - (module.Z + 1d + barTop)));
+                    if (height > 0f) {
+                        parts.Box(steel, new Vector3(index, 0f, barTop + height * .5f), new Vector3(.08f, .08f, height));
+                    }
+                    parts.Box(steel, new Vector3(index, 0f, barTop), new Vector3(.3f, .3f, .04f));
+                }
+            }
+            return parts;
         }
 
         /// <summary>The world's finish library, acquired on first need like the cell mesher's.</summary>

@@ -987,8 +987,32 @@ namespace Metro.App.Views {
     /// <see cref="StationWorldView"/> and a release drops only worlds already
     /// disposed — the same contract as `VerticalModuleRenderer`.
     /// </summary>
-    public sealed class TrainConsistRenderer : IStationViewRenderer {
+    public sealed class TrainConsistRenderer : IStationViewRenderer, IStationLocalViewRenderer {
         public const string RoleName = "trains";
+
+        public bool TryStageLocalDelta(
+            StationLocalDeltaContext context,
+            out IStationLocalRendererStage stage,
+            out string fallbackReason) {
+            stage = null;
+            fallbackReason = null;
+            var delta = context.Delta;
+            for (int i = 0; i < delta.RemovedModules.Count; i++) {
+                if (context.PrevIndex.TryGetModule(delta.RemovedModules[i], out var oldMod) &&
+                    oldMod != null && oldMod.Type == "track") {
+                    fallbackReason = "local-module-family:track";
+                    return false;
+                }
+            }
+            for (int i = 0; i < delta.ChangedModules.Count; i++) {
+                var mod = delta.ChangedModules[i];
+                if (mod != null && mod.Type == "track") {
+                    fallbackReason = "local-module-family:track";
+                    return false;
+                }
+            }
+            return true;
+        }
 
         sealed class WorldState {
             public StationWorldView World;
@@ -1124,7 +1148,7 @@ namespace Metro.App.Views {
             var renderer = TrainConsistRenderer.Current;
             if (renderer == null || document == null) return;
             try {
-                var host = UnityEngine.Object.FindAnyObjectByType<StationGameHost>();
+                var host = StationGameHost.ResolveActive();
                 if (host == null) return;
                 var live = (host.Simulation as StationSimulationHost)?.Session;
                 if (live == null) return;

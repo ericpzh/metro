@@ -27,6 +27,10 @@ namespace Metro.App.Views {
         public PassengerActivity Activity;
         /// <summary>Seconds into the activity's own duration (the source's activity clock).</summary>
         public double ActivitySeconds;
+        public StationRidePath RidePath;
+        public double RideProgress, RideColumn, RideSeconds;
+        public bool RideReverse;
+        public int RailVariant;
         /// <summary>Cumulative walked metres since spawn (the source's travel-driven gait).</summary>
         public double WalkDistance;
         /// <summary>Gait phase at spawn, 0–1; walk distance advances it.</summary>
@@ -37,6 +41,7 @@ namespace Metro.App.Views {
         /// identity/position/activity/phase still walks.
         /// </summary>
         public double WalkWeight;
+        public bool HasWalkWeight;
         public PassengerDetail Detail;
         /// <summary>0 default, 1 right hand, 2 left hand (the source's preferred mode).</summary>
         public int PreferredHand;
@@ -88,6 +93,31 @@ namespace Metro.App.Views {
         readonly HashSet<(int x, int y)> fallbackCellNonGradeGroundCells;
         readonly HashSet<(int x, int y, int z)> explicitGradeCells;
         readonly List<(int x0, int y0, int x1, int y1, int zLo, int zHi)> rampVolumes;
+
+        PassengerSupportResolver(
+            StationDocument doc,
+            StationIndex stationIndex,
+            PassengerSupportResolver reuseModulesFrom) {
+            document = doc;
+            index = stationIndex;
+            tracksById = reuseModulesFrom.tracksById;
+            exitGroundCells = reuseModulesFrom.exitGroundCells;
+            nonGradeGroundCells = reuseModulesFrom.nonGradeGroundCells;
+            explicitGradeCells = reuseModulesFrom.explicitGradeCells;
+            rampVolumes = reuseModulesFrom.rampVolumes;
+            fallbackCellNonGradeGroundCells = stationIndex == null ? BuildFallbackCellSet(doc, explicitGradeCells, exitGroundCells) : null;
+        }
+
+        public PassengerSupportResolver WithDocument(StationDocument nextDocument, StationIndex nextIndex) {
+            if (nextDocument == null) return new PassengerSupportResolver(null, nextIndex);
+            if (document != null && ReferenceEquals(document.ModulePages, nextDocument.ModulePages)) {
+                if (ReferenceEquals(index, nextIndex) && (nextIndex != null || ReferenceEquals(document.CellPages, nextDocument.CellPages))) {
+                    return this;
+                }
+                return new PassengerSupportResolver(nextDocument, nextIndex, this);
+            }
+            return new PassengerSupportResolver(nextDocument, nextIndex);
+        }
 
         public PassengerSupportResolver(StationDocument document, StationIndex stationIndex) {
             this.document = document;
@@ -192,7 +222,7 @@ namespace Metro.App.Views {
         bool IsNonGradeGroundAt(int fx, int fy) {
             if (nonGradeGroundCells.Contains((fx, fy))) return true;
             if (index != null) {
-                if (!index.TryGetCell(fx, fy, StationViewFeature.GroundZ, out var cell) ||
+                if (!index.TryGetCell(new StationCellKey(fx, fy, StationViewFeature.GroundZ), out var cell) ||
                     cell == null || !cell.IsSolid || cell.HasTag("painted-ground")) {
                     return false;
                 }
@@ -267,7 +297,7 @@ namespace Metro.App.Views {
 
         bool HasSupportAt(int x, int y, int z) {
             if (z == StationViewFeature.GroundZ) return true;
-            if (index != null && index.TryGetCell(x, y, z, out var cell) && cell != null && cell.IsSolid) {
+            if (index != null && index.TryGetCell(new StationCellKey(x, y, z), out var cell) && cell != null && cell.IsSolid) {
                 return true;
             }
             if (explicitGradeCells.Contains((x, y, z))) return true;
@@ -396,6 +426,23 @@ namespace Metro.App.Views {
         }
 
         public bool TryGetActor(int simId, out PassengerCrowdActor actor) => actors.TryGetValue(simId, out actor);
+
+        public bool TryPick(Ray ray, float blocker, out int id, StationPickContext context = default) {
+            id = 0;
+            blocker = Mathf.Min(blocker, context.MaxDistance);
+            foreach (var pair in actors) {
+                var actor = pair.Value;
+                if (!actor.Visible || !actor.ActiveInFrame || actor.Skin == null || !actor.Skin.enabled) continue;
+                if ((context.CullingMask & (1 << actor.Skin.gameObject.layer)) == 0 ||
+                    !actor.Skin.bounds.IntersectRay(ray, out float distance) ||
+                    distance < context.MinDistance || distance >= blocker) continue;
+                var point = StationCoordinates.WorldToDocument(ray.GetPoint(distance));
+                if (world?.Visibility != null && !world.Visibility.IsPointKept(point)) continue;
+                id = pair.Key;
+                blocker = distance;
+            }
+            return id != 0;
+        }
 
         /// <summary>All instantiated actors, for diagnostics and tests.</summary>
         public IEnumerable<PassengerCrowdActor> Actors => actors.Values;
@@ -529,7 +576,11 @@ namespace Metro.App.Views {
                 }
             }
 
-            var activity = PassengerAppearance.DisplayedActivity(pose.Activity, actor.Entry, pose.ActivitySeconds);
+            double activityTime = pose.ActivitySeconds;
+            if (pose.RideSeconds > 0 &&
+                (pose.Activity == PassengerActivity.Escalator || pose.Activity == PassengerActivity.EscalatorLeft))
+                activityTime = PassengerAppearance.RailTimeline(pose.RideProgress * pose.RideSeconds, pose.RideSeconds, pose.RailVariant);
+            var activity = PassengerAppearance.DisplayedActivity(pose.Activity, actor.Entry, activityTime);
             int hand = PassengerAppearance.ActionMode(pose.SimId, actor.Entry, activity, pose.PreferredHand);
             string clipName;
             float time;
@@ -537,7 +588,7 @@ namespace Metro.App.Views {
                 var gait = PassengerAppearance.Gait(actor.Look, pose.WalkDistance, pose.WalkPhase, pose.WalkWeight);
                 // Published weight owns the idle/walk transition. An unpublished weight
                 // (0) follows the activity, so the minimal pose contract still walks.
-                bool stand = pose.WalkWeight > 1e-6 && pose.WalkWeight <= 0.5;
+                bool stand = pose.WalkWeight <= 0.5 && (pose.HasWalkWeight || pose.WalkWeight > 1e-6);
                 if (stand) {
                     // The source blends the idle and walk atlas frames by this weight.
                     // A single sampled clip cannot mix two rigs; below the halfway
@@ -552,7 +603,7 @@ namespace Metro.App.Views {
             } else {
                 clipName = PassengerAppearance.ClipName(activity, actor.Look.WalkProfile, hand);
                 var candidate = actor.Clips.TryGetValue(clipName, out var clip) ? clip : null;
-                time = (float)PassengerAppearance.ActivitySampleTime(activity, pose.ActivitySeconds, candidate ? candidate.length : 0f);
+                time = (float)PassengerAppearance.ActivitySampleTime(activity, activityTime, candidate ? candidate.length : 0f);
             }
             if (!actor.Clips.TryGetValue(clipName, out var chosen) || chosen == null) {
                 Diagnose("passenger-clip-missing", pose.SimId, actor.Recipe + " has no clip " + clipName);
@@ -564,7 +615,9 @@ namespace Metro.App.Views {
             actor.Root.transform.rotation = PassengerAppearance.Rotation(pose.Heading);
             actor.Root.transform.localScale = PassengerAppearance.LocalScale(actor.Look);
             if (!actor.Root.activeSelf) actor.Root.SetActive(true);
-            chosen.SampleAnimation(actor.Rig, time);
+            if (actor.Skin != null)
+                actor.Skin.forceRenderingOff = StationViewFeature.Active?.Visibility?.State.FollowPassenger == pose.SimId;
+            chosen.SampleAnimation(actor.Rig, Mathf.Min(time, Mathf.Max(0f, chosen.length - 0.00001f)));
             actor.ClipName = clipName;
             actor.ClipTime = time;
             actor.Sampled = true;
@@ -815,7 +868,16 @@ namespace Metro.App.Views {
     /// state is keyed by <see cref="StationWorldView"/>: a replaced world's
     /// <c>Release()</c> must not clear the candidate the host is about to commit.
     /// </summary>
-    public sealed class PassengerCrowdRenderer : IStationViewRenderer {
+    public sealed class PassengerCrowdRenderer : IStationViewRenderer, IStationLocalViewRenderer {
+        public bool TryStageLocalDelta(
+            StationLocalDeltaContext context,
+            out IStationLocalRendererStage stage,
+            out string fallbackReason) {
+            stage = null;
+            fallbackReason = null;
+            return true;
+        }
+
         sealed class State {
             public StationWorldView World;
             public PassengerCrowdView View;
@@ -826,6 +888,11 @@ namespace Metro.App.Views {
             public int LastPresentedPoses;
             public int Serial;
             public bool MissingCatalogue;
+            public LineRenderer RouteLine;
+            public Material RouteMaterial;
+            public int RouteId;
+            public long RouteTick = long.MinValue;
+            public readonly List<(double X, double Y, double Z)> RoutePoints = new List<(double, double, double)>();
         }
 
         readonly Dictionary<StationWorldView, State> states = new Dictionary<StationWorldView, State>();
@@ -852,6 +919,26 @@ namespace Metro.App.Views {
         public bool CatalogueBound => newest != null && !newest.MissingCatalogue;
         /// <summary>The renderer of the active built world; the frame sink uses it.</summary>
         public static PassengerCrowdRenderer Current { get; private set; }
+
+        public bool TryGetEyePose(int id, out Vector3 position, out float heading) {
+            position = default;
+            heading = 0;
+            if (newest?.View == null || !newest.View.TryGetActor(id, out var actor)) return false;
+            foreach (var pose in presented) {
+                if (pose.SimId != id || !pose.Visible) continue;
+                position = StationCoordinates.Point(new Vector3((float)pose.X, (float)pose.Y,
+                    (float)(pose.Z + 1.48 * actor.Look.Height)));
+                heading = (float)pose.Heading;
+                return true;
+            }
+            return false;
+        }
+
+        public bool TryPick(StationWorldView world, Ray ray, float blocker, in StationPickContext context, out int id) {
+            id = 0;
+            return world != null && states.TryGetValue(world, out var state) &&
+                state.View != null && state.View.TryPick(ray, blocker, out id, context);
+        }
 
         public void Build(StationViewBuildContext context) {
             var state = new State {
@@ -887,18 +974,18 @@ namespace Metro.App.Views {
         /// empty list, which hides the actors.
         ///
         /// The feed publishes one pose per passenger per fixed tick. A rendered frame
-        /// that falls inside the tick interval samples the adjacent tick pair at the
-        /// scheduler fraction, so the crowd walks continuously instead of stepping once
-        /// a simulated second (RCA 14 §5.3). A passenger that is new, changed activity,
-        /// or moved further than a walk could in one tick snaps rather than gliding
-        /// from an unrelated identity.
+        /// inside the tick interval samples the adjacent pair at the scheduler fraction.
+        /// Continuous ramp poses sample the same curve as the simulation. New identities
+        /// and discontinuous train transfers use the current frame.
         /// </summary>
         public void Tick(StationDocument document, StationIndex index, StationFrameClock clock) {
             var state = newest;
             var view = state?.View;
             if (state != null && document != null && !ReferenceEquals(state.CachedDocument, document)) {
                 state.CachedDocument = document;
-                state.Support = new PassengerSupportResolver(document, index);
+                state.Support = state.Support != null
+                    ? state.Support.WithDocument(document, index)
+                    : new PassengerSupportResolver(document, index);
                 view?.SetSupportResolver(state.Support);
             }
             if (view == null && state != null && state.Context != null &&
@@ -938,6 +1025,7 @@ namespace Metro.App.Views {
             bool reset = !hasTick || clock.Epoch != lastEpoch || !ReferenceEquals(feed, lastFeed) ||
                 !ReferenceEquals(state, lastTickState);
             if (reset) {
+                if (hasTick && StationEditSession.SelectionKind == "agent") StationEditSession.ClearSelection();
                 previousPoses.Clear();
                 Copy(poses, previousPoses);
                 lastTickPoses.Clear();
@@ -974,33 +1062,108 @@ namespace Metro.App.Views {
                 blend.Y = Lerp(prior.Y, current.Y, alpha);
                 blend.Z = Lerp(prior.Z, current.Z, alpha);
                 blend.Heading = LerpAngle(prior.Heading, current.Heading, alpha);
-                blend.ActivitySeconds = Lerp(prior.ActivitySeconds, current.ActivitySeconds, alpha);
+                if (prior.Activity == current.Activity)
+                    blend.ActivitySeconds = Lerp(prior.ActivitySeconds, current.ActivitySeconds, alpha);
+                if (current.RidePath != null &&
+                    (current.RidePath == prior.RidePath && current.ServerId == prior.ServerId ||
+                     prior.RidePath == null && current.State == StationPassengerState.Riding ||
+                     current.RideProgress == 1 && prior.State == StationPassengerState.Riding &&
+                        prior.RidePath == current.RidePath)) {
+                    bool starting = prior.RidePath == null;
+                    blend.RideProgress = Lerp(starting ? 0 : prior.RideProgress, current.RideProgress, alpha);
+                    current.RidePath.Sample(blend.RideProgress, current.RideReverse, current.RideColumn,
+                        out double x, out double y, out double z, out double heading);
+                    // Ease the short gap between the queue's actual feet and the start of the run.
+                    if (starting) {
+                        current.RidePath.Sample(0, current.RideReverse, current.RideColumn,
+                            out double sx, out double sy, out double sz, out _);
+                        x += (prior.X - sx) * (1 - alpha);
+                        y += (prior.Y - sy) * (1 - alpha);
+                        z += (prior.Z - sz) * (1 - alpha);
+                    }
+                    blend.X = x; blend.Y = y; blend.Z = z; blend.Heading = heading;
+                    if (current.RideProgress == 1 && prior.Activity != PassengerActivity.Walk) blend.Activity = prior.Activity;
+                }
                 blend.WalkDistance = Lerp(prior.WalkDistance, current.WalkDistance, alpha);
                 blend.WalkPhase = Lerp(prior.WalkPhase, current.WalkPhase, alpha);
                 blend.WalkWeight = Lerp(prior.WalkWeight, current.WalkWeight, alpha);
                 presented.Add(blend);
             }
             view.Render(presented, clock.PresentationSeconds);
+            UpdateSelectedRoute(state, feed as SessionPassengerFeed, clock.Tick);
             state.LastPoseSamples = poses.Count;
             state.LastPresentedPoses = view.PosedThisFrame;
+        }
+
+        static Vector3 RoutePoint(double x, double y, double z) =>
+            StationCoordinates.Point(new Vector3((float)x, (float)y, (float)z + .05f));
+
+        static void UpdateSelectedRoute(State state, SessionPassengerFeed feed, long tick) {
+            if (state.RouteLine != null) state.RouteLine.enabled = false;
+            if (StationViewFeature.Active?.Commands?.FollowPassenger == true || StationEditSession.SelectionKind != "agent" ||
+                !int.TryParse(StationEditSession.SelectionKey, out int id) || feed?.Session == null) {
+                state.RouteId = 0;
+                return;
+            }
+            if (state.RouteId != id || state.RouteTick != tick) {
+                state.RouteId = id;
+                state.RouteTick = tick;
+                if (!feed.Session.Services.TryReadPassengerRoute(id, state.RoutePoints)) {
+                    StationEditSession.ClearSelection();
+                    return;
+                }
+            }
+            if (state.RoutePoints.Count == 0 || !state.View.TryGetActor(id, out var actor) || !actor.Visible) return;
+            if (!state.RouteLine) {
+                var shader = Shader.Find("Metro/Station Highlight") ?? Shader.Find("Universal Render Pipeline/Unlit");
+                if (!shader) return;
+                var go = new GameObject("Selected passenger route");
+                go.transform.SetParent(state.World.Root, false);
+                state.RouteLine = go.AddComponent<LineRenderer>();
+                state.RouteMaterial = new Material(shader) { color = new Color32(44, 206, 255, 255) };
+                state.RouteLine.sharedMaterial = state.RouteMaterial;
+                state.RouteLine.widthMultiplier = .09f;
+                state.RouteLine.numCornerVertices = 3;
+                state.RouteLine.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                state.RouteLine.receiveShadows = false;
+            }
+            var route = state.RouteLine;
+            route.positionCount = 1 + state.RoutePoints.Count;
+            route.SetPosition(0, actor.Root.transform.position + Vector3.up * .05f);
+            var visibility = state.World.Visibility;
+            if (visibility != null && state.RouteMaterial.HasProperty("_SectionPlane")) {
+                var normal = StationCoordinates.Direction(visibility.Section.Normal);
+                var point = StationCoordinates.Point(visibility.Section.Point);
+                state.RouteMaterial.SetVector("_SectionPlane",
+                    new Vector4(normal.x, normal.y, normal.z, -Vector3.Dot(normal, point)));
+                state.RouteMaterial.SetFloat("_SectionClip", visibility.SectionClipping ? 1 : 0);
+            }
+            for (int i = 0; i < state.RoutePoints.Count; i++) {
+                var (x, y, z) = state.RoutePoints[i];
+                route.SetPosition(i + 1, RoutePoint(x, y, z));
+            }
+            route.enabled = true;
         }
 
         static void Copy(List<PassengerPose> from, Dictionary<int, PassengerPose> to) {
             for (int i = 0; i < from.Count; i++) to[from[i].SimId] = from[i];
         }
 
-        /// <summary>Same actor, same activity, and a step a walking body could take.</summary>
+        /// <summary>A continuous ground or ramp sample belonging to the same passenger.</summary>
         static bool Adjacent(PassengerPose prior, PassengerPose current) {
-            if (prior.Activity != current.Activity ||
-                prior.State != current.State ||
-                !string.Equals(prior.ServerId ?? "", current.ServerId ?? "", StringComparison.Ordinal)) {
+            bool ground = IsOnFoot(prior.State) && IsOnFoot(current.State);
+            bool ramp = current.RidePath != null &&
+                (prior.RidePath == current.RidePath || prior.RidePath == null && IsOnFoot(prior.State));
+            if (!ground && !ramp &&
+                (prior.State != current.State || !string.Equals(prior.ServerId, current.ServerId, StringComparison.Ordinal)))
                 return false;
-            }
             double dx = current.X - prior.X, dy = current.Y - prior.Y, dz = current.Z - prior.Z;
-            // A storey step or a spawn/board teleport is not an interpolatable move. A
-            // 4 Hz walker covers well under two metres in one simulated second.
-            return dz * dz < .75 * .75 && dx * dx + dy * dy < 3.0 * 3.0;
+            bool lift = current.State == StationPassengerState.Riding && current.ServerId?.StartsWith("lift:", StringComparison.Ordinal) == true;
+            return Math.Abs(dz) < (ramp || lift ? 2 : .75) && dx * dx + dy * dy < 3.0 * 3.0;
         }
+
+        static bool IsOnFoot(StationPassengerState state) =>
+            state == StationPassengerState.Walking || state == StationPassengerState.Queuing;
 
         static double Lerp(double from, double to, double alpha) => from + (to - from) * alpha;
 
@@ -1018,6 +1181,7 @@ namespace Metro.App.Views {
             foreach (var pair in states) {
                 if (pair.Key == null || pair.Key.IsDisposed) {
                     pair.Value?.View?.Release();
+                    if (pair.Value.RouteMaterial) UnityEngine.Object.Destroy(pair.Value.RouteMaterial);
                     dead.Add(pair.Key);
                 }
             }

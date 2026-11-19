@@ -53,7 +53,7 @@ namespace Metro.View {
             public StationCellKey Key => new StationCellKey(X, Y, Z);
         }
 
-        struct RampSegment {
+        internal struct RampSegment {
             public StationRunPoint From;
             public StationRunPoint To;
             public double Headroom;
@@ -477,6 +477,78 @@ namespace Metro.View {
                 fills.Add(key);
             }
             return fills;
+        }
+
+        public sealed class PreparedRampOpenings {
+            readonly List<RampSegment> ramps;
+            readonly Dictionary<(int x, int y), List<RampSegment>> buckets;
+            readonly Dictionary<int, HashSet<StationCellKey>> cacheByLevel = new Dictionary<int, HashSet<StationCellKey>>();
+
+            internal PreparedRampOpenings(List<RampSegment> ramps) {
+                this.ramps = ramps ?? new List<RampSegment>(0);
+                buckets = this.ramps.Count > 0 ? BuildRampBuckets(this.ramps) : null;
+            }
+
+            public bool HasRamps => ramps.Count > 0;
+
+            public bool TryComputeThinSide(StationMeshCell cell, out StationWallSide side) {
+                side = StationWallSide.S;
+                if (ramps.Count == 0 || !cell.Solid || cell.Shape.Kind != StationShapeKind.Full) return false;
+                bool wall = (cell.Flags & StationMeshCellFlags.Wall) != 0;
+                var candidates = NearbyRamps(ramps, buckets, cell.X, cell.Y);
+                if (candidates == null || candidates.Count == 0) return false;
+                for (int rIdx = 0; rIdx < candidates.Count; rIdx++) {
+                    var r = candidates[rIdx];
+                    if (!wall && r.GroundCells != null &&
+                        r.GroundCells.Contains(new StationCellKey(cell.X, cell.Y, cell.Z)) &&
+                        Within(cell.X, cell.Y, cell.Z, r, r.CoreHalf)) continue;
+                    if (!Within(cell.X, cell.Y, cell.Z, r, wall ? r.RailHalf : r.BodyHalf)) continue;
+                    if (!wall && r.BodyHalf <= .5 + 1e-9) continue;
+                    return TryOutwardSide(cell.X, cell.Y, r, out side);
+                }
+                return false;
+            }
+
+            public HashSet<StationCellKey> AtLevel(int z) {
+                if (cacheByLevel.TryGetValue(z, out var cached)) return cached;
+                var holes = new HashSet<StationCellKey>();
+                for (int i = 0; i < ramps.Count; i++) {
+                    var r = ramps[i];
+                    double minH = Math.Min(r.From.Z, r.To.Z);
+                    double maxH = Math.Max(r.From.Z, r.To.Z) + 1.0 + (r.Headroom > 0 ? r.Headroom : Headroom);
+                    if (z + 1.0 < minH || z > maxH) continue;
+                    int x0 = (int)Math.Floor(Math.Min(r.From.X, r.To.X)) - 2;
+                    int x1 = (int)Math.Ceiling(Math.Max(r.From.X, r.To.X)) + 2;
+                    int y0 = (int)Math.Floor(Math.Min(r.From.Y, r.To.Y)) - 2;
+                    int y1 = (int)Math.Ceiling(Math.Max(r.From.Y, r.To.Y)) + 2;
+                    for (int x = x0; x <= x1; x++) {
+                        for (int y = y0; y <= y1; y++) {
+                            if (Intrudes(x, y, z, r)) holes.Add(new StationCellKey(x, y, z));
+                        }
+                    }
+                }
+                cacheByLevel[z] = holes;
+                return holes;
+            }
+        }
+
+        public static PreparedRampOpenings PrepareOpenings(StationIndex index, HashSet<string> excludedModuleIds = null) {
+            if (index == null) return new PreparedRampOpenings(null);
+            var structural = new List<ModuleFacts>();
+            void Collect(string type) {
+                var list = index.ModulesOfType(type);
+                for (int i = 0; i < list.Count; i++) {
+                    var m = list[i];
+                    if (m?.Facts == null) continue;
+                    if (excludedModuleIds != null && excludedModuleIds.Contains(m.Id)) continue;
+                    structural.Add(m.Facts);
+                }
+            }
+            Collect("exit");
+            Collect("stair");
+            Collect("escalator");
+            Collect("lift");
+            return new PreparedRampOpenings(structural.Count == 0 ? null : BuildRampList(structural));
         }
 
         public static HashSet<StationCellKey> RampOpeningsAtLevel(IReadOnlyList<StationModuleRecord> modules, int z) =>

@@ -28,6 +28,10 @@ namespace Metro.App {
     public sealed class StationGameHost : MonoBehaviour {
         public const string ObjectName = "StationGame";
 
+        public static StationGameHost Active { get; private set; }
+        public static StationGameHost ResolveActive() =>
+            Active != null ? Active : FindAnyObjectByType<StationGameHost>();
+
         [Serializable]
         public sealed class DemoStation {
             public string id = "";
@@ -87,6 +91,7 @@ namespace Metro.App {
         public IReadOnlyList<IStationStateContributor> Contributors => contributors;
 
         void Awake() {
+            Active = this;
             StationEditProfiling.Enabled = true;
             coordinator = new StationLoadCoordinator(transform) {
                 Assets = new StationViewAssets { Catalogue = catalogue, TrainCatalogue = trainCatalogue, Shader = stationShader, Font = font },
@@ -101,6 +106,7 @@ namespace Metro.App {
         }
 
         void OnDestroy() {
+            if (ReferenceEquals(Active, this)) Active = null;
             FinishRenderTrace("host-destroyed");
             if (coordinator != null) {
                 coordinator.Committed -= OnCommitted;
@@ -110,6 +116,7 @@ namespace Metro.App {
         }
 
         void OnEnable() {
+            Active = this;
             // A scene reload in the editor starts with a fresh coordinator; nothing is
             // loaded until a command (or station.resync) arrives.
         }
@@ -177,10 +184,14 @@ namespace Metro.App {
         /// <summary>The one JS → C# entry point: <c>SendMessage("StationGame", "BrowserCommand", json)</c>.</summary>
         public void BrowserCommand(string json) {
             if (router == null) return;
-            var reply = router.Handle(json, out var trace);
+            var preTrace = StationEditProfiling.BeginBrowserCommand(CurrentRevision);
+            var reply = router.Handle(json, out var trace, preTrace);
             if (pendingRenderTrace != null && pendingRenderTrace.Revision != CurrentRevision)
                 FinishRenderTrace("superseded-before-render");
-            if (trace != null) StartRenderTrace(trace);
+            if (trace != null) {
+                stateTimer = 0f;
+                StartRenderTrace(trace);
+            }
             bool published = Publish(reply);
             trace?.Mark(published ? "commit-published" : "no-reply-transport");
         }
@@ -207,9 +218,19 @@ namespace Metro.App {
 
         void EndTracedCamera(ScriptableRenderContext _, Camera camera) {
             if (camera != tracedCamera || !beganTracedRender || pendingRenderTrace == null) return;
-            FinishRenderTrace(pendingRenderTrace.Revision == CurrentRevision
-                ? "first-camera-render"
-                : "superseded-before-render");
+            var trace = pendingRenderTrace;
+            bool matches = trace.Revision == CurrentRevision;
+            FinishRenderTrace(matches ? "first-camera-render" : "superseded-before-render");
+            if (matches && isActiveAndEnabled && Application.isPlaying) {
+                StartCoroutine(MarkEndOfFramePresent(trace, trace.Revision));
+            }
+        }
+
+        System.Collections.IEnumerator MarkEndOfFramePresent(StationEditProfiling.CommitTrace trace, int expectedRevision) {
+            yield return new WaitForEndOfFrame();
+            if (trace != null) {
+                trace.Mark(CurrentRevision == expectedRevision ? "first-frame-presented" : "superseded-before-present");
+            }
         }
 
         void FinishRenderTrace(string stage) {
@@ -244,6 +265,8 @@ namespace Metro.App {
         /// <summary>Send one coalesced state snapshot now (no document).</summary>
         public void PublishStateNow() {
             if (!IsLoaded) return;
+            var statePayload = new JObject();
+            MergeState(statePayload, useRawJsonCache: true);
             var reply = new JObject {
                 ["schemaVersion"] = StationCommandRouter.SchemaVersion,
                 ["kind"] = "state",
@@ -252,7 +275,7 @@ namespace Metro.App {
                 ["revision"] = CurrentRevision,
                 ["accepted"] = true,
                 ["code"] = JValue.CreateNull(),
-                ["payload"] = BuildStatePayload(),
+                ["payload"] = statePayload,
             };
             Publish(reply.ToString(Formatting.None));
         }
@@ -451,26 +474,212 @@ namespace Metro.App {
             finally { editingDocument = false; }
         }
 
-        public JObject BuildCommitPayload() {
+        public const int CommitDeltaSchemaVersion = 1;
+
+        object cachedCrowdSession;
+        long cachedCrowdTick = long.MinValue;
+        long cachedCrowdEpoch = long.MinValue;
+        long cachedCrowdSessionRev = long.MinValue;
+        object cachedCrowdModules;
+        int cachedCrowdSpawned = -1, cachedCrowdVisible = -1, cachedCrowdSamples = -1, cachedCrowdPresented = -1;
+        string cachedCrowdJson;
+
+        object cachedStatsSession;
+        string cachedStatsRunId = "";
+        long cachedStatsTick = long.MinValue;
+        int cachedStatsHistoryCount = -1;
+        string cachedStatsJson;
+
+        object cachedDisplaysScope;
+        string cachedDisplaysLocale = "";
+        long cachedDisplaysSwaps = -1;
+        long cachedDisplaysTick = long.MinValue;
+        object cachedDisplaysTvs;
+        object cachedDisplaysTracks;
+        object cachedDisplaysEdges;
+        object cachedDisplaysLines;
+        string cachedDisplaysDocName = "";
+        string cachedDisplaysJson;
+
+        public JObject BuildCommitPayload(bool forceFullDocument = false, bool useRawJsonCache = false) {
             using var editSample = StationEditProfiling.Measure("StationEdit.BuildCommitPayload");
+            using var traceSample = StationEditTrace.Measure("Host.BuildCommitPayload");
+            var committedRead = coordinator?.CommittedRead;
+            var previousRead = coordinator?.PreviousCommittedRead;
+            bool canSendDelta = !forceFullDocument &&
+                                committedRead != null &&
+                                previousRead != null &&
+                                ReferenceEquals(committedRead.LocalParent, previousRead) &&
+                                committedRead.LocalDelta != null &&
+                                coordinator.PreviousCommittedRevision >= 0 &&
+                                coordinator.PreviousCommittedRevision < CurrentRevision;
+
+            if (canSendDelta) {
+                var delta = committedRead.LocalDelta;
+                string peekHash = coordinator.PeekSourceHash() ?? "";
+                int hashRev = coordinator.HasCurrentSourceHash ? coordinator.SourceHashRevision : -1;
+
+                var removedCells = new JArray();
+                for (int i = 0; i < delta.RemovedCells.Count; i++) {
+                    var k = delta.RemovedCells[i];
+                    removedCells.Add(new JArray(k.X, k.Y, k.Z));
+                }
+                var changedCells = new JArray();
+                for (int i = 0; i < delta.ChangedCells.Count; i++) {
+                    var rawCell = delta.ChangedCells[i].RawJson;
+                    if (!string.IsNullOrEmpty(rawCell)) changedCells.Add(new JRaw(rawCell));
+                }
+                var removedModules = new JArray();
+                for (int i = 0; i < delta.RemovedModules.Count; i++) {
+                    removedModules.Add(delta.RemovedModules[i]);
+                }
+                var changedModules = new JArray();
+                for (int i = 0; i < delta.ChangedModules.Count; i++) {
+                    var rawMod = delta.ChangedModules[i].RawJson;
+                    if (!string.IsNullOrEmpty(rawMod)) changedModules.Add(new JRaw(rawMod));
+                }
+
+                var deltaObj = new JObject {
+                    ["schemaVersion"] = CommitDeltaSchemaVersion,
+                    ["baseRevision"] = coordinator.PreviousCommittedRevision,
+                    ["revision"] = CurrentRevision,
+                    ["savedAt"] = Document?.SavedAt ?? "",
+                    ["name"] = Document?.Name ?? "",
+                    ["nameEn"] = Document?.NameEn ?? "",
+                    ["city"] = Document?.City ?? "",
+                    ["levelBase"] = Document?.LevelBase ?? 0,
+                    ["storeyHeight"] = Document?.StoreyHeight ?? 5,
+                    ["removedCells"] = removedCells,
+                    ["changedCells"] = changedCells,
+                    ["removedModules"] = removedModules,
+                    ["changedModules"] = changedModules,
+                    ["sourceHash"] = peekHash,
+                    ["sourceHashRevision"] = hashRev,
+                };
+                StationEditTrace.NoteDeltaPayload();
+
+                var deltaPayload = new JObject {
+                    ["delta"] = deltaObj,
+                    ["sourceId"] = CurrentSourceId,
+                    ["sourceHash"] = peekHash,
+                    ["sourceHashRevision"] = hashRev,
+                    ["capabilities"] = router.BuildCapabilities(),
+                };
+                MergeState(deltaPayload, useRawJsonCache);
+                return deltaPayload;
+            }
+
+            string fullHash = CurrentSourceHash;
             var payload = new JObject {
                 ["document"] = Document?.NormalizedJson ?? "",
                 ["documentRevision"] = CurrentRevision,
                 ["sourceId"] = CurrentSourceId,
-                ["sourceHash"] = CurrentSourceHash,
+                ["sourceHash"] = fullHash,
+                ["sourceHashRevision"] = CurrentRevision,
                 ["capabilities"] = router.BuildCapabilities(),
             };
-            MergeState(payload);
+            MergeState(payload, useRawJsonCache);
             return payload;
         }
 
         public JObject BuildStatePayload() {
             var payload = new JObject();
-            MergeState(payload);
+            MergeState(payload, useRawJsonCache: false);
             return payload;
         }
 
-        void MergeState(JObject payload) {
+        bool TryWriteCachedContributorRaw(string key, JObject payload, StationSimulationSession session) {
+            if (string.Equals(key, "crowd", StringComparison.Ordinal)) {
+                if (session == null || cachedCrowdJson == null) return false;
+                var cr = Metro.App.Views.PassengerCrowdRenderer.Current;
+                int sp = cr != null ? cr.Spawned : 0;
+                int vis = cr != null ? cr.VisibleActors : 0;
+                int smp = cr != null ? cr.LastPoseSamples : 0;
+                int prs = cr != null ? cr.LastPresentedPoses : 0;
+                object gateBucket = Index != null ? (object)Index.ModulesOfType("gate") : Document?.ModulePages;
+                if (ReferenceEquals(cachedCrowdSession, session) &&
+                    cachedCrowdTick == session.Tick &&
+                    cachedCrowdEpoch == session.PresentationEpoch &&
+                    cachedCrowdSessionRev == session.SessionRevision &&
+                    ReferenceEquals(cachedCrowdModules, gateBucket) &&
+                    cachedCrowdSpawned == sp && cachedCrowdVisible == vis &&
+                    cachedCrowdSamples == smp && cachedCrowdPresented == prs) {
+                    payload[key] = new JRaw(cachedCrowdJson);
+                    return true;
+                }
+                return false;
+            }
+            if (string.Equals(key, "statistics", StringComparison.Ordinal)) {
+                if (session == null || cachedStatsJson == null) return false;
+                if (ReferenceEquals(cachedStatsSession, session) &&
+                    string.Equals(cachedStatsRunId, session.StatisticsRunId ?? "", StringComparison.Ordinal) &&
+                    cachedStatsTick == session.Statistics.Tick &&
+                    cachedStatsHistoryCount == session.History.Count) {
+                    payload[key] = new JRaw(cachedStatsJson);
+                    return true;
+                }
+                return false;
+            }
+            if (string.Equals(key, "displays", StringComparison.Ordinal)) {
+                if (cachedDisplaysJson == null) return false;
+                var (scope, locale, swaps) = Metro.App.Views.StationDisplayTvArtwork.CurrentScopeFingerprint();
+                long simTick = session != null ? session.Tick : -1;
+                object tvB = Index != null ? (object)Index.ModulesOfType("tv") : Document?.ModulePages;
+                object trkB = Index != null ? (object)Index.ModulesOfType("track") : Document?.ModulePages;
+                object edgB = Index != null ? (object)Index.ModulesOfType("platform-edge") : Document?.ModulePages;
+                if (ReferenceEquals(cachedDisplaysScope, scope) &&
+                    string.Equals(cachedDisplaysLocale, locale, StringComparison.Ordinal) &&
+                    cachedDisplaysSwaps == swaps &&
+                    cachedDisplaysTick == simTick &&
+                    ReferenceEquals(cachedDisplaysTvs, tvB) &&
+                    ReferenceEquals(cachedDisplaysTracks, trkB) &&
+                    ReferenceEquals(cachedDisplaysEdges, edgB) &&
+                    ReferenceEquals(cachedDisplaysLines, Document?.Lines) &&
+                    string.Equals(cachedDisplaysDocName, Document?.Name ?? "", StringComparison.Ordinal)) {
+                    payload[key] = new JRaw(cachedDisplaysJson);
+                    return true;
+                }
+                return false;
+            }
+            return false;
+        }
+
+        void UpdateContributorRawCache(string key, JObject value, StationSimulationSession session) {
+            if (value == null) return;
+            if (string.Equals(key, "crowd", StringComparison.Ordinal) && session != null) {
+                var cr = Metro.App.Views.PassengerCrowdRenderer.Current;
+                cachedCrowdSession = session;
+                cachedCrowdTick = session.Tick;
+                cachedCrowdEpoch = session.PresentationEpoch;
+                cachedCrowdSessionRev = session.SessionRevision;
+                cachedCrowdModules = Index != null ? (object)Index.ModulesOfType("gate") : Document?.ModulePages;
+                cachedCrowdSpawned = cr != null ? cr.Spawned : 0;
+                cachedCrowdVisible = cr != null ? cr.VisibleActors : 0;
+                cachedCrowdSamples = cr != null ? cr.LastPoseSamples : 0;
+                cachedCrowdPresented = cr != null ? cr.LastPresentedPoses : 0;
+                cachedCrowdJson = value.ToString(Formatting.None);
+            } else if (string.Equals(key, "statistics", StringComparison.Ordinal) && session != null) {
+                cachedStatsSession = session;
+                cachedStatsRunId = session.StatisticsRunId ?? "";
+                cachedStatsTick = session.Statistics.Tick;
+                cachedStatsHistoryCount = session.History.Count;
+                cachedStatsJson = value.ToString(Formatting.None);
+            } else if (string.Equals(key, "displays", StringComparison.Ordinal)) {
+                var (scope, locale, swaps) = Metro.App.Views.StationDisplayTvArtwork.CurrentScopeFingerprint();
+                cachedDisplaysScope = scope;
+                cachedDisplaysLocale = locale;
+                cachedDisplaysSwaps = swaps;
+                cachedDisplaysTick = session != null ? session.Tick : -1;
+                cachedDisplaysTvs = Index != null ? (object)Index.ModulesOfType("tv") : Document?.ModulePages;
+                cachedDisplaysTracks = Index != null ? (object)Index.ModulesOfType("track") : Document?.ModulePages;
+                cachedDisplaysEdges = Index != null ? (object)Index.ModulesOfType("platform-edge") : Document?.ModulePages;
+                cachedDisplaysLines = Document?.Lines;
+                cachedDisplaysDocName = Document?.Name ?? "";
+                cachedDisplaysJson = value.ToString(Formatting.None);
+            }
+        }
+
+        void MergeState(JObject payload, bool useRawJsonCache = false) {
             payload["level"] = activeLevel;
             payload["name"] = Document?.Name ?? "";
             payload["speed"] = Simulation?.Speed ?? 1;
@@ -488,22 +697,37 @@ namespace Metro.App {
             // C3: the committed session's own service counts. Nobody is queued or
             // boarded when there is no session, so the empty case is still zero.
             var serviceHost = Simulation as StationSimulationHost;
-            var service = serviceHost != null ? serviceHost.Session?.Services : null;
+            var liveSession = serviceHost != null ? serviceHost.Session : null;
+            var service = liveSession?.Services;
             payload["queued"] = service != null ? service.QueueTotal : 0;
             payload["boarded"] = service != null ? service.Onboard : 0;
-            var clock = SafeObject(Simulation?.ClockPayloadJson());
-            if (clock != null) payload["clock"] = clock;
+            var clockJson = Simulation?.ClockPayloadJson();
+            if (!string.IsNullOrEmpty(clockJson)) {
+                if (useRawJsonCache) payload["clock"] = new JRaw(clockJson);
+                else { var clock = SafeObject(clockJson); if (clock != null) payload["clock"] = clock; }
+            }
             // The clock's sibling: the transports this session honours. A shell that
             // offers Play/speed must read both from the same frame, because a clock
             // alone cannot say whether the host can honour the action (plan 13 §1).
-            var simulationCapabilities = SafeObject(Simulation?.CapabilitiesPayloadJson());
-            if (simulationCapabilities != null) payload["simulationCapabilities"] = simulationCapabilities;
+            var simCapsJson = Simulation?.CapabilitiesPayloadJson();
+            if (!string.IsNullOrEmpty(simCapsJson)) {
+                if (useRawJsonCache) payload["simulationCapabilities"] = new JRaw(simCapsJson);
+                else { var simulationCapabilities = SafeObject(simCapsJson); if (simulationCapabilities != null) payload["simulationCapabilities"] = simulationCapabilities; }
+            }
             for (int i = 0; i < contributors.Count; i++) {
+                string key = contributors[i].Key;
                 try {
+                    if (useRawJsonCache && TryWriteCachedContributorRaw(key, payload, liveSession)) continue;
                     var value = contributors[i].BuildPayload(Document, Index);
-                    if (value != null) payload[contributors[i].Key] = value;
+                    if (value != null) {
+                        if (useRawJsonCache) {
+                            UpdateContributorRawCache(key, value, liveSession);
+                            if (TryWriteCachedContributorRaw(key, payload, liveSession)) continue;
+                        }
+                        payload[key] = value;
+                    }
                 } catch (Exception error) {
-                    payload[contributors[i].Key] = new JObject { ["error"] = error.Message };
+                    payload[key] = new JObject { ["error"] = error.Message };
                 }
             }
             if (payload["camera"] == null && stationCamera != null) payload["camera"] = BuildCameraTransformPayload();

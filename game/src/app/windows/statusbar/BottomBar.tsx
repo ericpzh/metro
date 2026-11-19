@@ -12,7 +12,7 @@ export function BottomBar({ zooStatus }: { zooStatus?: { queued: number; boarded
   useLanguage()
   const m = useStore((s) => s.metrics)
   const stats = useStore((s) => s.stats)
-  const station = useStore((s) => s.station)
+  const cellCount = useStore((s) => s.station.cells.length)
   const setChartsPanel = useStore((s) => s.setChartsPanel)
   return (
     <div className="bottombar">
@@ -45,7 +45,7 @@ export function BottomBar({ zooStatus }: { zooStatus?: { queued: number; boarded
       </div>
       <span className="spacer" />
       <Metric label={t('fps')} value={stats ? stats.fps : '—'} />
-      <Metric label={t('blocks')} value={station.cells.length} />
+      <Metric label={t('blocks')} value={cellCount} />
     </div>
   )
 }
