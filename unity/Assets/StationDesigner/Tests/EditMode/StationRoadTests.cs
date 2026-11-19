@@ -1345,4 +1345,117 @@ public class StationRoadTests {
             UnityEngine.Object.DestroyImmediate(parent);
         }
     }
+
+    [Test]
+    public void RoadMarkingsAndSignalsFollowGroundVisibilityRules() {
+        const string json = @"{
+            ""format"": ""metro-save"",
+            ""formatVersion"": 1,
+            ""levelBase"": 0,
+            ""storeyHeight"": 5,
+            ""static"": {
+                ""cells"": [],
+                ""modules"": [
+                    { ""id"": ""road-ew"", ""type"": ""road"", ""x"": 0, ""y"": 10, ""z"": 0, ""w"": 40, ""d"": 12, ""rot"": 1, ""cfg"": { ""direction"": ""two-way"", ""from"": [0, 16], ""to"": [40, 16] } },
+                    { ""id"": ""road-ns"", ""type"": ""road"", ""x"": 14, ""y"": 0, ""z"": 0, ""w"": 12, ""d"": 32, ""rot"": 0, ""cfg"": { ""direction"": ""two-way"", ""from"": [20, 0], ""to"": [20, 32] } }
+                ]
+            }
+        }";
+        var read = Metro.Persistence.StationDocumentReader.Read(json, Metro.Build.StationSource.None);
+        Assert.NotNull(read.Document);
+        var parent = new GameObject("roads-visibility-world");
+        Metro.App.StationWorldView world = null;
+        Metro.View.StationVisibilityRegistry visibility = null;
+        try {
+            var lit = Shader.Find("Universal Render Pipeline/Lit");
+            var roadRenderer = new StationRoadRenderer();
+            world = new Metro.App.StationWorldView(parent.transform, "roads-visibility-world",
+                new Metro.App.IStationViewRenderer[] { roadRenderer },
+                new Metro.App.StationViewAssets { Shader = lit });
+            world.Build(read.Document, read.Index);
+            world.Activate();
+
+            visibility = new Metro.View.StationVisibilityRegistry(lit);
+            visibility.State.ActiveLevel = 0;
+            visibility.State.ShowLevels = true;
+            Metro.App.StationViewFeature.RegisterWorld(visibility, world);
+
+            var roadTargets = world.Records
+                .Where(r => r.Role == "roads" && r.View != null)
+                .Select(r => r.View.GetComponent<Metro.View.StationVisibilityTarget>())
+                .ToList();
+            Assert.AreEqual(2, roadTargets.Count, "both crossing roads must be registered as visibility targets");
+
+            // Base mode at 0 m: paint colors must be normalized [0, 1] sRGB, matching RoadModel.ts.
+            var whiteRenderer = roadTargets.SelectMany(t => t.Renderers).First(r => r.name == "markings");
+            var yellowRenderer = roadTargets.SelectMany(t => t.Renderers).First(r => r.name == "markings-yellow");
+            var whiteBase = ReadColor(whiteRenderer.sharedMaterial);
+            var yellowBase = ReadColor(yellowRenderer.sharedMaterial);
+            Assert.AreEqual(0xee / 255f, whiteBase.r, 1e-3f, "white marking R");
+            Assert.AreEqual(0xf1 / 255f, whiteBase.g, 1e-3f, "white marking G");
+            Assert.AreEqual(0xf4 / 255f, whiteBase.b, 1e-3f, "white marking B");
+            Assert.AreEqual(0xf7 / 255f, yellowBase.r, 1e-3f, "yellow marking R");
+            Assert.AreEqual(0xc8 / 255f, yellowBase.g, 1e-3f, "yellow marking G");
+            Assert.AreEqual(0x3c / 255f, yellowBase.b, 1e-3f, "yellow marking B");
+            Assert.Greater(roadRenderer.View.SignalsBuilt, 0, "crossing two-way roads must build controlled signal heads");
+
+            // Upper storey (10 m) with ShowLevels ON: roads ghost like other ground objects.
+            visibility.State.ActiveLevel = 10;
+            visibility.Apply();
+            foreach (var target in roadTargets) {
+                Assert.AreEqual(Metro.View.StationDrawMode.Ghost, target.LastMode, "ground road must ghost from 10 m");
+                foreach (var r in target.Renderers) {
+                    Assert.IsTrue(r.enabled, "ghosted road renderer stays enabled: " + r.name);
+                    var c = ReadColor(r.sharedMaterial);
+                    Assert.AreEqual(Metro.View.StationVisibilityPalette.GhostOpacity, c.a, 1e-3f,
+                        "ghosted road renderer must use ghost alpha: " + r.name);
+                    Assert.LessOrEqual(c.r, 1f, "ghosted road R must stay in [0, 1]: " + r.name);
+                    Assert.LessOrEqual(c.g, 1f, "ghosted road G must stay in [0, 1]: " + r.name);
+                    Assert.LessOrEqual(c.b, 1f, "ghosted road B must stay in [0, 1]: " + r.name);
+                }
+            }
+            var whiteGhost = ReadColor(whiteRenderer.sharedMaterial);
+            Assert.Less(whiteGhost.r, 0.7f, "ghosted white markings must be dimmed toward grey");
+
+            // Stepping the traffic clock while ghosted must keep signal lenses ghosted.
+            roadRenderer.Update(0.0);
+            roadRenderer.Update(45.0);
+            foreach (var head in roadRenderer.View.Signals) {
+                foreach (var lens in head.Lenses) {
+                    var c = ReadColor(lens.sharedMaterial);
+                    Assert.AreEqual(Metro.View.StationVisibilityPalette.GhostOpacity, c.a, 1e-3f,
+                        "signal lens must remain ghosted after phase swap");
+                }
+            }
+
+            // ShowLevels OFF at 10 m: ground roads hide.
+            visibility.State.ShowLevels = false;
+            visibility.Apply();
+            foreach (var target in roadTargets) {
+                Assert.AreEqual(Metro.View.StationDrawMode.Hidden, target.LastMode);
+                foreach (var r in target.Renderers) Assert.IsFalse(r.enabled, "road renderer hides when ShowLevels is off");
+            }
+
+            // HideGround ON at 0 m: ground roads hide.
+            visibility.State.ActiveLevel = 0;
+            visibility.State.ShowLevels = true;
+            visibility.State.HideGround = true;
+            visibility.Apply();
+            foreach (var target in roadTargets) {
+                Assert.AreEqual(Metro.View.StationDrawMode.Hidden, target.LastMode);
+                foreach (var r in target.Renderers) Assert.IsFalse(r.enabled, "road renderer hides when HideGround is on");
+            }
+        } finally {
+            visibility?.Dispose();
+            world?.Dispose();
+            UnityEngine.Object.DestroyImmediate(parent);
+        }
+    }
+
+    static Color ReadColor(Material material) {
+        Assert.IsNotNull(material);
+        if (material.HasProperty("_BaseColor")) return material.GetColor("_BaseColor");
+        if (material.HasProperty("_Color")) return material.GetColor("_Color");
+        return material.color;
+    }
 }

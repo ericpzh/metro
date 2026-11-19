@@ -196,8 +196,8 @@ namespace Metro.App.Views {
             var result = new Material[Enum.GetValues(typeof(Paint)).Length];
             result[(int)Paint.Deck] = Owned(lit, new Color(.231f, .247f, .271f), .96f);
             result[(int)Paint.Curb] = Owned(lit, new Color(.60f, .62f, .64f), .85f);
-            result[(int)Paint.White] = Owned(lit, new Color(0xeef1f4 / 255f, 0xeef1f4 / 255f, 0xeef1f4 / 255f), .8f);
-            result[(int)Paint.Yellow] = Owned(lit, new Color(0xf7c83c / 255f, 0xf7c83c / 255f, 0xf7c83c / 255f), .8f);
+            result[(int)Paint.White] = Owned(lit, new Color(0xee / 255f, 0xf1 / 255f, 0xf4 / 255f), .8f);
+            result[(int)Paint.Yellow] = Owned(lit, new Color(0xf7 / 255f, 0xc8 / 255f, 0x3c / 255f), .8f);
             result[(int)Paint.Steel] = Owned(lit, new Color(.718f, .741f, .769f), .55f);
             result[(int)Paint.Dark] = Owned(lit, new Color(.235f, .263f, .298f), .55f);
             result[(int)Paint.Black] = Owned(lit, new Color(.106f, .118f, .141f), .5f);
@@ -451,10 +451,15 @@ namespace Metro.App.Views {
                 if (phase == head.Phase) continue;
                 head.Phase = phase;
                 int active = phase == RoadSignalPhase.Red ? 0 : phase == RoadSignalPhase.Amber ? 1 : 2;
-                for (int lens = 0; lens < 3; lens++)
-                    head.Lenses[lens].sharedMaterial = paints[(int)(lens == active
+                for (int lens = 0; lens < 3; lens++) {
+                    var lensRenderer = head.Lenses[lens];
+                    if (!lensRenderer) continue;
+                    lensRenderer.sharedMaterial = paints[(int)(lens == active
                         ? (Paint)((int)Paint.SignalRed + lens)
                         : Paint.Unlit)];
+                    var target = lensRenderer.GetComponentInParent<Metro.View.StationVisibilityTarget>(true);
+                    if (target != null) target.Recapture(lensRenderer);
+                }
             }
         }
 
