@@ -557,7 +557,7 @@ function printHelp() {
       'Usage: npm start unity [-- --rebuild] [-- --build-only] [-- --port 8787] [-- --configuration Release|Development] [-- --scene StationGameLocal]',
       '',
       'Options:',
-      '  --build-only               Build/pack the latest Unity WebGL preview and update .preview/unity/station-game-local.jsonc without starting Wrangler.',
+      '  --build-only               Build and pack the latest Unity WebGL preview without starting the server.',
       '  --rebuild                  Force an isolated Unity bootstrap + WebGL rebuild even when Unity project inputs match the last verified build.',
       '  --bootstrap                Force scene/catalogue regeneration before building WebGL.',
       '  --port <port>              Local preview port (default: 8787).',
@@ -593,17 +593,9 @@ export async function runUnityDev(argv = process.argv.slice(2)) {
   const packsRoot = join(workspaceDir, 'packs')
   const statePath = join(workspaceDir, 'state.json')
   const wranglerConfigPath = join(previewUnityDir, 'station-game-local.jsonc')
-  const wranglerTempDir = join(previewUnityDir, 'station-game-local-temp')
-  const wranglerPersistDir = join(previewUnityDir, 'station-game-local-worker')
 
   checkNodePin(root)
   const editorPin = readEditorPin(sourceUnityDir)
-  const wranglerPath = process.env.METRO_WRANGLER
-    ? resolve(process.env.METRO_WRANGLER)
-    : join(root, 'node_modules/wrangler/bin/wrangler.js')
-  if (!options.buildOnly && !existsSync(wranglerPath)) {
-    throw new Error('Wrangler CLI not found at node_modules/wrangler/bin/wrangler.js. Run npm ci first.')
-  }
 
   mkdirSync(workspaceDir, { recursive: true })
   const state = readWorkspaceState(statePath)
@@ -800,7 +792,7 @@ export async function runUnityDev(argv = process.argv.slice(2)) {
   // Always pack a fresh bundle so edits in game/src (React UI, styles, sign painter, thumbnails) are immediately live.
   mkdirSync(packsRoot, { recursive: true })
   const packDir = join(packsRoot, `pack-${timestampId()}`)
-  console.log('[unity] Building React UI shell and packing local Worker assets...')
+  console.log('[unity] Building React UI shell and packing WebGL assets...')
   const packResult = spawnSync(process.execPath, [join(root, 'tools/unity-web/pack.mjs'), rawBuildDir, packDir], {
     cwd: root,
     stdio: 'inherit',
@@ -833,26 +825,19 @@ export async function runUnityDev(argv = process.argv.slice(2)) {
 
   if (options.buildOnly) {
     console.log(`[unity] Build ready: ${relative(root, packDir).replaceAll('\\', '/')}`)
-    console.log(`[unity] Wrangler config updated: ${relative(root, wranglerConfigPath).replaceAll('\\', '/')}`)
     return
   }
 
   await releasePreviewPortIfOwned(root, options.ip, options.port)
-  mkdirSync(wranglerTempDir, { recursive: true })
-  mkdirSync(wranglerPersistDir, { recursive: true })
-
-  const baseUrl = `http://${options.ip}:${options.port}`
-  console.log(`[unity] Starting local Cloudflare Worker on ${baseUrl}/game/ ...`)
+  const urlHost = options.ip.includes(':') ? `[${options.ip}]` : options.ip
+  const baseUrl = `http://${urlHost}:${options.port}`
+  console.log(`[unity] Starting local preview on ${baseUrl}/game/ ...`)
   const server = spawn(
     process.execPath,
     [
-      wranglerPath,
-      'dev',
-      '--config',
-      wranglerConfigPath,
-      '--local',
-      '--persist-to',
-      wranglerPersistDir,
+      join(root, 'tools/unity-web/static-pack-server.mjs'),
+      '--pack',
+      packDir,
       '--port',
       String(options.port),
       '--ip',
@@ -862,11 +847,6 @@ export async function runUnityDev(argv = process.argv.slice(2)) {
       cwd: root,
       stdio: 'inherit',
       windowsHide: true,
-      env: {
-        ...process.env,
-        TEMP: wranglerTempDir,
-        TMP: wranglerTempDir,
-      },
     },
   )
 
@@ -880,7 +860,7 @@ export async function runUnityDev(argv = process.argv.slice(2)) {
   process.on('SIGINT', () => stopServer(0))
   process.on('SIGTERM', () => stopServer(0))
   server.on('error', error => {
-    console.error(`[unity] Wrangler error: ${error.message}`)
+    console.error(`[unity] Preview server error: ${error.message}`)
     stopServer(1)
   })
   server.on('exit', code => {
@@ -889,7 +869,7 @@ export async function runUnityDev(argv = process.argv.slice(2)) {
 
   for (let attempt = 0; attempt < 120; attempt++) {
     if (server.exitCode !== null) {
-      throw new Error(`Wrangler exited early with code ${server.exitCode}`)
+      throw new Error(`Preview server exited early with code ${server.exitCode}`)
     }
     try {
       const res = await fetch(`${baseUrl}/game/`)

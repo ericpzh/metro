@@ -44,7 +44,7 @@ Run from the repository root in PowerShell. For day-to-day local WebGL previewin
 
 ```powershell
 npm start unity                  # syncs isolated workspace, builds/reuses verified WebGL, packs latest React UI, serves http://127.0.0.1:8787/game/
-npm run build:unity              # build + pack + update .preview/unity/station-game-local.jsonc without starting Wrangler
+npm run build:unity              # build and pack without starting the preview server
 npm start unity -- --rebuild     # force full isolated Unity bootstrap + WebGL rebuild
 ```
 

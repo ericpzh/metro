@@ -1,18 +1,12 @@
-// A plain Node server for a packed StationGame player (plan 11 local verification).
+// A plain Node server for local previews and verification of a packed StationGame player.
 //
-// `local-worker.mjs` does this as a Cloudflare Worker; wrangler/workerd is the
-// normal host. This server exists because workerd can fail to start in a locked-down
-// Windows environment (`CreateDirectory: Access is denied` for its email store), and
-// the browser verifier only needs the same three things the Worker gives it:
+// It serves the same player routes and assets as `local-worker.mjs`:
 //
 //   * the player page for `/game/`, `/game/en/` and the demo deep links,
 //   * static files under `/game/_unity/...`,
 //   * reassembly of the split `.wasm`/`.data` parts recorded in `manifest.json`.
 //
-// It is byte-for-byte the Worker's routing (see `local-worker.mjs`) without the
-// Worker runtime:
-//
-//   node tools/unity-web/static-pack-server.mjs --pack <pack-dir> [--port 8799]
+//   node tools/unity-web/static-pack-server.mjs --pack <pack-dir> [--port 8799] [--ip 127.0.0.1]
 //
 // or import `createStaticServer(packDir)` and use `{ url, close }`.
 
@@ -61,7 +55,7 @@ function sendFile(res, path, method) {
   return true
 }
 
-export function createStaticServer(packDir, requestedPort = 0) {
+export function createStaticServer(packDir, requestedPort = 0, host = '127.0.0.1') {
   const pack = resolve(packDir)
   const manifest = JSON.parse(readFileSync(join(pack, 'manifest.json'), 'utf8'))
   const indexHtml = readFileSync(join(pack, 'index.html'), 'utf8')
@@ -128,9 +122,10 @@ export function createStaticServer(packDir, requestedPort = 0) {
 
   return new Promise((ok, bad) => {
     server.once('error', bad)
-    server.listen(requestedPort, '127.0.0.1', () => {
+    server.listen(requestedPort, host, () => {
       const { port } = server.address()
-      ok({ url: `http://127.0.0.1:${port}`, port, close: () => server.close() })
+      const urlHost = host.includes(':') ? `[${host}]` : host
+      ok({ url: `http://${urlHost}:${port}`, port, close: () => server.close() })
     })
   })
 }
@@ -140,10 +135,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const pack = arg('--pack')
   const port = Number(arg('--port') ?? 0)
   if (!pack) {
-    console.error('usage: node tools/unity-web/static-pack-server.mjs --pack <pack-dir> [--port 8799]')
+    console.error('usage: node tools/unity-web/static-pack-server.mjs --pack <pack-dir> [--port 8799] [--ip 127.0.0.1]')
     process.exit(2)
   }
-  const { url } = await createStaticServer(pack, port)
+  const { url } = await createStaticServer(pack, port, arg('--ip'))
   console.log(`static pack server: ${url}/game/ (pack ${pack})`)
 }
 

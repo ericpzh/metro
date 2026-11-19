@@ -64,7 +64,7 @@ unity --no-banner --no-pager --format json command --project-path "$PWD/unity" -
 # 4. Isolated WebGL dev/preview pipeline (safe while the live Editor is open on unity/)
 npm run build:unity                  # sync .preview/unity/dev-workspace, reuse/build WebGL (auto StationGameLocalWeb on loopback when passengers exist), pack React UI
 npm run build:unity -- --scene StationGameLocal  # build the single zero-actor StationGameLocal.unity pack
-npm start unity                      # build/reuse + serve http://127.0.0.1:8787/game/ and /game/en/ via Wrangler
+npm start unity                      # build/reuse + serve http://127.0.0.1:8787/game/ and /game/en/ via Node
 npm run preview:unity                # serve latest pack on http://127.0.0.1:8799/game/ via static-pack-server.mjs (no workerd)
 npm start unity -- --rebuild         # force full isolated bootstrap + Release WebGL rebuild
 node tools/unity-web/verify-station-game.mjs .preview/unity/verify-run --packed <pack-dir> --demo zoo --locale both
