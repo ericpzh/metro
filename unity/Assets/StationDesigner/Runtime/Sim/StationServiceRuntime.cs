@@ -115,6 +115,8 @@ namespace Metro.Sim {
             public int DoorNode = -1;
             public string LiftId = "";
             public int LiftBoardNode = -1, LiftDestNode = -1, LiftBoardStop = -1, LiftDestStop = -1;
+            public int LiftPhase, LiftSlot;
+            public bool LiftThresholdDone;
         }
 
         internal sealed class GateFact {
@@ -181,6 +183,7 @@ namespace Metro.Sim {
             public string Id = "";
             public int[] Landings = Array.Empty<int>();
             public double X, Y;
+            public int Size = 2, Rotation;
             public int[] Stops = Array.Empty<int>();
             public readonly List<int> Queue = new List<int>();
             public readonly List<int> Riders = new List<int>();
@@ -282,6 +285,8 @@ namespace Metro.Sim {
         int walkReplans, queueReplans, gateReplans, patienceReplans;
         readonly Dictionary<(int X, int Y, int Z), int> collisionHeads = new Dictionary<(int X, int Y, int Z), int>();
         int[] collisionNext = Array.Empty<int>();
+        readonly Queue<int> detourQueue = new Queue<int>(32);
+        readonly Dictionary<int, int> detourFirstStep = new Dictionary<int, int>(32);
         readonly Dictionary<(int X, int Y, int Z), int> nearbyCrowd = new Dictionary<(int X, int Y, int Z), int>();
         SimulationRng rng;
         uint seed;
@@ -725,38 +730,87 @@ namespace Metro.Sim {
             car.CarStop = stop;
         }
 
-        /// <summary>With the doors open at a stop, let riders out and waiting passengers in.</summary>
-        public void LiftExchange(string liftId, int stop) {
+        /// <summary>True while any rider on this shaft is walking through its open doorway.</summary>
+        public bool IsLiftExchanging(string liftId) {
+            if (string.IsNullOrEmpty(liftId)) return false;
+            for (int i = 0; i < passengers.Count; i++) {
+                var p = passengers[i];
+                if (p.Phase != Phase.LiftRiding) continue;
+                if (p.LiftPhase != 0 && p.LiftPhase != 2) continue;
+                if (string.Equals(p.LiftId, liftId, StringComparison.Ordinal)) return true;
+            }
+            return false;
+        }
+
+        /// <summary>With the doors open at a stop, let riders walk out and waiting passengers walk in.</summary>
+        public void LiftExchange(string liftId, int stop, bool allowBoarding = true) {
             if (liftId == null || !liftById.TryGetValue(liftId, out LiftConnector car)) return;
             if (car.CarDoor < 1 - 1e-9) return;
             for (int i = car.Riders.Count - 1; i >= 0; i--) {
                 var rider = Find(car.Riders[i]);
                 if (rider == null) { car.Riders.RemoveAt(i); continue; }
-                if (rider.LiftDestStop != stop) continue;
+                if (rider.LiftDestStop != stop || rider.LiftPhase != 1) continue;
                 car.Riders.RemoveAt(i);
-                rider.X = graph.NodeX[rider.LiftDestNode];
-                rider.Y = graph.NodeY[rider.LiftDestNode];
-                rider.Z = graph.NodeZ[rider.LiftDestNode];
-                rider.ServerId = "";
-                rider.Segment++;
-                BeginSegment(rider);
+                int destNode = rider.LiftDestNode;
+                double destX = destNode >= 0 && destNode < graph.NodeCount ? graph.NodeX[destNode] : rider.X;
+                double destY = destNode >= 0 && destNode < graph.NodeCount ? graph.NodeY[destNode] : rider.Y;
+                LiftDoorThreshold(car, destX, destY, rider.X, rider.Y, out double doorX, out double doorY);
+                rider.LiftPhase = 2;
+                rider.LiftThresholdDone = false;
+                rider.FromX = doorX;
+                rider.FromY = doorY;
+                rider.ToX = destX;
+                rider.ToY = destY;
+                rider.Activity = StationPassengerActivity.Walk;
+                rider.WalkWeight = 1;
+                rider.ServerId = "lift:" + car.Id;
             }
+            if (!allowBoarding) return;
+            // Let exiting riders clear the doorway before incoming passengers walk in.
+            for (int i = 0; i < passengers.Count; i++) {
+                var p = passengers[i];
+                if (p.Phase == Phase.LiftRiding && p.LiftPhase == 2 &&
+                    string.Equals(p.LiftId, liftId, StringComparison.Ordinal)) return;
+            }
+            const double LiftBoardRadius = 2.2;
             while (car.Riders.Count < LiftBatch) {
                 int at = -1;
                 for (int i = 0; i < car.Queue.Count; i++) {
                     var waiting = Find(car.Queue[i]);
                     if (waiting == null) { car.Queue.RemoveAt(i); i--; continue; }
-                    if (waiting.LiftBoardStop == stop) { at = i; break; }
+                    if (waiting.LiftBoardStop != stop) continue;
+                    if (waiting.LiftBoardNode >= 0 && waiting.LiftBoardNode < graph.NodeCount) {
+                        double bx = graph.NodeX[waiting.LiftBoardNode], by = graph.NodeY[waiting.LiftBoardNode];
+                        double dx = waiting.X - bx, dy = waiting.Y - by;
+                        if (dx * dx + dy * dy > LiftBoardRadius * LiftBoardRadius) continue;
+                        LiftDoorOutward(car, bx, by, out double ox, out double oy);
+                        double frontDepth = (waiting.X - car.X) * ox + (waiting.Y - car.Y) * oy;
+                        if (frontDepth < car.Size * .5 - .1) continue;
+                    }
+                    at = i;
+                    break;
                 }
                 if (at < 0) break;
                 var passenger = Find(car.Queue[at]);
                 car.Queue.RemoveAt(at);
                 if (passenger == null) continue;
+                int slot = PickFreeLiftSlot(car);
+                double boardX = passenger.LiftBoardNode >= 0 && passenger.LiftBoardNode < graph.NodeCount
+                    ? graph.NodeX[passenger.LiftBoardNode] : passenger.X;
+                double boardY = passenger.LiftBoardNode >= 0 && passenger.LiftBoardNode < graph.NodeCount
+                    ? graph.NodeY[passenger.LiftBoardNode] : passenger.Y;
+                LiftDoorThreshold(car, boardX, boardY, passenger.X, passenger.Y, out double doorX, out double doorY);
+                LiftCabinSlot(car, slot, out double slotX, out double slotY);
                 passenger.Phase = Phase.LiftRiding;
-                passenger.Activity = StationPassengerActivity.Lift;
-                passenger.ActivityStart = simTime;
-                passenger.ActivityTotal = 9;
-                passenger.WalkWeight = 0;
+                passenger.LiftPhase = 0;
+                passenger.LiftSlot = slot;
+                passenger.LiftThresholdDone = false;
+                passenger.FromX = doorX;
+                passenger.FromY = doorY;
+                passenger.ToX = slotX;
+                passenger.ToY = slotY;
+                passenger.Activity = StationPassengerActivity.Walk;
+                passenger.WalkWeight = 1;
                 passenger.ServerId = "lift:" + car.Id;
                 car.Riders.Add(passenger.Id);
                 car.Admitted++;
@@ -924,6 +978,7 @@ namespace Metro.Sim {
                 var connector = new LiftConnector {
                     Id = module.Id ?? "", Landings = landings,
                     X = module.X + size * .5, Y = module.Y + size * .5,
+                    Size = size, Rotation = (module.Rot % 4 + 4) % 4,
                     Stops = stops.ToArray(), CarZ = stops[0], CarStop = 0,
                 };
                 staged.Lifts.Add(connector);
@@ -1107,6 +1162,7 @@ namespace Metro.Sim {
             for (int i = 0; i < lifts.Count; i++) {
                 var nl = lifts[i];
                 if (!string.IsNullOrEmpty(nl.Id) && oldLiftsById.TryGetValue(nl.Id, out var ol) &&
+                    ol.Size == nl.Size && ol.Rotation == nl.Rotation &&
                     SameStops(ol.Stops, nl.Stops) &&
                     LiftLandingsMatch(ol, nl, MapOldNode)) {
                     nl.CarZ = ol.CarZ;
@@ -1470,6 +1526,9 @@ namespace Metro.Sim {
             passenger.LiftDestNode = -1;
             passenger.LiftBoardStop = -1;
             passenger.LiftDestStop = -1;
+            passenger.LiftPhase = 0;
+            passenger.LiftSlot = 0;
+            passenger.LiftThresholdDone = false;
             passenger.RideT = 0;
             passenger.RidePath = null;
             passenger.RideTotal = 0;
@@ -1549,6 +1608,11 @@ namespace Metro.Sim {
             passenger.Path = firstSeg;
             passenger.PathIndex = 0;
             passenger.Phase = Phase.Walking;
+            double startGap = firstSeg.Length > 0 && graph != null
+                ? Math.Sqrt((passenger.X - graph.NodeX[firstSeg[0]]) * (passenger.X - graph.NodeX[firstSeg[0]]) +
+                            (passenger.Y - graph.NodeY[firstSeg[0]]) * (passenger.Y - graph.NodeY[firstSeg[0]]))
+                : 0;
+            if (startGap > 0.35) passenger.AlignRouteStart = true;
 
             if (firstSeg.Length <= 1 && segments.Length > 1 && route.Lifts != null && route.Lifts.Length > 0) {
                 string liftId = route.Lifts[0];
@@ -1582,7 +1646,7 @@ namespace Metro.Sim {
                         passenger.GateServer = startGate.Server;
                     }
                 }
-                if (prevPhase == Phase.Queuing && prevServerId.StartsWith("ride:", StringComparison.Ordinal)) {
+                if (prevPhase == Phase.Queuing && prevServerId.StartsWith("ride:", StringComparison.Ordinal) && startGap <= 1.0) {
                     int srv = EdgeServer(startNode, nextNode, out WalkEdgeKind edgeKind);
                     if (srv >= 0 && edgeKind != WalkEdgeKind.Walk && rideByServer.TryGetValue(srv, out RideFact startRide)) {
                         JoinRide(passenger, startRide);
@@ -1745,7 +1809,8 @@ namespace Metro.Sim {
                 }
                 double length = Math.Sqrt(px * px + py * py);
                 if (length < 1e-6) continue;
-                double scale = Math.Min(1, .2 / length);
+                const double separationMax = .6;
+                double scale = Math.Min(1, separationMax / length);
                 double tx = p.X + px * scale, ty = p.Y + py * scale;
                 // Limit each push to a walk connection. A rotated gate, balustrade or missing
                 // support stays solid even when an agent is pushed toward it.
@@ -1755,12 +1820,56 @@ namespace Metro.Sim {
             }
         }
 
-        bool CanPush(int from, double x, double y, int z) {
+        bool CanPush(int from, double x, double y, int z) => CanStepTo(from, x, y, z, -1, -1);
+
+        bool CanStepTo(int from, double x, double y, int z, int allowedNode1, int allowedNode2 = -1) {
             if (!graph.TryNode((int)Math.Floor(x), (int)Math.Floor(y), z, out int to)) return false;
             if (to == from) return true;
-            if (graph.ServerForNode.ContainsKey(to)) return false;
+            if (to != allowedNode1 && to != allowedNode2 && graph.ServerForNode.ContainsKey(to)) return false;
             int edge = Array.IndexOf(graph.AdjTo[from], to);
             return edge >= 0 && graph.AdjKind[from][edge] == (int)WalkEdgeKind.Walk;
+        }
+
+        /// <summary>
+        /// Short bounded BFS over Walk edges to route a queued passenger around a balustrade tip,
+        /// shaft corner or wall when straight-line approach to its landing node is blocked.
+        /// </summary>
+        int NextWalkStepToward(int from, int target, int altTarget = -1) {
+            if (graph == null || from < 0 || (target < 0 && altTarget < 0)) return -1;
+            if (from == target || from == altTarget) return from;
+            detourQueue.Clear();
+            detourFirstStep.Clear();
+            detourFirstStep[from] = from;
+            var firstNeighbors = graph.AdjTo[from];
+            var firstKinds = graph.AdjKind[from];
+            for (int e = 0; e < firstNeighbors.Length; e++) {
+                if (firstKinds[e] != (int)WalkEdgeKind.Walk) continue;
+                int nb = firstNeighbors[e];
+                if (nb == target || nb == altTarget) return nb;
+                if (graph.ServerForNode.ContainsKey(nb)) continue;
+                if (!detourFirstStep.ContainsKey(nb)) {
+                    detourFirstStep[nb] = nb;
+                    detourQueue.Enqueue(nb);
+                }
+            }
+            int expanded = 0;
+            while (detourQueue.Count > 0 && expanded++ < 48) {
+                int cur = detourQueue.Dequeue();
+                int first = detourFirstStep[cur];
+                var neighbors = graph.AdjTo[cur];
+                var kinds = graph.AdjKind[cur];
+                for (int e = 0; e < neighbors.Length; e++) {
+                    if (kinds[e] != (int)WalkEdgeKind.Walk) continue;
+                    int nb = neighbors[e];
+                    if (nb == target || nb == altTarget) return first;
+                    if (graph.ServerForNode.ContainsKey(nb)) continue;
+                    if (!detourFirstStep.ContainsKey(nb)) {
+                        detourFirstStep[nb] = first;
+                        detourQueue.Enqueue(nb);
+                    }
+                }
+            }
+            return -1;
         }
 
         void PriceCrowd() {
@@ -1772,9 +1881,19 @@ namespace Metro.Sim {
                 for (int dy = -2; dy <= 2; dy++) for (int dx = -2; dx <= 2; dx++) {
                     var key = (x + dx, y + dy, z);
                     nearbyCrowd.TryGetValue(key, out int count);
-                    if (count < StationRoutePlanner.CongestionCap) nearbyCrowd[key] = count + 1;
+                    nearbyCrowd[key] = count + 1;
                 }
             }
+        }
+
+        int LocalCrowdCount(double x, double y, double z) {
+            nearbyCrowd.TryGetValue(((int)Math.Floor(x), (int)Math.Floor(y), JsRound(z)), out int count);
+            return Math.Max(0, count - 1);
+        }
+
+        static double DensityDerate(int neighbors) {
+            double m2PerPax = neighbors > 0 ? 12.57 / (neighbors + 1) : 12.57;
+            return Clamp(0.35 + 0.65 * (m2PerPax - 0.2), 0.35, 1.0);
         }
 
         double CongestionAt(int node) {
@@ -1861,9 +1980,15 @@ namespace Metro.Sim {
             return Math.Min(600, seconds + Math.Max(0, gate.Cooldown));
         }
 
+        void SyncServerQueue(int server, int count) {
+            if (graph != null && server >= 0 && server < graph.Servers.Count)
+                graph.Servers[server].QueueCount = count;
+        }
+
         void RegisterGateQueue(Passenger passenger, GateFact gate) {
             ReleaseGateReservation(passenger);
             gate.Queue.Add(passenger.Id);
+            SyncServerQueue(gate.Server, gate.Queue.Count);
             gate.QueuedByDirection[passenger.GateDir + 1]++;
             ResetGatePatience(passenger);
         }
@@ -1926,6 +2051,7 @@ namespace Metro.Sim {
             if (route == null || FirstQueueServer(route.Segments[0]) == gate.Server) return false;
 
             gate.Queue.Remove(passenger.Id);
+            SyncServerQueue(gate.Server, gate.Queue.Count);
             gate.QueuedByDirection[passenger.GateDir + 1]--;
             passenger.GateChosen = false;
             passenger.Phase = Phase.Walking;
@@ -2150,6 +2276,9 @@ namespace Metro.Sim {
                 passenger.LiftBoardNode = node; passenger.LiftDestNode = dest;
                 passenger.LiftBoardStop = boardStop; passenger.LiftDestStop = destStop;
                 passenger.LiftId = liftId;
+                passenger.LiftPhase = 0;
+                passenger.LiftSlot = 0;
+                passenger.LiftThresholdDone = false;
                 passenger.Phase = Phase.LiftQueuing;
                 passenger.ServerId = "lift:" + liftId;
                 passenger.Activity = StationPassengerActivity.Wait;
@@ -2157,7 +2286,10 @@ namespace Metro.Sim {
                 passenger.ActivityTotal = 12;
                 passenger.WalkWeight = 0;
                 car.Queue.Add(passenger.Id);
-                StandAt(passenger, passenger.LiftBoardNode);
+                passenger.StandX = graph.NodeX[node];
+                passenger.StandY = graph.NodeY[node];
+                LiftDoorOutward(car, passenger.StandX, passenger.StandY, out double ox, out double oy);
+                passenger.Heading = Math.Atan2(-oy, -ox);
                 return;
             }
             int endNode = passenger.Path.Length > 0 ? passenger.Path[passenger.Path.Length - 1] : -1;
@@ -2173,6 +2305,7 @@ namespace Metro.Sim {
                     passenger.ActivityTotal = 12;
                     passenger.WalkWeight = 0;
                     door.Queue.Add(passenger.Id);
+                    SyncServerQueue(door.Server, door.Queue.Count);
                     StandAt(passenger, endNode);
                     return;
                 }
@@ -2213,6 +2346,7 @@ namespace Metro.Sim {
                         }
                     }
                     gate.Queue.RemoveAt(at);
+                    SyncServerQueue(gate.Server, gate.Queue.Count);
                     gate.Cooldown += 1 / Math.Max(1e-9, gate.Rate);
                     if (passenger == null) continue;
                     gate.QueuedByDirection[passenger.GateDir + 1]--;
@@ -2282,15 +2416,52 @@ namespace Metro.Sim {
             return mode > 0 ? dir > 0 : dir < 0;
         }
 
+        const double RideApproachRadius = 0.95;
+
+        void RideEntryPoint(RideFact ride, Passenger passenger, out double ex, out double ey, out int entryNode) {
+            ex = graph.NodeX[ride.Node];
+            ey = graph.NodeY[ride.Node];
+            entryNode = ride.Node;
+            if (ride.Columns > 1 && ride.Path != null) {
+                double col = passenger != null && Math.Abs(passenger.RideColumn) > 1e-6 ? passenger.RideColumn : 0;
+                ride.Path.Sample(0, ride.Reverse, col, out double sx, out double sy, out _, out _);
+                int z = JsRound(graph.NodeZ[ride.Node]) - 1;
+                if (graph.TryNode((int)Math.Floor(sx), (int)Math.Floor(sy), z, out int found)) {
+                    ex = sx;
+                    ey = sy;
+                    entryNode = found;
+                }
+            }
+        }
+
+        void RideEntryPoint(RideFact ride, Passenger passenger, out double ex, out double ey) =>
+            RideEntryPoint(ride, passenger, out ex, out ey, out _);
+
         void StepRides() {
             for (int i = 0; i < rides.Count; i++) {
                 var ride = rides[i];
                 if (ride.Rate <= 0) continue;
                 ride.Cooldown -= Dt;
                 while (ride.Cooldown <= 0 && ride.Queue.Count > 0) {
-                    int id = ride.Queue[0];
-                    ride.Queue.RemoveAt(0);
-                    var passenger = Find(id);
+                    int pick = -1;
+                    Passenger passenger = null;
+                    for (int q = 0; q < ride.Queue.Count; q++) {
+                        var candidate = Find(ride.Queue[q]);
+                        if (candidate == null) { pick = q; passenger = null; break; }
+                        RideEntryPoint(ride, candidate, out double ex, out double ey);
+                        double dx = candidate.X - ex, dy = candidate.Y - ey;
+                        if (dx * dx + dy * dy <= RideApproachRadius * RideApproachRadius) {
+                            pick = q;
+                            passenger = candidate;
+                            break;
+                        }
+                    }
+                    if (pick < 0) {
+                        ride.Cooldown = 0;
+                        break;
+                    }
+                    ride.Queue.RemoveAt(pick);
+                    SyncServerQueue(ride.Server, ride.Queue.Count);
                     double offset = Math.Max(-Dt, Math.Min(0, -Dt - ride.Cooldown));
                     ride.Cooldown += 1 / ride.Rate;
                     if (passenger == null) continue;
@@ -2312,7 +2483,12 @@ namespace Metro.Sim {
             passenger.RideTotal = Math.Max(0.2, ride.Ride);
             passenger.RidePath = ride.Path;
             passenger.RideReverse = ride.Reverse;
-            passenger.RideColumn = ride.Columns > 1 ? (ride.Served % 2 == 0 ? -.35 : .35) : 0;
+            if (ride.Columns > 1) {
+                if (Math.Abs(passenger.RideColumn) < 1e-6)
+                    passenger.RideColumn = ride.Served % 2 == 0 ? -.35 : .35;
+            } else {
+                passenger.RideColumn = 0;
+            }
             passenger.FromX = graph.NodeX[ride.Node];
             passenger.FromY = graph.NodeY[ride.Node];
             passenger.FromZ = graph.NodeZ[ride.Node];
@@ -2357,6 +2533,7 @@ namespace Metro.Sim {
                         break;
                     }
                     door.Queue.RemoveAt(0);
+                    SyncServerQueue(door.Server, door.Queue.Count);
                     var passenger = front;
                     if (passenger == null) { door.Cooldown += 1 / door.Rate; continue; }
                     BoardRider(watch, door, passenger);
@@ -2414,7 +2591,10 @@ namespace Metro.Sim {
                 for (int q = 0; q < car.Queue.Count; q++) {
                     var passenger = Find(car.Queue[q]);
                     if (passenger == null) continue;
-                    StandAt(passenger, passenger.LiftBoardNode);
+                    if (passenger.LiftBoardNode >= 0 && passenger.LiftBoardNode < graph.NodeCount) {
+                        passenger.StandX = graph.NodeX[passenger.LiftBoardNode];
+                        passenger.StandY = graph.NodeY[passenger.LiftBoardNode];
+                    }
                 }
             }
         }
@@ -2575,12 +2755,14 @@ namespace Metro.Sim {
             passenger.Phase = Phase.Queuing;
             passenger.Server = ride.Server;
             passenger.ServerId = "ride:" + ride.Server;
+            passenger.RideColumn = ride.Columns > 1 ? ((ride.Served + ride.Queue.Count) % 2 == 0 ? -.35 : .35) : 0;
             passenger.Activity = StationPassengerActivity.Wait;
             passenger.ActivityStart = simTime;
             passenger.ActivityTotal = 12;
             passenger.WalkWeight = 0;
             ride.Queue.Add(passenger.Id);
-            StandAt(passenger, ride.Node);
+            SyncServerQueue(ride.Server, ride.Queue.Count);
+            RideEntryPoint(ride, passenger, out passenger.StandX, out passenger.StandY);
         }
 
         void StepRide(Passenger passenger) {
@@ -2645,24 +2827,318 @@ namespace Metro.Sim {
             BeginRoute(passenger, route);
         }
 
+        int PickFreeLiftSlot(LiftConnector car) {
+            bool[] used = new bool[LiftBatch];
+            for (int i = 0; i < car.Riders.Count; i++) {
+                var r = Find(car.Riders[i]);
+                if (r != null && r.LiftSlot >= 0 && r.LiftSlot < LiftBatch) used[r.LiftSlot] = true;
+            }
+            for (int s = 0; s < LiftBatch; s++) if (!used[s]) return s;
+            return car.Riders.Count % LiftBatch;
+        }
+
+        static void RotateLocal(int rot, double lx, double ly, out double rx, out double ry) {
+            switch ((rot % 4 + 4) % 4) {
+                case 1: rx = -ly; ry = lx; break;
+                case 2: rx = -lx; ry = -ly; break;
+                case 3: rx = ly; ry = -lx; break;
+                default: rx = lx; ry = ly; break;
+            }
+        }
+
+        static void LiftDoorOutward(LiftConnector car, double nodeX, double nodeY, out double ox, out double oy) {
+            RotateLocal(car.Rotation, 0, -1, out double fx, out double fy);
+            double proj = (nodeX - car.X) * fx + (nodeY - car.Y) * fy;
+            if (proj >= 0) { ox = fx; oy = fy; }
+            else { ox = -fx; oy = -fy; }
+        }
+
+        static void LiftDoorThreshold(LiftConnector car, double landingX, double landingY, double fromX, double fromY,
+            out double doorX, out double doorY) {
+            LiftDoorOutward(car, landingX, landingY, out double ox, out double oy);
+            double half = car.Size * .5;
+            double tx = -oy, ty = ox;
+            double lateral = (fromX - car.X) * tx + (fromY - car.Y) * ty;
+            double maxLat = Math.Max(.2, half - .45);
+            lateral = Clamp(lateral, -maxLat, maxLat);
+            doorX = car.X + ox * half + tx * lateral;
+            doorY = car.Y + oy * half + ty * lateral;
+        }
+
+        static void LiftCabinSlot(LiftConnector car, int slot, out double sx, out double sy) {
+            double k = car.Size * .5;
+            double lx, ly;
+            if (slot == 0) {
+                lx = .245 * k;
+                ly = 0;
+            } else {
+                int colIdx = slot % 3;
+                double col = (colIdx == 0 ? -.45 : colIdx == 1 ? 0.0 : .45) * k;
+                int row = (slot / 3) % 4;
+                double rowY = (-.45 + row * .3) * k;
+                lx = col;
+                ly = rowY;
+            }
+            RotateLocal(car.Rotation, lx, ly, out double rx, out double ry);
+            sx = car.X + rx;
+            sy = car.Y + ry;
+        }
+
+        static bool WalkTowardPoint(Passenger passenger, double tx, double ty, double speed, ref double timeLeft) {
+            double dx = tx - passenger.X, dy = ty - passenger.Y;
+            double dist = Math.Sqrt(dx * dx + dy * dy);
+            if (dist < .03) {
+                passenger.X = tx;
+                passenger.Y = ty;
+                return true;
+            }
+            double budget = speed * timeLeft;
+            if (dist <= budget) {
+                passenger.X = tx;
+                passenger.Y = ty;
+                if (speed > 0) timeLeft -= dist / speed;
+                else timeLeft = 0;
+                return true;
+            }
+            double step = budget / dist;
+            passenger.X += dx * step;
+            passenger.Y += dy * step;
+            timeLeft = 0;
+            return false;
+        }
+
+        void LiftFaceDoor(Passenger passenger, LiftConnector car) {
+            int refNode = passenger.LiftDestNode >= 0 && passenger.LiftDestNode < graph.NodeCount
+                ? passenger.LiftDestNode
+                : (passenger.LiftBoardNode >= 0 && passenger.LiftBoardNode < graph.NodeCount ? passenger.LiftBoardNode : -1);
+            if (refNode >= 0) {
+                LiftDoorOutward(car, graph.NodeX[refNode], graph.NodeY[refNode], out double ox, out double oy);
+                passenger.Heading = Math.Atan2(oy, ox);
+            } else {
+                RotateLocal(car.Rotation, 0, -1, out double fx, out double fy);
+                passenger.Heading = Math.Atan2(fy, fx);
+            }
+        }
+
+        void FinishLiftExit(Passenger passenger, double destX, double destY, double destZ) {
+            passenger.X = destX;
+            passenger.Y = destY;
+            passenger.Z = destZ;
+            passenger.LiftId = "";
+            passenger.LiftPhase = 0;
+            passenger.LiftSlot = 0;
+            passenger.LiftThresholdDone = false;
+            passenger.LiftBoardNode = -1;
+            passenger.LiftDestNode = -1;
+            passenger.LiftBoardStop = -1;
+            passenger.LiftDestStop = -1;
+            passenger.ServerId = "";
+            passenger.Activity = StationPassengerActivity.Walk;
+            passenger.WalkWeight = 1;
+            passenger.Segment++;
+            BeginSegment(passenger);
+        }
+
         void StepLiftRide(Passenger passenger) {
-            if (passenger.LiftId == null || !liftById.TryGetValue(passenger.LiftId, out LiftConnector car)) { passenger.Phase = Phase.Walking; return; }
-            int seat = car.Riders.IndexOf(passenger.Id);
-            passenger.X = car.X + (seat % 3 - 1) * .36;
-            passenger.Y = car.Y + (seat / 3 - 2) * .27;
-            passenger.Z = car.CarZ + 1;
-            passenger.WalkWeight = 0;
+            if (passenger.LiftId == null || !liftById.TryGetValue(passenger.LiftId, out LiftConnector car)) {
+                passenger.Phase = Phase.Walking;
+                passenger.LiftPhase = 0;
+                passenger.ServerId = "";
+                return;
+            }
+            if (passenger.LiftPhase == 0) {
+                // Walking into the cabin through the open doorway to the assigned slot.
+                LiftCabinSlot(car, passenger.LiftSlot, out double slotX, out double slotY);
+                if (car.CarDoor < .5) {
+                    passenger.X = slotX;
+                    passenger.Y = slotY;
+                    passenger.Z = car.CarZ + 1;
+                    passenger.LiftPhase = 1;
+                    passenger.Activity = StationPassengerActivity.Lift;
+                    passenger.ActivityStart = simTime;
+                    passenger.ActivityTotal = 9;
+                    passenger.WalkWeight = 0;
+                    LiftFaceDoor(passenger, car);
+                    return;
+                }
+                double startX = passenger.X, startY = passenger.Y;
+                double timeLeft = Dt;
+                bool arrived = false;
+                if (!passenger.LiftThresholdDone) {
+                    if (WalkTowardPoint(passenger, passenger.FromX, passenger.FromY, passenger.Speed, ref timeLeft))
+                        passenger.LiftThresholdDone = true;
+                }
+                if (passenger.LiftThresholdDone && timeLeft > 1e-9) {
+                    arrived = WalkTowardPoint(passenger, slotX, slotY, passenger.Speed, ref timeLeft);
+                } else if (passenger.LiftThresholdDone) {
+                    double dx = slotX - passenger.X, dy = slotY - passenger.Y;
+                    arrived = dx * dx + dy * dy < .04 * .04;
+                }
+                passenger.Z = car.CarZ + 1;
+                double cdx = passenger.X - startX, cdy = passenger.Y - startY;
+                double moved = Math.Sqrt(cdx * cdx + cdy * cdy);
+                passenger.WalkDistance += moved;
+                if (moved > 1e-6) passenger.Heading = Math.Atan2(cdy, cdx);
+                if (arrived) {
+                    passenger.X = slotX;
+                    passenger.Y = slotY;
+                    passenger.LiftPhase = 1;
+                    if (moved > .08) {
+                        // Keep walking animation for the tick the passenger steps into their slot;
+                        // the next tick settles into Lift stance and turns to face the door.
+                        passenger.Activity = StationPassengerActivity.Walk;
+                        passenger.WalkWeight = 1;
+                    } else {
+                        passenger.Activity = StationPassengerActivity.Lift;
+                        passenger.ActivityStart = simTime;
+                        passenger.ActivityTotal = 9;
+                        passenger.WalkWeight = 0;
+                        LiftFaceDoor(passenger, car);
+                    }
+                } else {
+                    passenger.Activity = StationPassengerActivity.Walk;
+                    passenger.WalkWeight = 1;
+                }
+                return;
+            }
+            if (passenger.LiftPhase == 1) {
+                // Riding inside the cabin: pinned to the assigned slot, facing out the door.
+                LiftCabinSlot(car, passenger.LiftSlot, out double slotX, out double slotY);
+                passenger.X = slotX;
+                passenger.Y = slotY;
+                passenger.Z = car.CarZ + 1;
+                LiftFaceDoor(passenger, car);
+                if (passenger.Activity != StationPassengerActivity.Lift) {
+                    passenger.Activity = StationPassengerActivity.Lift;
+                    passenger.ActivityStart = simTime;
+                    passenger.ActivityTotal = 9;
+                }
+                passenger.WalkWeight = 0;
+                return;
+            }
+            // LiftPhase == 2: walking out of the cabin through the open doorway to the landing node.
+            int destNode = passenger.LiftDestNode;
+            double destX = destNode >= 0 && destNode < graph.NodeCount ? graph.NodeX[destNode] : passenger.ToX;
+            double destY = destNode >= 0 && destNode < graph.NodeCount ? graph.NodeY[destNode] : passenger.ToY;
+            double destZ = destNode >= 0 && destNode < graph.NodeCount ? graph.NodeZ[destNode] : car.CarZ + 1;
+            if (car.CarDoor < .5) {
+                FinishLiftExit(passenger, destX, destY, destZ);
+                return;
+            }
+            double exitStartX = passenger.X, exitStartY = passenger.Y;
+            double exitTimeLeft = Dt;
+            bool exited = false;
+            if (!passenger.LiftThresholdDone) {
+                if (WalkTowardPoint(passenger, passenger.FromX, passenger.FromY, passenger.Speed, ref exitTimeLeft))
+                    passenger.LiftThresholdDone = true;
+            }
+            if (passenger.LiftThresholdDone && exitTimeLeft > 1e-9) {
+                exited = WalkTowardPoint(passenger, destX, destY, passenger.Speed, ref exitTimeLeft);
+            } else if (passenger.LiftThresholdDone) {
+                double dx = destX - passenger.X, dy = destY - passenger.Y;
+                exited = dx * dx + dy * dy < .04 * .04;
+            }
+            passenger.Z = destZ;
+            double edx = passenger.X - exitStartX, edy = passenger.Y - exitStartY;
+            double exitMoved = Math.Sqrt(edx * edx + edy * edy);
+            passenger.WalkDistance += exitMoved;
+            if (exitMoved > 1e-6) passenger.Heading = Math.Atan2(edy, edx);
+            passenger.Activity = StationPassengerActivity.Walk;
+            passenger.WalkWeight = 1;
+            if (exited) FinishLiftExit(passenger, destX, destY, destZ);
+        }
+
+        void StepLiftQueue(Passenger passenger) {
+            if (passenger.LiftId == null || !liftById.TryGetValue(passenger.LiftId, out LiftConnector car)) {
+                passenger.Phase = Phase.Walking;
+                passenger.ServerId = "";
+                return;
+            }
+            int rank = 0;
+            for (int i = 0; i < car.Queue.Count && car.Queue[i] != passenger.Id; i++) {
+                var ahead = Find(car.Queue[i]);
+                if (ahead != null && ahead.LiftBoardStop == passenger.LiftBoardStop) rank++;
+            }
+            double tx = passenger.StandX, ty = passenger.StandY;
+            int boardNode = passenger.LiftBoardNode;
+            if (boardNode >= 0 && boardNode < graph.NodeCount) {
+                tx = graph.NodeX[boardNode];
+                ty = graph.NodeY[boardNode];
+                passenger.StandX = tx;
+                passenger.StandY = ty;
+            }
+            LiftDoorOutward(car, tx, ty, out double ox, out double oy);
+            double dx = tx - passenger.X, dy = ty - passenger.Y;
+            double dist = Math.Sqrt(dx * dx + dy * dy);
+            double standoff = rank == 0 ? .12 : .30 + .44 * Math.Sqrt(rank);
+            int z = JsRound(passenger.Z) - 1;
+            bool hasFrom = graph.TryNode((int)Math.Floor(passenger.X), (int)Math.Floor(passenger.Y), z, out int from);
+            bool directReach = !hasFrom || boardNode < 0 || from == boardNode ||
+                Array.IndexOf(graph.AdjTo[from], boardNode) >= 0;
+            if (dist <= standoff && (rank > 0 || directReach)) {
+                passenger.Heading = Math.Atan2(-oy, -ox);
+                if (passenger.Activity == StationPassengerActivity.Walk) {
+                    passenger.Activity = StationPassengerActivity.Wait;
+                    passenger.ActivityStart = simTime;
+                }
+                passenger.WalkWeight = 0;
+                return;
+            }
+            double speed = passenger.Speed * (rank == 0 ? 1.0 : DensityDerate(LocalCrowdCount(passenger.X, passenger.Y, passenger.Z)));
+            double oldX = passenger.X, oldY = passenger.Y;
+            if (directReach && dist > standoff) {
+                double step = Math.Min(speed * Dt, dist - standoff);
+                double nx = passenger.X + dx / dist * step;
+                double ny = passenger.Y + dy / dist * step;
+                if (hasFrom) {
+                    if (CanStepTo(from, nx, ny, z, boardNode)) { passenger.X = nx; passenger.Y = ny; }
+                    else if (CanStepTo(from, nx, oldY, z, boardNode)) passenger.X = nx;
+                    else if (CanStepTo(from, oldX, ny, z, boardNode)) passenger.Y = ny;
+                } else {
+                    passenger.X = nx;
+                    passenger.Y = ny;
+                }
+            }
+            double moved = Math.Sqrt((passenger.X - oldX) * (passenger.X - oldX) + (passenger.Y - oldY) * (passenger.Y - oldY));
+            if (moved <= .08 && hasFrom && boardNode >= 0 && from != boardNode) {
+                int detour = NextWalkStepToward(from, boardNode);
+                if (detour >= 0 && detour != from) {
+                    double ddx = graph.NodeX[detour] - passenger.X, ddy = graph.NodeY[detour] - passenger.Y;
+                    double ddist = Math.Sqrt(ddx * ddx + ddy * ddy);
+                    if (ddist > 1e-6) {
+                        double maxStep = dist > standoff ? Math.Min(speed * Dt, dist - standoff) : speed * Dt;
+                        double step = Math.Min(Math.Max(maxStep, Math.Min(speed * Dt, ddist)), ddist);
+                        passenger.X += ddx / ddist * step;
+                        passenger.Y += ddy / ddist * step;
+                        moved = Math.Sqrt((passenger.X - oldX) * (passenger.X - oldX) + (passenger.Y - oldY) * (passenger.Y - oldY));
+                    }
+                }
+            }
+            passenger.WalkDistance += moved;
+            if (moved > .08) {
+                passenger.Heading = Math.Atan2(passenger.Y - oldY, passenger.X - oldX);
+                passenger.Activity = StationPassengerActivity.Walk;
+                passenger.WalkWeight = 1;
+            } else {
+                passenger.Heading = Math.Atan2(-oy, -ox);
+                if (passenger.Activity == StationPassengerActivity.Walk) {
+                    passenger.Activity = StationPassengerActivity.Wait;
+                    passenger.ActivityStart = simTime;
+                }
+                passenger.WalkWeight = 0;
+            }
         }
 
         void StepQueue(Passenger passenger) {
             if (passenger.Phase == Phase.LiftQueuing) {
-                passenger.X += (passenger.StandX - passenger.X) * Math.Min(1, Dt * 2);
-                passenger.Y += (passenger.StandY - passenger.Y) * Math.Min(1, Dt * 2);
-                if (passenger.LiftBoardNode >= 0)
-                    passenger.Heading = Math.Atan2(graph.NodeY[passenger.LiftBoardNode] - passenger.Y, graph.NodeX[passenger.LiftBoardNode] - passenger.X);
+                StepLiftQueue(passenger);
                 return;
             }
             if (passenger.Server < 0) { passenger.Phase = Phase.Walking; return; }
+            if (rideByServer.TryGetValue(passenger.Server, out var ride)) {
+                StepRideQueue(passenger, ride);
+                return;
+            }
             if (gateByServer.TryGetValue(passenger.Server, out var gate) && passenger.Path.Length > 0) {
                 if (RerouteGateQueue(passenger, gate)) return;
                 GateStance(passenger, gate);
@@ -2686,6 +3162,78 @@ namespace Metro.Sim {
             passenger.X += dx * step;
             passenger.Y += dy * step;
             passenger.WalkDistance += budget;
+        }
+
+        void StepRideQueue(Passenger passenger, RideFact ride) {
+            int rank = ride.Queue.IndexOf(passenger.Id);
+            if (rank < 0) rank = 0;
+            RideEntryPoint(ride, passenger, out double tx, out double ty, out int entryNode);
+            passenger.StandX = tx;
+            passenger.StandY = ty;
+            double dx = tx - passenger.X, dy = ty - passenger.Y;
+            double dist = Math.Sqrt(dx * dx + dy * dy);
+            if (dist > 1e-6) {
+                passenger.Heading = Math.Atan2(dy, dx);
+            } else if (ride.ExitNode >= 0) {
+                passenger.Heading = Math.Atan2(graph.NodeY[ride.ExitNode] - ty, graph.NodeX[ride.ExitNode] - tx);
+            }
+            int frontSlots = Math.Max(1, ride.Columns);
+            double standoff = rank < frontSlots ? 0.08 : 0.24 + 0.44 * Math.Sqrt(rank - frontSlots + 1);
+            int z = JsRound(passenger.Z) - 1;
+            bool hasFrom = graph.TryNode((int)Math.Floor(passenger.X), (int)Math.Floor(passenger.Y), z, out int from);
+            bool directReach = !hasFrom || from == ride.Node || from == entryNode ||
+                Array.IndexOf(graph.AdjTo[from], ride.Node) >= 0 ||
+                (entryNode != ride.Node && Array.IndexOf(graph.AdjTo[from], entryNode) >= 0);
+            bool behindObstacle = !directReach && dist < 1.5;
+            if (dist <= standoff && (directReach || (rank >= frontSlots && !behindObstacle))) {
+                if (passenger.Activity == StationPassengerActivity.Walk) {
+                    passenger.Activity = StationPassengerActivity.Wait;
+                    passenger.ActivityStart = simTime;
+                }
+                passenger.WalkWeight = 0;
+                return;
+            }
+            double speed = passenger.Speed * (rank < frontSlots ? 1.0 : DensityDerate(LocalCrowdCount(passenger.X, passenger.Y, passenger.Z)));
+            double oldX = passenger.X, oldY = passenger.Y;
+            if (directReach && dist > standoff) {
+                double step = Math.Min(speed * Dt, dist - standoff);
+                double nx = passenger.X + dx / dist * step;
+                double ny = passenger.Y + dy / dist * step;
+                if (hasFrom) {
+                    if (CanStepTo(from, nx, ny, z, ride.Node, entryNode)) { passenger.X = nx; passenger.Y = ny; }
+                    else if (CanStepTo(from, nx, oldY, z, ride.Node, entryNode)) passenger.X = nx;
+                    else if (CanStepTo(from, oldX, ny, z, ride.Node, entryNode)) passenger.Y = ny;
+                } else {
+                    passenger.X = nx;
+                    passenger.Y = ny;
+                }
+            }
+            double moved = Math.Sqrt((passenger.X - oldX) * (passenger.X - oldX) + (passenger.Y - oldY) * (passenger.Y - oldY));
+            if (moved <= .08 && hasFrom && from != ride.Node && from != entryNode) {
+                int detour = NextWalkStepToward(from, entryNode, ride.Node);
+                if (detour >= 0 && detour != from) {
+                    double ddx = graph.NodeX[detour] - passenger.X, ddy = graph.NodeY[detour] - passenger.Y;
+                    double ddist = Math.Sqrt(ddx * ddx + ddy * ddy);
+                    if (ddist > 1e-6) {
+                        double step = Math.Min(speed * Dt, ddist);
+                        passenger.X += ddx / ddist * step;
+                        passenger.Y += ddy / ddist * step;
+                        moved = Math.Sqrt((passenger.X - oldX) * (passenger.X - oldX) + (passenger.Y - oldY) * (passenger.Y - oldY));
+                    }
+                }
+            }
+            passenger.WalkDistance += moved;
+            if (moved > .08) {
+                passenger.Heading = Math.Atan2(passenger.Y - oldY, passenger.X - oldX);
+                passenger.Activity = StationPassengerActivity.Walk;
+                passenger.WalkWeight = 1;
+            } else {
+                if (passenger.Activity == StationPassengerActivity.Walk) {
+                    passenger.Activity = StationPassengerActivity.Wait;
+                    passenger.ActivityStart = simTime;
+                }
+                passenger.WalkWeight = 0;
+            }
         }
 
         /// <summary>
@@ -3128,7 +3676,9 @@ namespace Metro.Sim {
                     frame.ActivitySeconds = passenger.RideT;
                     break;
                 case Phase.LiftRiding:
-                    frame.State = StationPassengerState.Riding;
+                    frame.State = passenger.LiftPhase == 1 && passenger.Activity == StationPassengerActivity.Lift
+                        ? StationPassengerState.Riding
+                        : StationPassengerState.Walking;
                     frame.ActivitySeconds = passenger.ActivityTotal > 0 ? Clamp(elapsed, 0, passenger.ActivityTotal) : 0;
                     break;
                 case Phase.TrainRiding:

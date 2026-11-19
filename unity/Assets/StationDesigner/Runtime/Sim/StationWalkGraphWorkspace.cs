@@ -1228,7 +1228,7 @@ namespace Metro.Sim {
                         int id = AddServer(graph, new StationServerFact {
                             Kind = walkway ? "walkway" : "escalator",
                             Label = walkway ? "walkway" : module.Dir == "down" ? "down_escalator" : "up_escalator",
-                            Rate = (walkway ? StationWalkGraphBuilder.WalkwayRate : StationWalkGraphBuilder.EscalatorRate) * Math.Max(1, module.Width),
+                            Rate = (walkway ? StationWalkGraphBuilder.WalkwayRate : StationWalkGraphBuilder.EscalatorRate) * StationWalkGraphBuilder.EffectiveRideWidth(module),
                             Node = a,
                             ExitNode = b,
                             Ride = ride,
@@ -1247,18 +1247,21 @@ namespace Metro.Sim {
                         double horizontal = Math.Sqrt(Pow2(nodeX[a] - nodeX[b]) + Pow2(nodeY[a] - nodeY[b]));
                         double vertical = Math.Abs(nodeZ[a] - nodeZ[b]);
                         double ride = (module.RidePath?.Length ?? Math.Sqrt(horizontal * horizontal + vertical * vertical)) / StationWalkGraphBuilder.StairSpeed;
-                        int width = Math.Max(1, module.Width);
+                        double width = StationWalkGraphBuilder.EffectiveRideWidth(module);
                         bool down = nodeZ[a] > nodeZ[b];
+                        int stairFlights = Math.Max(1, module.StairFlights);
                         int downId = AddServer(graph, new StationServerFact {
                             Kind = "stair", Label = "stairs",
                             Rate = (down ? StationWalkGraphBuilder.StairRateDown : StationWalkGraphBuilder.StairRateUp) * width,
                             Node = a, ExitNode = b, Ride = ride, RidePath = module.RidePath,
+                            StairFlights = stairFlights,
                         });
                         AddVertEdge(a, b, ride, WalkEdgeKind.Stair, downId);
                         int upId = AddServer(graph, new StationServerFact {
                             Kind = "stair", Label = "stairs",
                             Rate = (down ? StationWalkGraphBuilder.StairRateUp : StationWalkGraphBuilder.StairRateDown) * width,
                             Node = b, ExitNode = a, Ride = ride, RidePath = module.RidePath, RideReverse = true,
+                            StairFlights = stairFlights,
                         });
                         AddVertEdge(b, a, ride, WalkEdgeKind.Stair, upId);
                         break;
@@ -1880,11 +1883,8 @@ namespace Metro.Sim {
                     break;
                 }
                 case "lift": {
-                    int size = module.Width >= 3 ? 3 : 2;
-                    obstacles = new List<long>(size * size);
-                    for (int x = module.X; x < module.X + size; x++)
-                        for (int y = module.Y; y < module.Y + size; y++)
-                            obstacles.Add(Pack3(x, y, module.Z));
+                    obstacles = new List<long>();
+                    StationWalkGraphBuilder.LiftBlockedCells(module, (bx, by, bz) => obstacles.Add(Pack3(bx, by, bz)));
                     unported = new List<string>(1) { "lift-stops:" + module.Id };
                     break;
                 }
@@ -1895,12 +1895,19 @@ namespace Metro.Sim {
                     }
                     if (module.HasEndpoints) {
                         contrib.IsServerOrPlatformOrExit = true;
+                        if (module.Type == "escalator") {
+                            var blocked = new List<long>(8);
+                            StationWalkGraphBuilder.EscalatorBlockedLowerCells(module, (bx, by, bz) =>
+                                blocked.Add(Pack3(bx, by, bz)));
+                            if (blocked.Count > 0) obstacles = blocked;
+                        }
                         int widthBlocks = Math.Max(1, module.Width);
                         double half = (StationWalkGraphBuilder.EscalatorBalustrade + (widthBlocks - 1) - 2 * StationWalkGraphBuilder.EscalatorSkirtInset) / 2.0;
-                        double ax = module.FromX + 0.5, ay = module.FromY + 0.5;
                         double dx = module.ToX - module.FromX, dy = module.ToY - module.FromY;
                         double length = Math.Sqrt(dx * dx + dy * dy);
                         if (length >= 1e-6) {
+                            StationWalkGraphBuilder.EscalatorCenterShift(module, widthBlocks, length, out double shiftX, out double shiftY);
+                            double ax = module.FromX + 0.5 + shiftX, ay = module.FromY + 0.5 + shiftY;
                             double ux = dx / length, uy = dy / length;
                             const double extend = 0.6;
                             var rw = new RampWall[2];

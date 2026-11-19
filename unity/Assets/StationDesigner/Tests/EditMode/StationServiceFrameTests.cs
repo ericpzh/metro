@@ -436,6 +436,259 @@ public class StationServiceFrameTests {
     }
 
     [Test]
+    public void StairQueueSpreadsInsteadOfStackingOnOnePoint() {
+        var doc = new StationSessionDocument { StationId = "fixture-stair-queue-spread", LevelBase = 0 };
+        for (int x = 0; x <= 10; x++)
+            for (int y = 0; y <= 8; y++)
+                doc.Cells.Add(Cell(x, y, 0, 2));
+        for (int x = 14; x <= 20; x++)
+            for (int y = 0; y <= 8; y++)
+                doc.Cells.Add(Cell(x, y, 5, 3));
+        doc.Modules.Add(new StationModuleFact { Id = "street", Type = "exit", X = 2, Y = 4, Z = 0, Name = "A" });
+        doc.Modules.Add(new StationModuleFact { Id = "upper", Type = "exit", X = 18, Y = 4, Z = 5, Name = "B" });
+        doc.Modules.Add(new StationModuleFact {
+            Id = "stair-1", Type = "stair", HasEndpoints = true, Width = 1, RideWidth = 0.68,
+            X = 8, Y = 4, Z = 0, FromX = 8, FromY = 4, FromZ = 0, ToX = 16, ToY = 4, ToZ = 5,
+        });
+
+        var session = Session(doc, services: new StationServiceOptions { ExitInRatePerHour = 36000 });
+        Run(session, 50);
+
+        var upStair = session.WalkGraph.Servers.First(s => s.Kind == "stair" && session.WalkGraph.NodeZ[s.Node] < session.WalkGraph.NodeZ[s.ExitNode]);
+        string upId = "ride:" + upStair.Id;
+        var queuing = session.PassengerFrames()
+            .Where(p => p.State == StationPassengerState.Queuing && string.Equals(p.ServerId, upId, StringComparison.Ordinal))
+            .ToArray();
+        Assert.GreaterOrEqual(queuing.Length, 10, "sustained demand forms a visible stair queue");
+        double cx = queuing.Average(p => p.X);
+        double cy = queuing.Average(p => p.Y);
+        double maxRadius = queuing.Max(p => Math.Sqrt((p.X - cx) * (p.X - cx) + (p.Y - cy) * (p.Y - cy)));
+        Assert.Greater(maxRadius, 1.0, "queued passengers must spread out rather than collapsing into a 0.2 m stack");
+
+        var nearest = new List<double>(queuing.Length);
+        for (int i = 0; i < queuing.Length; i++) {
+            double best = double.PositiveInfinity;
+            for (int j = 0; j < queuing.Length; j++) {
+                if (i == j) continue;
+                double d = Math.Sqrt((queuing[i].X - queuing[j].X) * (queuing[i].X - queuing[j].X) +
+                                     (queuing[i].Y - queuing[j].Y) * (queuing[i].Y - queuing[j].Y));
+                if (d < best) best = d;
+            }
+            nearest.Add(best);
+        }
+        nearest.Sort();
+        Assert.Greater(nearest[nearest.Count / 2], 0.35, "median spacing between queued bodies must avoid full overlap");
+        Assert.Greater(upStair.Served, 5, "the stair continues serving the spread queue");
+    }
+
+    [Test]
+    public void EscalatorBlocksLowerTrussWalkThroughAndWideEscalatorAlignsBothLanesWithoutSidewaysSnap() {
+        var json = @"{
+            ""format"": ""metro-save"", ""formatVersion"": 1, ""gameVersion"": ""0.2.0"",
+            ""savedAt"": ""2026-01-01T00:00:00.000Z"", ""name"": ""wide-esc"", ""city"": ""guangzhou"",
+            ""seed"": 7, ""levelBase"": 0, ""storeyHeight"": 5,
+            ""static"": {
+                ""cells"": [" +
+            string.Join(",", Enumerable.Range(0, 16).SelectMany(x => Enumerable.Range(-3, 7).Select(y =>
+                $@"{{""x"":{x},""y"":{y},""z"":0,""fill"":""solid"",""zone"":""unpaid"",""finish"":{{""top"":""floor.concrete""}}}}"))
+                .Concat(Enumerable.Range(10, 8).SelectMany(x => Enumerable.Range(-3, 7).Select(y =>
+                $@"{{""x"":{x},""y"":{y},""z"":5,""fill"":""solid"",""zone"":""paid"",""finish"":{{""top"":""floor.concrete""}}}}")))) + @"],
+                ""modules"": [
+                    {""id"":""exit-a"",""type"":""exit"",""x"":1,""y"":0,""z"":0,""rot"":0,""cfg"":{""name"":""A"",""headHouse"":false}},
+                    {""id"":""exit-b"",""type"":""exit"",""x"":16,""y"":0,""z"":5,""rot"":0,""cfg"":{""name"":""B"",""headHouse"":false}},
+                    {""id"":""esc-wide"",""type"":""escalator"",""x"":4,""y"":0,""z"":0,""rot"":0,
+                     ""from"":{""x"":4,""y"":0,""z"":0},""to"":{""x"":13,""y"":0,""z"":5},
+                     ""cfg"":{""incline"":30,""dir"":""up"",""width"":2}}
+                ],
+                ""lines"": []
+            }
+        }";
+        var read = Metro.Persistence.StationDocumentReader.Read(json, Metro.Build.StationSource.None);
+        var projected = StationSessionProjection.Document(read.Document, read.Index);
+        var esc = projected.Modules.First(m => m.Id == "esc-wide");
+        Assert.AreEqual(2, esc.Width, "width-2 escalator projects cfg.width");
+        Assert.AreEqual(2, esc.RideColumns);
+        Assert.IsNotNull(esc.RidePath);
+
+        // Both columns must run parallel along +X with zero 90-degree entry dogleg.
+        esc.RidePath.Sample(0.0, false, 0.35, out double s0x, out double s0y, out _, out double h0);
+        esc.RidePath.Sample(0.05, false, 0.35, out double s1x, out double s1y, out _, out double h1);
+        Assert.AreEqual(s0y, s1y, 1e-6, "entry segment must stay on its own column without snapping sideways");
+        Assert.AreEqual(0.0, h0, 1e-4, "entry heading must align with +X travel direction");
+        Assert.AreEqual(0.0, h1, 1e-4);
+
+        var opts = new StationWalkGraphOptions { IncludeGround = false };
+        var built = StationWalkGraphBuilder.Build(projected, opts);
+        var workspace = StationWalkGraphBuilder.BuildWorkspace(projected, opts).Graph;
+        Assert.AreEqual(built.NodeCount, workspace.NodeCount, "builder and workspace agree on blocked lower escalator cells");
+        Assert.AreEqual(StationWalkGraphBuilder.EscalatorRate * 2, built.Servers.First(s => s.Kind == "escalator").Rate, 1e-6);
+
+        // Lower-floor interior cells under the solid lower steps (x=5..7, y=0 and y=-1) are blocked.
+        Assert.IsTrue(workspace.TryNode(4, 0, 0, out int lane0), "lower landing lane 0 remains walkable");
+        Assert.IsTrue(workspace.TryNode(4, -1, 0, out int lane1), "lower landing lane 1 remains walkable");
+        Assert.IsTrue(Array.IndexOf(workspace.AdjTo[lane0], lane1) >= 0, "lane 0 and lane 1 are connected inside the balustrade");
+        Assert.IsFalse(workspace.TryNode(5, 0, 0, out _), "solid lower truss cell (5,0,0) is not walkable");
+        Assert.IsFalse(workspace.TryNode(5, -1, 0, out _), "solid lower truss lane 2 cell (5,-1,0) is not walkable");
+        // Outer balustrade walls enclose both lanes (blocking sideways step into y=+1 or y=-2).
+        Assert.IsTrue(workspace.TryNode(4, 1, 0, out int outsideNorth));
+        Assert.IsTrue(workspace.TryNode(4, -2, 0, out int outsideSouth));
+        Assert.Less(Array.IndexOf(workspace.AdjTo[lane0], outsideNorth), 0, "north balustrade blocks sideways walk");
+        Assert.Less(Array.IndexOf(workspace.AdjTo[lane1], outsideSouth), 0, "south balustrade blocks sideways walk");
+
+        // Run live passengers across the wide escalator: no passenger may jump > 1.35 m when starting the ride.
+        var session = Session(projected, services: new StationServiceOptions { ExitInRatePerHour = 36000 });
+        var prev = new Dictionary<int, StationPassengerFrame>();
+        int started = 0;
+        Run(session, 80, frame => {
+            foreach (var cur in frame.Passengers) {
+                if (prev.TryGetValue(cur.SimId, out var prior) &&
+                    cur.State == StationPassengerState.Riding &&
+                    prior.State != StationPassengerState.Riding &&
+                    cur.ServerId.StartsWith("ride:", StringComparison.Ordinal)) {
+                    double d = Math.Sqrt((cur.X - prior.X) * (cur.X - prior.X) + (cur.Y - prior.Y) * (cur.Y - prior.Y));
+                    Assert.LessOrEqual(d, 1.4, "escalator start must not teleport passenger " + cur.SimId + " (d=" + d.ToString("F2") + ")");
+                    started++;
+                }
+            }
+            prev.Clear();
+            foreach (var cur in frame.Passengers) prev[cur.SimId] = cur;
+        });
+        Assert.Greater(started, 10, "passengers rode the wide escalator smoothly");
+    }
+
+    [Test]
+    public void SideBySideEscalatorQueueDetoursAroundBalustradeInsteadOfGettingStuck() {
+        // Three adjacent width-1 escalators side by side (like a 3-lane bank with separating
+        // balustrades): heavy crowd separation must never trap queued passengers on the wrong
+        // side of a neighboring balustrade.
+        var doc = new StationSessionDocument { StationId = "fixture-side-by-side-escalators", LevelBase = 0 };
+        for (int x = 0; x <= 10; x++)
+            for (int y = 0; y <= 14; y++) {
+                doc.Cells.Add(Cell(x, y, 0, 2));
+                doc.Cells.Add(Cell(x, y, -5, 3));
+            }
+        doc.Modules.Add(new StationModuleFact { Id = "exit-top", Type = "exit", X = 5, Y = 12, Z = 0, Name = "A" });
+        doc.Modules.Add(new StationModuleFact { Id = "exit-bot", Type = "exit", X = 5, Y = 1, Z = -5, Name = "B" });
+        for (int lane = 0; lane < 3; lane++) {
+            int lx = 4 + lane;
+            var path = new StationRidePath(new[] {
+                (lx + 0.5, 4.5, -4.0),
+                (lx + 0.5, 5.0, -4.0),
+                (lx + 0.5, 9.0, 1.0),
+                (lx + 0.5, 9.5, 1.0),
+            });
+            doc.Modules.Add(new StationModuleFact {
+                Id = "esc-" + lane, Type = "escalator", X = lx, Y = 4, Z = -5, Width = 1, Depth = 1,
+                RideWidth = 1, RideColumns = 1,
+                HasEndpoints = true, FromX = lx, FromY = 4, FromZ = -5, ToX = lx, ToY = 9, ToZ = 0,
+                Dir = "up", RidePath = path,
+            });
+        }
+        var setup = Setup(doc, PeakDay(24), 0, services: new StationServiceOptions { ExitInRatePerHour = 18000 });
+        var session = new StationSimulationSession(setup);
+        var graph = session.WalkGraph;
+
+        var stallTicks = new Dictionary<int, int>();
+        var prevPos = new Dictionary<int, (double x, double y, string srv)>();
+        int maxStallBehindBalustrade = 0;
+        int rodeCount = 0;
+
+        Run(session, 140, frame => {
+            var alive = new HashSet<int>();
+            foreach (var p in frame.Passengers) {
+                alive.Add(p.SimId);
+                if (p.State == StationPassengerState.Riding && p.ServerId.StartsWith("ride:", StringComparison.Ordinal)) {
+                    rodeCount++;
+                    stallTicks.Remove(p.SimId);
+                    prevPos.Remove(p.SimId);
+                    continue;
+                }
+                if (p.State == StationPassengerState.Queuing && p.ServerId.StartsWith("ride:", StringComparison.Ordinal)) {
+                    int sid = int.Parse(p.ServerId.Substring(5));
+                    var srv = graph.Servers[sid];
+                    int z = StationServiceRuntime.JsRound(p.Z) - 1;
+                    bool behindWall = graph.TryNode((int)Math.Floor(p.X), (int)Math.Floor(p.Y), z, out int from) &&
+                        from != srv.Node && Array.IndexOf(graph.AdjTo[from], srv.Node) < 0;
+                    if (behindWall && prevPos.TryGetValue(p.SimId, out var lp) && lp.srv == p.ServerId &&
+                        Math.Sqrt((p.X - lp.x) * (p.X - lp.x) + (p.Y - lp.y) * (p.Y - lp.y)) < 0.05) {
+                        int n = stallTicks.TryGetValue(p.SimId, out int held) ? held + 1 : 1;
+                        stallTicks[p.SimId] = n;
+                        if (n > maxStallBehindBalustrade) maxStallBehindBalustrade = n;
+                    } else {
+                        stallTicks[p.SimId] = 0;
+                    }
+                    prevPos[p.SimId] = (p.X, p.Y, p.ServerId);
+                } else {
+                    stallTicks.Remove(p.SimId);
+                    prevPos.Remove(p.SimId);
+                }
+            }
+            foreach (int id in stallTicks.Keys.Where(id => !alive.Contains(id)).ToList()) {
+                stallTicks.Remove(id);
+                prevPos.Remove(id);
+            }
+        });
+
+        Assert.Greater(rodeCount, 20, "passengers should ride the side-by-side escalator bank");
+        Assert.Less(maxStallBehindBalustrade, 10,
+            "queued passengers pushed beside a neighboring balustrade must detour around its tip instead of stalling");
+    }
+
+    [Test]
+    public void MultiFlightSwitchbackStairCarriesWebPerFlightAvoidancePenaltyOverEmptyEscalator() {
+        // Mirror the web graph where a 2-flight switchback stair creates two KIND_STAIR edges
+        // (2 x STAIR_AVOID_S = 64 s) so walkers prefer an empty escalator ~15 m away instead of
+        // crowding onto the switchback stair beside the fare gates.
+        var doc = new StationSessionDocument { StationId = "fixture-switchback-vs-escalator", LevelBase = 0 };
+        for (int x = 0; x <= 22; x++)
+            for (int y = 0; y <= 12; y++) {
+                doc.Cells.Add(Cell(x, y, -5, 3));
+                doc.Cells.Add(Cell(x, y, 0, 2));
+            }
+        doc.Modules.Add(new StationModuleFact { Id = "exit-bot", Type = "exit", X = 18, Y = 2, Z = -5, Name = "A" });
+        doc.Modules.Add(new StationModuleFact { Id = "exit-top", Type = "exit", X = 18, Y = 8, Z = 0, Name = "B" });
+        // Switchback stair right beside the entry/exit on the right (x=18), 2 flights -> 2 x 32 s = 64 s penalty.
+        doc.Modules.Add(new StationModuleFact {
+            Id = "stair-sb", Type = "stair", X = 18, Y = 4, Z = -5, Width = 2, Depth = 2,
+            RideWidth = 1.79, StairFlights = 2,
+            HasEndpoints = true, FromX = 18, FromY = 4, FromZ = -5, ToX = 18, ToY = 6, ToZ = 0,
+            RidePath = new StationRidePath(new[] {
+                (18.5, 4.5, -4.0), (22.5, 4.5, -1.5), (22.5, 6.5, -1.5), (18.5, 6.5, 1.0),
+            }),
+        });
+        // Up escalator ~14 m to the left (x=4).
+        doc.Modules.Add(new StationModuleFact {
+            Id = "esc-left", Type = "escalator", X = 4, Y = 2, Z = -5, Width = 1, Depth = 1,
+            RideWidth = 1, RideColumns = 1,
+            HasEndpoints = true, FromX = 4, FromY = 2, FromZ = -5, ToX = 4, ToY = 11, ToZ = 0,
+            Dir = "up",
+        });
+
+        var opts = new StationWalkGraphOptions { IncludeGround = false };
+        var built = StationWalkGraphBuilder.Build(doc, opts);
+        var ws = StationWalkGraphBuilder.BuildWorkspace(doc, opts).Graph;
+        Assert.AreEqual(2, built.Servers.First(s => s.Kind == "stair").StairFlights);
+        Assert.AreEqual(2, ws.Servers.First(s => s.Kind == "stair").StairFlights);
+
+        var planner = new StationRoutePlanner(ws);
+        Assert.IsTrue(ws.TryNode(18, 2, -5, out int start));
+        Assert.IsTrue(ws.TryNode(18, 8, 0, out int goal));
+        var route = planner.Search(start, goal, StationRouteNeeds.Walking);
+        Assert.IsTrue(route.Found);
+        Assert.IsTrue(route.Kinds.Contains(WalkEdgeKind.Escalator),
+            "2-flight switchback stair (+64 s) must yield to the nearby empty escalator, matching web routing");
+        Assert.IsFalse(route.Kinds.Contains(WalkEdgeKind.Stair));
+
+        // Also verify Zoo's authored switchback stairs project StairFlights = 2.
+        string zooPath = Path.Combine(Application.dataPath, "StationDesigner/Demos/zoo.metro.json");
+        var zooRead = Metro.Persistence.StationDocumentReader.Read(File.ReadAllText(zooPath), Metro.Build.StationSource.None);
+        var zooDoc = StationSessionProjection.Document(zooRead.Document, zooRead.Index);
+        Assert.AreEqual(2, zooDoc.Modules.First(m => m.Id == "stair-right180-4075").StairFlights);
+        Assert.AreEqual(2, zooDoc.Modules.First(m => m.Id == "stair-right180-4291").StairFlights);
+        Assert.AreEqual(1, zooDoc.Modules.First(m => m.Id == "stair-straight-4061").StairFlights);
+    }
+
+    [Test]
     public void ZooSwitchbackRouteFollowsBothFlightsAndFractionalLanding() {
         string path = Path.Combine(Application.dataPath, "StationDesigner/Demos/zoo.metro.json");
         var source = Metro.Persistence.StationDocumentReader.Read(File.ReadAllText(path), Metro.Build.StationSource.None);
@@ -817,6 +1070,67 @@ public class StationServiceFrameTests {
         Assert.IsTrue(sawUpperStop, "the car travelled to the landing that called it");
         Assert.IsTrue(sawRider, "a passenger rode the car");
         Assert.Greater(session.Services.Boarded, 0, "and the lift delivered the crowd to the platform, where it boarded");
+    }
+
+    [Test]
+    public void LiftPassengersWalkIntoAndOutOfCabinInsteadOfTeleporting() {
+        var session = Session(LiftOnlyDocument(), 0);
+        var prevById = new Dictionary<int, StationPassengerFrame>();
+        var walkedIntoCab = new HashSet<int>();
+        var rodeCab = new HashSet<int>();
+        var walkedOutOfCab = new HashSet<int>();
+        int teleportsIntoLift = 0;
+        int teleportsOutOfLift = 0;
+        string lastOutDiag = "";
+
+        for (int tick = 1; tick <= 120; tick++) {
+            session.Advance(1.0);
+            var frame = session.Snapshot();
+            var lift = frame.Lifts[0];
+            var curIds = new HashSet<int>();
+            for (int i = 0; i < frame.Passengers.Length; i++) {
+                var p = frame.Passengers[i];
+                curIds.Add(p.SimId);
+                bool insideCab = p.X >= 5.0 && p.X <= 7.0 && p.Y >= 5.0 && p.Y <= 7.0;
+                if (prevById.TryGetValue(p.SimId, out var prev)) {
+                    bool prevInside = prev.X >= 5.0 && prev.X <= 7.0 && prev.Y >= 5.0 && prev.Y <= 7.0;
+                    double dxy = Math.Sqrt((p.X - prev.X) * (p.X - prev.X) + (p.Y - prev.Y) * (p.Y - prev.Y));
+                    if (!prevInside && insideCab) {
+                        // Entering the cab: must walk in while doors are open, never snap straight to Lift stance.
+                        Assert.GreaterOrEqual(lift.DoorFraction, 1.0 - 1e-6, "boarding must happen with lift doors open");
+                        if (p.Activity != StationPassengerActivity.Walk || p.WalkWeight <= 0.5 ||
+                            p.WalkDistance <= prev.WalkDistance + 0.05 || dxy > 2.1) {
+                            teleportsIntoLift++;
+                        } else {
+                            walkedIntoCab.Add(p.SimId);
+                        }
+                    }
+                    if (prevInside && !insideCab) {
+                        // Exiting the cab: must walk out through the open doorway, never snap onto the landing.
+                        if (p.Activity != StationPassengerActivity.Walk || p.WalkWeight <= 0.5 ||
+                            p.WalkDistance <= prev.WalkDistance + 0.05 || dxy > 2.1) {
+                            teleportsOutOfLift++;
+                            lastOutDiag = $"t={tick} id={p.SimId} act={p.Activity} w={p.WalkWeight:F2} dWalk={p.WalkDistance - prev.WalkDistance:F2} dxy={dxy:F2}";
+                        } else {
+                            walkedOutOfCab.Add(p.SimId);
+                        }
+                    }
+                }
+                if (p.Activity == StationPassengerActivity.Lift && p.State == StationPassengerState.Riding) {
+                    Assert.IsTrue(insideCab, "a settled lift rider stands inside the cabin");
+                    rodeCab.Add(p.SimId);
+                }
+                prevById[p.SimId] = p;
+            }
+            var gone = prevById.Keys.Where(id => !curIds.Contains(id)).ToList();
+            for (int g = 0; g < gone.Count; g++) prevById.Remove(gone[g]);
+        }
+
+        Assert.Greater(rodeCab.Count, 0, "passengers rode the lift");
+        Assert.AreEqual(0, teleportsIntoLift, "no passenger may teleport into the lift cab without walking");
+        Assert.AreEqual(0, teleportsOutOfLift, "no passenger may teleport out of the lift cab without walking (" + lastOutDiag + ")");
+        Assert.IsTrue(rodeCab.IsSubsetOf(walkedIntoCab), "every lift rider walked into the cab before riding");
+        Assert.Greater(walkedOutOfCab.Count, 0, "passengers visibly walked out of the cab on arrival");
     }
 
     // --------------------------------------------------------------- no route

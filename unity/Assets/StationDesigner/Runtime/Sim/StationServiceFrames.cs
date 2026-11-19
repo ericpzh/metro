@@ -43,6 +43,8 @@ namespace Metro.Sim {
         readonly (double X, double Y, double Z)[] points;
         readonly double[] distances;
         public double Length => distances[distances.Length - 1];
+        public double StartZ => points[0].Z;
+        public double EndZ => points[points.Length - 1].Z;
 
         public StationRidePath((double X, double Y, double Z)[] points) {
             if (points == null || points.Length < 2) throw new ArgumentException("A ride needs two or more points.", nameof(points));
@@ -77,7 +79,7 @@ namespace Metro.Sim {
 
         (double X, double Y, double Z) Point(int i, double column) {
             var p = points[i];
-            if (column == 0 || i == 0 || i == points.Length - 1) return p;
+            if (column == 0) return p;
             var a = points[0]; var b = points[points.Length - 1];
             double dx = b.X - a.X, dy = b.Y - a.Y;
             double run = System.Math.Sqrt(dx * dx + dy * dy);

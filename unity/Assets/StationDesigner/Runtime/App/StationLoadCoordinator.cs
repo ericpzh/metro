@@ -720,8 +720,17 @@ namespace Metro.App {
             }
             if (fact.HasEndpoints && (fact.Type == "stair" || fact.Type == "escalator" || fact.Type == "walkway")) {
                 fact.RidePath = RampWalkingLine(module, exits);
-                if (fact.Type != "stair")
-                    fact.RideColumns = StationRunGeometry.EscalatorWidth(module.Facts) > 1 ? 2 : 1;
+                if (fact.Type != "stair") {
+                    int escWidth = StationRunGeometry.EscalatorWidth(module.Facts);
+                    fact.Width = escWidth;
+                    fact.RideWidth = escWidth;
+                    fact.RideColumns = escWidth > 1 ? 2 : 1;
+                } else {
+                    double stairWidth = cfg.Number("width", StationRunGeometry.EscalatorBand);
+                    fact.RideWidth = stairWidth > 0 ? stairWidth : Math.Max(1, module.Width);
+                    fact.Width = StationRunGeometry.StairRunBlocks(StationRunGeometry.StairTreadWidth(module.Facts));
+                    fact.StairFlights = Math.Max(1, StationRunGeometry.StairFlights(module.Facts).Count);
+                }
             }
             return fact;
         }
@@ -737,8 +746,8 @@ namespace Metro.App {
 
             var start = new StationRunPoint(m.From.X, m.From.Y, m.From.Z);
             var end = new StationRunPoint(m.To.X, m.To.Y, m.To.Z);
-            Add(start);
             if (module.Type == "stair") {
+                Add(start);
                 var flights = StationRunGeometry.StairFlights(m);
                 var slides = StationRunGeometry.StairFlightSlides(m, flights);
                 for (int i = 0; i < flights.Count; i++) {
@@ -756,6 +765,7 @@ namespace Metro.App {
                     Add(new StationRunPoint(b.X + slide.X - dx * trim, b.Y + slide.Y - dy * trim, b.Z), liftB);
                     Add(new StationRunPoint(b.X + slide.X, b.Y + slide.Y, b.Z), liftB);
                 }
+                Add(end);
             } else {
                 double liftA = StationRampOpenings.ExitLandingHeight(exits, start);
                 double liftB = StationRampOpenings.ExitLandingHeight(exits, end);
@@ -766,7 +776,6 @@ namespace Metro.App {
                 Add(innerB, liftB);
                 Add(b, liftB);
             }
-            Add(end);
             return points.Count > 1 ? new StationRidePath(points.ToArray()) : null;
         }
 

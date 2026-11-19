@@ -236,8 +236,13 @@ namespace Metro.App.Views {
         }
 
         public bool Resolve(in PassengerPose pose, StationLevelGrid grid, TrainConsistRenderer trainRenderer,
-            out int band, out bool gradeOwned) {
+            out int band, out bool gradeOwned) =>
+            Resolve(in pose, grid, trainRenderer, out band, out _, out gradeOwned);
+
+        public bool Resolve(in PassengerPose pose, StationLevelGrid grid, TrainConsistRenderer trainRenderer,
+            out int band, out int secondBand, out bool gradeOwned) {
             band = 0;
+            secondBand = 0;
             gradeOwned = false;
             if (!pose.Visible) return false;
 
@@ -258,6 +263,7 @@ namespace Metro.App.Views {
                         } else {
                             band = StationModuleLevels.Band(grid, Math.Floor(pose.Z - 1.0 + 1e-3));
                         }
+                        secondBand = band;
                         gradeOwned = false;
                         return true;
                     }
@@ -267,15 +273,29 @@ namespace Metro.App.Views {
                         if (tracksById.TryGetValue(trackId, out var track) && track != null) {
                             var trackBands = StationModuleLevels.Of(track, grid);
                             band = trackBands.Length > 0 ? trackBands[0] : StationModuleLevels.Band(grid, track.Z);
+                            secondBand = band;
                             gradeOwned = false;
                             return true;
                         }
                     }
                 } else if (pose.ServerId.StartsWith("lift:", StringComparison.Ordinal)) {
                     band = StationModuleLevels.Band(grid, Math.Floor(pose.Z + 1e-3));
+                    secondBand = band;
                     gradeOwned = false;
                     return true;
                 }
+            }
+
+            // A passenger riding an escalator, stair or walkway spans the same storey bands as
+            // the ramp module itself (StationModuleLevels.Of), so riders remain visible for the
+            // full length of a visible ramp instead of popping in mid-ride.
+            if (pose.State == StationPassengerState.Riding && pose.RidePath != null) {
+                int b0 = StationModuleLevels.Band(grid, Math.Floor(pose.RidePath.StartZ - 1.0 + 1e-3));
+                int b1 = StationModuleLevels.Band(grid, Math.Floor(pose.RidePath.EndZ - 1.0 + 1e-3));
+                band = b0 <= b1 ? b0 : b1;
+                secondBand = b0 <= b1 ? b1 : b0;
+                gradeOwned = false;
+                return true;
             }
 
             int fx = (int)Math.Floor(pose.X);
@@ -287,6 +307,7 @@ namespace Metro.App.Views {
             }
 
             band = StationModuleLevels.Band(grid, supportZ);
+            secondBand = band;
             if (supportZ == StationViewFeature.GroundZ) {
                 gradeOwned = !IsNonGradeGroundAt(fx, fy);
             } else {
@@ -338,7 +359,9 @@ namespace Metro.App.Views {
         public bool Registered;
 
         internal readonly int[] BandSlot = new int[1];
+        internal readonly int[] BandPair = new int[2];
         internal int LastBand = int.MinValue;
+        internal int LastSecondBand = int.MinValue;
         internal bool LastGradeOwned;
         internal bool TargetBound;
         internal bool ActiveInFrame;
@@ -496,6 +519,7 @@ namespace Metro.App.Views {
                 pooled.Look = PassengerAppearance.Look(catalogue, pose.SimId, pose.Detail);
                 pooled.Registered = false;
                 pooled.LastBand = int.MinValue;
+                pooled.LastSecondBand = int.MinValue;
                 pooled.LastGradeOwned = false;
                 pooled.LastToneMode = (StationDrawMode)(-1);
                 ClearToneBlock(pooled);
@@ -560,18 +584,20 @@ namespace Metro.App.Views {
             seen.Add(actor.SimId);
 
             int band = 0;
+            int secondBand = 0;
             bool gradeOwned = false;
             if (world != null) {
                 var grid = world.Visibility != null
                     ? world.Visibility.State.Grid
                     : StationLevelGrid.FromDocument(world.Document?.LevelBase ?? 0, world.Document?.StoreyHeight ?? 5);
                 if (supportResolver != null) {
-                    if (!supportResolver.Resolve(in pose, grid, TrainConsistRenderer.Current, out band, out gradeOwned)) {
+                    if (!supportResolver.Resolve(in pose, grid, TrainConsistRenderer.Current, out band, out secondBand, out gradeOwned)) {
                         HideActor(actor);
                         return;
                     }
                 } else {
                     band = StationModuleLevels.Band(grid, Math.Floor(pose.Z - 1.0 + 1e-3));
+                    secondBand = band;
                     gradeOwned = Math.Floor(pose.Z - 1.0 + 1e-3) == StationViewFeature.GroundZ;
                 }
             }
@@ -627,13 +653,20 @@ namespace Metro.App.Views {
                 bool wasActive = actor.ActiveInFrame;
                 actor.ActiveInFrame = true;
                 bool dirty = !actor.TargetBound || !wasActive || actor.Target.Parked ||
-                    actor.LastBand != band || actor.LastGradeOwned != gradeOwned ||
+                    actor.LastBand != band || actor.LastSecondBand != secondBand || actor.LastGradeOwned != gradeOwned ||
                     (world.Visibility != null && world.Visibility.SectionClipping);
-                actor.BandSlot[0] = band;
-                actor.Target.levels = actor.BandSlot;
+                if (secondBand != band) {
+                    actor.BandPair[0] = band;
+                    actor.BandPair[1] = secondBand;
+                    actor.Target.levels = actor.BandPair;
+                } else {
+                    actor.BandSlot[0] = band;
+                    actor.Target.levels = actor.BandSlot;
+                }
                 actor.Target.gradeOwned = gradeOwned;
                 actor.Target.parked = false;
                 actor.LastBand = band;
+                actor.LastSecondBand = secondBand;
                 actor.LastGradeOwned = gradeOwned;
                 if (!actor.TargetBound) {
                     actor.TargetBound = true;
@@ -690,6 +723,7 @@ namespace Metro.App.Views {
             actor.Visible = false;
             actor.ActiveInFrame = false;
             actor.LastBand = int.MinValue;
+            actor.LastSecondBand = int.MinValue;
             actor.LastGradeOwned = false;
             actor.LastToneMode = (StationDrawMode)(-1);
             if (actor.TargetBound) {
@@ -1086,7 +1120,10 @@ namespace Metro.App.Views {
                 }
                 blend.WalkDistance = Lerp(prior.WalkDistance, current.WalkDistance, alpha);
                 blend.WalkPhase = Lerp(prior.WalkPhase, current.WalkPhase, alpha);
-                blend.WalkWeight = Lerp(prior.WalkWeight, current.WalkWeight, alpha);
+                bool startedWalking = current.Activity == PassengerActivity.Walk &&
+                    current.WalkWeight > 0.5 &&
+                    current.WalkDistance - prior.WalkDistance > 0.05;
+                blend.WalkWeight = startedWalking ? current.WalkWeight : Lerp(prior.WalkWeight, current.WalkWeight, alpha);
                 presented.Add(blend);
             }
             view.Render(presented, clock.PresentationSeconds);
@@ -1149,17 +1186,21 @@ namespace Metro.App.Views {
             for (int i = 0; i < from.Count; i++) to[from[i].SimId] = from[i];
         }
 
-        /// <summary>A continuous ground or ramp sample belonging to the same passenger.</summary>
+        /// <summary>A continuous ground, ramp or lift sample belonging to the same passenger.</summary>
         static bool Adjacent(PassengerPose prior, PassengerPose current) {
             bool ground = IsOnFoot(prior.State) && IsOnFoot(current.State);
             bool ramp = current.RidePath != null &&
                 (prior.RidePath == current.RidePath || prior.RidePath == null && IsOnFoot(prior.State));
-            if (!ground && !ramp &&
+            bool priorLift = prior.ServerId != null && prior.ServerId.StartsWith("lift:", StringComparison.Ordinal);
+            bool currentLift = current.ServerId != null && current.ServerId.StartsWith("lift:", StringComparison.Ordinal);
+            bool lift = (priorLift && currentLift && string.Equals(prior.ServerId, current.ServerId, StringComparison.Ordinal)) ||
+                (priorLift && IsOnFoot(current.State)) ||
+                (currentLift && IsOnFoot(prior.State));
+            if (!ground && !ramp && !lift &&
                 (prior.State != current.State || !string.Equals(prior.ServerId, current.ServerId, StringComparison.Ordinal)))
                 return false;
             double dx = current.X - prior.X, dy = current.Y - prior.Y, dz = current.Z - prior.Z;
-            bool lift = current.State == StationPassengerState.Riding && current.ServerId?.StartsWith("lift:", StringComparison.Ordinal) == true;
-            return Math.Abs(dz) < (ramp || lift ? 2 : .75) && dx * dx + dy * dy < 3.0 * 3.0;
+            return Math.Abs(dz) < (lift ? 3.0 : ramp ? 2.0 : .75) && dx * dx + dy * dy < 3.0 * 3.0;
         }
 
         static bool IsOnFoot(StationPassengerState state) =>

@@ -684,5 +684,128 @@ namespace Metro.EditModeTests {
             Assert.AreEqual(StationDrawMode.Hidden, consist.Target.LastMode, "wholly cut consist hides");
             Assert.IsTrue(allTrainRenderers.All(r => !r.enabled), "cars, gangways and doors all hide when cut");
         }
+
+        [Test]
+        public void EscalatorRiderRemainsVisibleForFullDescentWhenViewingLowerStorey() {
+            using var fixture = BuildTwoFloorFixture(includeElevatedDeck: true);
+            var view = fixture.Crowd.View;
+            Assert.IsNotNull(view);
+
+            // Down escalator spanning 0 m -> -20 m while viewing the -20 m floor (ShowLevels = true).
+            var ridePath = new StationRidePath(new[] {
+                (22.5, 2.5, 1.0),
+                (22.0, 2.5, 1.0),
+                (3.0, 2.5, -19.0),
+                (2.5, 2.5, -19.0),
+            });
+
+            PassengerPose RidePose(double progress) {
+                ridePath.Sample(progress, false, 0, out double x, out double y, out double z, out double h);
+                return new PassengerPose {
+                    SimId = 777,
+                    X = x, Y = y, Z = z, Heading = h,
+                    Activity = PassengerActivity.Wait,
+                    ActivitySeconds = 0.5,
+                    RidePath = ridePath,
+                    RideProgress = progress,
+                    RideSeconds = 20.0,
+                    WalkWeight = 0.0,
+                    HasWalkWeight = true,
+                    Detail = PassengerDetail.Full,
+                    State = StationPassengerState.Riding,
+                    ServerId = "ride:1",
+                    Visible = true,
+                };
+            }
+
+            // At ActiveLevel = -20 m, the rider must draw Base from progress = 0 (top landing) all the way down,
+            // never popping into existence partway down the escalator.
+            foreach (double progress in new[] { 0.0, 0.05, 0.25, 0.6, 0.95 }) {
+                view.Render(new[] { RidePose(progress) }, 1.0 + progress * 20.0);
+                Assert.IsTrue(view.TryGetActor(777, out var rider));
+                Assert.AreEqual(StationDrawMode.Base, rider.Target.LastMode,
+                    "rider at progress " + progress + " must stay Base on active -20 m floor");
+                Assert.IsTrue(rider.Skin.enabled, "rider renderer enabled at progress " + progress);
+            }
+
+            // Switching to +5 m (above both ends of the 0 m -> -20 m escalator) ghosts the rider consistently.
+            fixture.Visibility.State.ActiveLevel = 5;
+            fixture.Visibility.State.ShowLevels = true;
+            fixture.Visibility.Apply();
+            Assert.IsTrue(view.TryGetActor(777, out var ghostRider));
+            Assert.AreEqual(StationDrawMode.Ghost, ghostRider.Target.LastMode, "escalator rider ghosts beneath +5 m");
+            Assert.IsTrue(ghostRider.Skin.enabled);
+        }
+
+        [Test]
+        public void PassengerCrowdRendererInterpolatesSmoothlyWhenWalkingIntoAndOutOfLift() {
+            using var fixture = BuildTwoFloorFixture();
+            var view = fixture.Crowd.View;
+            Assert.IsNotNull(view);
+
+            PassengerPose currentPose = default;
+            PassengerPoseFeeds.SetSource(new DelegatePassengerPoseFeed(list => {
+                list.Add(currentPose);
+                return true;
+            }));
+
+            PassengerPose LiftPose(double x, double y, double z, double heading, PassengerActivity act,
+                StationPassengerState state, string serverId, double walkDist, double walkWeight) => new PassengerPose {
+                SimId = 888,
+                X = x, Y = y, Z = z, Heading = heading,
+                Activity = act,
+                ActivitySeconds = 0.5,
+                WalkDistance = walkDist,
+                WalkPhase = 0.0,
+                WalkWeight = walkWeight,
+                HasWalkWeight = true,
+                Detail = PassengerDetail.Full,
+                State = state,
+                ServerId = serverId,
+                Visible = true,
+            };
+
+            // Tick 1: waiting outside the lift door at (5.5, 4.5, -19.0) with WalkWeight = 0.
+            currentPose = LiftPose(5.5, 4.5, -19.0, Math.PI * 0.5, PassengerActivity.Wait,
+                StationPassengerState.Queuing, "lift:lift-1", 10.0, 0.0);
+            fixture.Crowd.Tick(fixture.Read.Document, fixture.Read.Index,
+                new StationFrameClock(1, 1, 1.0, 1.0, 1.0, true));
+
+            // Tick 2: walking into the cab to (6.0, 5.7, -19.0) with WalkWeight = 1.
+            currentPose = LiftPose(6.0, 5.7, -19.0, Math.PI * 0.4, PassengerActivity.Walk,
+                StationPassengerState.Walking, "lift:lift-1", 11.3, 1.0);
+            fixture.Crowd.Tick(fixture.Read.Document, fixture.Read.Index,
+                new StationFrameClock(2, 1, 2.0, 1.25, 0.25, true));
+            Assert.IsTrue(view.TryGetActor(888, out var actor));
+            var midBoardDoc = StationCoordinates.WorldToDocument(actor.Position);
+            Assert.AreEqual(5.625f, midBoardDoc.x, 1e-3f, "must smoothly interpolate into cab at alpha=0.25 (not snap)");
+            Assert.AreEqual(4.8f, midBoardDoc.y, 1e-3f, "must smoothly interpolate across doorway at alpha=0.25");
+            Assert.AreNotEqual("Idle", actor.ClipName, "walking into cab must sample a walk clip immediately from alpha=0.25");
+
+            // Tick 3: settled inside cab at (6.245, 6.0, -19.0) in Lift Riding state.
+            currentPose = LiftPose(6.245, 6.0, -19.0, -Math.PI * 0.5, PassengerActivity.Lift,
+                StationPassengerState.Riding, "lift:lift-1", 11.3, 0.0);
+            fixture.Crowd.Tick(fixture.Read.Document, fixture.Read.Index,
+                new StationFrameClock(3, 1, 3.0, 2.5, 0.5, true));
+            var midSettleDoc = StationCoordinates.WorldToDocument(actor.Position);
+            Assert.AreEqual(6.1225f, midSettleDoc.x, 1e-3f, "Walking -> Riding lift transition must interpolate (not snap)");
+
+            // Tick 4: lift moving up at peak eased speed (2.25 m/s) stays interpolated (not snapped).
+            currentPose = LiftPose(6.245, 6.0, -16.75, -Math.PI * 0.5, PassengerActivity.Lift,
+                StationPassengerState.Riding, "lift:lift-1", 11.3, 0.0);
+            fixture.Crowd.Tick(fixture.Read.Document, fixture.Read.Index,
+                new StationFrameClock(4, 1, 4.0, 3.5, 0.5, true));
+            var midRideDoc = StationCoordinates.WorldToDocument(actor.Position);
+            Assert.AreEqual(-17.875f, midRideDoc.z, 1e-3f, "peak-speed vertical lift travel must stay smoothly interpolated");
+
+            // Tick 5: walking out of the cab from Riding -> Walking across the doorway.
+            currentPose = LiftPose(5.5, 4.8, -16.75, -Math.PI * 0.5, PassengerActivity.Walk,
+                StationPassengerState.Walking, "lift:lift-1", 12.7, 1.0);
+            fixture.Crowd.Tick(fixture.Read.Document, fixture.Read.Index,
+                new StationFrameClock(5, 1, 5.0, 4.5, 0.5, true));
+            var midExitDoc = StationCoordinates.WorldToDocument(actor.Position);
+            Assert.AreEqual(5.4f, midExitDoc.y, 1e-3f, "Riding -> Walking lift exit must smoothly interpolate out through door");
+            Assert.AreNotEqual("Idle", actor.ClipName, "walking out of cab must sample a walk clip");
+        }
     }
 }

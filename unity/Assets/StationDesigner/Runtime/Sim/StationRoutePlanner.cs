@@ -216,9 +216,13 @@ namespace Metro.Sim {
                         }
                     }
                     double edgeCost = edgeCosts[e] + (congestionFn != null ? congestionFn(next) : 0);
-                    if (kind == WalkEdgeKind.Stair) edgeCost += StairAvoidSeconds;
-                    if (kind == WalkEdgeKind.Lift) edgeCost += lift;
                     int server = edgeServers[e];
+                    if (kind == WalkEdgeKind.Stair) {
+                        int flights = server >= 0 && server < serversList.Count && serversList[server].StairFlights > 1
+                            ? serversList[server].StairFlights : 1;
+                        edgeCost += StairAvoidSeconds * flights;
+                    }
+                    if (kind == WalkEdgeKind.Lift) edgeCost += lift;
                     if (server >= 0 && server == avoidServer) continue;
                     if (server >= 0) edgeCost += QueueWait(serversList[server]);
                     double candidate = gs + edgeCost;
@@ -282,9 +286,13 @@ namespace Metro.Sim {
                 var kind = (WalkEdgeKind)graph.AdjKind[from][e];
                 if (kind == WalkEdgeKind.Walk && !GatePassage(from, to, out _)) return double.PositiveInfinity;
                 cost += graph.AdjCost[from][e] + (Congestion?.Invoke(to) ?? 0);
-                if (kind == WalkEdgeKind.Stair) cost += StairAvoidSeconds;
-                if (kind == WalkEdgeKind.Lift) cost += LiftPenalty(needs);
                 int server = graph.AdjServer[from][e];
+                if (kind == WalkEdgeKind.Stair) {
+                    int flights = server >= 0 && server < graph.Servers.Count && graph.Servers[server].StairFlights > 1
+                        ? graph.Servers[server].StairFlights : 1;
+                    cost += StairAvoidSeconds * flights;
+                }
+                if (kind == WalkEdgeKind.Lift) cost += LiftPenalty(needs);
                 if (server >= 0) cost += QueueWait(graph.Servers[server]);
                 if (graph.ServerForNode.TryGetValue(to, out int atNode)) {
                     var service = graph.Servers[atNode];

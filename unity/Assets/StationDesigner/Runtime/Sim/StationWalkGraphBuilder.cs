@@ -52,6 +52,8 @@ namespace Metro.Sim {
         public StationRidePath RidePath;
         public int RideColumns;
         public bool RideReverse;
+        /// <summary>Number of stair flights represented by this edge (1 = straight, 2+ = turning/switchback).</summary>
+        public int StairFlights = 1;
         /// <summary>Live queue length (0 until the crowd is ported; never invented).</summary>
         public int QueueCount;
         public int Served;
@@ -323,13 +325,17 @@ namespace Metro.Sim {
                         break;
                     }
                     case "lift": {
-                        int size = module.Width >= 3 ? 3 : 2;
-                        for (int x = module.X; x < module.X + size; x++)
-                            for (int y = module.Y; y < module.Y + size; y++)
-                                liftCells.Add(StationWalkGraph.CellKey(x, y, module.Z));
+                        LiftBlockedCells(module, (bx, by, bz) =>
+                            liftCells.Add(StationWalkGraph.CellKey(bx, by, bz)));
                         unported.Add("lift-stops:" + module.Id);
                         break;
                     }
+                    case "escalator":
+                        if (module.HasEndpoints) {
+                            EscalatorBlockedLowerCells(module, (bx, by, bz) =>
+                                fenceCells.Add(StationWalkGraph.CellKey(bx, by, bz)));
+                        }
+                        break;
                     case "walkway":
                         // The belt is ridden, not walked; its interior cells are not nodes. The
                         // covered-cell helper is not ported, so the family is reported.
@@ -498,7 +504,7 @@ namespace Metro.Sim {
                         int id = AddServer(graph, new StationServerFact {
                             Kind = walkway ? "walkway" : "escalator",
                             Label = walkway ? "walkway" : module.Dir == "down" ? "down_escalator" : "up_escalator",
-                            Rate = (walkway ? WalkwayRate : EscalatorRate) * Math.Max(1, module.Width),
+                            Rate = (walkway ? WalkwayRate : EscalatorRate) * EffectiveRideWidth(module),
                             Node = a, ExitNode = b, Ride = ride, Batch = 1, Cycle = 0,
                             RidePath = module.RidePath, RideColumns = module.RideColumns,
                         });
@@ -515,20 +521,23 @@ namespace Metro.Sim {
                         double horizontal = Math.Sqrt(Pow2(graph.NodeX[a] - graph.NodeX[b]) + Pow2(graph.NodeY[a] - graph.NodeY[b]));
                         double vertical = Math.Abs(graph.NodeZ[a] - graph.NodeZ[b]);
                         double ride = (module.RidePath?.Length ?? Math.Sqrt(horizontal * horizontal + vertical * vertical)) / StairSpeed;
-                        int width = Math.Max(1, module.Width);
+                        double width = EffectiveRideWidth(module);
                         // Each flight is a two-way capacity-limited edge: the landing below and
                         // the landing above are two servers with opposite rates (§5.1).
                         bool down = graph.NodeZ[a] > graph.NodeZ[b];
+                        int stairFlights = Math.Max(1, module.StairFlights);
                         int downId = AddServer(graph, new StationServerFact {
                             Kind = "stair", Label = "stairs",
                             Rate = (down ? StairRateDown : StairRateUp) * width,
                             Node = a, ExitNode = b, Ride = ride, RidePath = module.RidePath,
+                            StairFlights = stairFlights,
                         });
                         edges.Add(a, b, ride, WalkEdgeKind.Stair, downId);
                         int upId = AddServer(graph, new StationServerFact {
                             Kind = "stair", Label = "stairs",
                             Rate = (down ? StairRateUp : StairRateDown) * width,
                             Node = b, ExitNode = a, Ride = ride, RidePath = module.RidePath, RideReverse = true,
+                            StairFlights = stairFlights,
                         });
                         edges.Add(b, a, ride, WalkEdgeKind.Stair, upId);
                         break;
@@ -623,11 +632,91 @@ namespace Metro.Sim {
             }
         }
 
+        internal static double EffectiveRideWidth(StationModuleFact module) =>
+            module.RideWidth > 0 ? module.RideWidth : Math.Max(1, module.Width);
+
+        internal static void EscalatorCenterShift(StationModuleFact module, int widthBlocks, double length,
+            out double shiftX, out double shiftY) {
+            shiftX = shiftY = 0;
+            if (widthBlocks <= 1 || length < 1e-6) return;
+            bool lowerFirst = module.FromZ != module.ToZ
+                ? module.FromZ < module.ToZ
+                : module.FromX != module.ToX
+                    ? module.FromX < module.ToX
+                    : module.FromY < module.ToY;
+            double lowX = lowerFirst ? module.FromX : module.ToX;
+            double lowY = lowerFirst ? module.FromY : module.ToY;
+            double highX = lowerFirst ? module.ToX : module.FromX;
+            double highY = lowerFirst ? module.ToY : module.FromY;
+            double half = (widthBlocks - 1) * 0.5 / length;
+            shiftX = (highY - lowY) * half;
+            shiftY = -(highX - lowX) * half;
+        }
+
+        /// <summary>
+        /// Interior lower-floor cells directly beneath an inclined escalator's solid lower steps
+        /// and truss (headroom &lt; 2.2 m). Blocking these prevents walkers from cutting straight
+        /// through the machinery into the foot landing while preserving landing endpoints and
+        /// high-headroom floor beneath the upper half.
+        /// </summary>
+        internal static void LiftBlockedCells(StationModuleFact module, Action<int, int, int> addCell) {
+            int size = module.Width >= 3 ? 3 : 2;
+            var levels = module.HasEndpoints ? StationLiftStops.Levels(module) : null;
+            if (levels != null && levels.Count > 0) {
+                for (int l = 0; l < levels.Count; l++) {
+                    int z = levels[l];
+                    for (int x = module.X; x < module.X + size; x++)
+                        for (int y = module.Y; y < module.Y + size; y++)
+                            addCell(x, y, z);
+                }
+                if (!levels.Contains(module.Z)) {
+                    for (int x = module.X; x < module.X + size; x++)
+                        for (int y = module.Y; y < module.Y + size; y++)
+                            addCell(x, y, module.Z);
+                }
+                return;
+            }
+            for (int x = module.X; x < module.X + size; x++)
+                for (int y = module.Y; y < module.Y + size; y++)
+                    addCell(x, y, module.Z);
+        }
+
+        internal static void EscalatorBlockedLowerCells(StationModuleFact module, Action<int, int, int> addCell) {
+            if (module.Type != "escalator" || !module.HasEndpoints || module.FromZ == module.ToZ) return;
+            bool fromLower = module.FromZ < module.ToZ;
+            int lowX = fromLower ? module.FromX : module.ToX;
+            int lowY = fromLower ? module.FromY : module.ToY;
+            int lowZ = fromLower ? module.FromZ : module.ToZ;
+            int highX = fromLower ? module.ToX : module.FromX;
+            int highY = fromLower ? module.ToY : module.FromY;
+            int highZ = fromLower ? module.ToZ : module.FromZ;
+            int dx = highX - lowX, dy = highY - lowY;
+            double horizontal = Math.Sqrt((double)dx * dx + (double)dy * dy);
+            int rise = highZ - lowZ;
+            if (horizontal < 1.5 || rise <= 0) return;
+            int steps = Math.Max(Math.Abs(dx), Math.Abs(dy));
+            int widthBlocks = Math.Max(1, module.Width);
+            double ux = dx / horizontal, uy = dy / horizontal;
+            double lx = dy / horizontal, ly = -dx / horizontal;
+            for (int s = 1; s < steps; s++) {
+                if (rise * (s / horizontal) >= 2.2) break;
+                int cx = lowX + (int)Math.Round(ux * s);
+                int cy = lowY + (int)Math.Round(uy * s);
+                for (int lane = 0; lane < widthBlocks; lane++) {
+                    int bx = cx + (int)Math.Round(lx * lane);
+                    int by = cy + (int)Math.Round(ly * lane);
+                    if ((bx == lowX && by == lowY) || (bx == highX && by == highY)) continue;
+                    addCell(bx, by, lowZ);
+                }
+            }
+        }
+
         static void AddRampWalls(List<RampWall> walls, StationModuleFact module, double half, List<string> unported) {
-            double ax = module.FromX + 0.5, ay = module.FromY + 0.5;
             double dx = module.ToX - module.FromX, dy = module.ToY - module.FromY;
             double length = Math.Sqrt(dx * dx + dy * dy);
             if (length < 1e-6) return; // a vertical run has no sides to cross
+            EscalatorCenterShift(module, Math.Max(1, module.Width), length, out double shiftX, out double shiftY);
+            double ax = module.FromX + 0.5 + shiftX, ay = module.FromY + 0.5 + shiftY;
             double ux = dx / length, uy = dy / length;
             const double extend = 0.6;
             for (int s = 1; s >= -1; s -= 2) {

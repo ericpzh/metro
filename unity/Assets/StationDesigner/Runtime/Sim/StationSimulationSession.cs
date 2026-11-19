@@ -118,6 +118,10 @@ namespace Metro.Sim {
         public double RunLength;
         public StationRidePath RidePath;
         public int RideColumns;
+        /// <summary>Effective throughput width in metres/lanes for stairs and escalators (0 falls back to <see cref="Width"/>).</summary>
+        public double RideWidth;
+        /// <summary>Flight count for turning/switchback stairs (0/1 = single straight flight; matches web `stairFlights(m).length`).</summary>
+        public int StairFlights;
         public Dictionary<int, int> LiftDoorMasks;
         public int[] LiftRises;
     }
@@ -1378,8 +1382,13 @@ namespace Metro.Sim {
                             car.Door = Math.Min(1, car.Door + dt / StationSimConstants.LiftDoorSeconds);
                         } else {
                             car.T += dt;
-                            services.LiftExchange(car.Id, car.Stop);
-                            if (car.T >= StationSimConstants.LiftDwellSeconds) { car.Phase = "close"; car.T = 0; }
+                            services.LiftExchange(car.Id, car.Stop, allowBoarding: car.T <= StationSimConstants.LiftDwellSeconds);
+                            bool exchanging = services.IsLiftExchanging(car.Id);
+                            if (car.T >= StationSimConstants.LiftDwellSeconds &&
+                                (!exchanging || car.T >= StationSimConstants.LiftDwellSeconds + 4)) {
+                                car.Phase = "close";
+                                car.T = 0;
+                            }
                         }
                         break;
                     }
