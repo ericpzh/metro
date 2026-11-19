@@ -36,7 +36,7 @@ function buildGate(ctx: ModuleContext, mod: Extract<Module, { type: 'gate' }>): 
   const capBase = GATE_H - 0.04
   const headFront = gateDepthAt(capBase) / 2
   const topFront = gateDepthAt(GATE_H) / 2
-  slab(g, mats.darkSteel, cx, 0, GATE_PLINTH_H / 2, GATE_W - 0.02, GATE_D - 0.03, GATE_PLINTH_H)
+  slab(g, mats.darkSteel, cx, 0, GATE_PLINTH_H / 2, GATE_W - 0.02, GATE_D - 0.03, GATE_PLINTH_H).name = 'gate-plinth'
   if (modern) {
     // Rounded stainless ends, continuous blue belt, and a long reader ramp.
     const shape = new THREE.Shape()

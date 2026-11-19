@@ -508,7 +508,7 @@ export class ModuleSystem extends SceneSystem {
           bounds = group.userData.contactShadowBounds = new THREE.Box3().setFromObject(group)
         }
         const width = bounds.max.x - bounds.min.x, depth = bounds.max.y - bounds.min.y
-        const tightFootprint = mod.type === 'shelf' || mod.type === 'bin' || mod.type === 'extinguisher'
+        const tightFootprint = mod.type === 'gate' || mod.type === 'shelf' || mod.type === 'bin' || mod.type === 'extinguisher'
         if (Number.isFinite(width + depth) && (tightFootprint || group.userData.contactShadowBase || Math.max(width, depth) > 1.1)) {
           const padding = tightFootprint ? .12 : .35
           blob = [(bounds.min.x + bounds.max.x) / 2, (bounds.min.y + bounds.max.y) / 2, mod.z + 1 + .012, (width + padding) / 1.24, (depth + padding) / 1.24]
@@ -540,7 +540,8 @@ export class ModuleSystem extends SceneSystem {
       if (!kept.has(mod.id)) {
         if (surface) surfaceChanged = true
         // Capture the actual foot before static batching merges it into the upper geometry.
-        const footName = mod.type === 'hanger' ? 'hanger-base' : mod.type === 'cctv' ? 'cctv-post-base'
+        const footName = mod.type === 'gate' ? 'gate-plinth'
+          : mod.type === 'hanger' ? 'hanger-base' : mod.type === 'cctv' ? 'cctv-post-base'
           : mod.type === 'traffic-light' ? 'traffic-light-base' : mod.type === 'rail-signal' ? 'signal-concrete-base' : undefined
         const foot = footName && group.getObjectByName(footName)
         if (foot) {

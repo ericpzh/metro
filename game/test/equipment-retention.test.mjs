@@ -510,6 +510,23 @@ test('thin fixtures use their feet for contact shadows rather than their upper g
   }
 }))
 
+test('fare gate shadows follow the offset plinth through every rotation', () => withDrawing(({ modules }) => {
+  const centers = [[3.15, 4.5], [3.5, 4.15], [3.85, 4.5], [3.5, 4.85]]
+  for (const type of ['gate', 'gate-new']) for (let rot = 0; rot < 4; rot++) {
+    const mod = createModule(type, 3, 4, 0, 'gate', rot)
+    modules.buildModules(station([mod]), new Set(), true)
+    const shadow = modules.moduleMeshes.children.find(g => g.userData.contactBlobKey)
+    const transform = new THREE.Matrix4()
+    shadow.getMatrixAt(0, transform)
+    const [x, y] = centers[rot]
+    assert.ok(Math.abs(transform.elements[12] - x) < 1e-5)
+    assert.ok(Math.abs(transform.elements[13] - y) < 1e-5)
+    const [width, depth] = rot % 2 ? [.99, .4] : [.4, .99]
+    assert.ok(Math.abs(transform.elements[0] * 1.24 - width) < 1e-5)
+    assert.ok(Math.abs(transform.elements[5] * 1.24 - depth) < 1e-5)
+  }
+}))
+
 test('trees cast a small trunk contact shadow and doors and courts cast none', () => withDrawing(({ modules }) => {
   const tree = createModule('tree', 3, 4, 0, 'tree')
   for (const type of ['door-glass-1', 'court-divider', 'court-badminton', 'court-pickleball']) {
