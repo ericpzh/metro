@@ -13,7 +13,7 @@ either copes or it does not.
 | [`art/`](art/) | Eleven concept sheets: drawings of the game, as SVG. Nine of them carry the game's own renders. |
 | [`tools/`](tools/) | The generators for both: `node tools/gen-art.mjs` redraws `art/`. |
 | [`web/`](web/) | The concept-art website — React + Vite. |
-| [`model/`](model/) | Character model library — three.js + Vite, male/female previews and GLB downloads. |
+| [`model/`](model/) | Passenger bake sources, motion preview and sound studio. |
 | [`stats/`](stats/) | Global stats service — one Worker + D1, page and API at `stationdesigner.com/stats/`. |
 | [`wrangler.jsonc`](wrangler.jsonc) | Cloudflare Workers deploy config for the site — route `stationdesigner.com/*`. |
 | [`stats/wrangler.jsonc`](stats/wrangler.jsonc) | Stats Worker config: production database/routes plus a local-only `dev` environment. |
@@ -59,7 +59,7 @@ creates them along with the Worker — there is no dashboard step and nothing to
 keep in sync by hand.
 
 ```bash
-npm start             # web 5173 + game 5174 + model 5175 + stats 5176
+npm start             # web 5173 + game 5174 + stats 5176
 npm start unity       # build/pack latest Unity WebGL preview + serve at http://127.0.0.1:8787/game/
 npm run setup:game    # install game/ deps
 npm run dev:game      # http://localhost:5174 (the site owns 5173)
@@ -75,7 +75,7 @@ To follow a game link locally, run the site and the game side by side:
 ```bash
 npm run dev           # site dev server at http://localhost:5173
 npm run dev:game      # game at http://localhost:5174, linked from http://localhost:5173
-npm run dev:model     # model library at http://127.0.0.1:5175/
+npm run dev:model     # passenger preview at http://127.0.0.1:5175/soft-human.html
 ```
 
 In development the site links straight at the game's own Vite server — `/` for
@@ -94,24 +94,16 @@ The [metro-video skill](.agents/skills/metro-video/SKILL.md) guides future gener
 The editable recording station is [video/demo-station.metro.json](video/demo-station.metro.json). Existing working saves are preserved when recordings regenerate; [the layout handoff](video/README.md) explains how to update object positions after editing.
 
 
-## The model library
+## Passenger and sound previews
 
-`model/` is the third independently built app. It includes the approved male
-commuter and five female hair/backpack variants, standing views, three walk
-profiles, English/Chinese controls and GLB downloads. Long hair uses the no-backpack
-version. Its character and gait source also powers the earlier prototype pages.
+Run `npm run setup:model` to install dependencies and `npm run dev:model` to open the
+optional [passenger preview](http://127.0.0.1:5175/soft-human.html) and
+[sound studio](http://127.0.0.1:5175/sounds.html). Run `npm run build:model`
+to build both pages. See [model/README.md](model/README.md) for the shared passenger bake.
 
-```bash
-npm run setup:model   # install model/ dependencies
-npm run build:model   # generate the library and build model/dist
-npm run dev:model     # http://127.0.0.1:5175/
-npm run dev:all       # start web/, game/, model/ and stats/ together
-```
-
-`npm start` is an alias for `dev:all`. The launcher reuses existing listening
-services and stops only its own children on Ctrl+C. `npm run setup:all` installs
-dependencies for the three Vite apps (the stats Worker uses only the root wrangler install). See
-`model/README.md` for assets and provenance.
+`npm start` and `npm run dev:all` launch web, game and stats. The launcher
+reuses listening services and stops its own children on Ctrl+C.
+`npm run setup:all` also installs the dependencies for the previews and offline bake.
 
 ## The stats service
 

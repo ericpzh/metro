@@ -3,15 +3,11 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Station Designer character model viewer and GLB library.",
+  "description": "Station Designer passenger motion and sound previews.",
   "scripts": {
-    "prepare-assets": "node scripts/prepare-assets.mjs",
-    "export:outfits": "node scripts/export-outfits.mjs",
-    "predev": "npm run prepare-assets",
     "dev": "vite",
     "start": "npm run dev",
     "test": "node --test test/*.test.mjs",
-    "prebuild": "npm run prepare-assets",
     "build": "vite build",
     "preview": "vite preview"
   },

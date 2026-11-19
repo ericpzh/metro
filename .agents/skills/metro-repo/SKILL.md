@@ -618,14 +618,9 @@ performance question.
 
 ## What lives where
 
-`model/` is the third app: a Vite + three.js character viewer at port 5175.
-`model/src/characters/female.js` owns variants, `model/src/animation/` owns the
-accepted gait, `model/src/soft-human/` owns the isolated soft-human motion study
-at `/soft-human.html`, and `model/src/i18n.js` owns viewer labels. Its preparation
-script regenerates ignored model assets; use `metro-model`
-(`../metro-model/SKILL.md`) for model editing, exports and the approved game atlas.
-The soft-human preview never feeds the game crowd or passenger bake. See
-`model/README.md`. No model Worker is configured.
+The optional model Vite server serves the passenger motion preview and sound
+studio on port 5175. The passenger source feeds the offline game and Unity
+bakes. See [the model guide](../../../model/README.md).
 
 | Path | What it is |
 |---|---|
@@ -635,7 +630,7 @@ The soft-human preview never feeds the game crowd or passenger bake. See
 | `game/test/` | The `node --test` suite. `game/test/README.md` is the authority on how it works; `metro-game-test` is the short version. |
 | `game/README.md` | The game's own long-form guide: milestones, the time base, measured numbers, deliberate divergences from the spec. **Read it before changing sim behaviour.** |
 | `unity/` | The Unity 6000.6.8f1 URP WebGL/desktop port: layered C# runtime (`Sim`, `Build`, `Persistence`, `View`, `App`), live Editor workflow (`unity/scripts/metro-editor.ps1`), isolated batch/WebGL runner (`unity/scripts/metro-unity.ps1`), and Node contract tests (`unity/tests/`). Paired with the shared React UI bridge in `game/src/unity-web/` and pipelines in `tools/unity-{web,editor-ui,parity,assets}/`. See [metro-unity](../metro-unity/SKILL.md) and its [asset sub-guide](../metro-unity/references/assets.md). |
-| `model/` | Reviewed character viewer and GLB library at 5175, plus the isolated `/soft-human.html` motion study; `metro-model` owns builders, cleanup, walking clips, soft-human preview, exports and game atlas regeneration. |
+| `model/` | Shared passenger bake sources and optional motion and sound previews. |
 | `design/icon/` | Station Designer icon source, previews and iterations. `tools/prepare-brand-icon.mjs` builds the game/site favicons and the site's CSS-coloured header mark from `station-designer-blue-bold.png`. |
 | `web/` | The concept-art site (React + Vite), deployed as Worker `metro` at `stationdesigner.com/`. Bilingual: Chinese by default, English pinned to the `/en/` path with a switcher in the top bar (`Nav.jsx`); UI copy lives in `web/src/i18n.js`, sheet copy in `web/src/artworks.js` (`zh`/`en`). |
 | `art/` | The generated concept sheets — the source of truth, copied into `web/public/art` at build time by `web/scripts/sync-art.mjs`. Never hand-edited. Each sheet has a `*-en.svg` English sidecar (same rule) for the `/en/` route. `metro-web` covers the pipeline. |
@@ -875,9 +870,8 @@ category × eleven bags, all supported at both ages. Female-only skirts and pink
 jacket, male-only Summer stripes, the walking arm swing, shared relaxed idle/free
 station arms and mathematical straps must survive the bake. Waiting/queueing use
 the standing atlas frame, so preserve the relaxed pose there as well as in the
-activity palettes. Keep selected-FBX provenance and recipe source hashes. The old
-232-export viewer remains historical; it no longer feeds the live crowd. Runtime
-consumes generated atlases and never imports the model app. Stable identity keeps
+activity palettes. Keep selected-FBX provenance and recipe source hashes. Runtime
+consumes generated atlases. Stable identity keeps
 20% children, independent size/gait and one draw per LOD. See
 `game/src/assets/PASSENGERS.md` and the model/game/test skills for the pipeline.
 
@@ -929,10 +923,10 @@ npm run deploy        # build + wrangler deploy (site Worker `metro`)
 npm run setup:game    # install game/ deps
 npm run dev:game      # game dev server at http://localhost:5174
 npm run setup:model   # install model/ deps
-npm run dev:model     # model viewer at http://127.0.0.1:5175
-npm run build:model   # generate assets and build model/dist
+npm run dev:model     # passenger preview at http://127.0.0.1:5175/soft-human.html
+npm run build:model   # build the optional previews into model/dist
 npm run art:models    # approved model exports → game atlas → bilingual art + verified previews
-npm run dev:all       # web 5173 + game 5174 + model 5175 + stats 5176
+npm run dev:all       # web 5173 + game 5174 + stats 5176
 npm run test:game     # node --test over game/test/**/*.test.mjs
 npm run test:unity    # node --test over unity/tests/*.test.mjs
 npm run build:unity   # sync .preview/unity/dev-workspace, build/reuse WebGL, pack React UI
@@ -980,8 +974,6 @@ commands.
 | `preview.mjs` | `npm run preview:local`: serves the built site at `/` (English `/en/`) and the built game at `/game/` (English `/game/en/`, with its demo routes `/game/zoo`, `/game/tanwei`, `/game/tianhe`), over one origin. Exports `createPreview()` for `check-demos.mjs`. Stands in for `wrangler dev`, with the Workers' pins and trailing-slash redirects. |
 | `audit-i18n.mjs` | TS-AST check for inline player-facing copy: walks `game/src` + `web/src`, flags JSX text, `title`/`aria-label`/`placeholder`/`alt`, and `fillText`/`strokeText`/`drawModelText` sinks. Run as `npm run audit:i18n` after copy/render changes. Direct sinks only — review indirect data paths by hand. |
 | `bake-soft-passengers.mjs` | Bakes selected-base outfits/bags, walks and activities into the shared game assets. Run `npm run bake:passengers`; see `metro-model`. |
-| `bake-approved-passenger.mjs` | Historical 232-export baker; no longer the active crowd source. |
-| `bake-passenger-activities.mjs` | Bakes reviewed activity poses and shared rig data after validating all current GLB source hashes; `npm run bake:passengers` runs it after the walk atlas. See `metro-model` and `metro-game`. |
 | `check-game-passenger-activities.mjs`, `bench-passenger-activities.mjs` | Exercise production activity poses/fixtures in the browser and replay deterministic demo routes for measured service visits; use `metro-game-test`. Add results to the performance reference only when they establish a performance finding. |
 | `check-game-passenger-library.mjs` | Checks every adult variant, live child model/size restrictions, fully opaque depth-writing people and the instanced crowd in the built game GPU renderer. |
 | `check-model-preview-options.mjs`, `check-game-passenger-size.mjs` | Verify production model age/size controls and render a game lineup. The model's pure preview rules also have `npm --prefix model test`. |
