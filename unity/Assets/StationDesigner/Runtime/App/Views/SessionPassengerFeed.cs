@@ -67,6 +67,8 @@ namespace Metro.App.Views {
             WalkWeight = frame.WalkWeight,
             Detail = PassengerDetail.Full,
             PreferredHand = 0,
+            State = frame.State,
+            ServerId = frame.ServerId ?? "",
             Visible = frame.Visible,
         };
     }

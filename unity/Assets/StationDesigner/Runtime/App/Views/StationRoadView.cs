@@ -616,6 +616,7 @@ namespace Metro.App.Views {
                 state.Traffic = new StationRoadTraffic(StationRoadLayout.TrafficNetwork(network), unchecked((int)context.Document.Seed));
                 state.Vehicles = RoadVehicleViews.Build(root, state.Traffic, shader, false, context.Catalogue,
                     (code, detail) => context.ReportUnresolved(code, "renderer", Role, detail));
+                state.Vehicles.BindWorld(context.World);
             }
             states[context.World] = state;
             newest = state;
@@ -631,28 +632,11 @@ namespace Metro.App.Views {
             if (state == null) return;
             state.View?.SetSimTime(simTimeSeconds);
             if (state.Traffic == null) return;
+            if (!double.IsNaN(state.SampledTime) && Math.Abs(simTimeSeconds - state.SampledTime) <= 1e-9) return;
             state.Traffic.Advance(simTimeSeconds);
-            state.Vehicles?.Render(simTimeSeconds, RoadVisible(state));
+            if (state.World != null) state.Vehicles?.RenderForWorld(simTimeSeconds, state.World);
+            else state.Vehicles?.Render(simTimeSeconds, null);
             state.SampledTime = simTimeSeconds;
-        }
-
-        /// <summary>
-        /// The live view's own predicate for one sampled pose: the pose rides a **source
-        /// road** at a saved elevation, so its storey is that road's band, not the deck
-        /// height of an inferred child. The one <see cref="StationVisibilityRegistry"/>
-        /// decision answers it exactly as it answers the road geometry (hide ground, the
-        /// storey slice and the dense bound), and the section cut still clips the shared
-        /// material. Null before the view rig exists, so a headless probe draws every pose.
-        /// </summary>
-        static Func<RoadVehiclePose, bool> RoadVisible(State state) {
-            var rig = Metro.App.StationViewFeature.Active;
-            var registry = rig != null ? rig.Visibility : null;
-            if (registry == null) return null;
-            var levels = new int[1];
-            return pose => {
-                levels[0] = Metro.View.StationCoordinates.StoreyBand(pose.RoadZ, state.LevelBase);
-                return registry.DecidePart(Metro.View.StationPartRole.Ground, levels) != Metro.View.StationDrawMode.Hidden;
-            };
         }
 
         /// <summary>

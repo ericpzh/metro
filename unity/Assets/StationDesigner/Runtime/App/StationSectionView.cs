@@ -980,9 +980,11 @@ namespace Metro.App {
                 if (record?.View == null) continue;
                 var role = RoleOf(record, modules);
                 var levels = LevelsOf(record, modules, grid);
+                bool parked = role == StationPartRole.Train && !record.View.activeSelf;
                 visibility.Register(record.View.transform, role, levels,
-                    gradeOwned: IsGradeOwned(record, modules));
+                    parked: parked, gradeOwned: IsGradeOwned(record, modules));
             }
+            world.BindVisibility(visibility);
             visibility.Apply();
         }
 
@@ -1049,8 +1051,10 @@ namespace Metro.App {
                 case "signs": return StationPartRole.Sign;
                 case "trains": return StationPartRole.Train;
                 case "actors": case "crowd": return StationPartRole.Actor;
+                case "vehicles": case "road-vehicles": return StationPartRole.Vehicle;
                 case "grid": return StationPartRole.Grid;
                 case "cursor": return StationPartRole.Cursor;
+                case "overlay": case "overlays": return StationPartRole.Overlay;
                 case "modules":
                 // Plan 22 §1: the generated structure renderer registers its roofs and pillars
                 // under its own role, and a roof still has to answer the `Roof` role so Hide

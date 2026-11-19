@@ -199,15 +199,17 @@ namespace Metro.View {
 
         /// <summary>The slice plus the dense-document bound on distant ghost storeys.</summary>
         public static bool BoundedLevelVisible(StationLevelSide side, IReadOnlyList<int> levelsZ, int activeZ,
-            StationSliceOptions options, bool dense) {
-            if (dense && side != StationLevelSide.Active && !StoreyNear(levelsZ, activeZ)) return false;
+            StationSliceOptions options, bool dense, int storeyHeight = StationLevelGrid.LadderStep) {
+            int step = storeyHeight > 0 ? storeyHeight : StationLevelGrid.LadderStep;
+            if (dense && side != StationLevelSide.Active && !StoreyNear(levelsZ, activeZ, step)) return false;
             return LevelVisible(side, options);
         }
 
         /// <summary>True when any storey a piece occupies is next to the active one.</summary>
-        public static bool StoreyNear(IReadOnlyList<int> levelsZ, int activeZ) {
+        public static bool StoreyNear(IReadOnlyList<int> levelsZ, int activeZ, int storeyHeight = StationLevelGrid.LadderStep) {
             if (levelsZ == null || levelsZ.Count == 0) return true;
-            for (int i = 0; i < levelsZ.Count; i++) if (Mathf.Abs(levelsZ[i] - activeZ) <= StationLevelGrid.LadderStep) return true;
+            int step = storeyHeight > 0 ? storeyHeight : StationLevelGrid.LadderStep;
+            for (int i = 0; i < levelsZ.Count; i++) if (Mathf.Abs(levelsZ[i] - activeZ) <= step) return true;
             return false;
         }
 
@@ -399,6 +401,7 @@ namespace Metro.View {
         bool Parked { get; }
         bool Floating { get; }
         bool ContactShadow { get; }
+        bool GradeOwned { get; }
         Transform Root { get; }
         Bounds WorldBounds { get; }
         StationDrawMode LastMode { get; }
@@ -503,12 +506,16 @@ namespace Metro.View {
             if (clone.HasProperty("_Blend")) clone.SetFloat("_Blend", 0f);
             if (clone.HasProperty("_SrcBlend")) clone.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
             if (clone.HasProperty("_DstBlend")) clone.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+            if (clone.HasProperty("_AlphaDstBlend")) clone.SetFloat("_AlphaDstBlend", (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+            if (clone.HasProperty("_ZTestGBuffer")) clone.SetFloat("_ZTestGBuffer", (float)UnityEngine.Rendering.CompareFunction.Equal);
             if (clone.HasProperty("_ZWrite")) clone.SetFloat("_ZWrite", 0f);
+            if (clone.HasProperty("_CastShadows")) clone.SetFloat("_CastShadows", 0f);
             // A ghost of an already-transparent material (glass) keeps its original
             // opacity and fades *from* it; writing the constant would make a .26 pane
             // more opaque than the solid one. Opaque materials use the ghost opacity.
             var baseAlpha = source.HasProperty("_BaseColor") ? source.GetColor("_BaseColor").a
-                : source.HasProperty("_Color") ? source.GetColor("_Color").a : 1f;
+                : source.HasProperty("_Color") ? source.GetColor("_Color").a
+                : source.HasProperty("baseColorFactor") ? source.GetColor("baseColorFactor").a : 1f;
             var resolvedAlpha = baseAlpha < .999f ? baseAlpha * opacity : opacity;
             if (clone.HasProperty("_BaseColor")) {
                 var colour = source.HasProperty("_BaseColor") ? source.GetColor("_BaseColor") : clone.GetColor("_BaseColor");
@@ -524,7 +531,23 @@ namespace Metro.View {
                 colour.a = resolvedAlpha;
                 clone.SetColor("_Color", colour);
             }
+            if (clone.HasProperty("baseColorFactor")) {
+                var colour = source.HasProperty("baseColorFactor") ? source.GetColor("baseColorFactor") : clone.GetColor("baseColorFactor");
+                if (baseAlpha >= .999f) colour = Color.Lerp(colour, new Color(.42f, .455f, .502f, 1f), .7f);
+                colour.a = resolvedAlpha;
+                clone.SetColor("baseColorFactor", colour);
+            }
             clone.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            if (clone.shader != null && clone.shader.name.StartsWith("Shader Graphs/glTF-", StringComparison.Ordinal)) {
+                clone.EnableKeyword("_DISABLE_SSR_TRANSPARENT");
+                clone.EnableKeyword("_ENABLE_FOG_ON_TRANSPARENT");
+                clone.SetShaderPassEnabled("TransparentDepthPrepass", false);
+                clone.SetShaderPassEnabled("TransparentDepthPostpass", false);
+                clone.SetShaderPassEnabled("TransparentBackface", false);
+                clone.SetShaderPassEnabled("RayTracingPrepass", false);
+                clone.SetShaderPassEnabled("DepthOnly", false);
+                clone.SetShaderPassEnabled("ShadowCaster", false);
+            }
             // Alpha-cutout (foliage) keeps its cutout: a ghost is see-through, not a solid
             // billboard. The keyword was previously *disabled* here, which is why ghosted
             // trees rendered as opaque cards.
@@ -610,7 +633,7 @@ namespace Metro.View {
         StationDrawMode lastMode = StationDrawMode.Base;
         StationVisibilityPalette lastPalette;
         MaterialPropertyBlock sectionBlock;
-        internal bool SectionShaderActive { get; private set; }
+        public bool SectionShaderActive { get; private set; }
 
         bool UsesSection => role != StationPartRole.Grid && role != StationPartRole.Cursor && role != StationPartRole.Overlay;
 
@@ -631,8 +654,10 @@ namespace Metro.View {
         public bool Parked => parked;
         public bool Floating => floating;
         public bool ContactShadow => contactShadow;
+        public bool GradeOwned => gradeOwned;
         public Transform Root => transform;
         public StationDrawMode LastMode => lastMode;
+        public event Action<StationDrawMode> ModeApplied;
         public IReadOnlyList<Renderer> Renderers { get { Collect(); return renderers; } }
         public IReadOnlyList<Collider> Colliders { get { Collect(); return colliders; } }
 
@@ -643,12 +668,36 @@ namespace Metro.View {
                 var bounds = new Bounds(transform.position, Vector3.one);
                 for (int i = 0; i < renderers.Length; i++) {
                     var renderer = renderers[i];
-                    if (!renderer) continue;
-                    if (!has) { bounds = renderer.bounds; has = true; }
-                    else bounds.Encapsulate(renderer.bounds);
+                    if (!renderer || !Eligible(renderer)) continue;
+                    var next = MeasureRendererBounds(renderer);
+                    if (!has) { bounds = next; has = true; }
+                    else bounds.Encapsulate(next);
                 }
                 return bounds;
             }
+        }
+
+        static Bounds MeasureRendererBounds(Renderer renderer) {
+            if (renderer.enabled && renderer.gameObject.activeInHierarchy) {
+                var live = renderer.bounds;
+                if (live.size.sqrMagnitude > 1e-8f) return live;
+            }
+            var local = renderer.localBounds;
+            if (local.size.sqrMagnitude <= 1e-8f) {
+                if (renderer is SkinnedMeshRenderer skin && skin.sharedMesh != null) local = skin.sharedMesh.bounds;
+                else if (renderer.TryGetComponent<MeshFilter>(out var filter) && filter.sharedMesh != null) local = filter.sharedMesh.bounds;
+            }
+            var matrix = renderer.transform.localToWorldMatrix;
+            var center = matrix.MultiplyPoint3x4(local.center);
+            var ext = local.extents;
+            var axisX = matrix.MultiplyVector(new Vector3(ext.x, 0f, 0f));
+            var axisY = matrix.MultiplyVector(new Vector3(0f, ext.y, 0f));
+            var axisZ = matrix.MultiplyVector(new Vector3(0f, 0f, ext.z));
+            var worldExt = new Vector3(
+                Mathf.Abs(axisX.x) + Mathf.Abs(axisY.x) + Mathf.Abs(axisZ.x),
+                Mathf.Abs(axisX.y) + Mathf.Abs(axisY.y) + Mathf.Abs(axisZ.y),
+                Mathf.Abs(axisX.z) + Mathf.Abs(axisY.z) + Mathf.Abs(axisZ.z));
+            return new Bounds(center, worldExt * 2f);
         }
 
         public void Configure(StationPartRole partRole, int[] levelZs, int band = NoGroundBand, bool isParked = false,
@@ -784,6 +833,7 @@ namespace Metro.View {
                 if (wasVisible && !collider.enabled) eligibleColliders[collider] = false;
                 collider.enabled = visible && Eligible(collider);
             }
+            ModeApplied?.Invoke(mode);
         }
 
         void ApplySection(Renderer renderer, Material[] bases, StationVisibilityPalette palette) {
@@ -962,12 +1012,34 @@ namespace Metro.View {
     /// simulation.
     /// </summary>
     public sealed class StationVisibilityRegistry : IDisposable {
+        sealed class ReferenceTargetComparer : IEqualityComparer<IStationVisibilityTarget> {
+            public static readonly ReferenceTargetComparer Instance = new ReferenceTargetComparer();
+            public bool Equals(IStationVisibilityTarget x, IStationVisibilityTarget y) => ReferenceEquals(x, y);
+            public int GetHashCode(IStationVisibilityTarget obj) =>
+                obj == null ? 0 : System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(obj);
+        }
+
+        struct AppliedTargetSummary {
+            public byte Visible;
+            public byte Hidden;
+            public byte Ghost;
+            public byte Clear;
+            public byte Cut;
+            public byte Straddling;
+            public byte SectionShader;
+        }
+
         readonly List<IStationVisibilityTarget> targets = new List<IStationVisibilityTarget>();
+        readonly HashSet<IStationVisibilityTarget> targetSet =
+            new HashSet<IStationVisibilityTarget>(ReferenceTargetComparer.Instance);
+        readonly Dictionary<IStationVisibilityTarget, AppliedTargetSummary> appliedSummaries =
+            new Dictionary<IStationVisibilityTarget, AppliedTargetSummary>(ReferenceTargetComparer.Instance);
         readonly StationVisibilityPalette palette;
         public readonly StationVisibilityState State = new StationVisibilityState();
         public StationSectionPlane Section = StationSectionPlane.Default;
         public bool SectionClipping;
         public bool SectionSurfaceVisible = true;
+        public event Action Applied;
 
         public int RegisteredTargets => targets.Count;
         public IReadOnlyList<IStationVisibilityTarget> Targets => targets;
@@ -991,49 +1063,140 @@ namespace Metro.View {
             if (!root) return null;
             var target = root.GetComponent<StationVisibilityTarget>() ?? root.gameObject.AddComponent<StationVisibilityTarget>();
             target.Configure(role, levels, groundBand, parked, floating, contactShadow, gradeOwned);
-            if (!targets.Contains(target)) targets.Add(target);
+            if (targetSet.Add(target)) targets.Add(target);
             return target;
         }
 
         public void Register(IStationVisibilityTarget target) {
-            if (target != null && !targets.Contains(target)) targets.Add(target);
+            if (target != null && targetSet.Add(target)) targets.Add(target);
         }
 
-        public bool Unregister(IStationVisibilityTarget target) => targets.Remove(target);
+        public bool Unregister(IStationVisibilityTarget target) {
+            if (target == null || !targetSet.Remove(target)) return false;
+            SubtractSummary(target);
+            for (int i = targets.Count - 1; i >= 0; i--) {
+                if (ReferenceEquals(targets[i], target)) {
+                    targets.RemoveAt(i);
+                    break;
+                }
+            }
+            return true;
+        }
 
-        public void ClearRegisteredTargets() => targets.Clear();
+        public void ClearRegisteredTargets() {
+            targets.Clear();
+            targetSet.Clear();
+            appliedSummaries.Clear();
+            VisibleTargets = HiddenTargets = GhostTargets = ClearTargets = CutTargets = StraddlingTargets = 0;
+            SectionShaderTargets = 0;
+        }
 
-        public void Apply() {
-            ActiveBuilt = ComputeActiveBuilt();
+        void SubtractSummary(IStationVisibilityTarget target) {
+            if (!appliedSummaries.TryGetValue(target, out var prev)) return;
+            appliedSummaries.Remove(target);
+            VisibleTargets = Math.Max(0, VisibleTargets - prev.Visible);
+            HiddenTargets = Math.Max(0, HiddenTargets - prev.Hidden);
+            GhostTargets = Math.Max(0, GhostTargets - prev.Ghost);
+            ClearTargets = Math.Max(0, ClearTargets - prev.Clear);
+            CutTargets = Math.Max(0, CutTargets - prev.Cut);
+            StraddlingTargets = Math.Max(0, StraddlingTargets - prev.Straddling);
+            SectionShaderTargets = Math.Max(0, SectionShaderTargets - prev.SectionShader);
+        }
+
+        void RecordSummary(IStationVisibilityTarget target, StationDrawMode mode) {
+            var next = default(AppliedTargetSummary);
+            if (mode == StationDrawMode.Hidden) next.Hidden = 1;
+            else {
+                next.Visible = 1;
+                if (mode == StationDrawMode.Ghost) next.Ghost = 1;
+                else if (mode == StationDrawMode.Clear) next.Clear = 1;
+            }
+            if (SectionClipping && TargetHasBounds(target)) {
+                var side = Section.Classify(target.WorldBounds);
+                if (side == StationSectionSide.Cut) next.Cut = 1;
+                else if (side == StationSectionSide.Straddles) next.Straddling = 1;
+            }
+            if (target is StationVisibilityTarget concrete && concrete.SectionShaderActive) next.SectionShader = 1;
+
+            appliedSummaries[target] = next;
+            VisibleTargets += next.Visible;
+            HiddenTargets += next.Hidden;
+            GhostTargets += next.Ghost;
+            ClearTargets += next.Clear;
+            CutTargets += next.Cut;
+            StraddlingTargets += next.Straddling;
+            SectionShaderTargets += next.SectionShader;
+        }
+
+        void SyncPaletteSection() {
             palette.SectionClipping = SectionClipping;
             var normal = StationCameraSpace.ToWorld(Section.Normal);
             var point = StationCameraSpace.ToWorld(Section.Point);
             palette.SectionPlane = new Vector4(normal.x, normal.y, normal.z, -Vector3.Dot(normal, point));
+        }
+
+        public bool RefreshActiveBuilt() {
+            bool next = ComputeActiveBuilt();
+            bool changed = next != ActiveBuilt;
+            ActiveBuilt = next;
+            return changed;
+        }
+
+        /// <summary>
+        /// Re-evaluate and apply visibility for one live target without allocating or walking
+        /// unaffected scene targets.
+        /// </summary>
+        public StationDrawMode ApplyTarget(IStationVisibilityTarget target) {
+            if (target == null) return StationDrawMode.Hidden;
+            if (target is UnityEngine.Object unityObject && unityObject == null) return StationDrawMode.Hidden;
+            SyncPaletteSection();
+            var slice = StationVisibilityRules.SliceOptions(State.ShowLevels, State.AutoCeiling, State.HideUi, State.Cutaway, ActiveBuilt);
+            SubtractSummary(target);
+            var mode = Decide(target, slice);
+            target.Apply(mode, palette);
+            if (targetSet.Contains(target)) RecordSummary(target, mode);
+            return mode;
+        }
+
+        public void ApplyTargets(IReadOnlyList<IStationVisibilityTarget> subset) {
+            if (subset == null || subset.Count == 0) return;
+            SyncPaletteSection();
+            var slice = StationVisibilityRules.SliceOptions(State.ShowLevels, State.AutoCeiling, State.HideUi, State.Cutaway, ActiveBuilt);
+            for (int i = 0; i < subset.Count; i++) {
+                var target = subset[i];
+                if (target == null) continue;
+                if (target is UnityEngine.Object unityObject && unityObject == null) continue;
+                SubtractSummary(target);
+                var mode = Decide(target, slice);
+                target.Apply(mode, palette);
+                if (targetSet.Contains(target)) RecordSummary(target, mode);
+            }
+            Applied?.Invoke();
+        }
+
+        public void Apply() {
+            ActiveBuilt = ComputeActiveBuilt();
+            SyncPaletteSection();
             var slice = StationVisibilityRules.SliceOptions(State.ShowLevels, State.AutoCeiling, State.HideUi, State.Cutaway, ActiveBuilt);
             VisibleTargets = HiddenTargets = GhostTargets = ClearTargets = CutTargets = StraddlingTargets = 0;
             SectionShaderTargets = 0;
+            appliedSummaries.Clear();
             for (int i = targets.Count - 1; i >= 0; i--) {
                 var target = targets[i];
                 if (target == null) { targets.RemoveAt(i); continue; }
                 // A target backed by a Unity object that was destroyed with a station
                 // root must leave the walk. A plain test target has no engine identity
                 // at all, so `Root == null` is not the liveness test.
-                if (target is UnityEngine.Object unityObject && unityObject == null) { targets.RemoveAt(i); continue; }
+                if (target is UnityEngine.Object unityObject && unityObject == null) {
+                    targetSet.Remove(target);
+                    targets.RemoveAt(i);
+                    continue;
+                }
                 var mode = Decide(target, slice);
                 target.Apply(mode, palette);
-                if (mode == StationDrawMode.Hidden) HiddenTargets++;
-                else {
-                    VisibleTargets++;
-                    if (mode == StationDrawMode.Ghost) GhostTargets++;
-                    else if (mode == StationDrawMode.Clear) ClearTargets++;
-                }
-                if (SectionClipping) {
-                    var side = Section.Classify(target.WorldBounds);
-                    if (side == StationSectionSide.Cut) CutTargets++;
-                    else if (side == StationSectionSide.Straddles) StraddlingTargets++;
-                }
-                if (target is StationVisibilityTarget concrete && concrete.SectionShaderActive) SectionShaderTargets++;
+                RecordSummary(target, mode);
             }
+            Applied?.Invoke();
         }
 
         /// <summary>The one mode decision for a target; renderers, actors and picking share it.</summary>
@@ -1050,12 +1213,16 @@ namespace Metro.View {
         /// one way for the geometry and its actors.
         /// </summary>
         public StationDrawMode DecidePart(StationPartRole role, int[] levelsZs, bool floating = false,
-            int groundBand = StationVisibilityTarget.NoGroundBand, bool gradeOwned = false) {
+            int groundBand = StationVisibilityTarget.NoGroundBand, bool gradeOwned = false,
+            bool parked = false, Bounds? worldBounds = null) {
             standalone.Role = role;
             standalone.LevelZs = levelsZs ?? Array.Empty<int>();
             standalone.Floating = floating;
             standalone.GroundBand = groundBand;
             standalone.GradeOwned = gradeOwned;
+            standalone.Parked = parked;
+            standalone.HasBounds = worldBounds.HasValue;
+            standalone.Bounds = worldBounds ?? default;
             return Decide(standalone);
         }
 
@@ -1065,16 +1232,21 @@ namespace Metro.View {
             public StationPartRole Role { get; set; }
             public IReadOnlyList<int> LevelZs { get; set; } = Array.Empty<int>();
             public int GroundBand { get; set; } = StationVisibilityTarget.NoGroundBand;
-            public bool Parked => false;
+            public bool Parked { get; set; }
             public bool Floating { get; set; }
             public bool ContactShadow => false;
             /// <summary>An unregistered part that still belongs to the authored grade (20 §4).</summary>
             public bool GradeOwned { get; set; }
+            public bool HasBounds { get; set; }
+            public Bounds Bounds { get; set; }
             public Transform Root => null;
-            public Bounds WorldBounds => default;
+            public Bounds WorldBounds => Bounds;
             public StationDrawMode LastMode => StationDrawMode.Base;
             public void Apply(StationDrawMode mode, StationVisibilityPalette palette) { }
         }
+
+        static bool TargetHasBounds(IStationVisibilityTarget target) =>
+            !(target is StandalonePart part) || part.HasBounds;
 
         StationDrawMode Decide(IStationVisibilityTarget target, StationSliceOptions slice) {
             var role = target.Role;
@@ -1086,6 +1258,8 @@ namespace Metro.View {
             if (role == StationPartRole.Grid || role == StationPartRole.Cursor || role == StationPartRole.Overlay) {
                 return State.HideUi ? StationDrawMode.Hidden : StationDrawMode.Base;
             }
+            if (target.Parked) return StationDrawMode.Hidden;
+
             bool wall = role == StationPartRole.Wall || role == StationPartRole.Psd;
             if (State.Cutaway) {
                 // While a cut is on, the only thing that may hide a kept piece is the
@@ -1094,9 +1268,11 @@ namespace Metro.View {
                 // ways of drawing a storey.
                 if (IsGradePart(target)) return StationDrawMode.Hidden;
                 if (State.HideRoof && role == StationPartRole.Roof) return StationDrawMode.Hidden;
-                if (State.AutoCeiling && role == StationPartRole.Ceiling) return StationDrawMode.Hidden;
+                if (State.AutoCeiling && role == StationPartRole.Ceiling && !State.HideUi) return StationDrawMode.Hidden;
                 if (State.HideWalls && wall) return StationDrawMode.Hidden;
-                if (SectionClipping && Section.Classify(target.WorldBounds) == StationSectionSide.Cut) return StationDrawMode.Hidden;
+                if (SectionClipping && TargetHasBounds(target) && Section.Classify(target.WorldBounds) == StationSectionSide.Cut) {
+                    return StationDrawMode.Hidden;
+                }
                 return StationDrawMode.Base;
             }
             if (IsGradePart(target)) return StationDrawMode.Hidden;
@@ -1113,34 +1289,17 @@ namespace Metro.View {
                 return StationDrawMode.Base;
             }
 
+            var side = StationVisibilityRules.LevelSide(target.LevelZs, State.ActiveLevel);
             if (!State.HideUi) {
-                var side = StationVisibilityRules.LevelSide(target.LevelZs, State.ActiveLevel);
-                switch (role) {
-                    case StationPartRole.Train:
-                        if (!StationVisibilityRules.TrainVisible(side, State.ShowLevels, target.Parked)) return StationDrawMode.Hidden;
-                        break;
-                    case StationPartRole.Actor:
-                        // A storey above is never drawn: a floor that is not drawn would
-                        // leave the people standing on nothing.
-                        if (!(side == StationLevelSide.Active || (State.ShowLevels && side == StationLevelSide.Below))) {
-                            return StationDrawMode.Hidden;
-                        }
-                        break;
-                    default:
-                        slice.Unsupported = target.Floating ||
-                            StationVisibilityRules.UnsupportedAbove(State.ActiveLevel, target.GroundBand);
-                        if (!StationVisibilityRules.BoundedLevelVisible(side, target.LevelZs, State.ActiveLevel, slice, State.Dense)) {
-                            return StationDrawMode.Hidden;
-                        }
-                        break;
+                slice.Unsupported = target.Floating ||
+                    StationVisibilityRules.UnsupportedAbove(State.ActiveLevel, target.GroundBand);
+                if (!StationVisibilityRules.BoundedLevelVisible(side, target.LevelZs, State.ActiveLevel, slice, State.Dense, State.StoreyHeight)) {
+                    return StationDrawMode.Hidden;
                 }
             }
 
             if (wall && State.HideWalls) return StationDrawMode.Clear;
-            if (!State.HideUi) {
-                var side = StationVisibilityRules.LevelSide(target.LevelZs, State.ActiveLevel);
-                if (side != StationLevelSide.Active) return StationDrawMode.Ghost;
-            }
+            if (!State.HideUi && side != StationLevelSide.Active) return StationDrawMode.Ghost;
             return StationDrawMode.Base;
         }
 
@@ -1148,18 +1307,15 @@ namespace Metro.View {
         public bool IsTargetPickable(IStationVisibilityTarget target) => Decide(target) != StationDrawMode.Hidden;
 
         /// <summary>
-        /// Does 隐藏地面 remove this part? The ground slab and courses are the `Ground` role; every
-        /// other grade-owned prop carries the independent grade flag its producer classified it
-        /// with (20 §4), because its own role still has to answer 隐藏墙壁 and the storey slice.
+        /// Does 隐藏地面 remove this part? The ground slab, road deck and courses are grade roles;
+        /// every other grade-owned prop, vehicle or street pedestrian carries the independent
+        /// grade flag its producer classified it with (20 §4), because its own role still has to
+        /// answer 隐藏墙壁 and the storey slice.
         /// </summary>
         bool IsGradePart(IStationVisibilityTarget target) {
             if (!State.HideGround || target == null) return false;
-            if (target.Role == StationPartRole.Ground) return true;
-            switch (target) {
-                case StationVisibilityTarget concrete: return concrete.gradeOwned;
-                case StandalonePart standalone: return standalone.GradeOwned;
-                default: return false;
-            }
+            if (target.Role == StationPartRole.Ground || target.Role == StationPartRole.Road) return true;
+            return target.GradeOwned;
         }
 
         /// <summary>The section's contribution to a pick: a point in the cut-away half is rejected.</summary>
@@ -1168,12 +1324,21 @@ namespace Metro.View {
         public bool IsPickableAt(IStationVisibilityTarget target, Vector3 documentPoint) =>
             IsTargetPickable(target) && IsPointKept(documentPoint);
 
-        /// <summary>Hide UI never hides a station piece's colliders; the section and slicing do.</summary>
+        /// <summary>
+        /// Occupied-floor check over station geometry only: passengers, rolling stock, passing
+        /// road vehicles, ground surfaces and editing furniture never turn an empty floor into
+        /// an occupied one.
+        /// </summary>
         bool ComputeActiveBuilt() {
             foreach (var target in targets) {
+                if (target == null || target.Parked || target.ContactShadow || target.GradeOwned) continue;
                 var role = target.Role;
-                if (role == StationPartRole.Ground || role == StationPartRole.Grid || role == StationPartRole.Cursor ||
-                    role == StationPartRole.Overlay) continue;
+                if (role == StationPartRole.Ground || role == StationPartRole.Road ||
+                    role == StationPartRole.Grid || role == StationPartRole.Cursor ||
+                    role == StationPartRole.Overlay || role == StationPartRole.Actor ||
+                    role == StationPartRole.Train || role == StationPartRole.Vehicle) {
+                    continue;
+                }
                 if (StationVisibilityRules.LevelSide(target.LevelZs, State.ActiveLevel) == StationLevelSide.Active) return true;
             }
             return false;
@@ -1184,6 +1349,9 @@ namespace Metro.View {
 
         public void Dispose() {
             targets.Clear();
+            targetSet.Clear();
+            appliedSummaries.Clear();
+            Applied = null;
             palette.Dispose();
         }
     }

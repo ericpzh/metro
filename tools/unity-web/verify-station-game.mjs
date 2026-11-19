@@ -4595,7 +4595,13 @@ async function runTrafficCase() {
   if (!(await ensureDemo('zoo'))) problems.push('could not commit the Zoo document before sampling its traffic')
   const send = (type, payload) => page.evaluate(`window.__metroStationBridge.send(${JSON.stringify(type)}, ${JSON.stringify(payload)})`)
   const roadExpr = `(() => { const s = window.__metroStationBridge.getSnapshot(); return s.state.roads ?? null })()`
+  // Zoo's roads sit at street grade (0 m); select 0 m with ground shown so unified storey
+  // visibility displays the street and its vehicles even when --only road-traffic cold-opens at -20 m.
+  await send('view.set', { key: 'level', value: 0 })
+  await send('view.set', { key: 'ground', value: false })
+  await poll(`(() => { const v = window.__metroStationBridge.getSnapshot().state.view; return Boolean(v && v.level === 0 && v.ground === false) })()`, 'road-traffic street view', Math.min(timeoutMs, 15000)).catch(() => {})
   await send('sim.play', { playing: true })
+  await sleep(300)
   const first = await page.evaluate(roadExpr)
   if (!first) { problems.push('no road state summary'); return finishCase(record, false, { problems }) }
   const visible = first.vehicles?.visible ?? 0

@@ -159,8 +159,10 @@ namespace Metro.App {
         readonly Dictionary<string, Transform> roleRoots = new Dictionary<string, Transform>(StringComparer.Ordinal);
         readonly Dictionary<string, int> roleCounts = new Dictionary<string, int>(StringComparer.Ordinal);
         readonly Dictionary<string, bool> roleVisibility = new Dictionary<string, bool>(StringComparer.Ordinal);
+        readonly HashSet<StationVisibilityTarget> runtimeTargets = new HashSet<StationVisibilityTarget>();
         readonly GameObject rootObject;
         Dictionary<string, StationModuleRecord> modulesById;
+        StationVisibilityRegistry visibility;
         StationDocument document;
         StationIndex index;
         bool activated;
@@ -185,6 +187,9 @@ namespace Metro.App {
         public Font Font => Assets.Font;
         public StationDocument Document => document;
         public StationIndex Index => index;
+        public StationVisibilityRegistry Visibility => visibility;
+        public int RuntimeTargetCount => runtimeTargets.Count;
+        public event Action VisibilityApplied;
         public IReadOnlyList<StationViewRecord> Records => records;
         public IReadOnlyList<StationDiagnostic> Unresolved => unresolved;
         public IReadOnlyList<IStationViewRenderer> Renderers => renderers;
@@ -410,6 +415,66 @@ namespace Metro.App {
         public bool IsRoleVisible(string role) =>
             !roleVisibility.TryGetValue(role ?? "", out var visible) || visible;
 
+        /// <summary>
+        /// Bind the world to a visibility registry so runtime-spawned actors and pooled
+        /// vehicles follow the exact same storey/section/grade policy without entering
+        /// <see cref="Records"/>, <see cref="StationScenePicker"/> or document history.
+        /// </summary>
+        public void BindVisibility(StationVisibilityRegistry registry) {
+            if (IsDisposed) return;
+            if (!ReferenceEquals(visibility, registry)) {
+                if (visibility != null) visibility.Applied -= OnVisibilityApplied;
+                visibility = registry;
+                if (visibility != null) visibility.Applied += OnVisibilityApplied;
+            }
+            if (visibility != null && runtimeTargets.Count > 0) {
+                List<StationVisibilityTarget> dead = null;
+                foreach (var target in runtimeTargets) {
+                    if (target == null) { (dead ??= new List<StationVisibilityTarget>()).Add(target); continue; }
+                    visibility.Register(target);
+                }
+                if (dead != null) {
+                    for (int i = 0; i < dead.Count; i++) runtimeTargets.Remove(dead[i]);
+                }
+            }
+        }
+
+        void OnVisibilityApplied() => VisibilityApplied?.Invoke();
+
+        public StationDrawMode BindRuntimeTarget(StationVisibilityTarget target) {
+            if (target == null || IsDisposed) return StationDrawMode.Hidden;
+            runtimeTargets.Add(target);
+            if (visibility != null) {
+                visibility.Register(target);
+                return visibility.ApplyTarget(target);
+            }
+            var fallback = target.Parked ? StationDrawMode.Hidden : StationDrawMode.Base;
+            target.Apply(fallback, null);
+            return fallback;
+        }
+
+        public StationDrawMode ApplyRuntimeTarget(StationVisibilityTarget target) {
+            if (target == null || IsDisposed) return StationDrawMode.Hidden;
+            runtimeTargets.Add(target);
+            if (visibility != null) {
+                visibility.Register(target);
+                return visibility.ApplyTarget(target);
+            }
+            var fallback = target.Parked ? StationDrawMode.Hidden : StationDrawMode.Base;
+            target.Apply(fallback, null);
+            return fallback;
+        }
+
+        public void UnbindRuntimeTarget(StationVisibilityTarget target) {
+            if (target == null) return;
+            runtimeTargets.Remove(target);
+            visibility?.Unregister(target);
+            target.parked = true;
+            target.levels = Array.Empty<int>();
+            target.gradeOwned = false;
+            target.Apply(StationDrawMode.Hidden, null);
+        }
+
         public StationViewSummary Summary() => new StationViewSummary(
             roleCounts, CountRecords(true), CountRecords(false), unresolved.Count);
 
@@ -426,6 +491,15 @@ namespace Metro.App {
             using var editSample = StationEditProfiling.Measure("StationEdit.Dispose");
             if (IsDisposed) return;
             IsDisposed = true;
+            if (visibility != null) {
+                visibility.Applied -= OnVisibilityApplied;
+                foreach (var target in runtimeTargets) {
+                    if (target != null) visibility.Unregister(target);
+                }
+                visibility = null;
+            }
+            runtimeTargets.Clear();
+            VisibilityApplied = null;
             for (int i = 0; i < renderers.Count; i++) {
                 try { renderers[i].Release(); } catch (Exception) { /* a released family must not block teardown */ }
             }

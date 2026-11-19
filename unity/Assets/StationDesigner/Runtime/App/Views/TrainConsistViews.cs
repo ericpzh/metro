@@ -97,6 +97,9 @@ namespace Metro.App.Views {
         public TrainBerth Berth;
         public GameObject Root;
         public TrainDoorRig Rig;
+        StationVisibilityTarget cachedTarget;
+        public StationVisibilityTarget Target => ResolveTarget();
+        internal StationWorldView World;
         public TrainPhase Phase = TrainPhase.None;
         public double PhaseSeconds;
         /// <summary>The leaf fraction the frame commanded (before the rig's staging).</summary>
@@ -126,6 +129,7 @@ namespace Metro.App.Views {
         double samplePhaseSeconds;
         float sampleOffset;
         float previousSampleOffset;
+        float lastVisibilityOffset = float.NaN;
 
         public IReadOnlyList<TrainCarView> CarViews => cars;
         public int Cars => cars.Count;
@@ -137,6 +141,9 @@ namespace Metro.App.Views {
 
         /// <summary>Forget the interpolation pair after a seek/restart/switch.</summary>
         public void ForgetSample() => hasSample = false;
+
+        StationVisibilityTarget ResolveTarget() =>
+            cachedTarget != null ? cachedTarget : (cachedTarget = Root != null ? Root.GetComponent<StationVisibilityTarget>() : null);
 
         /// <summary>
         /// Park the consist between services. The interpolation pair is dropped (the next
@@ -157,8 +164,14 @@ namespace Metro.App.Views {
             // Back on its mark: a parked consist has no pose of its own, and a restart that
             // publishes `None` leaves the previous departure offset in no place at all.
             OffsetMetres = 0f;
+            lastVisibilityOffset = float.NaN;
             Place();
             if (Root != null && Root.activeSelf) Root.SetActive(false);
+            var target = ResolveTarget();
+            if (target != null && !target.parked) {
+                target.parked = true;
+                World?.Visibility?.ApplyTarget(target);
+            }
         }
 
         /// <summary>
@@ -168,6 +181,17 @@ namespace Metro.App.Views {
         /// </summary>
         public void Mount() {
             if (Root != null && !Root.activeSelf) Root.SetActive(true);
+            var target = ResolveTarget();
+            if (target == null) return;
+            bool unparked = target.parked;
+            target.parked = false;
+            var visibility = World?.Visibility;
+            bool sectionMoved = visibility != null && visibility.SectionClipping &&
+                (float.IsNaN(lastVisibilityOffset) || Mathf.Abs(OffsetMetres - lastVisibilityOffset) > 1e-4f);
+            if (unparked || sectionMoved) {
+                lastVisibilityOffset = OffsetMetres;
+                visibility?.ApplyTarget(target);
+            }
         }
 
         /// <summary>
@@ -648,6 +672,7 @@ namespace Metro.App.Views {
                 TrainId = trainId, LineId = line.Id, TrackId = track.Id,
                 FormationKey = formationKey, PrefabPath = entry.prefabPath ?? "",
                 Stock = line.Stock, Scale = scale, Berth = berth, Root = instance,
+                World = context.World,
             };
             view.Place();
 
@@ -723,6 +748,9 @@ namespace Metro.App.Views {
             view.HasConsistBounds = !consistBounds.IsEmpty;
             context.World.RegisterModule(TrainConsistRenderer.RoleName, recordId, instance, "consist",
                 view.HasConsistBounds ? consistBounds : (StationBox?)null, trackLevel, trackLevelMax, bands);
+            var initialTarget = instance.GetComponent<StationVisibilityTarget>() ?? instance.AddComponent<StationVisibilityTarget>();
+            initialTarget.Configure(StationPartRole.Train, bands, isParked: true);
+            initialTarget.Refresh();
 
             // The formation is staged before the first published frame, but it is not a train
             // at a platform until a service run samples a pose (18 §7): a station opened

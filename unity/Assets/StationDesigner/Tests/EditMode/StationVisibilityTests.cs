@@ -70,6 +70,7 @@ public class StationVisibilityTests {
         public bool Parked { get; set; }
         public bool Floating { get; set; }
         public bool ContactShadow { get; set; }
+        public bool GradeOwned { get; set; }
         public Bounds Bounds { get; set; }
         public IReadOnlyList<int> LevelZs => Levels;
         public Transform Root => null;
@@ -84,12 +85,13 @@ public class StationVisibilityTests {
     }
 
     FakeTarget Target(string name, StationPartRole role, int[] levels, Vector3 documentCentre,
-        Vector3 documentSize, bool parked = false, bool contactShadow = false) {
+        Vector3 documentSize, bool parked = false, bool contactShadow = false, bool gradeOwned = false) {
         var target = new FakeTarget {
             Role = role,
             Levels = levels,
             Parked = parked,
             ContactShadow = contactShadow,
+            GradeOwned = gradeOwned,
             // A target's bounds are the renderer's world bounds, as the component
             // reports them; the document point/size go through the one conversion.
             Bounds = new Bounds(StationCameraSpace.ToWorld(documentCentre), StationCameraSpace.ToWorld(documentSize)),
@@ -389,6 +391,7 @@ public class StationVisibilityTests {
 
     [Test]
     public void TrainsAndActorsFollowTheirOwnRules() {
+        var platform = Target("platform", StationPartRole.Slab, new[] { 0 }, new Vector3(-1, 0, 0), Vector3.one);
         var parked = Target("parked", StationPartRole.Train, new[] { 0 }, new Vector3(0, 0, 0), Vector3.one, parked: true);
         var active = Target("train", StationPartRole.Train, new[] { 0 }, new Vector3(1, 0, 0), Vector3.one);
         var aboveTrain = Target("above-train", StationPartRole.Train, new[] { 5 }, new Vector3(2, 0, 5), Vector3.one);
@@ -396,11 +399,184 @@ public class StationVisibilityTests {
         var aboveActor = Target("above-actor", StationPartRole.Actor, new[] { 5 }, new Vector3(4, 0, 5), Vector3.one);
         registry.State.ShowLevels = true;
         registry.Apply();
+        Assert.AreEqual(StationDrawMode.Base, platform.LastMode);
         Assert.AreEqual(StationDrawMode.Hidden, parked.LastMode);
         Assert.AreEqual(StationDrawMode.Base, active.LastMode);
-        Assert.AreEqual(StationDrawMode.Hidden, aboveTrain.LastMode, "a train never hangs above its own floor");
+        Assert.AreEqual(StationDrawMode.Hidden, aboveTrain.LastMode, "a train never hangs above an occupied floor");
         Assert.AreEqual(StationDrawMode.Ghost, belowActor.LastMode);
         Assert.AreEqual(StationDrawMode.Hidden, aboveActor.LastMode);
+    }
+
+    [Test]
+    public void StaticAndMovingTargetsShareTheSameStoreyDecisionAcrossOccupiedAndEmptyFloors() {
+        int[] floors = { -30, -20, -15, 0 };
+        var slabs = new Dictionary<int, FakeTarget>();
+        var actors = new Dictionary<int, FakeTarget>();
+        var trains = new Dictionary<int, FakeTarget>();
+        var vehicles = new Dictionary<int, FakeTarget>();
+        foreach (int z in floors) {
+            slabs[z] = Target("slab-" + z, StationPartRole.Slab, new[] { z }, new Vector3(0, 0, z), Vector3.one);
+            actors[z] = Target("actor-" + z, StationPartRole.Actor, new[] { z }, new Vector3(1, 0, z), Vector3.one);
+            trains[z] = Target("train-" + z, StationPartRole.Train, new[] { z }, new Vector3(2, 0, z), Vector3.one);
+            vehicles[z] = Target("vehicle-" + z, StationPartRole.Vehicle, new[] { z }, new Vector3(3, 0, z), Vector3.one, gradeOwned: z == 0);
+        }
+
+        // Occupied active floor (-15 m): active is Base, lower (-20, -30) Ghost with ShowLevels on, upper (0) Hidden.
+        registry.State.ActiveLevel = -15;
+        registry.State.ShowLevels = true;
+        registry.Apply();
+        Assert.IsTrue(registry.ActiveBuilt, "-15 m owns station geometry");
+        foreach (int z in floors) {
+            var expected = z == -15 ? StationDrawMode.Base : z < -15 ? StationDrawMode.Ghost : StationDrawMode.Hidden;
+            Assert.AreEqual(expected, slabs[z].LastMode, "slab at " + z + " from occupied -15");
+            Assert.AreEqual(slabs[z].LastMode, actors[z].LastMode, "actor matches slab at " + z);
+            Assert.AreEqual(slabs[z].LastMode, trains[z].LastMode, "train matches slab at " + z);
+            Assert.AreEqual(slabs[z].LastMode, vehicles[z].LastMode, "vehicle matches slab at " + z);
+        }
+
+        // Show Other Floors off: only the active floor draws.
+        registry.State.ShowLevels = false;
+        registry.Apply();
+        foreach (int z in floors) {
+            var expected = z == -15 ? StationDrawMode.Base : StationDrawMode.Hidden;
+            Assert.AreEqual(expected, slabs[z].LastMode);
+            Assert.AreEqual(expected, actors[z].LastMode);
+            Assert.AreEqual(expected, trains[z].LastMode);
+            Assert.AreEqual(expected, vehicles[z].LastMode);
+        }
+
+        // Empty floor (-25 m): even if moving actors/vehicles/trains enter -25 m, ActiveBuilt stays false
+        // because no station geometry occupies -25 m, so upper floors still ghost with ShowLevels on.
+        var passingActor = Target("passing-actor", StationPartRole.Actor, new[] { -25 }, new Vector3(1, 0, -25), Vector3.one);
+        var passingTrain = Target("passing-train", StationPartRole.Train, new[] { -25 }, new Vector3(2, 0, -25), Vector3.one);
+        var passingVehicle = Target("passing-vehicle", StationPartRole.Vehicle, new[] { -25 }, new Vector3(3, 0, -25), Vector3.one, gradeOwned: true);
+        registry.State.ActiveLevel = -25;
+        registry.State.ShowLevels = true;
+        registry.Apply();
+        Assert.IsFalse(registry.ActiveBuilt, "moving targets alone cannot mark an empty floor occupied");
+        Assert.AreEqual(StationDrawMode.Base, passingActor.LastMode);
+        Assert.AreEqual(StationDrawMode.Base, passingTrain.LastMode);
+        Assert.AreEqual(StationDrawMode.Base, passingVehicle.LastMode);
+        foreach (int z in floors) {
+            Assert.AreEqual(StationDrawMode.Ghost, slabs[z].LastMode, "empty floor ghosts upper/lower slab at " + z);
+            Assert.AreEqual(StationDrawMode.Ghost, actors[z].LastMode, "empty floor ghosts actor at " + z);
+            Assert.AreEqual(StationDrawMode.Ghost, trains[z].LastMode, "empty floor ghosts train at " + z);
+            Assert.AreEqual(StationDrawMode.Ghost, vehicles[z].LastMode, "empty floor ghosts vehicle at " + z);
+        }
+    }
+
+    [Test]
+    public void DenseLimitShiftedOriginAndCustomStoreyHeightApplyToStaticAndMovingTargetsAlike() {
+        // Dense station bound: from occupied -15 m, adjacent -20 m ghosts while distant -25 m and -30 m hide.
+        int[] denseLevels = { -30, -25, -20, -15, -10 };
+        var props = new Dictionary<int, FakeTarget>();
+        var actors = new Dictionary<int, FakeTarget>();
+        var trains = new Dictionary<int, FakeTarget>();
+        var vehicles = new Dictionary<int, FakeTarget>();
+        foreach (int z in denseLevels) {
+            props[z] = Target("prop-" + z, StationPartRole.Prop, new[] { z }, new Vector3(0, 0, z), Vector3.one);
+            actors[z] = Target("actor-" + z, StationPartRole.Actor, new[] { z }, new Vector3(1, 0, z), Vector3.one);
+            trains[z] = Target("train-" + z, StationPartRole.Train, new[] { z }, new Vector3(2, 0, z), Vector3.one);
+            vehicles[z] = Target("veh-" + z, StationPartRole.Vehicle, new[] { z }, new Vector3(3, 0, z), Vector3.one);
+        }
+        registry.State.ActiveLevel = -15;
+        registry.State.ShowLevels = true;
+        registry.State.Dense = true;
+        registry.Apply();
+        foreach (int z in denseLevels) {
+            var expected = z == -15 ? StationDrawMode.Base : z == -20 ? StationDrawMode.Ghost : StationDrawMode.Hidden;
+            Assert.AreEqual(expected, props[z].LastMode, "dense prop at " + z);
+            Assert.AreEqual(expected, actors[z].LastMode, "dense actor at " + z);
+            Assert.AreEqual(expected, trains[z].LastMode, "dense train at " + z);
+            Assert.AreEqual(expected, vehicles[z].LastMode, "dense vehicle at " + z);
+        }
+
+        // Shifted height origin (levelBase = 2) + custom storeyHeight = 6:
+        // Web `storeyBand` maps elevations onto the 5 m viewing ladder anchored at levelBase=2 (..., -13, -8, -3, 2, 7),
+        // while `StoreyNear` uses `storeyHeight = 6` to bound neighbour ghosts on dense stations.
+        registry.ClearRegisteredTargets();
+        registry.State.LevelBase = 2;
+        registry.State.StoreyHeight = 6;
+        registry.State.Dense = true;
+        registry.State.ShowLevels = true;
+        var customGrid = registry.State.Grid;
+        Assert.AreEqual(-3, StationModuleLevels.Band(customGrid, 0), "0 m street datum bands to -3 under levelBase=2");
+        Assert.AreEqual(-8, StationModuleLevels.Band(customGrid, -8));
+        Assert.AreEqual(7, StationModuleLevels.Band(customGrid, 8));
+
+        var activeSlab = Target("c-slab-active", StationPartRole.Slab, new[] { -3 }, new Vector3(0, 0, -2), Vector3.one);
+        var activeActor = Target("c-actor-active", StationPartRole.Actor, new[] { -3 }, new Vector3(1, 0, -2), Vector3.one);
+        var nearSlab = Target("c-slab-near", StationPartRole.Slab, new[] { -8 }, new Vector3(0, 0, -8), Vector3.one);
+        var nearActor = Target("c-actor-near", StationPartRole.Actor, new[] { -8 }, new Vector3(1, 0, -8), Vector3.one);
+        var farSlab = Target("c-slab-far", StationPartRole.Slab, new[] { -13 }, new Vector3(0, 0, -13), Vector3.one);
+        var farActor = Target("c-actor-far", StationPartRole.Actor, new[] { -13 }, new Vector3(1, 0, -13), Vector3.one);
+        var upperActor = Target("c-actor-up", StationPartRole.Actor, new[] { 7 }, new Vector3(1, 0, 8), Vector3.one);
+
+        registry.State.ActiveLevel = -3;
+        registry.Apply();
+        Assert.AreEqual(StationDrawMode.Base, activeSlab.LastMode);
+        Assert.AreEqual(StationDrawMode.Base, activeActor.LastMode);
+        Assert.AreEqual(StationDrawMode.Ghost, nearSlab.LastMode, "storeyHeight=6 keeps -8 within 6 m of -3");
+        Assert.AreEqual(StationDrawMode.Ghost, nearActor.LastMode);
+        Assert.AreEqual(StationDrawMode.Hidden, farSlab.LastMode, "-13 is 10 m below -3 (> storeyHeight 6)");
+        Assert.AreEqual(StationDrawMode.Hidden, farActor.LastMode);
+        Assert.AreEqual(StationDrawMode.Hidden, upperActor.LastMode);
+    }
+
+    [Test]
+    public void HideGroundHideUiParkedAndSectionCutawayApplyUniformlyAcrossStaticAndMovingRoles() {
+        var streetGround = Target("street", StationPartRole.Ground, new[] { 0 }, new Vector3(0, -5, 0), new Vector3(2, 2, 1));
+        var streetActor = Target("street-walker", StationPartRole.Actor, new[] { 0 }, new Vector3(2, -5, 1), new Vector3(1, 1, 2), gradeOwned: true);
+        var roadVehicle = Target("road-car", StationPartRole.Vehicle, new[] { 0 }, new Vector3(4, -5, 1), new Vector3(2, 4, 2), gradeOwned: true);
+        var exitBuilding = Target("exit-headhouse", StationPartRole.Prop, new[] { 0 }, new Vector3(6, -5, 0), new Vector3(4, 6, 3), gradeOwned: false);
+        var exitActor = Target("exit-walker", StationPartRole.Actor, new[] { 0 }, new Vector3(6, -5, 1), new Vector3(1, 1, 2), gradeOwned: false);
+        var lowerPlatform = Target("lower-slab", StationPartRole.Slab, new[] { -20 }, new Vector3(0, -5, -20), new Vector3(4, 4, 1));
+        var lowerActor = Target("lower-actor", StationPartRole.Actor, new[] { -20 }, new Vector3(1, -5, -19), new Vector3(1, 1, 2));
+        var lowerTrain = Target("lower-train", StationPartRole.Train, new[] { -20 }, new Vector3(2, -5, -19), new Vector3(3, 20, 4));
+        var parkedTrain = Target("parked-train", StationPartRole.Train, new[] { -20 }, new Vector3(2, -5, -19), new Vector3(3, 20, 4), parked: true);
+        var cutActor = Target("cut-actor", StationPartRole.Actor, new[] { -20 }, new Vector3(1, 10, -19), new Vector3(1, 1, 2));
+        var straddleTrain = Target("straddle-train", StationPartRole.Train, new[] { -20 }, new Vector3(2, 0, -19), new Vector3(3, 12, 4));
+        var grid = Target("grid", StationPartRole.Grid, new[] { 0 }, new Vector3(0, 0, 0), Vector3.one);
+
+        // At 0 m with Hide Ground ON: street slab, street pedestrians and road vehicles hide together,
+        // while the entrance head-house and pedestrians on its pad stay Base, and -20 m ghosts.
+        registry.State.ActiveLevel = 0;
+        registry.State.ShowLevels = true;
+        registry.State.HideGround = true;
+        registry.Apply();
+        Assert.AreEqual(StationDrawMode.Hidden, streetGround.LastMode);
+        Assert.AreEqual(StationDrawMode.Hidden, streetActor.LastMode);
+        Assert.AreEqual(StationDrawMode.Hidden, roadVehicle.LastMode);
+        Assert.AreEqual(StationDrawMode.Base, exitBuilding.LastMode);
+        Assert.AreEqual(StationDrawMode.Base, exitActor.LastMode);
+        Assert.AreEqual(StationDrawMode.Ghost, lowerPlatform.LastMode);
+        Assert.AreEqual(StationDrawMode.Ghost, lowerActor.LastMode);
+        Assert.AreEqual(StationDrawMode.Ghost, lowerTrain.LastMode);
+        Assert.AreEqual(StationDrawMode.Hidden, parkedTrain.LastMode);
+
+        // Hide UI ON (with Hide Ground off): grid hides, parked stays hidden, every storey draws Base.
+        registry.State.HideGround = false;
+        registry.State.SetHideUi(true);
+        registry.Apply();
+        Assert.AreEqual(StationDrawMode.Hidden, grid.LastMode);
+        Assert.AreEqual(StationDrawMode.Hidden, parkedTrain.LastMode, "Hide UI must never unhide a parked consist");
+        Assert.AreEqual(StationDrawMode.Base, streetGround.LastMode);
+        Assert.AreEqual(StationDrawMode.Base, streetActor.LastMode);
+        Assert.AreEqual(StationDrawMode.Base, roadVehicle.LastMode);
+        Assert.AreEqual(StationDrawMode.Base, lowerPlatform.LastMode);
+        Assert.AreEqual(StationDrawMode.Base, lowerActor.LastMode);
+        Assert.AreEqual(StationDrawMode.Base, lowerTrain.LastMode);
+
+        // Cutaway section mode: cut-side moving targets hide, kept and straddling targets draw Base, parked stays Hidden.
+        registry.State.SetHideUi(false);
+        registry.State.Cutaway = true;
+        registry.SectionClipping = true;
+        registry.Section = new StationSectionPlane { Anchor = new Vector3(0, 0, -10), Azimuth = 0, Offset = 0 };
+        registry.Apply();
+        Assert.AreEqual(StationDrawMode.Hidden, parkedTrain.LastMode, "Cutaway must never unhide a parked consist");
+        Assert.AreEqual(StationDrawMode.Hidden, cutActor.LastMode, "actor on cut half hides");
+        Assert.AreEqual(StationDrawMode.Base, lowerActor.LastMode, "actor on kept half draws Base");
+        Assert.AreEqual(StationDrawMode.Base, straddleTrain.LastMode, "train straddling the section plane stays drawn");
     }
 
     [Test]
