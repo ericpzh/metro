@@ -1,3 +1,14 @@
+`sparse-routing` covers the sparse hierarchical crowd router (`sim/sparsePolicy.ts`,
+`sim/sparseGraph.ts`, `sim/sparseRouter.ts`): half-up integer-ms rounding, negative
+`floorDiv`, monotonic 43-bit tile/sector keys, Murmur3 tile jitter and exact local
+scoring; soft tile-claim TTL, release and edit remapping; fence-divided sector
+crossings and U-shaped obstacle preservation; wide-hall approach spread versus
+legacy and narrow single-route control; two-connector arrival balancing; remote
+structural edit field/segment retention, Pause→Play and 60-tick sample-refresh
+rules, tight work-cap cross-tick determinism, and free-flow route stretch within
+15% of exact shortest paths. `tools/unity-parity/record-crowd-routing.mjs` records
+the shared oracle verified bit-for-bit by Unity's `StationSparseRoutingTests`.
+
 Wuhan coverage spans `city-style` (exact supplied palette/named aliases, save/undo,
 gradient atlas bounds and bilingual plate), `module-build` (three sealed glass
 sides, clear entrance/fascia, closed cube/shaft and bound labels at all bay counts,

@@ -60,6 +60,8 @@ import {
 import { Rng } from '../rng.ts'
 import { crowdedWalkEnd, spreadWalkRoute } from '../crowdRouting.ts'
 import { clearWalkSegment, walkingLaneNode, platformWaitingNodes } from '../walkingSpace.ts'
+import type { RoutingMode } from '../sparsePolicy.ts'
+import { SparseRouter, type CoarseItinerary, type SparseRouterOptions, type SparseRoutingStats, type SparseWalkerState } from '../sparseRouter.ts'
 import { gateLaneAllows } from '../gates.ts'
 import { GateTraffic } from '../gateTraffic.ts'
 import { roadMoveClear, roadContainsPoint, type Road } from '../roads.ts'
@@ -267,13 +269,24 @@ export class World {
    * that wants the rule — passes its own answer.
    */
   readonly zoneBarriers: boolean
+  /** Active routing backend: `'sparse'` (default) or `'legacy'` rollback switch. */
+  routingMode: RoutingMode
+  /** World-scoped sparse router retaining validated sectors, fields and samples across rebuilds. */
+  sparseRouter: SparseRouter | null = null
+  private sparseOptions: SparseRouterOptions | undefined
 
-  constructor(data: StationData, seed = 1234567, opts: { zoneBarriers?: boolean } = {}) {
+  constructor(
+    data: StationData,
+    seed = 1234567,
+    opts: { zoneBarriers?: boolean; routingMode?: RoutingMode; sparseOptions?: SparseRouterOptions } = {},
+  ) {
     this.data = data
     this.seed = seed
     this.rng = new Rng(seed)
     this.simTime = DEFAULT_SIM_TIME
     this.zoneBarriers = opts.zoneBarriers ?? ZONE_LINES_BLOCK
+    this.routingMode = opts.routingMode ?? 'sparse'
+    this.sparseOptions = opts.sparseOptions
     const g = buildGraph(data, this.zoneBarriers)
     this.graph = g
     this.path = new PathFinder(g)
@@ -281,7 +294,21 @@ export class World {
     this.nodePop = new Int32Array(g.nodeCount)
     this.metrics = freshMetrics(this.simTime)
     this.history.reset(this.simTime)
-    this.rebuild()
+    this.rebuild(false, true)
+  }
+
+  private useSparseRouting(): boolean {
+    return this.routingMode === 'sparse' && this.sparseRouter !== null && this.path.routeSearch === null
+  }
+
+  /** Notify the sparse router of a real Pause -> Play transition (§3 / §4.5). */
+  notifyPlayResumed(): void {
+    this.sparseRouter?.notifyPlayResumed()
+  }
+
+  /** Diagnostic routing statistics when sparse routing is active. */
+  routingStats(): SparseRoutingStats | null {
+    return this.sparseRouter ? this.sparseRouter.stats() : null
   }
 
   /**
@@ -304,7 +331,7 @@ export class World {
     this.routeTails.clear()
     this.routeTailGraph = null
     this.history.reset(startSeconds)
-    this.rebuild()
+    this.rebuild(false, true)
   }
 
   /**
@@ -410,13 +437,14 @@ export class World {
   /** Platform-side half of edge cells; prepared once with the routing graph. */
   private platformFloor = new Map<number, readonly [number, number]>()
 
-  rebuild(reuseGraph = false): void {
+  rebuild(reuseGraph = false, isNewSession = false): void {
     this.doorWaiting.clear()
     this.doorGestures.clear()
     this.roads = this.data.modules.filter((m): m is Road => m.type === 'road')
     // The authored day is document data: re-read and re-normalize it on every rebuild,
     // which is the same path a live edit takes (`build` → `rebuild`).
     this.refreshDay()
+    const prevSparseTopo = this.sparseRouter ? this.sparseRouter.topology : null
     if (!reuseGraph) {
       this.graph = buildGraph(this.data, this.zoneBarriers)
       this.platformFloor.clear()
@@ -468,6 +496,18 @@ export class World {
     } else {
       this.nodePop.fill(0)
       this.doorLoads.fill(0)
+    }
+    let sparseDiff: ReturnType<SparseRouter['onCommit']> | null = null
+    if (this.routingMode === 'sparse') {
+      if (!this.sparseRouter) {
+        this.sparseRouter = new SparseRouter(this.graph, this.seed, this.sparseOptions)
+      } else if (isNewSession) {
+        this.sparseRouter.resetForNewDocument(this.graph, this.seed)
+      } else if (reuseGraph) {
+        this.sparseRouter.resetForRestart(this.graph)
+      } else {
+        sparseDiff = this.sparseRouter.onCommit(this.graph, this.seed)
+      }
     }
     for (const mod of this.data.modules) if (mod.type === 'door') {
       const [fx,fy] = rotateLocal(mod.rot,0,1)
@@ -529,10 +569,13 @@ export class World {
       train.alightLeft = 0
       train.onboard = 0
     }
+    const newSparseTopo = this.sparseRouter ? this.sparseRouter.topology : null
     this.pool.forEach((a) => {
       // An edit may pave the tile beneath a standing passenger (§7.2). Move it
       // to the nearest remaining floor on that level before replanning.
+      let relocated = false
       if (a.train < 0 && a.state !== STATE_RIDING && roadContainsPoint(this.roads, a.x, a.y, Math.round(a.z) - 1)) {
+        relocated = true
         let nearest = -1, distance = Infinity
         for (let node = 0; node < this.graph.nodeCount; node++) {
           if (this.graph.nodeZ[node] !== Math.round(a.z)) continue
@@ -542,6 +585,53 @@ export class World {
         if (nearest < 0) this.pool.kill(a)
         else { a.x = this.graph.nodeX[nearest]; a.y = this.graph.nodeY[nearest]; a.vx = 0; a.vy = 0 }
       }
+      // Preserve maximal legal walking prefix when sparse topology remaps surviving tiles (§3 / §4.5).
+      if (!relocated && !a.dead && a.train < 0 && a.state === STATE_WALKING && a.server < 0 &&
+          a.walker && prevSparseTopo && newSparseTopo && !isNewSession && !reuseGraph && a.path.length > a.pathIdx) {
+        const w = a.walker
+        const newGoal = w.goalKey >= 0 ? (newSparseTopo.tileKeyToNode.get(w.goalKey) ?? -1) : -1
+        const remapped: number[] = []
+        for (let i = a.pathIdx; i < a.path.length; i++) {
+          const oldN = a.path[i]
+          if (oldN < 0 || oldN >= prevSparseTopo.nodeTileKey.length) break
+          const newN = newSparseTopo.tileKeyToNode.get(prevSparseTopo.nodeTileKey[oldN])
+          if (newN === undefined) break
+          if (remapped.length > 0 && this.findEdge(remapped[remapped.length - 1], newN) < 0) break
+          remapped.push(newN)
+        }
+        const leg = a.legs[a.legIdx]
+        let legValid = newGoal >= 0 && leg !== undefined
+        if (legValid && leg.kind === 'line') {
+          const doorSrv = this.graph.servers.findIndex((s) => s.kind === 'door' && s.node === newGoal)
+          if (doorSrv >= 0) a.door = doorSrv
+          else legValid = false
+        }
+        if (legValid && remapped.length > 0) {
+          for (const l of a.legs) l.node = -1
+          leg.node = newGoal
+          a.path = Int32Array.from(remapped)
+          a.pathIdx = 0
+          a.fromNode = remapped[0]
+          a.destNode = newGoal
+          a.servedFor = -1
+          a.rampApproach = undefined
+          a.awaitingPath = false
+          w.goalNode = newGoal
+          w.pendingCoarseId = -1
+          w.pendingFineKey = null
+          w.candidateCoarseId = -1
+          w.segmentEndsAtGoal = remapped[remapped.length - 1] === newGoal
+          w.segmentEndsAtService = false
+          if (!sparseDiff?.routingNeutral) {
+            w.itinerary = null
+            w.stepIdx = 0
+          }
+          this.sparseRouter?.refreshWalkerClaims(a, this.tick)
+          return
+        }
+      }
+      this.sparseRouter?.claims.release(a.id)
+      a.walker = null
       a.path = EMPTY_PATH
       for (const leg of a.legs) leg.node = -1
       a.awaitingPath = false
@@ -1901,6 +1991,7 @@ export class World {
 
   private joinServer(a: Agent, serverId: number): void {
     const s = this.graph.servers[serverId]
+    this.sparseRouter?.claims.release(a.id)
     a.wait = 0
     a.rampApproach = undefined
     a.patienceWait = 0
@@ -2156,8 +2247,25 @@ export class World {
     for (const a of live) {
       if (!a.dead && a.train < 0 && a.door >= 0 && a.legs[a.legIdx]?.kind === 'line') this.doorLoads[a.door]++
     }
-    // Resolve path requests first, in agent id order.
-    this.processRepaths()
+    // Resolve path requests first, in agent id order (or sparse routeTick).
+    if (this.useSparseRouting()) {
+      this.sparseRouter!.routeTick(
+        this.tick,
+        live,
+        this.path.gateWait,
+        (a) => a.walker ?? undefined,
+        (a) => this.nearestNode(a.x, a.y, a.z),
+        (a) => {
+          a.awaitingPath = false
+          a.walker = null
+          if (a.legs[a.legIdx]?.kind === 'stop') this.advanceLeg(a)
+          else { a.dead = true; this.metrics.stuck++ }
+        },
+        (a, walker, candidate) => this.adoptSparseServiceSwitch(a, walker, candidate),
+      )
+    } else {
+      this.processRepaths()
+    }
 
     for (let i = 0; i < live.length; i++) {
       const a = live[i]
@@ -2306,6 +2414,42 @@ export class World {
    * queue has nowhere else to be, and a lane whose neighbour is just as long is
    * not a reason to lose your spot.
    */
+  /** Adopt a better coarse itinerary discovered by gate lookahead or queue-patience rechoice (§4.3). */
+  private adoptSparseServiceSwitch(a: Agent, walker: SparseWalkerState, candidate: CoarseItinerary, originNode = -1): void {
+    const g = this.graph
+    if (a.server >= 0) {
+      const s = g.servers[a.server]
+      if (s) {
+        const idx = s.queue.indexOf(a.id)
+        if (idx >= 0) s.queue.splice(idx, 1)
+        if (s.kind === 'gate') this.gateTraffic.leave(a, s)
+      }
+      a.server = -1
+      a.liftBoard = -1
+      a.liftDest = -1
+      a.wait = 0
+      a.patienceWait = 0
+      a.gateChosen = false
+    } else {
+      this.gateTraffic.release(a)
+    }
+    this.sparseRouter?.claims.release(a.id)
+    walker.itinerary = candidate
+    walker.stepIdx = 0
+    walker.segmentEndsAtGoal = false
+    walker.segmentEndsAtService = false
+    walker.blockedSinceTick = -1
+    a.path = EMPTY_PATH
+    a.pathIdx = 0
+    a.awaitingPath = false
+    a.state = STATE_WALKING
+    const from = originNode >= 0 ? originNode : this.nearestNode(a.x, a.y, a.z)
+    if (from >= 0 && this.sparseRouter) {
+      this.sparseRouter.refillWalker(a, walker, this.tick, from, 0)
+    }
+    this.gateTraffic.reserve(a)
+  }
+
   private reRouteAroundQueue(a: Agent, s: ServerDef | null): boolean {
     if (!s || (s.kind !== 'gate' && s.kind !== 'lift')) return false
     // The lift is the only way down for a step-free passenger: re-planning would
@@ -2319,6 +2463,26 @@ export class World {
       ? a.gateWaitNode : this.nearestNode(a.x, a.y, a.z)
     if (from < 0 || from === a.destNode) return false
     this.rerouteReplans++
+    if (this.useSparseRouting() && a.walker) {
+      const router = this.sparseRouter!
+      router.captureCostSnapshot(this.path.gateWait)
+      const res = router.startCoarseSearch(from, a.destNode, a.needs, -1, 0, this.tick)
+      let cand: CoarseItinerary | null = res.status === 'ready' ? (res.itinerary ?? null) : null
+      if (res.status === 'pending' && res.jobId !== undefined) {
+        const stepped = router.stepCoarseJobNow(res.jobId, 2000, 8000)
+        if (stepped?.status === 'ready' && stepped.result) cand = stepped.result
+        else if (stepped?.status === 'running') {
+          a.walker.candidateCoarseId = res.jobId
+          a.walker.candidateExcludedServer = s.id
+          a.walker.candidateOriginNode = from
+          return false
+        }
+      }
+      if (!cand) return false
+      if (cand.nextGateServer === s.id || cand.nextServiceServer === s.id) return false
+      this.adoptSparseServiceSwitch(a, a.walker, cand, from)
+      return true
+    }
     const path = this.path.search(from, a.destNode, a.needs)
     if (!path || path.length === 0) return false
     if (this.firstQueueServer(path) === s.id) return false
@@ -2373,6 +2537,12 @@ export class World {
   private stepWalk(a: Agent): void {
     if (a.awaitingPath) return
     if (a.path.length === 0 || a.pathIdx >= a.path.length) {
+      if (a.walker && this.useSparseRouting()) {
+        // Rolling segment ended while waiting on a pending field/coarse job: hold safely.
+        a.vx = 0
+        a.vy = 0
+        return
+      }
       if (a.server < 0) {
         a.state = STATE_ARRIVING
         this.startLeg(a)
@@ -2380,10 +2550,12 @@ export class World {
       return
     }
     if (this.chooseGate(a)) return
-    this.avoidCrowdedWalk(a)
+    if (!a.walker) this.avoidCrowdedWalk(a)
     const g = this.graph
     const target = a.path[a.pathIdx]
-    let steering = walkingLaneNode(g, a.path, a.pathIdx, a.id)
+    // Sparse rolling walker already spreads across legal floor tiles via live density + claims;
+    // avoid conflicting pull from legacy lateral lane offsets (§2.4).
+    let steering = a.walker ? target : walkingLaneNode(g, a.path, a.pathIdx, a.id)
     if (steering !== target && (!clearWalkSegment(g, a.x, a.y, g.nodeX[steering], g.nodeY[steering], a.z) ||
       !rampMoveClear(g.rampWalls, a.x, a.y, g.nodeX[steering], g.nodeY[steering], Math.round(a.z) - 1) ||
       !roadMoveClear(this.roads, a.x, a.y, g.nodeX[steering], g.nodeY[steering], Math.round(a.z) - 1))) steering = target
@@ -2397,6 +2569,18 @@ export class World {
     // its next waypoint. Rejoin the graph on the reachable side (§7.2 / §10.3).
     if ((floorCorridor && !clearWalkSegment(g, a.x, a.y, tx, ty, a.z)) ||
       !roadMoveClear(this.roads, a.x, a.y, tx, ty, Math.round(a.z) - 1) || !rampMoveClear(g.rampWalls, a.x, a.y, tx, ty, Math.round(a.z) - 1)) {
+      if (a.walker && this.useSparseRouting()) {
+        this.sparseRouter?.claims.release(a.id)
+        a.path = EMPTY_PATH
+        a.pathIdx = 0
+        a.walker.itinerary = null
+        a.walker.stepIdx = 0
+        a.walker.segmentEndsAtGoal = false
+        a.walker.segmentEndsAtService = false
+        a.vx = 0
+        a.vy = 0
+        return
+      }
       const path = this.recoverRampRoute(a, a.destNode)
       if (path) {
         a.path = path
@@ -2542,6 +2726,27 @@ export class World {
       from = a.path[gateAt - 1]
     }
     if (from < 0 || a.destNode < 0 || from === a.destNode) return true
+    if (this.useSparseRouting() && a.walker) {
+      const router = this.sparseRouter!
+      router.captureCostSnapshot(this.path.gateWait)
+      const res = router.startCoarseSearch(from, a.destNode, a.needs, -1, 0, this.tick)
+      let cand: CoarseItinerary | null = res.status === 'ready' ? (res.itinerary ?? null) : null
+      if (res.status === 'pending' && res.jobId !== undefined) {
+        const stepped = router.stepCoarseJobNow(res.jobId, 2000, 8000)
+        if (stepped?.status === 'ready' && stepped.result) cand = stepped.result
+        else if (stepped?.status === 'running') {
+          a.walker.candidateCoarseId = res.jobId
+          a.walker.candidateExcludedServer = -1
+          a.walker.candidateOriginNode = from
+          if (gateAt === a.pathIdx) { a.vx = 0; a.vy = 0; return true }
+          return false
+        }
+      }
+      if (cand) {
+        this.adoptSparseServiceSwitch(a, a.walker, cand, from)
+      }
+      return false
+    }
     const path = this.path.search(from, a.destNode, a.needs)
     if (path && path.length > 0) {
       a.path = path
@@ -2742,11 +2947,33 @@ export class World {
       a.path = EMPTY_PATH
       a.pathIdx = 0
       a.awaitingPath = false
+      a.walker = null
       this.onLegEnd(a)
       return
     }
     a.state = STATE_ARRIVING
     a.awaitingPath = true
+    if (this.useSparseRouting()) {
+      const router = this.sparseRouter!
+      this.sparseRouter!.claims.release(a.id)
+      const walker = router.createWalker(leg.node, a.walker?.legGen ?? 0)
+      a.walker = walker
+      a.path = EMPTY_PATH
+      a.pathIdx = 0
+      const res = router.startCoarseSearch(a.fromNode, leg.node, a.needs, -1, 1, this.tick)
+      if (res.status === 'ready' && res.itinerary) {
+        walker.itinerary = res.itinerary
+        walker.stepIdx = 0
+        const outcome = router.refillWalker(a, walker, this.tick, a.fromNode, 1)
+        if (outcome === 'ok' && a.path.length > a.pathIdx) {
+          a.awaitingPath = false
+          a.state = STATE_WALKING
+        }
+      } else if (res.status === 'pending' && res.jobId !== undefined) {
+        walker.pendingCoarseId = res.jobId
+      }
+      return
+    }
     const path = this.path.request(a.id, a.fromNode, leg.node, a.needs)
     if (path) {
       a.path = path
@@ -2804,6 +3031,8 @@ export class World {
   }
 
   private advanceLeg(a: Agent): void {
+    this.sparseRouter?.claims.release(a.id)
+    a.walker = null
     a.legIdx++
     a.path = EMPTY_PATH
     a.pathIdx = 0
@@ -2818,6 +3047,8 @@ export class World {
       const stop = this.graph.stops.find(s => s.id === a.activeStop)
       if (stop?.server !== undefined) this.graph.servers[stop.server].activeCustomer = undefined
     }
+    this.sparseRouter?.claims.release(a.id)
+    a.walker = null
     a.activeStop = ''; a.activity = 0
     a.legIdx++
     a.path = EMPTY_PATH
@@ -2861,8 +3092,33 @@ export class World {
     }
     a.pathIdx++
     if (a.pathIdx >= a.path.length) {
+      if (a.walker && this.useSparseRouting()) {
+        a.walker.segmentEndsAtService = false
+        if (cur === a.destNode || a.walker.segmentEndsAtGoal) {
+          this.sparseRouter!.claims.release(a.id)
+          this.onLegEnd(a)
+          return true
+        }
+        // Rolling segment ended before final goal (e.g. after a ride/gate or waiting on a field).
+        // Hold safely at `cur` and immediately try a warm refill so steady walking never pauses.
+        a.path = EMPTY_PATH
+        a.pathIdx = 0
+        a.state = STATE_WALKING
+        const router = this.sparseRouter!
+        if (a.walker.itinerary) {
+          const outcome = router.refillWalker(a, a.walker, this.tick, cur, 0)
+          if (outcome === 'repair') {
+            a.walker.itinerary = null
+            a.walker.stepIdx = 0
+          }
+        }
+        return false
+      }
       this.onLegEnd(a)
       return true
+    }
+    if (a.walker && this.useSparseRouting()) {
+      this.sparseRouter!.refreshWalkerClaims(a, this.tick)
     }
     const next = a.path[a.pathIdx]
     const e = this.findEdge(cur, next)
@@ -2897,6 +3153,8 @@ export class World {
   }
 
   private onLegEnd(a: Agent): void {
+    this.sparseRouter?.claims.release(a.id)
+    a.walker = null
     const leg = a.legs[a.legIdx]
     if (!leg) {
       a.dead = true
@@ -2984,7 +3242,10 @@ export class World {
         const n = a.path[i]
         head.push(g.nodeX[n], g.nodeY[n], g.nodeZ[n])
       }
-    } else if (a.awaitingPath && a.destNode >= 0) {
+      if (a.walker && this.sparseRouter && !a.walker.segmentEndsAtGoal) {
+        this.sparseRouter.previewContinuation(a, a.walker, this.path, head)
+      }
+    } else if ((a.awaitingPath || a.walker) && a.destNode >= 0) {
       // A leg the sim has not handed a path for yet — the per-tick A* budget, which
       // a wave can spend over several ticks. The preview runs the same search itself
       // so the line does not blink off at the start of every leg; a read-only search,

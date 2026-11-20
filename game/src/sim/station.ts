@@ -1139,6 +1139,7 @@ export class PathFinder {
   private heap = new MinHeap()
   searches = 0
   cacheHits = 0
+  expansions = 0
 
   constructor(graph: StationGraph) {
     this.graph = graph
@@ -1265,6 +1266,7 @@ export class PathFinder {
     heap.push(start, this.h(start, goal, nodeX, nodeY, nodeZ))
     while (heap.size > 0) {
       const cur = heap.pop()
+      this.expansions++
       if (cur === goal) {
         // Reconstruct.
         let len = 1

@@ -300,8 +300,10 @@ ctx.addEventListener('message', (e: MessageEvent) => {
       break
     }
     case 'control': {
+      const wasPlaying = playing
       playing = msg.playing
       speed = msg.speed
+      if (world && !wasPlaying && playing && speed > 0) world.notifyPlayResumed()
       schedule()
       dirty = true
       run()

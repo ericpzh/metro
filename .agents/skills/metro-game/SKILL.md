@@ -465,7 +465,20 @@ Pin the retention policy and real ModuleSystem keep-set in
 * **Q/E level switches reuse prepared views:** `LevelSystem.prepareAdjacentViews()` uses the edited station's `levelBase` and the five-metre `STOREY_HEIGHT` to prewarm the active storey and its valid immediate neighbours before interaction. Do not derive these views from the deepest chunk level or hard-code a four-metre step. Keep `EquipmentBatches`' four-view bound, generation invalidation and disposal rules. `GridSystem.buildGrid()` moves the retained grid group on Q/E; it rebuilds vertices only when horizontal station bounds change. Pin selection, boundary/base cases and GPU allocation identity in `game/test/level-view-cache.test.mjs`; measure first and repeated key presses with `node tools/bench-level-switch.mjs`.
 * **Loading a save respects the basis.** `loadFromText` opens on `activeZ = levelBase`, lowered to the lowest cell/module z when the player actually built below it; the infinite ground plane at 0 m is not a placement and never drags the view down to grade. The worker's `ready` message must not reset `activeZ` (`levelsZ[0]` is 0 whenever no level sits below grade). Keep this pinned in `game/test/save.test.mjs` when changing load or storey selection.
 * **The hidden-UI sky follows simulation time** (`render/scene/systems/SkySystem.ts`, wired by `SceneRenderer`): the cloud sky remains visible at every camera and storey height while `hideUI` is on; it does not depend on Q/E elevation or the active storey. `setSimClock` supplies the day time; a fixed 05:00–07:00 dawn and 17:00–19:00 dusk curve sets sky background intensity and matching horizon fog, so a pause holds the light and a clock seek updates it immediately. Keep daily wrapping, gradual transitions, day/night levels, and midnight continuity in `game/test/sky.test.mjs`. The Node suite covers the deterministic cycle; when changing scene integration, check representative camera heights, hidden-UI restoration, fog and rendered output in a browser, because Node does not exercise WebGL.
-* **All tuning numbers live in `sim/constants.ts`** (or `stock.ts`).
+* **All tuning numbers live in `sim/constants.ts`** (or `stock.ts`), except
+  sparse-routing constants which live in `sim/sparseConstants.ts` so the
+  baked-passenger hash on `sim/constants.ts` stays stable.
+* **Sparse hierarchical crowd routing (`sim/sparse{Constants,Policy,Graph,Router}.ts`):**
+  16×16-cell sectors/regions, fence-split boundary crossings, explicit directed
+  service arcs, byte-capped LRU reverse distance fields (`16 MiB`), work-capped
+  resumable coarse A* with suffix sharing, bounded fine-graph recovery, and
+  rolling 16-step local walking (standing density, 2-step soft tile claims,
+  turn inertia, deterministic Murmur3 tile jitter, and 2-step committed-prefix
+  live-crowd tail trim). Remote edits retain unaffected fields and active walk
+  segments; concourse sample refresh runs only on Pause→Play and every 60
+  elapsed sim ticks (never on clock scrub); `routingMode: 'sparse' | 'legacy'`
+  (default `'sparse'`) preserves legacy A* rollback. Keep policy, topology and
+  rolling-step parity aligned with Unity (`tools/unity-parity/record-crowd-routing.mjs`).
 * The decorative 信号机 is one metre tall; its lower post and base use the shared
   `floor.concrete` finish. Keep the material choice pinned in
   `game/test/monitor-signal.test.mjs` when changing its model.

@@ -367,7 +367,12 @@ and stale-cache regressions alongside cold/warm browser profiles for both shippe
 demos; do not turn noisy timing into a unit-test threshold.
 
 Crowd distribution regressions belong in the focused deterministic suites:
-`crowd-routing.test.mjs` pins live detours around congestion, itinerary/cached-path
+`sparse-routing.test.mjs` pins sparse policy math, soft tile claims,
+fence-split crossings, wide-hall spread vs legacy and narrow controls,
+two-connector balancing, remote-edit field/segment retention, Pause→Play and
+60-tick sample refresh, tight work-cap determinism, and ≤ 15% free-flow route
+stretch (with `tools/unity-parity/record-crowd-routing.mjs` recording the
+shared Unity oracle); `crowd-routing.test.mjs` pins live detours around congestion, itinerary/cached-path
 ownership and a bounded repeatable search wave; `walking-space.test.mjs` pins stable
 lanes across legal corridor width, actual passenger progress, fare/hole clearance,
 platform waiting space, walk-to-door boarding and early door balancing. Ramp mode

@@ -16,6 +16,46 @@ outcomes.
 
 ## Current performance state
 
+### Sparse hierarchical crowd routing
+
+Measured on Windows 11, Intel Core i7-14700KF, Node `v24.15.0` and Unity `6000.6.8f1`
+above base commit `72ef2feca36c53ae485551f49d97ac342b262c56` (uncommitted working
+tree). Reproduce the TypeScript paired comparison with
+`node tools/bench-crowd-routing.mjs --legacy` and `--sparse` (default); reproduce
+the Unity Tianhe Park paired comparison with
+`unity/scripts/metro-editor.ps1 test -Mode EditMode -TestFilter StationSparseRoutingTests`.
+Raw captures are under `.preview/crowd-routing/final-web-legacy.json`,
+`.preview/crowd-routing/final-web-sparse.json` and
+`.preview/crowd-routing/unity-tianhe-sparse-vs-legacy.json`.
+
+**Wide-hall spread & narrow control (TypeScript, 120 ticks, 60 spawned passengers, seed 42):**
+
+| Fixture | Metric | Legacy | Sparse | Delta |
+| --- | --- | ---: | ---: | ---: |
+| `wideSingle` (width 11) | `x=10` busiest-lane share | `0.1850` | `0.1201` | −35.1% |
+| `wideSingle` (width 11) | `x=16` busiest-lane share | `0.1989` | `0.1324` | −33.4% |
+| `wideSingle` (width 11) | Exited / remaining escalator queue | `46 / 1` | `59 / 0` | +28.3% exited |
+| `narrowControl` (width 1) | Exited (`stuck = 0`) | `54` | `55` | +1.9% |
+| `twoConnector` | Exited (`stuck = 0`) | `59` | `69` | +16.9% |
+
+**Morning-peak demo rush (180 ticks, `startSimTime = 28800`, seed 42):**
+
+| Engine / Station | Nodes | Mode | Total (ms) | p50 (ms) | p95 (ms) | Max (ms) | Total expansions | Fine fallbacks | Field cache |
+| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Web / Tianhe Park | 153,720 | Legacy | 18,068.64 | 87.264 | 202.863 | 251.105 | 60,254,560 | — | — |
+| Web / Tianhe Park | 153,720 | Sparse | 4,742.62 (−73.8%) | 25.879 | 28.558 (−85.9%) | 118.394 (−52.9%) | 1,350,076 (−97.8%) | 0 / 1,834 (0.00%) | 2.17 MiB |
+| Web / Tanwei | 37,483 | Legacy | 6,718.01 | 35.162 | 72.143 | 105.781 | 24,968,110 | — | — |
+| Web / Tanwei | 37,483 | Sparse | 2,560.11 (−61.9%) | 14.390 | 19.466 (−73.0%) | 32.037 (−69.7%) | 1,563,511 (−93.7%) | 0 / 1,952 (0.00%) | 1.16 MiB |
+| Web / Zoo | 15,112 | Legacy | 881.98 | 4.342 | 8.624 | 30.590 | 1,811,677 | — | — |
+| Web / Zoo | 15,112 | Sparse | 1,291.57 (+46.4%) | 6.381 | 12.428 (+44.1%) | 15.600 (−49.0%) | 595,435 (−67.1%) | 0 / 1,571 (0.00%) | 0.44 MiB |
+| Unity / Tianhe Park | 153,720 | Legacy | 7,838.45 | 28.545 | 143.230 | 322.078 | 28,188,666 | — | — |
+| Unity / Tianhe Park | 153,720 | Sparse | 1,926.50 (−75.4%) | 10.315 | 20.088 (−86.0%) | 50.015 (−84.5%) | 1,432,605 (−94.9%) | 0 / 1,755 (0.00%) | 2.26 MiB |
+
+Notes:
+- Total sparse expansions count `coarseExpansions + fieldExpansions + fineExpansions`.
+- On the small 15k-node Zoo fixture, cold-start field builds plus 34,662 rolling local refills increase steady-state mean tick time (`4.90 → 7.18 ms`) while halving the max spike (`30.59 → 15.60 ms`), cutting expansions by 67.1% and raising exits (`15 → 20`).
+- On Tianhe Park, both engines stay well within the 16 MiB reverse-field LRU cap (~2.2–2.3 MiB) with 0.00% fine-graph fallback rate and >85% lower p95 tick latency.
+
 ### Unity FOV slider drag feedback
 
 In the Windows Chromium fixture under `.preview/unity/fov-drag/`, mount the

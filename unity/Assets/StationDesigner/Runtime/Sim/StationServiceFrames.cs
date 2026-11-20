@@ -238,6 +238,10 @@ namespace Metro.Sim {
         public int PublishedPassengerLimit = 32;
         /// <summary>False spawns nobody (an empty station the clock still runs).</summary>
         public bool Spawn = true;
+        /// <summary>Crowd routing engine: sparse hierarchical routing (default) or legacy fine-grid A* rollback switch.</summary>
+        public StationRoutingMode RoutingMode = StationRoutingMode.Sparse;
+        /// <summary>Optional sparse router tuning/ablation overrides; null uses <see cref="StationSparsePolicy"/> defaults.</summary>
+        public StationSparseRouterOptions SparseOptions;
 
         public StationServiceOptions Clone() => new StationServiceOptions {
             ExitInRatePerHour = ExitInRatePerHour,
@@ -245,6 +249,8 @@ namespace Metro.Sim {
             MaxPassengers = MaxPassengers,
             PublishedPassengerLimit = PublishedPassengerLimit,
             Spawn = Spawn,
+            RoutingMode = RoutingMode,
+            SparseOptions = SparseOptions,
         };
     }
 

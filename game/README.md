@@ -1,5 +1,21 @@
 # Station Designer — the game
 
+Crowd wayfinding uses a sparse hierarchical router with rolling 16-step local
+walking (`sim/sparsePolicy.ts`, `sim/sparseGraph.ts`, `sim/sparseRouter.ts`,
+`sim/sparseConstants.ts`, mirrored in Unity `Metro.Sim` under `StationSparse*.cs`).
+Walkable floor is partitioned into 16×16-cell sectors, connected components
+(regions), fence-split boundary crossings and explicit directed service arcs.
+Coarse sparse A* runs over shared per-region reverse distance fields with
+work-capped resumable frontiers and continuation caching; walkers step downhill
+through live standing density, soft two-step tile claims, turn inertia and
+deterministic hash jitter, preserving unaffected reverse fields and active walk
+segments across remote edits. A `routingMode: 'sparse' | 'legacy'` option
+(default `'sparse'`) retains the legacy fine-graph A* rollback path. `sparse-routing`
+and Unity `StationSparseRoutingTests` pin policy parity, wide-hall spread, narrow
+controls, edit/lifecycle retention and work-cap determinism; reproduce benchmarks
+with `node tools/bench-crowd-routing.mjs` and see the
+[performance reference](../.agents/skills/metro-repo/references/performance.md).
+
 The top-bar city style selector switches between Guangzhou (the default), Shenzhen,
 Shanghai, Beijing, Chengdu, Chongqing, Wuhan and Nanjing. A city supplies the train emblem, entrance plate design and new-line
 colours. Switching cities preserves every existing line colour and changes only new-line defaults. The choice is saved with the station and supports undo.

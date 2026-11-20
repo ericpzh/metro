@@ -117,6 +117,9 @@ namespace Metro.Sim {
             public int LiftBoardNode = -1, LiftDestNode = -1, LiftBoardStop = -1, LiftDestStop = -1;
             public int LiftPhase, LiftSlot;
             public bool LiftThresholdDone;
+            public StationSparseWalkerState Walker;
+            public int[] CandidateDoorNodes;
+            public int CandidateDoorIndex;
         }
 
         internal sealed class GateFact {
@@ -282,6 +285,10 @@ namespace Metro.Sim {
         StationSessionDocument document;
         StationWalkGraph graph;
         StationRoutePlanner planner;
+        StationSparseRouter sparseRouter;
+        int sparseTick;
+        readonly Dictionary<string, double> sparseLiftWaitScratch = new Dictionary<string, double>(StringComparer.Ordinal);
+        readonly HashSet<int> sparseReferencedCoarseIds = new HashSet<int>();
         int walkReplans, queueReplans, gateReplans, patienceReplans;
         readonly Dictionary<(int X, int Y, int Z), int> collisionHeads = new Dictionary<(int X, int Y, int Z), int>();
         int[] collisionNext = Array.Empty<int>();
@@ -325,6 +332,10 @@ namespace Metro.Sim {
         public StationServiceOptions Options => options;
         public StationWalkGraph Graph => graph;
         public StationSessionDocument Document => document;
+        public StationSparseRouter SparseRouter => sparseRouter;
+        public StationSparseRoutingStats SparseRoutingStats() => sparseRouter?.Stats();
+        public void NotifyPlayResumed() => sparseRouter?.NotifyPlayResumed();
+        bool UseSparse => options.RoutingMode == StationRoutingMode.Sparse && sparseRouter != null && graph != null && graph.NodeCount > 0;
         public int PassengerCount => passengers.Count;
         public int GateCount => gates.Count;
         public int LiftCount => lifts.Count;
@@ -393,6 +404,9 @@ namespace Metro.Sim {
                     int node = path[i];
                     points.Add((graph.NodeX[node], graph.NodeY[node], graph.NodeZ[node]));
                 }
+            }
+            if (p.Walker != null && UseSparse) {
+                sparseRouter.AppendPreviewContinuation(p.Walker, points);
             }
             return true;
         }
@@ -505,6 +519,17 @@ namespace Metro.Sim {
             var staged = BuildServiceFacts(next ?? new StationSessionDocument(), walkGraph);
             InstallFacts(staged);
             ResetRunActorsAndCounters();
+            sparseTick = 0;
+            if (options.RoutingMode == StationRoutingMode.Sparse && graph != null && graph.NodeCount > 0) {
+                var liftLinks = BuildSparseLiftLinks();
+                if (sparseRouter == null) {
+                    sparseRouter = new StationSparseRouter(graph, (int)seed, liftLinks, options.SparseOptions);
+                } else {
+                    sparseRouter.ResetForNewDocument(graph, (int)seed, liftLinks);
+                }
+            } else {
+                sparseRouter = null;
+            }
         }
 
         /// <summary>Empty the crowd and reseed the stream — the source's <c>World.restart()</c>.</summary>
@@ -521,6 +546,10 @@ namespace Metro.Sim {
                 lifts[i].Queue.Clear(); lifts[i].Riders.Clear();
                 lifts[i].CarZ = lifts[i].Stops.Length > 0 ? lifts[i].Stops[0] : 0;
                 lifts[i].CarDoor = 0; lifts[i].CarStop = 0; lifts[i].Served = 0; lifts[i].Admitted = 0;
+            }
+            sparseTick = 0;
+            if (sparseRouter != null && graph != null && graph.NodeCount > 0) {
+                sparseRouter.ResetForRestart(graph);
             }
             Invalidate();
             InvalidateExactRouteCache();
@@ -703,6 +732,7 @@ namespace Metro.Sim {
             StepDoors(trains);
             StepLiftQueues();
             InvalidateExactRouteCache();
+            if (UseSparse) StepSparseRouting();
             StepPassengers();
             SeparateWalkers();
             Compact();
@@ -1161,6 +1191,7 @@ namespace Metro.Sim {
 
             InstallFacts(staged);
             ReconcileTrainWatches();
+            CommitSparseTopology();
 
             var newGatesById = new Dictionary<string, GateFact>(gates.Count, StringComparer.Ordinal);
             for (int i = 0; i < gates.Count; i++) {
@@ -1388,6 +1419,91 @@ namespace Metro.Sim {
                     return false;
             }
 
+            // Sparse walker preservation: rolling segments do not terminate at the final goal,
+            // so validate the maximal legal prefix plus the remapped goal node directly.
+            if (p.Walker != null && UseSparse) {
+                var w = p.Walker;
+                int mappedGoal = MapOld(w.GoalNode);
+                if (p.Boards) {
+                    if (mappedGoal < 0 || DoorForNodeAndLine(mappedGoal, p.TargetLineId) == null) return false;
+                } else {
+                    int expectedExit = ResolveExitNode(p.DestExitId);
+                    if (expectedExit < 0 || mappedGoal != expectedExit) return false;
+                    p.DestExit = expectedExit;
+                }
+                if (p.Path != null && p.Path.Length > 0 && p.PathIndex >= 0 && p.PathIndex < p.Path.Length) {
+                    int firstOld = p.Path[p.PathIndex];
+                    int firstNew = MapOld(firstOld);
+                    if (firstNew < 0 || IsTouched(firstOld)) return false;
+                    var kept = new List<int>(p.Path.Length - p.PathIndex) { firstNew };
+                    bool truncated = false;
+                    for (int k = p.PathIndex + 1; k < p.Path.Length; k++) {
+                        int oldN = p.Path[k];
+                        int mapped = MapOld(oldN);
+                        if (mapped < 0 || IsTouched(oldN) || !planner.GatePassage(kept[kept.Count - 1], mapped, out _)) {
+                            truncated = true;
+                            break;
+                        }
+                        if (EdgeServer(kept[kept.Count - 1], mapped, out _) < 0 &&
+                            Array.IndexOf(graph.AdjTo[kept[kept.Count - 1]], mapped) < 0) {
+                            truncated = true;
+                            break;
+                        }
+                        kept.Add(mapped);
+                    }
+                    p.Path = kept.ToArray();
+                    p.PathIndex = 0;
+                    p.Route = new ServiceRoute { Segments = new[] { p.Path } };
+                    p.Segment = 0;
+                    if (truncated) {
+                        w.SegmentEndsAtGoal = false;
+                        w.SegmentEndsAtService = false;
+                        w.PendingLiftId = null;
+                    }
+                } else {
+                    int curNode = NearestNode(graph, p.X, p.Y, p.Z);
+                    if (curNode < 0) return false;
+                    p.Path = new[] { curNode };
+                    p.PathIndex = 0;
+                    p.Route = new ServiceRoute { Segments = new[] { p.Path } };
+                    p.Segment = 0;
+                }
+                w.GoalNode = mappedGoal;
+                w.GoalKey = sparseRouter.Topology.NodeTileKey[mappedGoal];
+                if (w.PendingLiftId != null && !intactLifts.Contains(w.PendingLiftId)) {
+                    w.PendingLiftId = null;
+                    w.SegmentEndsAtService = false;
+                } else if (w.PendingLiftId != null) {
+                    w.PendingLiftBoardNode = MapOld(w.PendingLiftBoardNode);
+                    w.PendingLiftDestNode = MapOld(w.PendingLiftDestNode);
+                }
+                if (w.Itinerary != null && w.Itinerary.TopologyRevision != sparseRouter.Topology.TopologyRevision) {
+                    w.Itinerary = null;
+                    w.StepIdx = 0;
+                    w.PendingCoarseId = -1;
+                    w.CandidateCoarseId = -1;
+                    w.SegmentEndsAtGoal = p.Path.Length > 0 && p.Path[p.Path.Length - 1] == mappedGoal;
+                    if (p.Phase == Phase.Walking) w.SegmentEndsAtService = false;
+                }
+                if (p.CandidateDoorNodes != null) {
+                    var remappedDoors = new List<int>(p.CandidateDoorNodes.Length);
+                    for (int c = 0; c < p.CandidateDoorNodes.Length; c++) {
+                        int md = MapOld(p.CandidateDoorNodes[c]);
+                        if (md >= 0 && DoorForNodeAndLine(md, p.TargetLineId) != null) remappedDoors.Add(md);
+                    }
+                    p.CandidateDoorNodes = remappedDoors.Count > 0 ? remappedDoors.ToArray() : null;
+                    p.CandidateDoorIndex = 0;
+                }
+                if (p.LiftBoardNode >= 0) p.LiftBoardNode = MapOld(p.LiftBoardNode);
+                if (p.LiftDestNode >= 0) p.LiftDestNode = MapOld(p.LiftDestNode);
+                if (p.DoorNode >= 0) p.DoorNode = updatedDoorNode;
+                p.Server = updatedServer;
+                p.ServerId = updatedServerId;
+                p.GateServer = remappedGateServer;
+                p.RouteGraphEpoch = graphEpoch;
+                return true;
+            }
+
             // Validate Route & remaining path nodes:
             var segments = p.Route?.Segments;
             if (segments == null || segments.Length == 0) return false;
@@ -1474,8 +1590,10 @@ namespace Metro.Sim {
         /// </summary>
         internal void ApplyStagedEdit(StagedServiceFacts staged) {
             LastReconciledPassengers = 0;
+            var prevSparseTop = sparseRouter?.Topology;
             InstallFacts(staged);
             ReconcileTrainWatches();
+            CommitSparseTopology();
 
             int replanned = 0;
             for (int i = 0; i < passengers.Count; i++) {
@@ -1486,6 +1604,11 @@ namespace Metro.Sim {
                         if (passenger.Phase == Phase.TrainRiding) Onboard = Math.Max(0, Onboard - 1);
                         Kill(passenger);
                     }
+                    continue;
+                }
+                if (UseSparse && prevSparseTop != null && passenger.Phase == Phase.Walking && passenger.Walker != null &&
+                    !RoadContainsPoint(document, passenger.X, passenger.Y, JsRound(passenger.Z) - 1) &&
+                    TryPreserveSparseWalkerOnFullEdit(passenger, prevSparseTop)) {
                     continue;
                 }
                 replanned++;
@@ -1549,6 +1672,10 @@ namespace Metro.Sim {
             passenger.Path = Array.Empty<int>();
             passenger.PathIndex = 0;
             passenger.AwaitingRoute = false;
+            passenger.Walker = null;
+            passenger.CandidateDoorNodes = null;
+            passenger.CandidateDoorIndex = 0;
+            sparseRouter?.Claims.Release(passenger.Id);
             passenger.Server = -1;
             passenger.ServerId = "";
             passenger.GateServer = -1;
@@ -1596,6 +1723,15 @@ namespace Metro.Sim {
                     StandAt(passenger, fromNode);
                     return;
                 }
+                if (UseSparse) {
+                    var cands = RankDoorCandidates(fromNode, lineId);
+                    if (cands.Length == 0) {
+                        passenger.AwaitingRoute = true;
+                        return;
+                    }
+                    StartSparseLeg(passenger, fromNode, cands[0], cands);
+                    return;
+                }
                 var route = PlanDoorRoute(fromNode, lineId, passenger.Needs);
                 if (route == null) {
                     passenger.AwaitingRoute = true;
@@ -1607,6 +1743,10 @@ namespace Metro.Sim {
                 passenger.DestExit = destExit;
                 if (destExit < 0) {
                     passenger.AwaitingRoute = true;
+                    return;
+                }
+                if (UseSparse) {
+                    StartSparseLeg(passenger, fromNode, destExit);
                     return;
                 }
                 if (fromNode == destExit) {
@@ -1973,13 +2113,27 @@ namespace Metro.Sim {
             ReleaseGateReservation(passenger);
             if (!passenger.GateChosen || passenger.Phase != Phase.Walking || passenger.AwaitingRoute) return;
             var gate = UpcomingGate(passenger, GateForecastSeconds * WalkSpeed, true, out int at);
-            if (gate == null) return;
-            int from = passenger.Path[at - 1];
-            int direction = DirectionAtGate(gate, from, gate.Node);
-            passenger.ReservedGate = gate;
-            passenger.ReservedGateDir = direction;
-            gate.IncomingByDirection[direction + 1]++;
-            InvalidateExactRouteCache();
+            if (gate != null) {
+                int from = passenger.Path[at - 1];
+                int direction = DirectionAtGate(gate, from, gate.Node);
+                passenger.ReservedGate = gate;
+                passenger.ReservedGateDir = direction;
+                gate.IncomingByDirection[direction + 1]++;
+                InvalidateExactRouteCache();
+                return;
+            }
+            if (passenger.Walker?.Itinerary != null) {
+                var itin = passenger.Walker.Itinerary;
+                if (itin.NextGateServer >= 0 && itin.NextGateServer != passenger.GateServer &&
+                    itin.NextGateDistMs <= StationSparsePolicy.ToMs(GateForecastSeconds) &&
+                    gateByServer.TryGetValue(itin.NextGateServer, out var coarseGate)) {
+                    int direction = itin.NextGateDir;
+                    passenger.ReservedGate = coarseGate;
+                    passenger.ReservedGateDir = direction;
+                    coarseGate.IncomingByDirection[direction + 1]++;
+                    InvalidateExactRouteCache();
+                }
+            }
         }
 
         GateFact UpcomingGate(Passenger passenger, double limit, bool includeRise, out int at) {
@@ -2061,9 +2215,33 @@ namespace Metro.Sim {
             passenger.GateChosen = true;
             ReleaseGateReservation(passenger);
             int from = GateSearchStart(passenger, passenger.Path[at - 1]);
+            if (UseSparse && passenger.Walker != null) {
+                int goal = passenger.Walker.GoalNode;
+                if (goal >= 0 && goal != from) {
+                    sparseRouter.CaptureCostSnapshot(GateWait, sparseLiftWaitScratch);
+                    var status = sparseRouter.StartCoarseSearch(from, goal, passenger.Needs, -1, 0, sparseTick, out var ready, out int jobId);
+                    if (status == StationSparseRouter.CoarseJobStatus.Running && jobId >= 0) {
+                        var stepped = sparseRouter.StepCoarseJobNow(jobId, 2000, 8000);
+                        if (stepped != null && stepped.Status == StationSparseRouter.CoarseJobStatus.Ready) {
+                            status = StationSparseRouter.CoarseJobStatus.Ready;
+                            ready = stepped.Result;
+                        } else if (stepped != null && stepped.Status == StationSparseRouter.CoarseJobStatus.Running) {
+                            passenger.Walker.CandidateCoarseId = jobId;
+                            passenger.Walker.CandidateOriginNode = from;
+                        }
+                    }
+                    if (status == StationSparseRouter.CoarseJobStatus.Ready && ready != null) {
+                        SwitchSparseWalkingRoute(passenger, ready, from, alignStart: true);
+                        ReserveGate(passenger);
+                        return false;
+                    }
+                }
+                ReserveGate(passenger);
+                return false;
+            }
             var segments = passenger.Route.Segments;
-            int goal = segments[segments.Length - 1][^1];
-            var route = PlanRoute(from, goal, passenger.Needs);
+            int legacyGoal = segments[segments.Length - 1][^1];
+            var route = PlanRoute(from, legacyGoal, passenger.Needs);
             if (route == null) return true;
             SetWalkingRoute(passenger, route);
             ReserveGate(passenger);
@@ -2091,6 +2269,33 @@ namespace Metro.Sim {
             patienceReplans++;
             ResetGatePatience(passenger);
             int from = GateSearchStart(passenger, passenger.Path[passenger.PathIndex]);
+            if (UseSparse && passenger.Walker != null) {
+                int sGoal = passenger.Walker.GoalNode;
+                if (sGoal < 0 || from == sGoal) return false;
+                sparseRouter.CaptureCostSnapshot(GateWait, sparseLiftWaitScratch);
+                var status = sparseRouter.StartCoarseSearch(from, sGoal, passenger.Needs, gate.Server, 0, sparseTick, out var ready, out int jobId);
+                if (status == StationSparseRouter.CoarseJobStatus.Running && jobId >= 0) {
+                    var stepped = sparseRouter.StepCoarseJobNow(jobId, 2000, 8000);
+                    if (stepped != null && stepped.Status == StationSparseRouter.CoarseJobStatus.Ready) {
+                        status = StationSparseRouter.CoarseJobStatus.Ready;
+                        ready = stepped.Result;
+                    }
+                }
+                if (status != StationSparseRouter.CoarseJobStatus.Ready || ready == null ||
+                    ready.NextGateServer == gate.Server || ready.NextServiceServer == gate.Server) {
+                    return false;
+                }
+                gate.Queue.Remove(passenger.Id);
+                SyncServerQueue(gate.Server, gate.Queue.Count);
+                gate.QueuedByDirection[passenger.GateDir + 1]--;
+                passenger.GateChosen = false;
+                passenger.Phase = Phase.Walking;
+                passenger.Server = -1;
+                passenger.ServerId = "";
+                passenger.Activity = StationPassengerActivity.Walk;
+                SwitchSparseWalkingRoute(passenger, ready, from, alignStart: true);
+                return true;
+            }
             var segments = passenger.Route.Segments;
             int goal = segments[segments.Length - 1][^1];
             if (from == goal) return false;
@@ -2209,6 +2414,29 @@ namespace Metro.Sim {
             passenger.IdentityFactor = 0.9 + IdentityUnit(passenger.Id, 0x85a308d3u) * 0.2;
             passenger.Speed = WalkSpeed * passenger.IdentityFactor;
             passenger.WalkPhase = IdentityUnit(passenger.Id, 0x9e3779b9u);
+            if (UseSparse) {
+                if (board) {
+                    if (HasDoorsForLine(lineId)) {
+                        var cands = RankDoorCandidates(entrance, lineId);
+                        if (cands.Length == 0) { nextPassengerId--; Stuck++; return; }
+                        passengers.Add(passenger);
+                        Spawned++;
+                        StartSparseLeg(passenger, entrance, cands[0], cands);
+                        return;
+                    }
+                    board = false;
+                    passenger.Boards = false;
+                    passenger.TargetLineId = "";
+                    destinationExit = PickExit(out destExitId);
+                    passenger.DestExit = destinationExit;
+                    passenger.DestExitId = destExitId;
+                }
+                if (destinationExit < 0) { nextPassengerId--; Stuck++; return; }
+                passengers.Add(passenger);
+                Spawned++;
+                StartSparseLeg(passenger, entrance, destinationExit);
+                return;
+            }
             ServiceRoute route = null;
             if (board) {
                 if (HasDoorsForLine(lineId)) {
@@ -2468,6 +2696,62 @@ namespace Metro.Sim {
 
         void EndSegment(Passenger passenger) {
             ReleaseGateReservation(passenger);
+            if (passenger.Walker != null && UseSparse) {
+                var w = passenger.Walker;
+                if (!string.IsNullOrEmpty(w.PendingLiftId)) {
+                    string liftId = w.PendingLiftId;
+                    int boardNode = w.PendingLiftBoardNode;
+                    int destNode = w.PendingLiftDestNode;
+                    w.PendingLiftId = null;
+                    w.PendingLiftBoardNode = -1;
+                    w.PendingLiftDestNode = -1;
+                    w.SegmentEndsAtService = false;
+                    sparseRouter.Claims.Release(passenger.Id);
+                    if (!liftById.TryGetValue(liftId, out LiftConnector car)) { Stuck++; Kill(passenger); return; }
+                    int boardStop = Array.IndexOf(car.Landings, boardNode);
+                    int destStop = Array.IndexOf(car.Landings, destNode);
+                    if (boardNode < 0 || boardStop < 0 || destStop < 0) { Stuck++; Kill(passenger); return; }
+                    passenger.LiftBoardNode = boardNode; passenger.LiftDestNode = destNode;
+                    passenger.LiftBoardStop = boardStop; passenger.LiftDestStop = destStop;
+                    passenger.LiftId = liftId;
+                    passenger.LiftPhase = 0;
+                    passenger.LiftSlot = 0;
+                    passenger.LiftThresholdDone = false;
+                    passenger.Phase = Phase.LiftQueuing;
+                    passenger.ServerId = "lift:" + liftId;
+                    passenger.Activity = StationPassengerActivity.Wait;
+                    passenger.ActivityStart = simTime;
+                    passenger.ActivityTotal = 12;
+                    passenger.WalkWeight = 0;
+                    car.Queue.Add(passenger.Id);
+                    passenger.StandX = graph.NodeX[boardNode];
+                    passenger.StandY = graph.NodeY[boardNode];
+                    LiftDoorOutward(car, passenger.StandX, passenger.StandY, out double ox, out double oy);
+                    passenger.Heading = Math.Atan2(-oy, -ox);
+                    return;
+                }
+                int curNode = passenger.Path.Length > 0 ? passenger.Path[passenger.Path.Length - 1] : NearestNode(graph, passenger.X, passenger.Y, passenger.Z);
+                if (w.SegmentEndsAtService) {
+                    w.SegmentEndsAtService = false;
+                    if (curNode != w.GoalNode) {
+                        passenger.Path = curNode >= 0 ? new[] { curNode } : Array.Empty<int>();
+                        passenger.PathIndex = 0;
+                        passenger.Route = new ServiceRoute { Segments = new[] { passenger.Path } };
+                        passenger.Segment = 0;
+                        TryImmediateSparseRefill(passenger, curNode);
+                        return;
+                    }
+                }
+                if (!w.SegmentEndsAtGoal && curNode >= 0 && curNode != w.GoalNode) {
+                    passenger.Path = new[] { curNode };
+                    passenger.PathIndex = 0;
+                    passenger.Route = new ServiceRoute { Segments = new[] { passenger.Path } };
+                    passenger.Segment = 0;
+                    TryImmediateSparseRefill(passenger, curNode);
+                    return;
+                }
+                sparseRouter.Claims.Release(passenger.Id);
+            }
             var segments = passenger.Route?.Segments;
             if (segments == null) { Kill(passenger); return; }
             if (passenger.Segment + 1 < segments.Length) {
@@ -2837,9 +3121,24 @@ namespace Metro.Sim {
                     passenger.AlignRouteStart = false;
                     if (timeLeft <= 1e-9) return;
                 }
-                if (passenger.PathIndex >= passenger.Path.Length - 1) { EndSegment(passenger); return; }
+                if (passenger.PathIndex >= passenger.Path.Length - 1) {
+                    if (passenger.Walker != null && UseSparse) {
+                        var w = passenger.Walker;
+                        if (!w.SegmentEndsAtGoal && !w.SegmentEndsAtService && string.IsNullOrEmpty(w.PendingLiftId)) {
+                            int curNode = passenger.Path[passenger.Path.Length - 1];
+                            TryImmediateSparseRefill(passenger, curNode);
+                            if (passenger.PathIndex >= passenger.Path.Length - 1 && !w.SegmentEndsAtGoal && !w.SegmentEndsAtService && string.IsNullOrEmpty(w.PendingLiftId)) {
+                                passenger.WalkWeight = 0;
+                                return;
+                            }
+                            if (passenger.PathIndex < passenger.Path.Length - 1) continue;
+                        }
+                    }
+                    EndSegment(passenger);
+                    return;
+                }
                 int from = passenger.Path[passenger.PathIndex];
-                if (checkCrowd && Math.Abs(passenger.X - graph.NodeX[from]) + Math.Abs(passenger.Y - graph.NodeY[from]) < .05) {
+                if (passenger.Walker == null && checkCrowd && Math.Abs(passenger.X - graph.NodeX[from]) + Math.Abs(passenger.Y - graph.NodeY[from]) < .05) {
                     checkCrowd = false;
                     SpreadWalkingRoute(passenger, from);
                 }
@@ -2858,12 +3157,35 @@ namespace Metro.Sim {
                 if (!arrived) return;
                 passenger.PathIndex++;
                 if (gateByNode.ContainsKey(from)) passenger.GateServer = -1;
+                if (passenger.Walker != null && UseSparse) {
+                    sparseRouter.RefreshClaims(passenger.Id, passenger.Path, passenger.PathIndex, sparseTick);
+                }
             }
         }
 
         bool TryAvoidQueue(Passenger passenger, int from, int server) {
             if (queueReplans >= 4 ||
                 Math.Abs(passenger.X - graph.NodeX[from]) + Math.Abs(passenger.Y - graph.NodeY[from]) > .15) return false;
+            if (UseSparse && passenger.Walker != null) {
+                int sGoal = passenger.Walker.GoalNode;
+                if (sGoal < 0 || from == sGoal) return false;
+                queueReplans++;
+                sparseRouter.CaptureCostSnapshot(GateWait, sparseLiftWaitScratch);
+                var status = sparseRouter.StartCoarseSearch(from, sGoal, passenger.Needs, server, 0, sparseTick, out var altItin, out int jobId);
+                if (status == StationSparseRouter.CoarseJobStatus.Running && jobId >= 0) {
+                    var stepped = sparseRouter.StepCoarseJobNow(jobId, 8000, 32000);
+                    if (stepped != null && stepped.Status == StationSparseRouter.CoarseJobStatus.Ready) {
+                        status = StationSparseRouter.CoarseJobStatus.Ready;
+                        altItin = stepped.Result;
+                    }
+                }
+                if (status != StationSparseRouter.CoarseJobStatus.Ready || altItin == null) return false;
+                int currentRemMs = EstimateSparseRemainingViaRideMs(passenger, server);
+                if (altItin.TotalCostMs + 2000 >= currentRemMs) return false;
+                SwitchSparseWalkingRoute(passenger, altItin, from, alignStart: false);
+                ReserveGate(passenger);
+                return true;
+            }
             var segments = passenger.Route.Segments;
             int goal = segments[segments.Length - 1][^1];
             if (from == goal) return false;
@@ -2943,6 +3265,7 @@ namespace Metro.Sim {
         }
 
         void JoinGate(Passenger passenger, GateFact gate, int from) {
+            sparseRouter?.Claims.Release(passenger.Id);
             passenger.Phase = Phase.Queuing;
             passenger.Server = gate.Server;
             passenger.ServerId = "gate:" + gate.Id;
@@ -2957,6 +3280,7 @@ namespace Metro.Sim {
 
         void JoinRide(Passenger passenger, RideFact ride) {
             ReleaseGateReservation(passenger);
+            sparseRouter?.Claims.Release(passenger.Id);
             passenger.Phase = Phase.Queuing;
             passenger.Server = ride.Server;
             passenger.ServerId = "ride:" + ride.Server;
@@ -3025,8 +3349,15 @@ namespace Metro.Sim {
             passenger.Activity = StationPassengerActivity.Walk;
             passenger.WalkWeight = 1;
             int exit = passenger.DestExit >= 0 ? passenger.DestExit : ResolveExitNode(passenger.DestExitId);
-            var route = PlanRoute(passenger.DoorNode, exit, passenger.Needs, allowReusableCache: true);
+            int doorNode = passenger.DoorNode;
             passenger.DoorNode = -1;
+            if (UseSparse) {
+                if (doorNode < 0 || exit < 0) { Stuck++; Kill(passenger); return; }
+                passenger.Phase = Phase.Walking;
+                StartSparseLeg(passenger, doorNode, exit);
+                return;
+            }
+            var route = PlanRoute(doorNode, exit, passenger.Needs, allowReusableCache: true);
             if (route == null) { Stuck++; Kill(passenger); return; }
             passenger.Phase = Phase.Walking;
             BeginRoute(passenger, route);
@@ -3126,6 +3457,9 @@ namespace Metro.Sim {
         }
 
         void FinishLiftExit(Passenger passenger, double destX, double destY, double destZ) {
+            int releaseNode = passenger.LiftDestNode >= 0 && passenger.LiftDestNode < graph.NodeCount
+                ? passenger.LiftDestNode
+                : NearestNode(graph, destX, destY, destZ);
             passenger.X = destX;
             passenger.Y = destY;
             passenger.Z = destZ;
@@ -3140,6 +3474,28 @@ namespace Metro.Sim {
             passenger.ServerId = "";
             passenger.Activity = StationPassengerActivity.Walk;
             passenger.WalkWeight = 1;
+            if (passenger.Walker != null && UseSparse) {
+                var w = passenger.Walker;
+                passenger.Phase = Phase.Walking;
+                passenger.GateChosen = false;
+                passenger.AlignRouteStart = false;
+                passenger.Segment = 0;
+                passenger.Path = releaseNode >= 0 ? new[] { releaseNode } : Array.Empty<int>();
+                passenger.PathIndex = 0;
+                passenger.Route = new ServiceRoute { Segments = new[] { passenger.Path } };
+                passenger.RouteGraphEpoch = graphEpoch;
+                w.SegmentEndsAtService = false;
+                w.SegmentEndsAtGoal = releaseNode >= 0 && releaseNode == w.GoalNode;
+                if (w.SegmentEndsAtGoal) {
+                    EndSegment(passenger);
+                } else if (releaseNode >= 0) {
+                    TryImmediateSparseRefill(passenger, releaseNode);
+                } else {
+                    Stuck++;
+                    Kill(passenger);
+                }
+                return;
+            }
             passenger.Segment++;
             BeginSegment(passenger);
         }
@@ -3835,7 +4191,479 @@ namespace Metro.Sim {
 
         void Kill(Passenger passenger) {
             ReleaseGateReservation(passenger);
+            sparseRouter?.Claims.Release(passenger.Id);
             passenger.Phase = Phase.Dead;
+        }
+
+        // -------------------------------------------------------- sparse routing
+
+        List<StationSparseLiftLink> BuildSparseLiftLinks() {
+            var links = new List<StationSparseLiftLink>();
+            int baseCostMs = StationSparsePolicy.ToMs(LiftCycleSeconds);
+            for (int i = 0; i < lifts.Count; i++) {
+                var car = lifts[i];
+                if (car.Landings == null || car.Landings.Length < 2) continue;
+                for (int a = 0; a < car.Landings.Length; a++) {
+                    int from = car.Landings[a];
+                    if (from < 0) continue;
+                    for (int b = 0; b < car.Landings.Length; b++) {
+                        if (a == b) continue;
+                        int to = car.Landings[b];
+                        if (to < 0) continue;
+                        links.Add(new StationSparseLiftLink(car.Id, from, to, baseCostMs));
+                    }
+                }
+            }
+            return links;
+        }
+
+        void CommitSparseTopology() {
+            if (options.RoutingMode != StationRoutingMode.Sparse || graph == null || graph.NodeCount == 0) {
+                sparseRouter = null;
+                return;
+            }
+            var liftLinks = BuildSparseLiftLinks();
+            if (sparseRouter == null) {
+                sparseRouter = new StationSparseRouter(graph, (int)seed, liftLinks, options.SparseOptions);
+            } else {
+                sparseRouter.OnCommit(graph, (int)seed, liftLinks);
+            }
+        }
+
+        bool TryPreserveSparseWalkerOnFullEdit(Passenger p, StationSparseTopology prevTop) {
+            var w = p.Walker;
+            if (w == null || sparseRouter == null || graph == null || planner == null) return false;
+            var newTop = sparseRouter.Topology;
+            if ((uint)w.GoalNode >= (uint)prevTop.NodeTileKey.Length) return false;
+            if (!newTop.TileKeyToNode.TryGetValue(prevTop.NodeTileKey[w.GoalNode], out int mappedGoal)) return false;
+            if (p.Boards) {
+                if (DoorForNodeAndLine(mappedGoal, p.TargetLineId) == null) return false;
+            } else {
+                int expectedExit = ResolveExitNode(p.DestExitId);
+                if (expectedExit < 0 || mappedGoal != expectedExit) return false;
+                p.DestExit = expectedExit;
+            }
+            if (p.Path == null || p.Path.Length == 0 || p.PathIndex < 0 || p.PathIndex >= p.Path.Length) return false;
+            int firstOld = p.Path[p.PathIndex];
+            if ((uint)firstOld >= (uint)prevTop.NodeTileKey.Length ||
+                !newTop.TileKeyToNode.TryGetValue(prevTop.NodeTileKey[firstOld], out int firstNew)) return false;
+            var kept = new List<int>(p.Path.Length - p.PathIndex) { firstNew };
+            bool truncated = false;
+            for (int k = p.PathIndex + 1; k < p.Path.Length; k++) {
+                int oldN = p.Path[k];
+                if ((uint)oldN >= (uint)prevTop.NodeTileKey.Length ||
+                    !newTop.TileKeyToNode.TryGetValue(prevTop.NodeTileKey[oldN], out int mapped) ||
+                    !planner.GatePassage(kept[kept.Count - 1], mapped, out _) ||
+                    Array.IndexOf(graph.AdjTo[kept[kept.Count - 1]], mapped) < 0) {
+                    truncated = true;
+                    break;
+                }
+                kept.Add(mapped);
+            }
+            p.Path = kept.ToArray();
+            p.PathIndex = 0;
+            p.Route = new ServiceRoute { Segments = new[] { p.Path } };
+            p.Segment = 0;
+            p.RouteGraphEpoch = graphEpoch;
+            w.GoalNode = mappedGoal;
+            w.GoalKey = newTop.NodeTileKey[mappedGoal];
+            if (truncated) {
+                w.SegmentEndsAtGoal = false;
+                w.SegmentEndsAtService = false;
+                w.PendingLiftId = null;
+            }
+            if (w.Itinerary != null && w.Itinerary.TopologyRevision != newTop.TopologyRevision) {
+                w.Itinerary = null;
+                w.StepIdx = 0;
+                w.PendingCoarseId = -1;
+                w.CandidateCoarseId = -1;
+                w.SegmentEndsAtGoal = p.Path[p.Path.Length - 1] == mappedGoal;
+                w.SegmentEndsAtService = false;
+            }
+            if (p.CandidateDoorNodes != null) {
+                var remappedDoors = new List<int>(p.CandidateDoorNodes.Length);
+                for (int c = 0; c < p.CandidateDoorNodes.Length; c++) {
+                    int oldD = p.CandidateDoorNodes[c];
+                    if ((uint)oldD < (uint)prevTop.NodeTileKey.Length &&
+                        newTop.TileKeyToNode.TryGetValue(prevTop.NodeTileKey[oldD], out int md) &&
+                        DoorForNodeAndLine(md, p.TargetLineId) != null) {
+                        remappedDoors.Add(md);
+                    }
+                }
+                p.CandidateDoorNodes = remappedDoors.Count > 0 ? remappedDoors.ToArray() : null;
+                p.CandidateDoorIndex = 0;
+            }
+            return true;
+        }
+
+        int[] RankDoorCandidates(int from, string lineId) {
+            var candidates = new List<DoorFact>();
+            var scores = new List<double>();
+            for (int i = 0; i < doors.Count; i++) {
+                if (doors[i].LineId != lineId || doors[i].Node < 0) continue;
+                double dx = graph.NodeX[doors[i].Node] - graph.NodeX[from];
+                double dy = graph.NodeY[doors[i].Node] - graph.NodeY[from];
+                double dz = graph.NodeZ[doors[i].Node] - graph.NodeZ[from];
+                double score = Math.Sqrt(dx * dx + dy * dy + dz * dz) + doors[i].Queue.Count * 2.0;
+                int at = candidates.Count;
+                for (int c = 0; c < candidates.Count; c++) {
+                    if (score < scores[c] - 1e-9 || (Math.Abs(score - scores[c]) <= 1e-9 && doors[i].Server < candidates[c].Server)) { at = c; break; }
+                }
+                candidates.Insert(at, doors[i]);
+                scores.Insert(at, score);
+            }
+            var result = new List<int>(Math.Min(candidates.Count, 8));
+            HashSet<string> seenPlatforms = null;
+            int limit = Math.Min(4, candidates.Count);
+            for (int i = 0; i < limit; i++) {
+                result.Add(candidates[i].Node);
+                seenPlatforms ??= new HashSet<string>(StringComparer.Ordinal);
+                seenPlatforms.Add(candidates[i].PlatformId ?? "");
+            }
+            if (seenPlatforms != null) {
+                for (int i = limit; i < candidates.Count; i++) {
+                    if (seenPlatforms.Add(candidates[i].PlatformId ?? "")) result.Add(candidates[i].Node);
+                }
+            }
+            return result.ToArray();
+        }
+
+        void StartSparseLeg(Passenger passenger, int startNode, int goalNode, int[] candidateDoors = null) {
+            sparseRouter.Claims.Release(passenger.Id);
+            ReleaseGateReservation(passenger);
+            passenger.Phase = Phase.Walking;
+            passenger.RouteGraphEpoch = graphEpoch;
+            passenger.Segment = 0;
+            passenger.GateChosen = false;
+            passenger.AlignRouteStart = false;
+            passenger.Path = new[] { startNode };
+            passenger.PathIndex = 0;
+            passenger.Route = new ServiceRoute { Segments = new[] { passenger.Path } };
+            passenger.CandidateDoorNodes = candidateDoors;
+            passenger.CandidateDoorIndex = 0;
+            var w = sparseRouter.CreateWalker(goalNode, passenger.Walker?.LegGen ?? 0);
+            passenger.Walker = w;
+            if (startNode == goalNode) {
+                w.SegmentEndsAtGoal = true;
+                passenger.AwaitingRoute = false;
+                return;
+            }
+            w.BlockedSinceTick = sparseTick;
+            passenger.AwaitingRoute = true;
+        }
+
+        int ResolveWalkerStartNode(Passenger p) {
+            if (p.Path != null && p.Path.Length > 0 && p.PathIndex >= 0 && p.PathIndex < p.Path.Length) {
+                int n = p.Path[p.PathIndex];
+                if ((uint)n < (uint)graph.NodeCount) return n;
+            }
+            return NearestNode(graph, p.X, p.Y, p.Z);
+        }
+
+        void AdoptSparseItinerary(Passenger p, StationCoarseItinerary itin, int startNode) {
+            var w = p.Walker;
+            if (w == null) return;
+            w.Itinerary = itin;
+            w.StepIdx = 0;
+            w.SegmentEndsAtGoal = false;
+            w.SegmentEndsAtService = false;
+            w.PendingLiftId = null;
+            w.BlockedSinceTick = -1;
+            w.SparseMisses = 0;
+            p.AwaitingRoute = false;
+            p.RouteGraphEpoch = graphEpoch;
+
+            bool keepExisting = p.Path != null && p.PathIndex >= 0 && p.PathIndex < p.Path.Length - 1 &&
+                p.Path[p.PathIndex] == startNode;
+            if (!keepExisting) {
+                p.Path = new[] { startNode };
+                p.PathIndex = 0;
+                p.Route = new ServiceRoute { Segments = new[] { p.Path } };
+                p.Segment = 0;
+                double dx = p.X - graph.NodeX[startNode], dy = p.Y - graph.NodeY[startNode];
+                if (dx * dx + dy * dy > 0.35 * 0.35) p.AlignRouteStart = true;
+            }
+            if (p.GateChosen) ReserveGate(p);
+        }
+
+        void SwitchSparseWalkingRoute(Passenger p, StationCoarseItinerary itin, int fromNode, bool alignStart) {
+            var w = p.Walker;
+            if (w == null) return;
+            sparseRouter.Claims.Release(p.Id);
+            w.Itinerary = itin;
+            w.StepIdx = 0;
+            w.SegmentEndsAtGoal = false;
+            w.SegmentEndsAtService = false;
+            w.PendingLiftId = null;
+            w.PendingCoarseId = -1;
+            w.CandidateCoarseId = -1;
+            w.BlockedSinceTick = -1;
+            p.AwaitingRoute = false;
+            p.RouteGraphEpoch = graphEpoch;
+            p.Segment = 0;
+            p.Path = new[] { fromNode };
+            p.PathIndex = 0;
+            p.Route = new ServiceRoute { Segments = new[] { p.Path } };
+            p.AlignRouteStart = alignStart;
+            TryImmediateSparseRefill(p, fromNode);
+        }
+
+        void ConsiderSparseServiceChange(Passenger p, StationCoarseItinerary alt, int originNode) {
+            var w = p.Walker;
+            if (w == null || alt == null || p.Phase != Phase.Walking) return;
+            int curNode = ResolveWalkerStartNode(p);
+            if (curNode != originNode) return;
+            int curRemMs = EstimateSparseRemainingMs(p);
+            if (alt.TotalCostMs + 2000 < curRemMs) {
+                SwitchSparseWalkingRoute(p, alt, originNode, alignStart: true);
+                ReserveGate(p);
+            }
+        }
+
+        void TryImmediateSparseRefill(Passenger p, int selfNode) {
+            var w = p.Walker;
+            if (w == null || w.Itinerary == null) return;
+            int[] path = p.Path;
+            int pathIdx = p.PathIndex;
+            var res = sparseRouter.RefillWalker(p.Id, ref path, ref pathIdx, w, sparseTick, selfNode, 0);
+            p.Path = path;
+            p.PathIndex = pathIdx;
+            if (p.Route != null && p.Route.Segments.Length > 0) p.Route.Segments[0] = path;
+            if (res == StationSparseRouter.RefillResult.Repair) {
+                w.Itinerary = null;
+                w.StepIdx = 0;
+                w.SegmentEndsAtGoal = false;
+                w.SegmentEndsAtService = false;
+                w.PendingLiftId = null;
+            }
+        }
+
+        int EstimateSparseRemainingViaRideMs(Passenger p, int rideServer) {
+            var w = p.Walker;
+            if (w == null || !rideByServer.TryGetValue(rideServer, out var ride)) return EstimateSparseRemainingMs(p);
+            double stairPen = 0;
+            if (ride.Kind == WalkEdgeKind.Stair) {
+                int flights = rideServer >= 0 && rideServer < graph.Servers.Count && graph.Servers[rideServer].StairFlights > 1
+                    ? graph.Servers[rideServer].StairFlights : 1;
+                stairPen = StationRoutePlanner.StairAvoidSeconds * flights;
+            }
+            int rideCostMs = StationSparsePolicy.ToMs(ride.Ride + stairPen) + sparseRouter.CurrentServerWaitMs(rideServer);
+            if (ride.ExitNode == w.GoalNode) return rideCostMs;
+            var st = sparseRouter.StartCoarseSearch(ride.ExitNode, w.GoalNode, p.Needs, -1, 0, sparseTick, out var tailItin, out int jid);
+            if (st == StationSparseRouter.CoarseJobStatus.Running && jid >= 0) {
+                var stepped = sparseRouter.StepCoarseJobNow(jid, 8000, 32000);
+                if (stepped != null && stepped.Status == StationSparseRouter.CoarseJobStatus.Ready) {
+                    st = StationSparseRouter.CoarseJobStatus.Ready;
+                    tailItin = stepped.Result;
+                }
+            }
+            if (st == StationSparseRouter.CoarseJobStatus.Ready && tailItin != null) {
+                return rideCostMs + tailItin.TotalCostMs;
+            }
+            return rideCostMs + EstimateSparseRemainingMs(p);
+        }
+
+        int EstimateSparseRemainingMs(Passenger p) {
+            var w = p.Walker;
+            if (w?.Itinerary == null) return StationSparsePolicy.InfMs;
+            int rem = 0;
+            var steps = w.Itinerary.Steps;
+            for (int i = w.StepIdx; i < steps.Length; i++) {
+                rem += steps[i].CostMs;
+            }
+            if (p.Path != null && p.PathIndex >= 0 && p.PathIndex < p.Path.Length - 1) {
+                rem += (p.Path.Length - 1 - p.PathIndex) * 700;
+            }
+            return Math.Max(rem, 1000);
+        }
+
+        void HandleSparseCoarseFailure(Passenger p, int startNode) {
+            var w = p.Walker;
+            if (w == null) { Stuck++; Kill(p); return; }
+
+            // Try remaining ranked door candidates before falling back to fine recovery.
+            while (p.Boards && p.CandidateDoorNodes != null && p.CandidateDoorIndex + 1 < p.CandidateDoorNodes.Length) {
+                p.CandidateDoorIndex++;
+                int nextGoal = p.CandidateDoorNodes[p.CandidateDoorIndex];
+                if ((uint)nextGoal >= (uint)graph.NodeCount) continue;
+                w.GoalNode = nextGoal;
+                w.GoalKey = sparseRouter.Topology.NodeTileKey[nextGoal];
+                w.Itinerary = null;
+                w.StepIdx = 0;
+                w.PendingCoarseId = -1;
+                var st = sparseRouter.StartCoarseSearch(startNode, nextGoal, p.Needs, -1, 0, sparseTick, out var ready, out int jid);
+                if (st == StationSparseRouter.CoarseJobStatus.Ready && ready != null) {
+                    AdoptSparseItinerary(p, ready, startNode);
+                    return;
+                }
+                if (st == StationSparseRouter.CoarseJobStatus.Running && jid >= 0) {
+                    w.PendingCoarseId = jid;
+                    sparseReferencedCoarseIds.Add(jid);
+                    return;
+                }
+            }
+
+            // Bounded fine-graph recovery fallback (§3.4 / §3.5)
+            long beforeExp = planner?.TotalExpandedNodes ?? 0;
+            ServiceRoute fallback = p.Boards
+                ? PlanDoorRoute(startNode, p.TargetLineId, p.Needs)
+                : PlanRoute(startNode, w.GoalNode, p.Needs);
+            long afterExp = planner?.TotalExpandedNodes ?? 0;
+            if (fallback != null) {
+                sparseRouter.RecordFineFallback(Math.Max(0, afterExp - beforeExp));
+                sparseRouter.Claims.Release(p.Id);
+                p.Walker = null;
+                p.CandidateDoorNodes = null;
+                p.CandidateDoorIndex = 0;
+                BeginRoute(p, fallback);
+                return;
+            }
+            Stuck++;
+            Kill(p);
+        }
+
+        void StepSparseRouting() {
+            if (!UseSparse) return;
+            sparseTick++;
+            sparseRouter.Occupancy.Clear();
+            for (int i = 0; i < passengers.Count; i++) {
+                var p = passengers[i];
+                if (p.Phase != Phase.Walking && p.Phase != Phase.Queuing && p.Phase != Phase.LiftQueuing) continue;
+                int n = NearestNode(graph, p.X, p.Y, p.Z);
+                if (n >= 0) sparseRouter.Occupancy.Add(n);
+            }
+            sparseLiftWaitScratch.Clear();
+            for (int i = 0; i < lifts.Count; i++) sparseLiftWaitScratch[lifts[i].Id] = LiftQueueWait(lifts[i]);
+            sparseRouter.BeginTick(sparseTick, GateWait, sparseLiftWaitScratch);
+
+            sparseReferencedCoarseIds.Clear();
+            for (int i = 0; i < passengers.Count; i++) {
+                var p = passengers[i];
+                if (p.Phase != Phase.Walking || p.Walker == null) continue;
+                var w = p.Walker;
+                if (w.SessionId != sparseRouter.SessionId) {
+                    w.SessionId = sparseRouter.SessionId;
+                    w.Itinerary = null;
+                    w.PendingCoarseId = -1;
+                    w.CandidateCoarseId = -1;
+                }
+                if (w.CandidateCoarseId >= 0) sparseReferencedCoarseIds.Add(w.CandidateCoarseId);
+
+                bool needsCoarse = p.AwaitingRoute || w.Itinerary == null ||
+                    w.Itinerary.TopologyRevision != sparseRouter.Topology.TopologyRevision;
+                if (!needsCoarse) continue;
+
+                if (w.PendingCoarseId >= 0) {
+                    sparseReferencedCoarseIds.Add(w.PendingCoarseId);
+                    if (w.BlockedSinceTick >= 0) sparseRouter.RecordBacklogAge(sparseTick - w.BlockedSinceTick);
+                    continue;
+                }
+                if (w.RetryAfterTick > sparseTick) continue;
+
+                int startNode = ResolveWalkerStartNode(p);
+                if (startNode < 0 || (uint)w.GoalNode >= (uint)graph.NodeCount) {
+                    Stuck++;
+                    Kill(p);
+                    continue;
+                }
+                if (startNode == w.GoalNode) {
+                    p.Path = new[] { startNode };
+                    p.PathIndex = 0;
+                    p.Route = new ServiceRoute { Segments = new[] { p.Path } };
+                    w.SegmentEndsAtGoal = true;
+                    p.AwaitingRoute = false;
+                    continue;
+                }
+
+                int prio = p.AwaitingRoute ? 0 : 2;
+                var status = sparseRouter.StartCoarseSearch(
+                    startNode, w.GoalNode, p.Needs, -1, prio, sparseTick,
+                    out var ready, out int jobId);
+                if (status == StationSparseRouter.CoarseJobStatus.Ready && ready != null) {
+                    AdoptSparseItinerary(p, ready, startNode);
+                } else if (status == StationSparseRouter.CoarseJobStatus.Running && jobId >= 0) {
+                    w.PendingCoarseId = jobId;
+                    if (w.BlockedSinceTick < 0) w.BlockedSinceTick = sparseTick;
+                    sparseReferencedCoarseIds.Add(jobId);
+                } else {
+                    HandleSparseCoarseFailure(p, startNode);
+                }
+            }
+
+            sparseRouter.RunMandatoryBudget(sparseTick, sparseReferencedCoarseIds);
+
+            for (int i = 0; i < passengers.Count; i++) {
+                var p = passengers[i];
+                if (p.Phase != Phase.Walking || p.Walker == null) continue;
+                var w = p.Walker;
+                if (w.PendingCoarseId >= 0) {
+                    var job = sparseRouter.GetCoarseJob(w.PendingCoarseId);
+                    if (job == null) {
+                        w.PendingCoarseId = -1;
+                    } else if (job.Status == StationSparseRouter.CoarseJobStatus.Ready && job.Result != null) {
+                        w.PendingCoarseId = -1;
+                        AdoptSparseItinerary(p, job.Result, job.StartNode);
+                    } else if (job.Status == StationSparseRouter.CoarseJobStatus.Failed) {
+                        w.PendingCoarseId = -1;
+                        HandleSparseCoarseFailure(p, job.StartNode);
+                    }
+                }
+                if (w.CandidateCoarseId >= 0) {
+                    var cjob = sparseRouter.GetCoarseJob(w.CandidateCoarseId);
+                    if (cjob == null) {
+                        w.CandidateCoarseId = -1;
+                    } else if (cjob.Status != StationSparseRouter.CoarseJobStatus.Running) {
+                        w.CandidateCoarseId = -1;
+                        if (cjob.Status == StationSparseRouter.CoarseJobStatus.Ready && cjob.Result != null) {
+                            ConsiderSparseServiceChange(p, cjob.Result, w.CandidateOriginNode);
+                        }
+                    }
+                }
+            }
+
+            int count = passengers.Count;
+            int refillBudget = sparseRouter.Options.LocalRefillBudget;
+            if (count > 0) {
+                int startIdx = sparseTick % count;
+                for (int k = 0; k < count && refillBudget > 0; k++) {
+                    var p = passengers[(startIdx + k) % count];
+                    if (p.Phase != Phase.Walking || p.AwaitingRoute || p.Walker == null) continue;
+                    var w = p.Walker;
+                    if (w.Itinerary == null) continue;
+
+                    int selfNode = (p.Path != null && p.PathIndex >= 0 && p.PathIndex < p.Path.Length)
+                        ? p.Path[p.PathIndex]
+                        : NearestNode(graph, p.X, p.Y, p.Z);
+
+                    int[] path = p.Path;
+                    int pathIdx = p.PathIndex;
+                    sparseRouter.MaybeTrimCrowdedTail(p.Id, ref path, ref pathIdx, w, selfNode);
+                    int remainingEdges = path != null && path.Length > 0 ? Math.Max(0, path.Length - 1 - pathIdx) : 0;
+                    if (remainingEdges > sparseRouter.Options.RefillThreshold || w.SegmentEndsAtGoal || w.SegmentEndsAtService) {
+                        p.Path = path;
+                        p.PathIndex = pathIdx;
+                        if (p.Route != null && p.Route.Segments.Length > 0) p.Route.Segments[0] = path;
+                        continue;
+                    }
+
+                    int prio = remainingEdges <= 1 ? 0 : 1;
+                    var res = sparseRouter.RefillWalker(p.Id, ref path, ref pathIdx, w, sparseTick, selfNode, prio);
+                    p.Path = path;
+                    p.PathIndex = pathIdx;
+                    if (p.Route != null && p.Route.Segments.Length > 0) p.Route.Segments[0] = path;
+                    refillBudget--;
+                    if (res == StationSparseRouter.RefillResult.Repair) {
+                        w.Itinerary = null;
+                        w.StepIdx = 0;
+                        w.SegmentEndsAtGoal = false;
+                        w.SegmentEndsAtService = false;
+                        w.PendingLiftId = null;
+                    }
+                }
+            }
+
+            sparseRouter.PruneCompletedCoarseJobs();
+            sparseRouter.RunOptionalJobs();
         }
 
         void Compact() {

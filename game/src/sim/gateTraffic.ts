@@ -60,6 +60,16 @@ export class GateTraffic {
       this.incoming[id * 3 + dir + 1]++
       return
     }
+    // Sparse itinerary forecast: count approaching passengers even when the gate is
+    // beyond the 16-step rolling walking buffer (design/crowd-routing-plan.md §1).
+    const itin = a.walker?.itinerary
+    if (itin && itin.nextGateServer >= 0 && a.servedFor !== itin.nextGateServer) {
+      const gate = g.servers[itin.nextGateServer]
+      if (gate && gate.kind === 'gate' && itin.nextGateDistMs <= GATE_FORECAST_SECONDS * 1000) {
+        this.reservations.set(a.id, { server: itin.nextGateServer, dir: itin.nextGateDir })
+        this.incoming[itin.nextGateServer * 3 + itin.nextGateDir + 1]++
+      }
+    }
   }
 
   join(a: Agent, s: ServerDef): void {

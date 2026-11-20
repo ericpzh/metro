@@ -761,7 +761,9 @@ namespace Metro.Sim {
         /// </summary>
         public void SetPlaying(bool playing) {
             if (playing == Playing) return;
+            bool wasPlaying = Playing;
             Playing = playing;
+            if (!wasPlaying && playing && Speed > 0) services.NotifyPlayResumed();
         }
 
         /// <summary>Set the speed multiplier. Returns false for anything but 1×/4×/16×/64×.</summary>

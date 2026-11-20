@@ -5,6 +5,7 @@
 
 import { PATIENCE_MAX, PATIENCE_MIN } from './constants.ts'
 import type { Rng } from './rng.ts'
+import type { SparseWalkerState } from './sparseRouter.ts'
 import { AgentState, type GateDir, type Trip } from './types.ts'
 import { passengerWalkSpeed } from './walking.ts'
 
@@ -116,6 +117,8 @@ export interface Agent {
   dead: boolean
   /** True while an A* request for this leg is in the per-tick budget queue. */
   awaitingPath: boolean
+  /** Sparse coarse itinerary + rolling 16-step walking state (null in legacy mode). */
+  walker: SparseWalkerState | null
 }
 
 export class AgentPool {
@@ -204,6 +207,7 @@ export class AgentPool {
     a.spawnedTick = tick
     a.dead = false
     a.awaitingPath = false
+    a.walker = null
     this.liveList.push(a)
     this.byId.set(a.id, a)
     return a
