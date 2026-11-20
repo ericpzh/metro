@@ -518,7 +518,14 @@ switching it must preserve edits, undo history, drafts and the simulation.
 English game; `/game/` is Chinese. The demo links keep the same pin —
 `/game/en/zoo` opens the zoo in English. The
 `IoLanguageSharp` button beside restart switches either route; each route keeps
-its preference in local storage. Worker, Vite preview and `tools/preview.mjs`
+its preference in local storage. Benchmark routes (`/benchmark`, `/benchmark/en`,
+including under `/game/` and `/game/unity/`) stay isolated from those saved game
+overrides via `app/languageRoute.ts` (`initialLanguageForRoute`,
+`benchmarkLanguagePath`): external navigation opens in the routed locale, and
+clicking the benchmark locale toggle calls `setLanguage` + `history.replaceState`
+so the toggle overrides the page immediately and survives reloads without
+clobbering main-game storage or discarding benchmark results. Worker, Vite
+preview and `tools/preview.mjs`
 must resolve the English document's relative assets. Locale changes refresh
 rendered copy and the retained TV/map plate caches, without resetting the camera.
 

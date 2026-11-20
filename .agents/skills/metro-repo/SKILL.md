@@ -518,6 +518,20 @@ placement and the worker's `ready` message must not reset the view to grade.
 The `/game/benchmark` route auto-hides the tutorial while the benchmark mounts the
 game shell, without overwriting the player's saved tutorial preference; pin the
 route decision in `game/test/tutorial.test.mjs`.
+Benchmark routes (`/game/benchmark`, `/game/benchmark/en`, `/game/unity/benchmark`,
+`/game/unity/benchmark/en`) stay isolated from the main game's saved
+`metro-game.language.*` overrides (`game/src/app/languageRoute.ts`): external
+navigation always opens in the routed locale, and clicking the in-page toggle
+calls `setLanguage` + `history.replaceState` so the toggle is the final say on
+the page (preserving setup selections and completed results across toggles and
+reloads without clobbering the main game's saved language). Pin this in
+`game/test/benchmark-route.test.mjs`, `game/test/i18n.test.mjs` and
+`unity/tests/unity-benchmark.test.mjs`.
+The Unity WebGL benchmark (`game/src/unity-web/UnityBenchmarkRoute.tsx`) mirrors
+the 30-second 16× demo/view presets on `/game/unity/benchmark[/en]` via
+`stationBridge` (`station.openDemo`, `view.set`, `camera.snap`, `camera.zoom`,
+`UnityExplodedView`, `sim.speed`, `sim.play`) and omits Three.js-only Low/High
+LOD and FSR toggles until Unity implements them.
 The benchmark's selected graphics quality is the source of truth for its run:
 apply it to the store before mounting the renderer, without calling the persistent
 graphics-quality action or changing the player's saved preference. Pin this in
@@ -1063,9 +1077,10 @@ output and keep the coverage map in sync.
 
 ## Deploy (Cloudflare Workers)
 
-Everything is static assets except the language-pin rewriter and the stats API. Three
-Workers on the same repo; the site and game each have a Workers Builds project, so a
-push to `main` ships both. Stats is deployed by hand because it applies its D1 schema:
+Everything is static assets except the language-pin rewriter, Unity split-asset
+streamer and the stats API. Four Workers on the same repo; the site and game each
+have a Workers Builds project, so a push to `main` ships both. Stats and Unity are
+deployed by hand:
 
 * `metro` — the site, root `wrangler.jsonc`, assets from `web/dist`, served at
   `stationdesigner.com/` (English `/en/`) on the route
@@ -1075,8 +1090,23 @@ push to `main` ships both. Stats is deployed by hand because it applies its D1 s
   `stationdesigner.com/game` and `/game/*`, with `ASSET_PREFIX=/game` and its
   routes declared in its own config (so `wrangler deploy` creates them; no
   dashboard step). `game/worker/index.js` strips `ASSET_PREFIX` before reading
-  an asset, and drops a trailing slash from a client route (`/game/zoo/` → 308
-  `/game/zoo`) so the document's relative assets resolve at the game root.
+  an asset, and drops a trailing slash from a client route (`/game/zoo/`,
+  `/game/benchmark/en/` → 308 without trailing slash) so the document's relative
+  assets resolve at the game root.
+* `metro-unity` — the Unity 6 URP WebGL player and benchmark, `unity/wrangler.jsonc`,
+  assets from gitignored `unity/dist-web`, served at
+  `stationdesigner.com/game/unity/` (English `/game/unity/en/`, benchmark
+  `/game/unity/benchmark` and `/game/unity/benchmark/en`) on the more specific
+  routes `stationdesigner.com/game/unity` and `/game/unity/*` with
+  `ASSET_PREFIX=/game/unity` and `tools/unity-web/local-worker.mjs`.
+  `npm run stage:unity` (`tools/unity-web/stage-deploy.mjs`) refuses local-only
+  `StationGameLocalWeb*` soft-human packs, accepts only public
+  `StationGameLocal.unity` packs, and Brotli-compresses split `.wasm`/`.data`
+  bundles into ≤20 MiB `.brpartN` chunks (`Content-Encoding: br`, zero-copy
+  `pipeTo` into `FixedLengthStream`) so every asset stays under Cloudflare's
+  25 MiB asset cap and every response stays well under the 100 MB response limit.
+  Use `npm run deploy:unity` (or `wrangler deploy -c unity/wrangler.jsonc` after
+  staging) to deploy.
 * `metro-stats` — the stats Worker, `stats/wrangler.jsonc`, no assets, served at
   `stationdesigner.com/stats/` (Chinese default) and `/stats/en/` (English), with
   the API under `/stats/api/v1/*`, on the routes
