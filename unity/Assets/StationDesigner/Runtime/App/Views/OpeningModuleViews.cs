@@ -538,6 +538,9 @@ namespace Metro.App {
             views[view.ModuleId] = view;
         }
 
+        public bool Remove(string moduleId) =>
+            !string.IsNullOrEmpty(moduleId) && views.Remove(moduleId);
+
         public bool TryGet(string moduleId, out OpeningView view) {
             view = null;
             return !string.IsNullOrEmpty(moduleId) && views.TryGetValue(moduleId, out view);
@@ -2872,28 +2875,174 @@ namespace Metro.App {
     public sealed class OpeningModuleRenderer : IStationViewRenderer, IStationLocalViewRenderer {
         public const string RoleName = "openings";
 
+        static bool IsLocalOpeningType(string type) =>
+            string.Equals(type, "gate", StringComparison.Ordinal) ||
+            string.Equals(type, "door", StringComparison.Ordinal) ||
+            string.Equals(type, "cubicle", StringComparison.Ordinal);
+
+        static bool IsFenceConnectionType(string type) =>
+            string.Equals(type, "fence", StringComparison.Ordinal) ||
+            string.Equals(type, "gate", StringComparison.Ordinal);
+
+        sealed class StagedOpeningDelta : IStationLocalRendererStage {
+            readonly WorldState state;
+            readonly HashSet<string> retiredIds;
+            readonly List<(StationModuleRecord Module, OpeningView View)> stagedViews;
+            bool committed;
+
+            public StagedOpeningDelta(WorldState state, HashSet<string> retiredIds,
+                List<(StationModuleRecord Module, OpeningView View)> stagedViews) {
+                this.state = state;
+                this.retiredIds = retiredIds;
+                this.stagedViews = stagedViews;
+            }
+
+            public void Commit(StationWorldView world, StationLocalViewCommit commit) {
+                committed = true;
+                if (retiredIds != null && retiredIds.Count > 0) {
+                    world.RetireRecordsWhere(r => r.Role == RoleName && retiredIds.Contains(r.ModuleId),
+                        commit, retireViewObjects: true);
+                    foreach (var id in retiredIds) {
+                        if (state.Set.TryGet(id, out var oldView)) {
+                            state.Set.Remove(id);
+                            if (oldView?.Holder != null) OpeningModuleViews.SafeDestroy(oldView.Holder.gameObject);
+                        }
+                    }
+                }
+                if (stagedViews != null && stagedViews.Count > 0) {
+                    var roleRoot = world.RoleRoot(RoleName);
+                    for (int i = 0; i < stagedViews.Count; i++) {
+                        var (mod, view) = stagedViews[i];
+                        if (view?.Holder != null && roleRoot != null) {
+                            view.Holder.SetParent(roleRoot, false);
+                        }
+                        state.Set.Add(view);
+                        if (view?.Instance != null) {
+                            int beforeCount = world.Records.Count;
+                            world.RegisterModule(RoleName, mod.Id, view.Instance, "", null, mod.Z, mod.Z + 1);
+                            if (world.Records.Count > beforeCount) commit.AddedRecords.Add(world.Records[world.Records.Count - 1]);
+                        }
+                    }
+                }
+            }
+
+            public void Dispose() {
+                if (committed || stagedViews == null) return;
+                for (int i = 0; i < stagedViews.Count; i++) {
+                    var view = stagedViews[i].View;
+                    if (view?.Holder != null) OpeningModuleViews.SafeDestroy(view.Holder.gameObject);
+                    else if (view?.Instance != null) OpeningModuleViews.SafeDestroy(view.Instance);
+                }
+            }
+        }
+
         public bool TryStageLocalDelta(
             StationLocalDeltaContext context,
             out IStationLocalRendererStage stage,
             out string fallbackReason) {
             stage = null;
             fallbackReason = null;
+            if (!states.TryGetValue(context.World, out var state) || state == null) {
+                fallbackReason = "no-opening-state";
+                return false;
+            }
+
             var delta = context.Delta;
+            var retiredIds = new HashSet<string>(StringComparer.Ordinal);
+            var dirtyIds = new HashSet<string>(StringComparer.Ordinal);
+            List<(int X, int Y, int Z)> fenceTouchPoints = null;
+
             for (int i = 0; i < delta.RemovedModules.Count; i++) {
-                if (context.PrevIndex.TryGetModule(delta.RemovedModules[i], out var oldMod) &&
-                    oldMod != null && OpeningModuleViews.Owns(oldMod.Type)) {
+                var id = delta.RemovedModules[i];
+                if (!context.PrevIndex.TryGetModule(id, out var oldMod) || oldMod == null) continue;
+                if (IsFenceConnectionType(oldMod.Type)) {
+                    (fenceTouchPoints ??= new List<(int, int, int)>()).Add((oldMod.X, oldMod.Y, oldMod.Z));
+                }
+                if (!OpeningModuleViews.Owns(oldMod.Type)) continue;
+                if (!IsLocalOpeningType(oldMod.Type)) {
                     fallbackReason = "local-module-family:" + oldMod.Type;
                     return false;
                 }
+                retiredIds.Add(id);
             }
             for (int i = 0; i < delta.ChangedModules.Count; i++) {
                 var mod = delta.ChangedModules[i];
-                if (mod != null && OpeningModuleViews.Owns(mod.Type)) {
+                if (mod == null) continue;
+                if (IsFenceConnectionType(mod.Type)) {
+                    (fenceTouchPoints ??= new List<(int, int, int)>()).Add((mod.X, mod.Y, mod.Z));
+                    if (context.PrevIndex.TryGetModule(mod.Id, out var prevMod) && prevMod != null) {
+                        fenceTouchPoints.Add((prevMod.X, prevMod.Y, prevMod.Z));
+                    }
+                }
+                if (!OpeningModuleViews.Owns(mod.Type)) continue;
+                if (!IsLocalOpeningType(mod.Type)) {
                     fallbackReason = "local-module-family:" + mod.Type;
                     return false;
                 }
+                retiredIds.Add(mod.Id);
+                dirtyIds.Add(mod.Id);
             }
-            return true;
+
+            // A doorless fare gate's carried fence panel depends on adjacent fence/gate tiles.
+            if (fenceTouchPoints != null && fenceTouchPoints.Count > 0) {
+                var gates = context.NextIndex.ModulesOfType("gate");
+                for (int i = 0; i < gates.Count; i++) {
+                    var g = gates[i];
+                    if (g == null || dirtyIds.Contains(g.Id)) continue;
+                    string door = g.Config.Text("door");
+                    if (OpeningModuleViews.GateHasLane(door)) continue;
+                    for (int t = 0; t < fenceTouchPoints.Count; t++) {
+                        var pt = fenceTouchPoints[t];
+                        if (g.Z == pt.Z && Math.Abs(g.X - pt.X) <= 1 && Math.Abs(g.Y - pt.Y) <= 1) {
+                            retiredIds.Add(g.Id);
+                            dirtyIds.Add(g.Id);
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (retiredIds.Count == 0 && dirtyIds.Count == 0) return true;
+
+            var catalogue = context.World.Catalogue;
+            if (dirtyIds.Count > 0 && catalogue == null) {
+                fallbackReason = "no-catalogue:" + RoleName;
+                return false;
+            }
+
+            bool needGateStation = false;
+            foreach (var id in dirtyIds) {
+                if (context.NextIndex.TryGetModule(id, out var m) && m != null && string.Equals(m.Type, "gate", StringComparison.Ordinal)) {
+                    needGateStation = true;
+                    break;
+                }
+            }
+            var stationFacts = needGateStation
+                ? context.GetNextFactsOfTypes("gate", "fence")
+                : Array.Empty<ModuleFacts>();
+
+            var stagedViews = new List<(StationModuleRecord Module, OpeningView View)>(dirtyIds.Count);
+            try {
+                foreach (var id in dirtyIds) {
+                    if (!context.NextIndex.TryGetModule(id, out var mod) || mod == null || !IsLocalOpeningType(mod.Type)) continue;
+                    var request = OpeningModuleViews.RequestFor(mod, context.NextIndex);
+                    if (OpeningModuleViews.TryBuild(request, mod.Facts, stationFacts, catalogue, context.StagingRoot, state.Palette, out var view)) {
+                        stagedViews.Add((mod, view));
+                        StationEditTrace.AddInstantiatedPrefab();
+                    } else {
+                        context.ReportUnresolved("opening", mod.Type, mod.Id, view.Diagnostic);
+                    }
+                }
+                stage = new StagedOpeningDelta(state, retiredIds, stagedViews);
+                return true;
+            } catch {
+                for (int i = 0; i < stagedViews.Count; i++) {
+                    var view = stagedViews[i].View;
+                    if (view?.Holder != null) OpeningModuleViews.SafeDestroy(view.Holder.gameObject);
+                    else if (view?.Instance != null) OpeningModuleViews.SafeDestroy(view.Instance);
+                }
+                throw;
+            }
         }
 
         /// <summary>

@@ -20,7 +20,7 @@
 // Every case has its own timeout; on failure the report carries the last snapshot
 // (document elided), the browser errors and a PNG. Run:
 //   node tools/unity-web/verify-station-game.mjs <run-dir> [--demo zoo|tanwei|tianhe|all]
-//        [--locale both|zh|en] [--timeout-ms 90000] [--serve] [--only case[,case]]
+//        [--locale both|zh|en] [--timeout-ms 90000] [--only case[,case]] [--load-probe]
 
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { spawn } from 'node:child_process'
@@ -40,6 +40,7 @@ const arg = (name, fallback) => {
 const demoArg = arg('--demo', 'zoo')
 const localeArg = arg('--locale', 'both')
 const timeoutMs = Number(arg('--timeout-ms', '120000'))
+const loadProbe = process.argv.includes('--load-probe')
 // `--only` runs a subset (prefix match on the case name) so one case can be iterated
 // without paying for the whole pass; every case still cold-opens the demo URL itself.
 const onlyArg = arg('--only', '')
@@ -69,6 +70,8 @@ const demos = demoArg === 'all' ? provenance.demos.map((demo) => demo.id) : [dem
 const activeDemo = demos[0]
 for (const id of demos) if (!byId.has(id)) throw new Error('Unknown demo: ' + id + ' (known: ' + [...byId.keys()].join(', ') + ')')
 const locales = localeArg === 'both' ? ['zh', 'en'] : [localeArg === 'zh' ? 'zh' : 'en']
+const demoUrl = (id, locale) => base + (locale === 'en' ? '/game/en/' : '/game/') + id +
+  (loadProbe ? '?metroLoadProbe=1' : '')
 
 async function freePort() {
   const socket = createServer()
@@ -112,6 +115,7 @@ for (let attempt = 0; attempt < 240 && !ready; attempt++) {
 if (!ready) throw new Error('The local host never answered on ' + base)
 
 let page
+let loadFailure = null
 const browserErrors = []
 const rememberBrowserError = (kind) => (params) => {
   const text = params?.exceptionDetails?.exception?.description ?? params?.exceptionDetails?.text ??
@@ -135,6 +139,7 @@ async function poll(expression, what, timeout = timeoutMs) {
   const deadline = Date.now() + timeout
   let lastError = null
   while (Date.now() < deadline) {
+    if (loadFailure) throw new Error(loadFailure)
     try {
       if (await page.evaluate(expression)) return
     } catch (error) {
@@ -265,22 +270,34 @@ async function expectDemoCommit(id, locale) {
   if (!snapshot.path.endsWith('/') && snapshot.path !== `/game/` && snapshot.path !== `/game/en/`) problems.push('URL not rewritten: ' + snapshot.path)
   if (snapshot.path === `/game/${id}` || snapshot.path === `/game/en/${id}`) problems.push('URL still names the demo: ' + snapshot.path)
   // The committed text is the document the shell adopted; compare it with the
-  // exported fixture by hash and by normalized counts.
-  const documentText = await page.evaluate('window.__metroStationBridge.getSnapshot().document')
-  if (!documentText) problems.push('no committed document text')
-  else if (documentText.length < 1000) problems.push('committed document is suspiciously short')
+  // exported fixture by hash and by normalized counts (parsed in-page so 16+ MiB
+  // stations like Tianhe Park do not transfer multi-MiB strings over CDP).
+  const docInfo = await page.evaluate(`(() => {
+    const text = window.__metroStationBridge.getSnapshot().document
+    if (!text) return { present: false, length: 0 }
+    if (text.length < 1000) return { present: true, length: text.length }
+    const parsed = JSON.parse(text)
+    return {
+      present: true,
+      length: text.length,
+      cells: parsed.static.cells.length,
+      modules: parsed.static.modules.length,
+      lines: parsed.static.lines.length,
+    }
+  })()`)
+  if (!docInfo?.present) problems.push('no committed document text')
+  else if (docInfo.length < 1000) problems.push('committed document is suspiciously short')
   else {
-    const counts = committedCounts(documentText)
-    if (counts.cells !== expected.cells) problems.push('cells ' + counts.cells + ' != ' + expected.cells)
-    if (counts.modules !== expected.modules) problems.push('modules ' + counts.modules + ' != ' + expected.modules)
-    if (counts.lines !== expected.lines) problems.push('lines ' + counts.lines + ' != ' + expected.lines)
+    if (docInfo.cells !== expected.cells) problems.push('cells ' + docInfo.cells + ' != ' + expected.cells)
+    if (docInfo.modules !== expected.modules) problems.push('modules ' + docInfo.modules + ' != ' + expected.modules)
+    if (docInfo.lines !== expected.lines) problems.push('lines ' + docInfo.lines + ' != ' + expected.lines)
   }
   return { problems, snapshot }
 }
 
 async function runDemoCase(id, locale) {
   const record = caseStart(`demo-${id}-${locale}`)
-  const url = base + (locale === 'en' ? '/game/en/' : '/game/') + id
+  const url = demoUrl(id, locale)
   await page.send('Page.navigate', { url })
   await poll('window.__metroStationBridge !== undefined', `${id}/${locale} shell mount`)
   const { problems, snapshot } = await expectDemoCommit(id, locale)
@@ -4659,18 +4676,61 @@ async function runResyncCase() {
 async function main() {
   mark('launch')
   page = await withPage({
-    url: base + (locales[0] === 'en' ? '/game/en/' : '/game/') + (shortcutFixtureOnly ? '' : demos[0]),
+    url: loadProbe ? 'about:blank' : demoUrl(shortcutFixtureOnly ? '' : demos[0], locales[0]),
     profile: join(outDir, 'chrome-profile'),
     debugPort: Number(process.env.METRO_STATION_DEBUG_PORT || 9337),
     commandTimeoutMs: timeoutMs,
   })
   page.onEvent('Runtime.exceptionThrown', rememberBrowserError('exception'))
   page.onEvent('Log.entryAdded', rememberBrowserError('log'))
+  if (loadProbe) {
+    report.loadStages = []
+    report.wasmGrowth = []
+    page.onEvent('Page.javascriptDialogOpening', ({ message }) => {
+      report.loadDialog = message
+      save()
+      void page.send('Page.handleJavaScriptDialog', { accept: true }).catch(() => {})
+    })
+    page.onEvent('Runtime.consoleAPICalled', ({ args }) => {
+      for (const { value } of args ?? []) {
+        if (typeof value !== 'string') continue
+        if (value.startsWith('[MetroLoad]')) report.loadStages.push(value.trim())
+        else if (value.startsWith('[MetroWasm]')) report.wasmGrowth.push(value.trim())
+        else if (value.includes('abort("OOM")')) {
+          loadFailure = 'Unity aborted while growing the Wasm heap'
+          report.loadFailure = value
+        } else continue
+        save()
+      }
+    })
+  }
   await page.send('Runtime.enable')
   await page.send('Log.enable')
+  if (loadProbe) {
+    await page.send('Page.enable')
+    await page.send('Page.addScriptToEvaluateOnNewDocument', { source: `(() => {
+      const grow = WebAssembly.Memory.prototype.grow;
+      WebAssembly.Memory.prototype.grow = function (pages) {
+        const before = this.buffer.byteLength;
+        try {
+          const result = grow.call(this, pages);
+          console.info('[MetroWasm] before=' + before + ' pages=' + pages + ' after=' + this.buffer.byteLength);
+          return result;
+        } catch (error) {
+          console.info('[MetroWasm] before=' + before + ' pages=' + pages + ' failed=' + error.name);
+          throw error;
+        }
+      };
+    })()` })
+  }
   // A filtered run skips the demo cases that normally wait for the cold open, so wait
   // for the initial commit here before the selected case reads the station.
-  if (onlyCases) await poll('window.__metroStationBridge && window.__metroStationBridge.getSnapshot().revision >= 0', 'initial commit')
+  if (loadProbe && !wanted(`demo-${demos[0]}-${locales[0]}`)) {
+    await page.send('Page.navigate', { url: demoUrl(demos[0], locales[0]) })
+  }
+  if (onlyCases && (!loadProbe || !wanted(`demo-${demos[0]}-${locales[0]}`))) {
+    await poll('window.__metroStationBridge && window.__metroStationBridge.getSnapshot().revision >= 0', 'initial commit')
+  }
   for (const locale of locales) {
     for (const id of demos) if (wanted(`demo-${id}-${locale}`)) await runDemoCase(id, locale)
     // Playback runs on the tab that just cold-opened this locale: a real Space press and
@@ -4733,6 +4793,7 @@ main()
   .catch(async (error) => {
     report.status = 'failed'
     report.errors = [...browserErrors, { kind: 'verifier', text: String(error?.stack ?? error) }]
+    save()
     if (page) {
       report.lastSnapshot = await currentSnapshot().catch(() => null)
       await screenshot('station-game-failure').catch(() => {})

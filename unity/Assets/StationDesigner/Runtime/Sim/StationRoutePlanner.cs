@@ -48,11 +48,19 @@ namespace Metro.Sim {
         int[] cameFrom;
         string[] cameByLift;
         int[] seen;
+        double[] congestionVal;
+        int[] congestionStamp;
+        int congestionEpoch;
+        int[] liftCompAll;
+        int[] liftCompStepFree;
+        bool liftCompDirty;
         int epoch;
         internal Func<int, double> Congestion;
         internal Func<int, int, double> GateWait;
         readonly MinHeap heap = new MinHeap();
         readonly Dictionary<int, List<LiftEdge>> liftEdges = new Dictionary<int, List<LiftEdge>>();
+
+        internal void InvalidateCongestionCache() => congestionEpoch++;
 
         readonly struct LiftEdge {
             public readonly int To;
@@ -73,6 +81,7 @@ namespace Metro.Sim {
                     if (to < 0 || graph.NodeZ[from] == graph.NodeZ[to]) continue;
                     if (!liftEdges.TryGetValue(from, out var edges)) liftEdges[from] = edges = new List<LiftEdge>();
                     edges.Add(new LiftEdge(to, id, queueWait));
+                    liftCompDirty = true;
                 }
             }
         }
@@ -83,6 +92,9 @@ namespace Metro.Sim {
             cameFrom = new int[graph.NodeCount];
             cameByLift = new string[graph.NodeCount];
             seen = new int[graph.NodeCount];
+            congestionVal = new double[graph.NodeCount];
+            congestionStamp = new int[graph.NodeCount];
+            congestionEpoch = 1;
             serverAtNode = new int[graph.NodeCount];
             Array.Fill(serverAtNode, -1);
             foreach (var kv in graph.ServerForNode) {
@@ -90,7 +102,76 @@ namespace Metro.Sim {
             }
         }
 
+        bool CanReachWithLifts(int start, int goal, bool stepFree) {
+            int count = graph.NodeCount;
+            if ((uint)start >= (uint)count || (uint)goal >= (uint)count) return false;
+            if (liftCompDirty || liftCompAll == null || liftCompAll.Length != count) {
+                BuildLiftComponents(count);
+            }
+            var comp = stepFree ? liftCompStepFree : liftCompAll;
+            return comp[start] == comp[goal];
+        }
+
+        void BuildLiftComponents(int count) {
+            liftCompAll = ComputeComponents(count, stepFree: false);
+            liftCompStepFree = ComputeComponents(count, stepFree: true);
+            liftCompDirty = false;
+        }
+
+        static int FindRoot(int[] parent, int x) {
+            int root = x;
+            while (parent[root] != root) root = parent[root];
+            while (parent[x] != root) {
+                int next = parent[x];
+                parent[x] = root;
+                x = next;
+            }
+            return root;
+        }
+
+        static void UnionNodes(int[] parent, int a, int b) {
+            int ra = FindRoot(parent, a);
+            int rb = FindRoot(parent, b);
+            if (ra != rb) parent[rb] = ra;
+        }
+
+        int[] ComputeComponents(int count, bool stepFree) {
+            var parent = new int[count];
+            for (int i = 0; i < count; i++) parent[i] = i;
+            var adjToRaw = graph.AdjToRaw;
+            var adjKindRaw = graph.AdjKindRaw;
+            for (int cur = 0; cur < count; cur++) {
+                var to = adjToRaw != null ? adjToRaw[cur] : graph.AdjTo[cur];
+                var kinds = adjKindRaw != null ? adjKindRaw[cur] : graph.AdjKind[cur];
+                for (int e = 0; e < to.Length; e++) {
+                    if (stepFree) {
+                        var k = (WalkEdgeKind)kinds[e];
+                        if (k == WalkEdgeKind.Stair || k == WalkEdgeKind.Escalator) continue;
+                    }
+                    int next = to[e];
+                    if ((uint)next < (uint)count) UnionNodes(parent, cur, next);
+                }
+                if (liftEdges.TryGetValue(cur, out var lifts)) {
+                    for (int l = 0; l < lifts.Count; l++) {
+                        int next = lifts[l].To;
+                        if ((uint)next < (uint)count) UnionNodes(parent, cur, next);
+                    }
+                }
+            }
+            for (int i = 0; i < count; i++) parent[i] = FindRoot(parent, i);
+            return parent;
+        }
+
         public StationWalkGraph Graph => graph;
+        public long TotalQueries { get; private set; }
+        public long TotalExpandedNodes { get; private set; }
+        public long TotalSkippedStalePops { get; private set; }
+
+        public void ResetMetrics() {
+            TotalQueries = 0;
+            TotalExpandedNodes = 0;
+            TotalSkippedStalePops = 0;
+        }
 
         /// <summary>The seconds a lift edge costs this passenger: zero for a step-free passenger.</summary>
         public static double LiftPenalty(StationRouteNeeds needs) {
@@ -141,16 +222,26 @@ namespace Metro.Sim {
         internal int[] Astar(int start, int goal, StationRouteNeeds needs, bool walkOnly = false, int avoidServer = -1, bool useLifts = false) {
             int count = graph.NodeCount;
             if ((uint)start >= (uint)count || (uint)goal >= (uint)count) return null;
+            TotalQueries++;
             useLifts = useLifts && !walkOnly && liftEdges.Count > 0;
-            if (!useLifts && !graph.CanReach(start, goal, needs.StepFree)) return null;
+            if (!useLifts) {
+                if (!graph.CanReach(start, goal, needs.StepFree)) return null;
+            } else {
+                if (!CanReachWithLifts(start, goal, needs.StepFree)) return null;
+            }
             if (gScore.Length < count) {
                 gScore = new double[count];
                 cameFrom = new int[count];
                 cameByLift = new string[count];
                 seen = new int[count];
+                congestionVal = new double[count];
+                congestionStamp = new int[count];
             }
             epoch++;
             int ep = epoch;
+            int cEp = congestionEpoch;
+            var congVal = congestionVal;
+            var congStamp = congestionStamp;
             double lift = LiftPenalty(needs);
             var adjToRaw = graph.AdjToRaw;
             var adjCostRaw = graph.AdjCostRaw;
@@ -171,10 +262,15 @@ namespace Metro.Sim {
             cameByLift[start] = null;
             {
                 double hdx = nodeX[start] - goalX, hdy = nodeY[start] - goalY, hdz = nodeZ[start] - goalZ;
-                heap.Push(start, Math.Sqrt(hdx * hdx + hdy * hdy + hdz * hdz) / WalkSpeed);
+                heap.Push(start, Math.Sqrt(hdx * hdx + hdy * hdy + hdz * hdz) / WalkSpeed, 0.0);
             }
             while (heap.Count > 0) {
-                int current = heap.Pop();
+                int current = heap.Pop(out double poppedG);
+                if (poppedG > gScore[current]) {
+                    TotalSkippedStalePops++;
+                    continue;
+                }
+                TotalExpandedNodes++;
                 if (current == goal) {
                     var path = new List<int>();
                     for (int node = goal; node != -1; node = cameFrom[node]) path.Add(node);
@@ -215,7 +311,16 @@ namespace Metro.Sim {
                             }
                         }
                     }
-                    double edgeCost = edgeCosts[e] + (congestionFn != null ? congestionFn(next) : 0);
+                    double congCost = 0;
+                    if (congestionFn != null) {
+                        if (congStamp[next] == cEp) congCost = congVal[next];
+                        else {
+                            congCost = congestionFn(next);
+                            congVal[next] = congCost;
+                            congStamp[next] = cEp;
+                        }
+                    }
+                    double edgeCost = edgeCosts[e] + congCost;
                     int server = edgeServers[e];
                     if (kind == WalkEdgeKind.Stair) {
                         int flights = server >= 0 && server < serversList.Count && serversList[server].StairFlights > 1
@@ -234,10 +339,20 @@ namespace Metro.Sim {
                     Relax(current, next, candidate, null);
                 }
                 if (useLifts && liftEdges.TryGetValue(current, out var liftOptions)) {
-                    foreach (var edge in liftOptions) {
-                        double candidate = gs + StationServiceRuntime.LiftCycleSeconds + lift + edge.QueueWait()
-                            + (congestionFn?.Invoke(edge.To) ?? 0);
-                        Relax(current, edge.To, candidate, edge.Id);
+                    for (int li = 0; li < liftOptions.Count; li++) {
+                        var edge = liftOptions[li];
+                        int toNode = edge.To;
+                        double lCong = 0;
+                        if (congestionFn != null) {
+                            if (congStamp[toNode] == cEp) lCong = congVal[toNode];
+                            else {
+                                lCong = congestionFn(toNode);
+                                congVal[toNode] = lCong;
+                                congStamp[toNode] = cEp;
+                            }
+                        }
+                        double candidate = gs + StationServiceRuntime.LiftCycleSeconds + lift + edge.QueueWait() + lCong;
+                        Relax(current, toNode, candidate, edge.Id);
                     }
                 }
             }
@@ -250,7 +365,7 @@ namespace Metro.Sim {
                 cameFrom[to] = from;
                 cameByLift[to] = liftId;
                 double dx = nodeX[to] - goalX, dy = nodeY[to] - goalY, dz = nodeZ[to] - goalZ;
-                heap.Push(to, candidate + Math.Sqrt(dx * dx + dy * dy + dz * dz) / WalkSpeed);
+                heap.Push(to, candidate + Math.Sqrt(dx * dx + dy * dy + dz * dz) / WalkSpeed, candidate);
             }
         }
 
@@ -336,19 +451,22 @@ namespace Metro.Sim {
         sealed class MinHeap {
             int[] nodes = new int[1024];
             double[] priority = new double[1024];
+            double[] gValues = new double[1024];
             int length;
 
             public int Count => length;
             public void Clear() => length = 0;
 
-            public void Push(int node, double value) {
+            public void Push(int node, double value, double g) {
                 if (length == nodes.Length) {
                     Array.Resize(ref nodes, length * 2);
                     Array.Resize(ref priority, length * 2);
+                    Array.Resize(ref gValues, length * 2);
                 }
                 int i = length++;
                 nodes[i] = node;
                 priority[i] = value;
+                gValues[i] = g;
                 while (i > 0) {
                     int parent = (i - 1) >> 1;
                     if (priority[parent] <= priority[i]) break;
@@ -357,12 +475,14 @@ namespace Metro.Sim {
                 }
             }
 
-            public int Pop() {
+            public int Pop(out double g) {
                 int top = nodes[0];
+                g = gValues[0];
                 length--;
                 if (length > 0) {
                     nodes[0] = nodes[length];
                     priority[0] = priority[length];
+                    gValues[0] = gValues[length];
                     int i = 0;
                     for (;;) {
                         int left = 2 * i + 1, right = left + 1, smallest = i;
@@ -379,10 +499,13 @@ namespace Metro.Sim {
             void Swap(int a, int b) {
                 int n = nodes[a];
                 double p = priority[a];
+                double g = gValues[a];
                 nodes[a] = nodes[b];
                 priority[a] = priority[b];
+                gValues[a] = gValues[b];
                 nodes[b] = n;
                 priority[b] = p;
+                gValues[b] = g;
             }
         }
     }

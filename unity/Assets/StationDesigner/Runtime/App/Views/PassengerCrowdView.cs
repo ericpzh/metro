@@ -367,6 +367,10 @@ namespace Metro.App.Views {
         internal bool ActiveInFrame;
         internal bool InInactivePool;
         internal bool HadToneBlock;
+        internal bool ScaleApplied;
+        internal bool AnimationDirty = true;
+        internal Vector3 LastPosition = new Vector3(float.NaN, float.NaN, float.NaN);
+        internal double LastHeading = double.NaN;
         internal StationDrawMode LastToneMode = (StationDrawMode)(-1);
         internal Material[] OriginalMaterials = Array.Empty<Material>();
 
@@ -416,6 +420,9 @@ namespace Metro.App.Views {
         public int Spawned => actors.Count;
         public int VisibleActors { get; private set; }
         public int PosedThisFrame { get; private set; }
+        public int SampledThisFrame { get; private set; }
+        public int SkippedHiddenAnimationThisFrame { get; private set; }
+        public int SkippedUnchangedAnimationThisFrame { get; private set; }
         public double LastSimTime { get; private set; }
         public IReadOnlyList<Diagnostic> Diagnostics => diagnostics;
         public PassengerCatalogue Catalogue => catalogue;
@@ -478,13 +485,21 @@ namespace Metro.App.Views {
             LastSimTime = simTimeSeconds;
             seen.Clear();
             PosedThisFrame = 0;
+            SampledThisFrame = 0;
+            SkippedHiddenAnimationThisFrame = 0;
+            SkippedUnchangedAnimationThisFrame = 0;
+            var rig = StationViewFeature.Active;
+            var cam = rig != null && rig.viewCamera != null ? rig.viewCamera : Camera.main;
+            bool hasCam = Application.isPlaying && cam != null;
+            Vector3 camPos = hasCam ? cam.transform.position : Vector3.zero;
+            int followId = rig?.Visibility != null ? rig.Visibility.State.FollowPassenger : 0;
             if (poses != null) {
                 for (int i = 0; i < poses.Count; i++) {
                     var pose = poses[i];
                     if (!pose.Visible) { Hide(pose.SimId); continue; }
                     var actor = GetOrSpawn(pose);
                     if (actor == null) continue;
-                    Pose(actor, pose);
+                    Pose(actor, pose, hasCam, camPos, followId);
                 }
             }
             // The feed publishes a complete frame: an actor that left the frame is
@@ -503,6 +518,7 @@ namespace Metro.App.Views {
                 var nextLook = PassengerAppearance.Look(catalogue, pose.SimId, pose.Detail);
                 if (!SameLook(existing.Look, nextLook)) {
                     existing.Look = nextLook;
+                    existing.ScaleApplied = false;
                     existing.LastToneMode = (StationDrawMode)(-1);
                 }
                 return existing;
@@ -517,6 +533,10 @@ namespace Metro.App.Views {
                 pooled.SimId = pose.SimId;
                 pooled.Entry = entry;
                 pooled.Look = PassengerAppearance.Look(catalogue, pose.SimId, pose.Detail);
+                pooled.ScaleApplied = false;
+                pooled.AnimationDirty = true;
+                pooled.LastPosition = new Vector3(float.NaN, float.NaN, float.NaN);
+                pooled.LastHeading = double.NaN;
                 pooled.Registered = false;
                 pooled.LastBand = int.MinValue;
                 pooled.LastSecondBand = int.MinValue;
@@ -545,9 +565,11 @@ namespace Metro.App.Views {
                 return null;
             }
             // Poses are sampled manually; a legacy Animation that also plays would
-            // overwrite the sample on its own update.
+            // overwrite the sample on its own update. Fixed generous local bounds allow
+            // frustum culling offscreen actors without clipping or bone-skinning behind the camera.
             animation.enabled = false;
-            skin.updateWhenOffscreen = true;
+            skin.updateWhenOffscreen = false;
+            skin.localBounds = new Bounds(new Vector3(0f, 0.9f, 0f), new Vector3(1.4f, 2.2f, 1.4f));
             var originals = skin.sharedMaterials != null ? (Material[])skin.sharedMaterials.Clone() : Array.Empty<Material>();
 
             var target = root.GetComponent<StationVisibilityTarget>() ?? root.AddComponent<StationVisibilityTarget>();
@@ -580,7 +602,7 @@ namespace Metro.App.Views {
             return actor;
         }
 
-        void Pose(PassengerCrowdActor actor, PassengerPose pose) {
+        void Pose(PassengerCrowdActor actor, PassengerPose pose, bool hasCam, Vector3 camPos, int followId) {
             seen.Add(actor.SimId);
 
             int band = 0;
@@ -602,52 +624,22 @@ namespace Metro.App.Views {
                 }
             }
 
-            double activityTime = pose.ActivitySeconds;
-            if (pose.RideSeconds > 0 &&
-                (pose.Activity == PassengerActivity.Escalator || pose.Activity == PassengerActivity.EscalatorLeft))
-                activityTime = PassengerAppearance.RailTimeline(pose.RideProgress * pose.RideSeconds, pose.RideSeconds, pose.RailVariant);
-            var activity = PassengerAppearance.DisplayedActivity(pose.Activity, actor.Entry, activityTime);
-            int hand = PassengerAppearance.ActionMode(pose.SimId, actor.Entry, activity, pose.PreferredHand);
-            string clipName;
-            float time;
-            if (activity == PassengerActivity.Walk) {
-                var gait = PassengerAppearance.Gait(actor.Look, pose.WalkDistance, pose.WalkPhase, pose.WalkWeight);
-                // Published weight owns the idle/walk transition. An unpublished weight
-                // (0) follows the activity, so the minimal pose contract still walks.
-                bool stand = pose.WalkWeight <= 0.5 && (pose.HasWalkWeight || pose.WalkWeight > 1e-6);
-                if (stand) {
-                    // The source blends the idle and walk atlas frames by this weight.
-                    // A single sampled clip cannot mix two rigs; below the halfway
-                    // point the passenger is standing, above it the travel-driven
-                    // walk clip owns the pose at the exact TS frame time.
-                    clipName = "Idle";
-                    time = 0f;
-                } else {
-                    clipName = PassengerAppearance.WalkClipName(actor.Look.WalkProfile);
-                    time = (float)gait.SampleTime;
-                }
-            } else {
-                clipName = PassengerAppearance.ClipName(activity, actor.Look.WalkProfile, hand);
-                var candidate = actor.Clips.TryGetValue(clipName, out var clip) ? clip : null;
-                time = (float)PassengerAppearance.ActivitySampleTime(activity, activityTime, candidate ? candidate.length : 0f);
+            var worldPos = StationCoordinates.Point(new Vector3((float)pose.X, (float)pose.Y, (float)pose.Z));
+            if (float.IsNaN(actor.LastPosition.x) || (worldPos - actor.LastPosition).sqrMagnitude > 1e-8f) {
+                actor.Root.transform.position = worldPos;
+                actor.LastPosition = worldPos;
             }
-            if (!actor.Clips.TryGetValue(clipName, out var chosen) || chosen == null) {
-                Diagnose("passenger-clip-missing", pose.SimId, actor.Recipe + " has no clip " + clipName);
-                HideActor(actor);
-                return;
+            if (double.IsNaN(actor.LastHeading) || Math.Abs(pose.Heading - actor.LastHeading) > 1e-5) {
+                actor.Root.transform.rotation = PassengerAppearance.Rotation(pose.Heading);
+                actor.LastHeading = pose.Heading;
             }
-
-            actor.Root.transform.position = StationCoordinates.Point(new Vector3((float)pose.X, (float)pose.Y, (float)pose.Z));
-            actor.Root.transform.rotation = PassengerAppearance.Rotation(pose.Heading);
-            actor.Root.transform.localScale = PassengerAppearance.LocalScale(actor.Look);
+            if (!actor.ScaleApplied) {
+                actor.Root.transform.localScale = PassengerAppearance.LocalScale(actor.Look);
+                actor.ScaleApplied = true;
+            }
             if (!actor.Root.activeSelf) actor.Root.SetActive(true);
             if (actor.Skin != null)
-                actor.Skin.forceRenderingOff = StationViewFeature.Active?.Visibility?.State.FollowPassenger == pose.SimId;
-            chosen.SampleAnimation(actor.Rig, Mathf.Min(time, Mathf.Max(0f, chosen.length - 0.00001f)));
-            actor.ClipName = clipName;
-            actor.ClipTime = time;
-            actor.Sampled = true;
-            PosedThisFrame++;
+                actor.Skin.forceRenderingOff = followId == pose.SimId;
 
             if (world != null && actor.Target != null) {
                 bool wasActive = actor.ActiveInFrame;
@@ -688,6 +680,65 @@ namespace Metro.App.Views {
                 actor.Visible = true;
                 SyncActorTone(actor, StationDrawMode.Base);
             }
+
+            if (!actor.Visible) {
+                actor.AnimationDirty = true;
+                SkippedHiddenAnimationThisFrame++;
+                PosedThisFrame++;
+                if (!actor.Registered) {
+                    actor.Registered = true;
+                    spawned?.Invoke(actor, pose);
+                }
+                return;
+            }
+
+            double activityTime = pose.ActivitySeconds;
+            if (pose.RideSeconds > 0 &&
+                (pose.Activity == PassengerActivity.Escalator || pose.Activity == PassengerActivity.EscalatorLeft))
+                activityTime = PassengerAppearance.RailTimeline(pose.RideProgress * pose.RideSeconds, pose.RideSeconds, pose.RailVariant);
+            var activity = PassengerAppearance.DisplayedActivity(pose.Activity, actor.Entry, activityTime);
+            int hand = PassengerAppearance.ActionMode(pose.SimId, actor.Entry, activity, pose.PreferredHand);
+            string clipName;
+            float time;
+            if (activity == PassengerActivity.Walk) {
+                var gait = PassengerAppearance.Gait(actor.Look, pose.WalkDistance, pose.WalkPhase, pose.WalkWeight);
+                bool stand = pose.WalkWeight <= 0.5 && (pose.HasWalkWeight || pose.WalkWeight > 1e-6);
+                if (stand) {
+                    clipName = "Idle";
+                    time = 0f;
+                } else {
+                    clipName = PassengerAppearance.WalkClipName(actor.Look.WalkProfile);
+                    time = (float)gait.SampleTime;
+                }
+            } else {
+                clipName = PassengerAppearance.ClipName(activity, actor.Look.WalkProfile, hand);
+                var candidate = actor.Clips.TryGetValue(clipName, out var clip) ? clip : null;
+                time = (float)PassengerAppearance.ActivitySampleTime(activity, activityTime, candidate ? candidate.length : 0f);
+            }
+            if (!actor.Clips.TryGetValue(clipName, out var chosen) || chosen == null) {
+                Diagnose("passenger-clip-missing", pose.SimId, actor.Recipe + " has no clip " + clipName);
+                HideActor(actor);
+                return;
+            }
+
+            bool sameClip = actor.Sampled && !actor.AnimationDirty && string.Equals(actor.ClipName, clipName, StringComparison.Ordinal);
+            float minDelta = 1e-4f;
+            if (sameClip && hasCam) {
+                float distSq = (worldPos - camPos).sqrMagnitude;
+                if (distSq > 85f * 85f) minDelta = 0.125f;
+                else if (distSq > 45f * 45f) minDelta = 0.065f;
+            }
+            if (!sameClip || Mathf.Abs(actor.ClipTime - time) >= minDelta) {
+                chosen.SampleAnimation(actor.Rig, Mathf.Min(time, Mathf.Max(0f, chosen.length - 0.00001f)));
+                actor.ClipName = clipName;
+                actor.ClipTime = time;
+                actor.Sampled = true;
+                actor.AnimationDirty = false;
+                SampledThisFrame++;
+            } else {
+                SkippedUnchangedAnimationThisFrame++;
+            }
+            PosedThisFrame++;
 
             if (!actor.Registered) {
                 actor.Registered = true;

@@ -958,7 +958,10 @@ namespace Metro.App {
             // camera, so the ViewCube follows at camera cadence rather than the state interval.
             rig.CameraPosePublished -= stationHost.PublishCameraPose;
             rig.CameraPosePublished += stationHost.PublishCameraPose;
-            if (stationHost.Coordinator != null) stationHost.Coordinator.Committed += OnCommitted;
+            if (stationHost.Coordinator != null) {
+                stationHost.Coordinator.Committed += OnCommitted;
+                stationHost.Coordinator.WorldRestored += OnWorldRestored;
+            }
             // A scene preloaded with a demo may have committed before this hook runs;
             // adopt that station now instead of waiting for the next open.
             if (stationHost.Document != null) {
@@ -971,6 +974,11 @@ namespace Metro.App {
                 });
             }
             return rig;
+        }
+
+        static void OnWorldRestored(StationWorldView world) {
+            if (!rig || world == null) return;
+            RegisterWorld(rig, world);
         }
 
         static void OnCommitted(StationCommitInfo info) {
@@ -1552,16 +1560,23 @@ namespace Metro.App {
                 rejectReason = "No committed station view is installed.";
                 return false;
             }
+            int prevLevel = rig.Commands != null ? rig.Commands.Camera.ActiveLevel : int.MinValue;
+            bool isLevelSet = command != null && string.Equals(command.Type, "view.set", StringComparison.Ordinal) &&
+                string.Equals((string)command.Payload?["key"], "level", StringComparison.OrdinalIgnoreCase);
             if (!rig.Execute(command != null ? command.Raw : "", out string code)) {
                 rejectCode = string.IsNullOrEmpty(code) ? "view-failed" : code;
                 rejectReason = "The view command was refused.";
                 return false;
             }
+            int nextLevel = rig.Commands.Camera.ActiveLevel;
             // `state.level` is the host's shared-UI level; keep it on the camera's level.
-            host?.SetActiveLevel(rig.Commands.Camera.ActiveLevel);
+            host?.SetActiveLevel(nextLevel);
             // A storey switch, a hide toggle or a section move all change the surface under a
             // still pointer, so the tool's ghost is re-aimed from the committed view.
-            StationPointerRouter.RefreshHover(host);
+            // Skip redundant hover re-aim on an unchanged accepted level.
+            if (!isLevelSet || nextLevel != prevLevel) {
+                StationPointerRouter.RefreshHover(host);
+            }
             StationViewResponses.Fill(rig, host, payload);
             return true;
         }

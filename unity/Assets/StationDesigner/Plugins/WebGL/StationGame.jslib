@@ -11,4 +11,20 @@ mergeInto(LibraryManager.library, {
   StationGameState: function (ptr) {
     window.dispatchEvent(new CustomEvent('metro:station-state', { detail: UTF8ToString(ptr) }))
   },
+  StationGameStateChunk__sig: 'vp',
+  StationGameStateChunk: function (ptr) {
+    var chunks = window.__metroStateChunks
+    if (!chunks) {
+      chunks = []
+      window.__metroStateChunks = chunks
+    }
+    chunks.push(UTF8ToString(ptr))
+  },
+  StationGameStateFlush__sig: 'v',
+  StationGameStateFlush: function () {
+    var chunks = window.__metroStateChunks
+    window.__metroStateChunks = null
+    if (!chunks || chunks.length === 0) return
+    window.dispatchEvent(new CustomEvent('metro:station-state', { detail: chunks.join('') }))
+  },
 })

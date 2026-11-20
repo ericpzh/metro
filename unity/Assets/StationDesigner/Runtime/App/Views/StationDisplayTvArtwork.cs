@@ -60,6 +60,8 @@ namespace Metro.App.Views {
             public string PlateKey = "";
             internal long LastSimTick = long.MinValue;
             internal bool LastHaveFrame;
+            internal StationTrainFrame[] LastTrains;
+            internal double LastClockSeconds = double.NaN;
             internal object LastModulePages;
             internal object LastEdgeBucket;
             internal object LastLines;
@@ -362,7 +364,8 @@ namespace Metro.App.Views {
                 var face = entry.Faces[i];
                 if (Apply(scope, face, face.Poster)) world?.RecaptureArtwork(face.Window);
                 if (document != null || haveFrame) {
-                    RepaintPlate(scope, world, face, document, initialFrame, haveFrame, clock);
+                    int unlimited = int.MaxValue;
+                    RepaintPlate(scope, world, face, document, initialFrame, haveFrame, clock, ref unlimited);
                 }
             }
             return true;
@@ -415,14 +418,40 @@ namespace Metro.App.Views {
             StationDocument document, StationMotionFrame frame, bool haveFrame) =>
             Advance(scope, null, wallSeconds, document, frame, haveFrame);
 
+        public const int DefaultMaxNewPaintsPerAdvance = 4;
+        public const int MaxCachedPlateTextures = 64;
+
+        public static int LastEvaluatedFaces { get; private set; }
+        public static int LastPaintedPlates { get; private set; }
+        public static int LastCacheHitPlates { get; private set; }
+        public static int LastDeferredPlates { get; private set; }
+        public static int LastSkippedHiddenPlates { get; private set; }
+        public static int TotalEvictedPlates { get; private set; }
+
         public static int Advance(StationDisplayArtwork.Scope scope, Metro.App.StationWorldView world,
-            double wallSeconds, StationDocument document, StationMotionFrame frame, bool haveFrame) {
+            double wallSeconds, StationDocument document, StationMotionFrame frame, bool haveFrame) =>
+            Advance(scope, world, wallSeconds, document, frame, haveFrame,
+                Application.isPlaying ? DefaultMaxNewPaintsPerAdvance : int.MaxValue,
+                skipHidden: Application.isPlaying);
+
+        public static int Advance(StationDisplayArtwork.Scope scope, Metro.App.StationWorldView world,
+            double wallSeconds, StationDocument document, StationMotionFrame frame, bool haveFrame,
+            int maxNewPaints, bool skipHidden) {
+            LastEvaluatedFaces = LastPaintedPlates = LastCacheHitPlates = LastDeferredPlates = LastSkippedHiddenPlates = 0;
             if (scope == null) return 0;
             if (!byScope.TryGetValue(scope, out var entries)) return 0;
             int swaps = 0;
             var clock = haveFrame ? frame.Clock : default;
-            for (int e = 0; e < entries.Count; e++) {
-                var entry = entries[e];
+            int count = entries.Count;
+            if (count == 0) return 0;
+            int start = scope.TvTickCursor % count;
+            if (start < 0) start = 0;
+            int paintBudget = maxNewPaints <= 0 ? int.MaxValue : maxNewPaints;
+            int nextCursor = start;
+            bool deferredAny = false;
+            for (int step = 0; step < count; step++) {
+                int idx = (start + step) % count;
+                var entry = entries[idx];
                 for (int f = 0; f < entry.Faces.Count; f++) {
                     var face = entry.Faces[f];
                     if (face.Surface == null) continue;
@@ -437,10 +466,23 @@ namespace Metro.App.Views {
                         }
                     }
                     if (document != null || haveFrame) {
-                        RepaintPlate(scope, world, face, document, frame, haveFrame, clock);
+                        if (skipHidden && (face.Plate == null || !face.Plate.enabled || !face.Plate.gameObject.activeInHierarchy)) {
+                            face.LastSimTick = long.MinValue;
+                            LastSkippedHiddenPlates++;
+                            continue;
+                        }
+                        if (!RepaintPlate(scope, world, face, document, frame, haveFrame, clock, ref paintBudget)) {
+                            if (!deferredAny) {
+                                deferredAny = true;
+                                nextCursor = idx;
+                            }
+                            LastDeferredPlates++;
+                        }
                     }
                 }
             }
+            scope.TvTickCursor = deferredAny ? nextCursor : (start + 1) % count;
+            if (scope.PlateTextures.Count > MaxCachedPlateTextures) TrimUnusedPlateCache(scope, entries);
             return swaps;
         }
 
@@ -453,20 +495,22 @@ namespace Metro.App.Views {
             if (scope == null || (!haveFrame && document == null)) return;
             if (!byScope.TryGetValue(scope, out var entries)) return;
             var clock = haveFrame ? frame.Clock : default;
+            int unlimited = int.MaxValue;
             for (int e = 0; e < entries.Count; e++) {
                 var entry = entries[e];
                 for (int f = 0; f < entry.Faces.Count; f++) {
                     var face = entry.Faces[f];
                     if (face?.Surface == null) continue;
-                    RepaintPlate(scope, world, face, document, frame, haveFrame, clock);
+                    RepaintPlate(scope, world, face, document, frame, haveFrame, clock, ref unlimited);
                 }
             }
+            if (scope.PlateTextures.Count > MaxCachedPlateTextures) TrimUnusedPlateCache(scope, entries);
         }
 
-        static void RepaintPlate(StationDisplayArtwork.Scope scope, Metro.App.StationWorldView world,
+        static bool RepaintPlate(StationDisplayArtwork.Scope scope, Metro.App.StationWorldView world,
             TvFace face, StationDocument document, StationMotionFrame frame, bool haveFrame,
-            StationClockFrame clock) {
-            if (face == null || face.Plate == null) return;
+            StationClockFrame clock, ref int paintBudget) {
+            if (face == null || face.Plate == null) return true;
             long simTick = haveFrame ? clock.Tick : -1;
             var activeIdx = StationGameHost.Active?.Index != null && ReferenceEquals(StationGameHost.Active.Index.Document, document)
                 ? StationGameHost.Active.Index
@@ -480,20 +524,61 @@ namespace Metro.App.Views {
             if (!string.IsNullOrEmpty(face.PlateKey) &&
                 face.LastSimTick == simTick &&
                 face.LastHaveFrame == haveFrame &&
+                ReferenceEquals(face.LastTrains, frame.Trains) &&
+                face.LastClockSeconds == clock.TimeOfDaySeconds &&
                 ReferenceEquals(face.LastModulePages, railToken) &&
                 ReferenceEquals(face.LastEdgeBucket, edgeToken) &&
                 ReferenceEquals(face.LastLines, document?.Lines) &&
                 string.Equals(face.LastDocName, document?.Name ?? "", StringComparison.Ordinal) &&
                 string.Equals(face.LastLocale, scope.Locale ?? "", StringComparison.Ordinal)) {
-                return;
+                return true;
             }
+            LastEvaluatedFaces++;
             if (face.PlateSurface == null) {
                 face.PlateSurface = StationDisplayArtwork.BindUprightArtwork(scope, face.Plate);
             }
             var status = StationTvSchedule.Select(document, frame, haveFrame, face.Sample);
             var data = StationTvPlatePainter.Describe(document, status, clock, scope.Locale);
+            if (string.Equals(face.PlateKey, data.Key, StringComparison.Ordinal)) {
+                StampFace(face, simTick, haveFrame, frame.Trains, railToken, edgeToken, document, scope, status, clock, data);
+                LastCacheHitPlates++;
+                return true;
+            }
+            bool needsNewPaint = !scope.PlateTextures.TryGetValue(data.Key, out var existingTex) || !existingTex;
+            if (needsNewPaint && paintBudget <= 0) {
+                face.LastSimTick = long.MinValue;
+                return false;
+            }
+            var material = PlateMaterial(scope, face, data, out bool paintedNow);
+            if (material == null) {
+                StampFace(face, simTick, haveFrame, frame.Trains, railToken, edgeToken, document, scope, status, clock, data);
+                return true;
+            }
+            if (paintedNow) {
+                paintBudget--;
+                LastPaintedPlates++;
+            } else {
+                LastCacheHitPlates++;
+            }
+            StampFace(face, simTick, haveFrame, frame.Trains, railToken, edgeToken, document, scope, status, clock, data);
+            face.Plate.sharedMaterial = material;
+            world?.RecaptureArtwork(face.Plate);
+            face.PlateKey = data.Key;
+            scope.Notes.Add("tv-plate:" + face.ModuleId + ":face" + face.Slot +
+                ":track=" + face.TrackId + ":line=" + face.LineId +
+                ":minute=" + face.Minute + ":date=" + face.Date +
+                ":status=" + face.Status0 + "/" + face.Status1 + "/" + face.Status2);
+            return true;
+        }
+
+        static void StampFace(TvFace face, long simTick, bool haveFrame, StationTrainFrame[] trains,
+            object railToken, object edgeToken,
+            StationDocument document, StationDisplayArtwork.Scope scope, StationTvLineStatus status,
+            StationClockFrame clock, StationTvPlatePainter.PlateData data) {
             face.LastSimTick = simTick;
             face.LastHaveFrame = haveFrame;
+            face.LastTrains = trains;
+            face.LastClockSeconds = clock.TimeOfDaySeconds;
             face.LastModulePages = railToken;
             face.LastEdgeBucket = edgeToken;
             face.LastLines = document?.Lines;
@@ -507,16 +592,50 @@ namespace Metro.App.Views {
             face.Status0 = status.Arrivals.Length > 0 ? status.Arrivals[0].ToString() : "none";
             face.Status1 = status.Arrivals.Length > 1 ? status.Arrivals[1].ToString() : "none";
             face.Status2 = status.Arrivals.Length > 2 ? status.Arrivals[2].ToString() : "none";
-            if (string.Equals(face.PlateKey, data.Key, StringComparison.Ordinal)) return;
-            var material = PlateMaterial(scope, face, data);
-            if (material == null) return;
-            face.Plate.sharedMaterial = material;
-            world?.RecaptureArtwork(face.Plate);
-            face.PlateKey = data.Key;
-            scope.Notes.Add("tv-plate:" + face.ModuleId + ":face" + face.Slot +
-                ":track=" + face.TrackId + ":line=" + face.LineId +
-                ":minute=" + face.Minute + ":date=" + face.Date +
-                ":status=" + face.Status0 + "/" + face.Status1 + "/" + face.Status2);
+        }
+
+        static void TrimUnusedPlateCache(StationDisplayArtwork.Scope scope, List<TvEntry> entries) {
+            var activeKeys = new HashSet<string>(StringComparer.Ordinal);
+            for (int e = 0; e < entries.Count; e++) {
+                var faces = entries[e].Faces;
+                for (int f = 0; f < faces.Count; f++) {
+                    var k = faces[f]?.PlateKey;
+                    if (!string.IsNullOrEmpty(k)) activeKeys.Add(k);
+                }
+            }
+            List<string> evict = null;
+            foreach (var kv in scope.PlateTextures) {
+                if (!activeKeys.Contains(kv.Key)) (evict ??= new List<string>()).Add(kv.Key);
+            }
+            if (evict == null || evict.Count == 0) return;
+            for (int i = 0; i < evict.Count; i++) {
+                var key = evict[i];
+                if (scope.PlateTextures.TryGetValue(key, out var tex)) {
+                    scope.PlateTextures.Remove(key);
+                    if (tex != null) {
+                        scope.Textures.Remove(tex);
+                        if (Application.isPlaying) UnityEngine.Object.Destroy(tex);
+                        else UnityEngine.Object.DestroyImmediate(tex);
+                    }
+                    TotalEvictedPlates++;
+                }
+                string prefix = "tv-plate|" + key + "#";
+                List<string> matKeys = null;
+                foreach (var mk in scope.Materials.Keys) {
+                    if (mk.StartsWith(prefix, StringComparison.Ordinal)) (matKeys ??= new List<string>()).Add(mk);
+                }
+                if (matKeys != null) {
+                    for (int m = 0; m < matKeys.Count; m++) {
+                        if (scope.Materials.TryGetValue(matKeys[m], out var mat)) {
+                            scope.Materials.Remove(matKeys[m]);
+                            if (mat != null) {
+                                if (Application.isPlaying) UnityEngine.Object.Destroy(mat);
+                                else UnityEngine.Object.DestroyImmediate(mat);
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         /// <summary>
@@ -526,7 +645,8 @@ namespace Metro.App.Views {
         /// cache was cleared without disposing anything).
         /// </summary>
         static Material PlateMaterial(StationDisplayArtwork.Scope scope, TvFace face,
-            StationTvPlatePainter.PlateData data) {
+            StationTvPlatePainter.PlateData data, out bool paintedNow) {
+            paintedNow = false;
             if (scope == null || face == null || face.Plate == null) return null;
             var template = face.PlateSurface != null && face.PlateSurface.Template != null
                 ? face.PlateSurface.Template
@@ -539,6 +659,7 @@ namespace Metro.App.Views {
                 if (!texture) return null;
                 scope.PlateTextures[data.Key] = texture;
                 scope.Textures.Add(texture);
+                paintedNow = true;
             }
             var material = new Material(template) { name = "tv plate " + texture.name };
             StationDisplayArtwork.SetTexture(material, texture);
@@ -562,6 +683,10 @@ namespace Metro.App.Views {
         /// <summary>The catalogue texture a face currently prints.</summary>
         public static Texture2D PosterTextureOf(TvFace face) =>
             face != null ? StationDisplayArtwork.Poster(face.PosterSlug) : null;
+
+        internal static void ReleaseScope(StationDisplayArtwork.Scope scope) {
+            if (scope != null) byScope.Remove(scope);
+        }
 
         public static void Reset() {
             byScope.Clear();

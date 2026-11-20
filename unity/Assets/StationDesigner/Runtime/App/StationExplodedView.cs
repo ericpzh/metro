@@ -18,7 +18,10 @@ namespace Metro.App {
     /// pose attachment — leaving the editor world, camera, Undo stack, selection, and document
     /// revision untouched.
     /// </summary>
-    public sealed class StationExplodedView : MonoBehaviour, IStationFrameSink {
+    public sealed class StationExplodedView : MonoBehaviour, IStationFrameSink, IStationActiveDuringExplodedView {
+        /// <summary>True while any standalone exploded viewer owns presentation.</summary>
+        public static bool IsStandaloneActive => activeStandalone != null && activeStandalone.IsOpen;
+        static StationExplodedView activeStandalone;
         /// <summary>Three standalone exploded-view dark void (<c>#192532</c> in <c>explodedView.ts</c>).</summary>
         public static readonly Color DefaultVoidColor = new Color(0x19 / 255f, 0x25 / 255f, 0x32 / 255f, 1f);
 
@@ -274,6 +277,7 @@ namespace Metro.App {
                 TickCurrentSimulation(forceSnap: true);
 
                 phase = PhaseReady;
+                activeStandalone = this;
                 viewRig?.Commands?.SyncExplodedState(true);
                 return true;
             } catch (Exception ex) {
@@ -281,6 +285,7 @@ namespace Metro.App {
                 DisposeBuilderAndInput();
                 RestoreEditorBaseline();
                 phase = PhaseError;
+                if (ReferenceEquals(activeStandalone, this)) activeStandalone = null;
                 viewRig?.Commands?.SyncExplodedState(false);
                 viewRig?.SyncSky(force: true);
                 error = ex.Message;
@@ -309,12 +314,18 @@ namespace Metro.App {
 
         /// <summary>Idempotently closes the standalone viewer and restores editor presentation.</summary>
         public void Close() {
+            bool wasOpen = IsOpen || builder != null;
             DisposeBuilderAndInput();
             RestoreEditorBaseline();
             phase = PhaseClosed;
             lastError = "";
+            if (ReferenceEquals(activeStandalone, this)) activeStandalone = null;
             viewRig?.Commands?.SyncExplodedState(false);
             viewRig?.SyncSky(force: true);
+#if UNITY_WEBGL && !UNITY_EDITOR
+            if (wasOpen) GC.Collect();
+#endif
+            if (wasOpen && Application.isPlaying) host?.TickFrameSinksNow();
         }
 
         void DisposeBuilderAndInput() {

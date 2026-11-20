@@ -3,8 +3,10 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Metro.App;
+using Metro.App.Views;
 using Metro.Build;
 using Metro.Persistence;
+using Metro.View;
 using Newtonsoft.Json.Linq;
 using NUnit.Framework;
 using UnityEngine;
@@ -629,6 +631,51 @@ namespace Metro.EditModeTests {
         }
 
         [Test]
+        public void OpeningModuleLocalDeltaHandlesGateDoorCubicleAndUndoWithoutFallback() {
+            hostObject = new GameObject(StationGameHost.ObjectName);
+            host = hostObject.AddComponent<StationGameHost>();
+            host.frameCameraOnCommit = false;
+            host.catalogue = UnityEditor.AssetDatabase.LoadAssetAtPath<RuntimeCatalogue>(RuntimeCatalogue.AssetPath);
+            host.stationShader = StationFinishLibrary.FindShader();
+            typeof(StationGameHost).GetMethod("Awake",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic).Invoke(host, null);
+            host.SetSimulationHost(new PassiveSimulation());
+            host.RegisterRenderer(new OpeningModuleRenderer());
+            host.RegisterRenderer(new OutdoorModuleRenderer());
+            var opened = host.OpenDocument(File.ReadAllText(DemoPath("zoo")), "zoo");
+            Assert.IsTrue(opened.Accepted, opened.ToString());
+
+            var gate = FirstModule(host.Index, "gate");
+            Assert.IsNotNull(gate, "zoo fixture carries a gate");
+            var unrelatedGateView = host.Coordinator.World.Records
+                .FirstOrDefault(r => r != null && r.ModuleId == gate.Id)?.View;
+            Assert.IsNotNull(unrelatedGateView, "existing gate view must be registered");
+
+            foreach (var spec in new[] {
+                ("local-test-gate", "gate", "dir", "both"),
+                ("local-test-door", "door", "variant", "glass-double"),
+                ("local-test-cubicle", "cubicle", "variant", "toilet")
+            }) {
+                var draft = Draft(spec.Item1, spec.Item2, gate.X + 4, gate.Y + 4, gate.Z, spec.Item3, spec.Item4);
+                using (var trace = StationEditTrace.BeginMetrics()) {
+                    Assert.IsTrue(StationEditSession.TryApply(host, StationModuleEditMode.Add, draft, null, "place", null,
+                        out _, out var code), code);
+                    Assert.IsEmpty(trace.Metrics.ViewFallbackReason, spec.Item2 + " add must stay on local path");
+                }
+                Assert.IsNotNull(host.Coordinator.World.Records.FirstOrDefault(r => r != null && r.ModuleId == spec.Item1),
+                    spec.Item2 + " record must be registered");
+
+                using (var trace = StationEditTrace.BeginMetrics()) {
+                    Assert.IsTrue(StationEditSession.TryUndo(host, out _, out var code), code);
+                    Assert.IsEmpty(trace.Metrics.ViewFallbackReason, spec.Item2 + " undo must stay on local path");
+                }
+                Assert.IsNull(host.Coordinator.World.Records.FirstOrDefault(r => r != null && r.ModuleId == spec.Item1),
+                    spec.Item2 + " record must be removed on undo");
+                Assert.IsTrue(unrelatedGateView != null, "unrelated opening view must be retained across local deltas");
+            }
+        }
+
+        [Test]
         public void HistoryStaysBoundedAndNeverCrossesStations() {
             OpenFixture("zoo");
             var key = EmptyCell(host.Document);
@@ -647,5 +694,171 @@ namespace Metro.EditModeTests {
 
         static int UndoDepth() => (int)(StationEditSession.ToJson()["undoDepth"] ?? 0);
         static int RedoDepth() => (int)(StationEditSession.ToJson()["redoDepth"] ?? 0);
+
+        [Test]
+        public void TianheParkEditLatencyFallbacksAndRendererInventory() {
+            string tianhePath = DemoPath("tianhe");
+            if (!File.Exists(tianhePath)) Assert.Ignore("tianhe.metro.json not exported");
+            hostObject = new GameObject(StationGameHost.ObjectName);
+            host = hostObject.AddComponent<StationGameHost>();
+            host.frameCameraOnCommit = false;
+            host.catalogue = UnityEditor.AssetDatabase.LoadAssetAtPath<RuntimeCatalogue>(RuntimeCatalogue.AssetPath);
+            host.trainCatalogue = UnityEditor.AssetDatabase.LoadAssetAtPath<TrainCatalogue>(TrainCatalogue.AssetPath);
+            host.stationShader = StationFinishLibrary.FindShader();
+            host.font = UnityEditor.AssetDatabase.LoadAssetAtPath<Font>("Assets/StationDesigner/Fonts/NotoSansSC.ttf");
+            typeof(StationGameHost).GetMethod("Awake",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic).Invoke(host, null);
+            host.RegisterRenderer(new StationCellRenderer());
+            host.RegisterRenderer(new StationSurfaceModuleRenderer());
+            host.RegisterRenderer(new StationStreetModuleRenderer());
+            host.RegisterRenderer(new StationEquipmentModuleRenderer());
+            host.RegisterRenderer(new StationDisplayModuleRenderer());
+            host.RegisterRenderer(new StationStructureModuleRenderer());
+            host.RegisterRenderer(new StationGridRenderer());
+            host.RegisterRenderer(new StationOverlayRenderer());
+            host.RegisterRenderer(new OpeningModuleRenderer());
+            host.RegisterRenderer(new StationRoadRenderer());
+            host.RegisterRenderer(new StationSignRenderer());
+            host.RegisterRenderer(new TrainConsistRenderer());
+            host.RegisterRenderer(new VerticalModuleRenderer());
+            host.RegisterRenderer(new OutdoorModuleRenderer());
+            host.RegisterRenderer(new PassengerCrowdRenderer());
+            var rig = StationViewFeature.Attach(host);
+
+            var opened = host.OpenDocument(File.ReadAllText(tianhePath), "tianhe");
+            Assert.IsTrue(opened.Accepted, opened.ToString());
+
+            // --- Stage 4 Inventory: MeshRenderer counts by role & by module type on -5 m and total ---
+            var world = host.Coordinator.World;
+            var byRole = new Dictionary<string, (int targets, int renderers, long tris)>(StringComparer.Ordinal);
+            var m5ByType = new Dictionary<string, (int count, int renderers, long tris)>(StringComparer.Ordinal);
+            foreach (var rec in world.Records) {
+                if (rec?.View == null) continue;
+                var mrs = rec.View.GetComponentsInChildren<MeshRenderer>(true);
+                long tris = 0;
+                for (int i = 0; i < mrs.Length; i++) {
+                    var mf = mrs[i].GetComponent<MeshFilter>();
+                    if (mf != null && mf.sharedMesh != null) {
+                        for (int sm = 0; sm < mf.sharedMesh.subMeshCount; sm++) {
+                            if (mf.sharedMesh.GetTopology(sm) == MeshTopology.Triangles)
+                                tris += mf.sharedMesh.GetIndexCount(sm) / 3;
+                        }
+                    }
+                }
+                string role = rec.Role ?? "(null)";
+                byRole.TryGetValue(role, out var rc);
+                byRole[role] = (rc.targets + 1, rc.renderers + mrs.Length, rc.tris + tris);
+                if (!string.IsNullOrEmpty(rec.ModuleId) && host.Index.TryGetModule(rec.ModuleId, out var mod) &&
+                    mod != null && mod.Z >= -5 && mod.Z < 0) {
+                    m5ByType.TryGetValue(mod.Type, out var tc);
+                    m5ByType[mod.Type] = (tc.count + 1, tc.renderers + mrs.Length, tc.tris + tris);
+                }
+            }
+            Debug.Log("[Stage4Inv] === By Role ===");
+            foreach (var kv in byRole.OrderByDescending(p => p.Value.renderers)) {
+                Debug.Log($"[Stage4Inv] role={kv.Key} targets={kv.Value.targets} renderers={kv.Value.renderers} tris={kv.Value.tris}");
+            }
+            Debug.Log("[Stage4Inv] === Storey -5m (-5..-1) Top Module Types by Renderer Count ===");
+            foreach (var kv in m5ByType.OrderByDescending(p => p.Value.renderers).Take(20)) {
+                Debug.Log($"[Stage4Inv] m5 type={kv.Key} modules={kv.Value.count} renderers={kv.Value.renderers} tris={kv.Value.tris}");
+            }
+
+            // --- Stage 3 Edit Profile ---
+            void MeasureEdit(string name, Func<bool> action) {
+                int localBefore = StationEditSession.LocalEdits;
+                int fullBefore = StationEditSession.FullEdits;
+                using var session = StationEditTrace.BeginMetrics();
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                bool ok = action();
+                sw.Stop();
+                var m = session.Metrics;
+                int dLocal = StationEditSession.LocalEdits - localBefore;
+                int dFull = StationEditSession.FullEdits - fullBefore;
+                Debug.Log($"[Stage3Edit] {name}: ok={ok} ms={sw.Elapsed.TotalMilliseconds:F1} local={dLocal} full={dFull} docFb={(string.IsNullOrEmpty(m.DocumentFallbackReason) ? "-" : m.DocumentFallbackReason)} viewFb={(string.IsNullOrEmpty(m.ViewFallbackReason) ? "-" : m.ViewFallbackReason)} simFb={(string.IsNullOrEmpty(m.SimFallbackReason) ? "-" : m.SimFallbackReason)} chunks={m.RebuiltChunks}/{m.RetainedChunks}");
+            }
+
+            // 1. One-block place, delete, undo, redo at empty cell on -5 m
+            var emptyKey = new StationCellKey(90, 90, -5);
+            while (host.Index.GetCell(emptyKey) != null) emptyKey = new StationCellKey(emptyKey.X + 1, emptyKey.Y, -5);
+            MeasureEdit("1-block-place", () => StationEditSession.TryApplyCells(host, Set(emptyKey, false), "place", null, out _, out _));
+            MeasureEdit("1-block-undo", () => StationEditSession.TryUndo(host, out _, out _));
+            MeasureEdit("1-block-redo", () => StationEditSession.TryRedo(host, out _, out _));
+            MeasureEdit("1-block-delete", () => StationEditSession.TryApplyCells(host, Drop(emptyKey), "delete", null, out _, out _));
+
+            // 2. 4x3 drag place & delete on -5 m
+            var dragPlace = new StationCellPatch();
+            var dragDel = new StationCellPatch();
+            for (int dx = 0; dx < 4; dx++) {
+                for (int dy = 0; dy < 3; dy++) {
+                    var k = new StationCellKey(emptyKey.X + dx, emptyKey.Y + dy, -5);
+                    dragPlace.Writes.Add(Set(k, false).Writes[0]);
+                    dragDel.Writes.Add(Drop(k).Writes[0]);
+                }
+            }
+            MeasureEdit("4x3-drag-place", () => StationEditSession.TryApplyCells(host, dragPlace, "drag-place", null, out _, out _));
+            MeasureEdit("4x3-drag-delete", () => StationEditSession.TryApplyCells(host, dragDel, "drag-delete", null, out _, out _));
+            MeasureEdit("4x3-undo", () => StationEditSession.TryUndo(host, out _, out _));
+            MeasureEdit("4x3-redo", () => StationEditSession.TryRedo(host, out _, out _));
+
+            // 3. Cosmetic bench place, move, delete
+            var bench = FirstModule(host.Index, "bench");
+            if (bench != null) {
+                var draft = Draft("s3-bench-1", "bench", bench.X, bench.Y, bench.Z, "variant", "steel-1");
+                MeasureEdit("bench-place", () => StationEditSession.TryApply(host, StationModuleEditMode.Add, draft, null, "place", null, out _, out _));
+                var moved = Draft("s3-bench-1", "bench", bench.X + 1, bench.Y, bench.Z, "variant", "steel-1");
+                MeasureEdit("bench-move", () => StationEditSession.TryApply(host, StationModuleEditMode.Replace, moved, null, "move", null, out _, out _));
+                MeasureEdit("bench-delete", () => StationEditSession.TryApply(host, StationModuleEditMode.Remove, null, "s3-bench-1", "delete", null, out _, out _));
+            }
+
+            // 4. Fence place & delete
+            var fence = FirstModule(host.Index, "fence");
+            if (fence != null) {
+                var fd = Draft("s3-fence-1", "fence", fence.X, fence.Y, fence.Z, "variant", "glass");
+                MeasureEdit("fence-place", () => StationEditSession.TryApply(host, StationModuleEditMode.Add, fd, null, "place", null, out _, out _));
+                MeasureEdit("fence-delete", () => StationEditSession.TryApply(host, StationModuleEditMode.Remove, null, "s3-fence-1", "delete", null, out _, out _));
+            }
+
+            // 5. Gate & billboard (with poster) place & delete (must stay on local path with 0 view fallback!)
+            var gate = FirstModule(host.Index, "gate");
+            if (gate != null) {
+                var gd = Draft("s3-gate-1", "gate", gate.X, gate.Y, gate.Z, "dir", "both");
+                using (var gm = StationEditTrace.BeginMetrics()) {
+                    var gsw = System.Diagnostics.Stopwatch.StartNew();
+                    Assert.IsTrue(StationEditSession.TryApply(host, StationModuleEditMode.Add, gd, null, "place", null, out _, out var gcode), gcode);
+                    gsw.Stop();
+                    Debug.Log($"[Stage3Edit] gate-place: ok=True ms={gsw.Elapsed.TotalMilliseconds:F1} docFb={(string.IsNullOrEmpty(gm.Metrics.DocumentFallbackReason) ? "-" : gm.Metrics.DocumentFallbackReason)} viewFb={(string.IsNullOrEmpty(gm.Metrics.ViewFallbackReason) ? "-" : gm.Metrics.ViewFallbackReason)} simFb={(string.IsNullOrEmpty(gm.Metrics.SimFallbackReason) ? "-" : gm.Metrics.SimFallbackReason)}");
+                    Assert.IsEmpty(gm.Metrics.ViewFallbackReason, "gate place must use OpeningModuleRenderer local delta");
+                }
+                using (var gm = StationEditTrace.BeginMetrics()) {
+                    var gsw = System.Diagnostics.Stopwatch.StartNew();
+                    Assert.IsTrue(StationEditSession.TryApply(host, StationModuleEditMode.Remove, null, "s3-gate-1", "delete", null, out _, out var gcode), gcode);
+                    gsw.Stop();
+                    Debug.Log($"[Stage3Edit] gate-delete: ok=True ms={gsw.Elapsed.TotalMilliseconds:F1} docFb={(string.IsNullOrEmpty(gm.Metrics.DocumentFallbackReason) ? "-" : gm.Metrics.DocumentFallbackReason)} viewFb={(string.IsNullOrEmpty(gm.Metrics.ViewFallbackReason) ? "-" : gm.Metrics.ViewFallbackReason)} simFb={(string.IsNullOrEmpty(gm.Metrics.SimFallbackReason) ? "-" : gm.Metrics.SimFallbackReason)}");
+                    Assert.IsEmpty(gm.Metrics.ViewFallbackReason, "gate delete must use OpeningModuleRenderer local delta");
+                }
+            }
+            var bb = FirstModule(host.Index, "billboard");
+            if (bb != null) {
+                var bd = Draft("s3-bb-1", "billboard", bb.X, bb.Y, bb.Z, "poster", "gz-line3");
+                MeasureEdit("billboard-place", () => StationEditSession.TryApply(host, StationModuleEditMode.Add, bd, null, "place", null, out _, out _));
+                MeasureEdit("billboard-delete", () => StationEditSession.TryApply(host, StationModuleEditMode.Remove, null, "s3-bb-1", "delete", null, out _, out _));
+            }
+
+            // 6. Zone overlay toggle & level switches on Tianhe
+            var overlay = StationOverlayRenderer.Instance;
+            if (overlay != null) {
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                overlay.SetView(true, false, -5);
+                sw.Stop();
+                Debug.Log($"[Stage3Zone] zones-on(-5) cold ms={sw.Elapsed.TotalMilliseconds:F1} cells={overlay.Current?.ZoneCells ?? 0} labels={overlay.Current?.Labels.Count ?? 0}");
+                foreach (int lvl in new[] { 0, -5, -10, -5, 0, -5 }) {
+                    sw.Restart();
+                    overlay.SetView(true, false, lvl);
+                    sw.Stop();
+                    Debug.Log($"[Stage3Zone] zones-switch({lvl}) ms={sw.Elapsed.TotalMilliseconds:F1} cells={overlay.Current?.ZoneCells ?? 0} labels={overlay.Current?.Labels.Count ?? 0}");
+                }
+                overlay.SetView(false, false, -5);
+            }
+        }
     }
 }

@@ -185,6 +185,8 @@ namespace Metro.App {
             public RenderPart[] Parts;
             public bool IsBatched;
             public StationBatchSpan[] BatchSpans;
+            public StationInstancedSurfaceBatch InstancedBatch;
+            public int InstanceSourceIndex;
         }
 
         sealed class Index {
@@ -210,6 +212,22 @@ namespace Metro.App {
             index = null;
             meshCache.Clear();
             PickCount = 0;
+        }
+
+        /// <summary>Drop pick caches bound to a disposed world and prune destroyed meshes.</summary>
+        public static void ReleaseWorld(StationWorldView world) {
+            if (world != null && index != null && ReferenceEquals(index.World, world)) {
+                index = null;
+            }
+            if (meshCache.Count > 0) {
+                List<Mesh> dead = null;
+                foreach (var key in meshCache.Keys) {
+                    if (key == null) (dead ??= new List<Mesh>()).Add(key);
+                }
+                if (dead != null) {
+                    for (int i = 0; i < dead.Count; i++) meshCache.Remove(dead[i]);
+                }
+            }
         }
 
         /// <summary>Reset only the per-event diagnostic counter without dropping cached world geometry.</summary>
@@ -480,6 +498,39 @@ namespace Metro.App {
             var sample = new SurfaceSample { Distance = float.PositiveInfinity };
             var record = body.Record;
             if (record?.View == null) return sample;
+
+            if (body.InstancedBatch != null) {
+                if (body.Parts.Length == 0) return sample;
+                var part = body.Parts[0];
+                if (!IsRendererEligible(part.Renderer, context.CullingMask)) return sample;
+                var batch = body.InstancedBatch;
+                var mesh = batch.SharedMesh;
+                if (mesh == null) return sample;
+                float limit = Mathf.Min(context.MaxDistance, sample.Distance);
+                var batchBounds = batch.WorldBounds.size.sqrMagnitude > 1e-8f ? batch.WorldBounds : part.Renderer.bounds;
+                if (!RayBoundsClipped(worldRay, batchBounds, context.MinDistance, limit, out _)) return sample;
+                if (!batch.TryGetSourceRange(body.InstanceSourceIndex, out int instStart, out int instCount)) return sample;
+                var cached = GetCachedMesh(mesh);
+                if (batch.SubmeshIndex < 0 || batch.SubmeshIndex >= cached.SubmeshIndices.Length) return sample;
+                var indices = cached.SubmeshIndices[batch.SubmeshIndex];
+                if (indices == null || indices.Length < 3) return sample;
+                var vertices = cached.Vertices;
+                var cull = StationCellView.MaterialCullMode(part.Renderer.sharedMaterial);
+                var matrices = batch.Matrices;
+                var parentToWorld = part.Filter != null ? part.Filter.transform.localToWorldMatrix : Matrix4x4.identity;
+                bool parentIdentity = parentToWorld.isIdentity;
+                for (int k = 0; k < instCount; k++) {
+                    int idx = instStart + k;
+                    if (idx < 0 || idx >= matrices.Length) break;
+                    var toWorld = parentIdentity ? matrices[idx] : parentToWorld * matrices[idx];
+                    bool identity = toWorld.isIdentity;
+                    bool flip = !identity && toWorld.determinant < 0f;
+                    TestTriangles(worldRay, vertices, indices, 0, indices.Length, identity, flip, toWorld, cull,
+                        context.MinDistance, context.MaxDistance, context.Visibility, record.View.transform,
+                        null, ref sample);
+                }
+                return sample;
+            }
 
             if (body.IsBatched) {
                 if (body.Parts.Length == 0) return sample;
@@ -799,7 +850,8 @@ namespace Metro.App {
             }
 
             if (record.SourceIds == null || record.SourceIds.Length == 0) return;
-            var spansBySource = GroupSpansBySource(record.SourceIds.Length, record.SourceSpans);
+            var instancedBatch = record.View.GetComponent<StationInstancedSurfaceBatch>();
+            var spansBySource = instancedBatch != null ? null : GroupSpansBySource(record.SourceIds.Length, record.SourceSpans);
             for (int i = 0; i < record.SourceIds.Length; i++) {
                 var id = record.SourceIds[i];
                 if (string.IsNullOrEmpty(id) || !modules.TryGetValue(id, out var module)) continue;
@@ -822,6 +874,8 @@ namespace Metro.App {
                     Parts = parts,
                     IsBatched = true,
                     BatchSpans = spansBySource != null ? spansBySource[i] : null,
+                    InstancedBatch = instancedBatch,
+                    InstanceSourceIndex = i,
                 });
             }
         }

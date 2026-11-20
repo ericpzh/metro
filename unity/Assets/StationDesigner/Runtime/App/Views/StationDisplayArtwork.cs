@@ -59,6 +59,11 @@ namespace Metro.App.Views {
             /// <summary>Painted plate textures by content key, so two faces share one board.</summary>
             internal readonly Dictionary<string, Texture2D> PlateTextures =
                 new Dictionary<string, Texture2D>(StringComparer.Ordinal);
+            /// <summary>Shared digital clock texture for all digital clocks in this world.</summary>
+            internal Texture2D SharedDigitalClockTexture;
+            internal string SharedDigitalClockKey = "";
+            /// <summary>Round-robin cursor for fair budgeted TV plate updates across frames.</summary>
+            internal int TvTickCursor;
             /// <summary>The printed surfaces this world resolved, one per renderer (20 §2).</summary>
             public readonly List<UprightSurface> Surfaces = new List<UprightSurface>();
             /// <summary>The canonical frames, one per (source mesh, up basis).</summary>
@@ -117,6 +122,8 @@ namespace Metro.App.Views {
 
         public static void ReleaseScope(Scope scope) {
             if (scope == null) return;
+            StationDisplayTvArtwork.ReleaseScope(scope);
+            StationClockArtwork.ReleaseScope(scope);
             foreach (var material in scope.Materials.Values) {
                 if (material) SafeDestroy(material);
             }

@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [Parameter(Position=0)][ValidateSet('doctor','bootstrap','catalogue','test','build-web','import-assets','pack-web','smoke-web')][string]$Task = 'doctor',
+    [Parameter(Position=0)][ValidateSet('doctor','bootstrap','catalogue','test','build-web','build-windows','import-assets','pack-web','smoke-web')][string]$Task = 'doctor',
     [ValidateSet('EditMode','PlayMode')][string]$Mode = 'EditMode',
     [ValidateSet('Development','Release')][string]$Configuration = 'Development',
     [ValidateSet('StationGameLocal')][string]$Scene = 'StationGameLocal',
@@ -16,7 +16,7 @@ param(
 $ErrorActionPreference = 'Stop'
 if ($Help) {
     Write-Output 'metro-unity.ps1 TASK [-ProjectPath path] [-OutputDirectory path] [-Manifest path] [-TimeoutSeconds n] [-Mode EditMode|PlayMode] [-Graphics] [-Configuration Development|Release] [-Scene StationGameLocal] [-Help]'
-    Write-Output 'Tasks: doctor, bootstrap, catalogue, test, build-web, pack-web, smoke-web, import-assets.'
+    Write-Output 'Tasks: doctor, bootstrap, catalogue, test, build-web, build-windows, pack-web, smoke-web, import-assets.'
     Write-Output 'METRO_UNITY_EDITOR overrides the pinned Editor path; METRO_WRANGLER overrides the Wrangler JS entry for smoke-web.'
     exit 0
 }
@@ -80,6 +80,11 @@ switch ($Task) {
         if ($TestFilter) { $argsList += @('-testFilter',('"'+$TestFilter+'"')) }
     }
     'build-web' { $build = Join-Path $out "web-$Configuration"; if(Test-Path $build){ throw 'Build output already exists; choose a fresh output directory.' }; $sceneArg = if ($ScenePath) { $ScenePath } else { $Scene }; $argsList += @('-quit','-buildTarget','WebGL','-executeMethod','Metro.Editor.BuildWeb.Run','-metroOut',('"'+$build+'"'),'-metroConfiguration',$Configuration,'-metroScene',$sceneArg) }
+    'build-windows' {
+        $build = Join-Path $out "windows-$Configuration"
+        if (Test-Path $build) { throw 'Build output already exists; choose a fresh output directory.' }
+        $argsList += @('-quit','-buildTarget','Win64','-executeMethod','Metro.Editor.BuildWindows.Run','-metroOut',('"'+$build+'"'),'-metroConfiguration',$Configuration,'-metroScene',$Scene)
+    }
 }
 function Get-RelativePath([string]$basePath, [string]$targetPath) {
     # Windows PowerShell 5.1 has no [IO.Path]::GetRelativePath; derive it from URIs.
@@ -90,14 +95,22 @@ function Get-RelativePath([string]$basePath, [string]$targetPath) {
 # The build rewrites the URP global settings (shader stripping and variant
 # collections), so that one asset is a build output rather than a source input.
 $script:BuildMutableInputs = @('Assets/Settings/UniversalRenderPipelineGlobalSettings.asset')
+function Get-InputHash([string]$path) {
+    $algorithm = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $stream = [IO.File]::OpenRead($path)
+        try { [BitConverter]::ToString($algorithm.ComputeHash($stream)).Replace('-', '') }
+        finally { $stream.Dispose() }
+    } finally { $algorithm.Dispose() }
+}
 function Get-InputSnapshot($root, $directories) {
     @($directories | ForEach-Object { Get-ChildItem -LiteralPath (Join-Path $root $_) -Recurse -File } | Sort-Object FullName | ForEach-Object {
         $relative = (Get-RelativePath $root $_.FullName).Replace('\','/')
         if ($script:BuildMutableInputs -contains $relative) { return }
-        [pscustomobject]@{ Path=$relative; SHA256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash }
+        [pscustomobject]@{ Path=$relative; SHA256=(Get-InputHash $_.FullName) }
     })
 }
-if ($Task -eq 'build-web') {
+if ($Task -in @('build-web','build-windows')) {
     $inputsAtStart = @(Get-InputSnapshot $project @('Assets','Packages','ProjectSettings'))
     $fixturesAtStart = @(Get-InputSnapshot $repo @('unity/tests/fixtures'))
     [pscustomobject]@{ Head=$headAtStart; Inputs=$inputsAtStart; Fixtures=$fixturesAtStart } | ConvertTo-Json -Depth 6 | Set-Content -Encoding utf8 ($build+'.inputs-before.json')
@@ -110,19 +123,25 @@ if ($Task -eq 'test') {
     [xml]$result = Get-Content -LiteralPath $xml -Raw
     if ([int]$result.'test-run'.total -le 0 -or [int]$result.'test-run'.failed -ne 0 -or $result.'test-run'.result -ne 'Passed') { throw "Test results missing, empty or failed: $xml" }
 }
-if ($Task -eq 'build-web') {
-    if (!(Test-Path (Join-Path $build 'index.html')) -or !(Test-Path ($build+'.report.json'))) { throw 'Web build output or report missing.' }
+if ($Task -in @('build-web','build-windows')) {
+    $entryPoint = if ($Task -eq 'build-web') { 'index.html' } else { 'MetroStation.exe' }
+    if (!(Test-Path (Join-Path $build $entryPoint)) -or !(Test-Path ($build+'.report.json'))) { throw 'Build output or report missing.' }
     $report = Get-Content ($build+'.report.json') -Raw | ConvertFrom-Json
     if ($report.result -ne 'Succeeded') { throw 'Build report does not say Succeeded.' }
     $inputs = @(Get-InputSnapshot $project @('Assets','Packages','ProjectSettings'))
     $fixtures = @(Get-InputSnapshot $repo @('unity/tests/fixtures'))
     if ((ConvertTo-Json -InputObject $inputsAtStart -Compress -Depth 6) -cne (ConvertTo-Json -InputObject $inputs -Compress -Depth 6) -or (ConvertTo-Json -InputObject $fixturesAtStart -Compress -Depth 6) -cne (ConvertTo-Json -InputObject $fixtures -Compress -Depth 6)) { throw 'Project inputs or fixtures changed during the build; preserve the output and pre-build snapshot, then rebuild.' }
     $files = Get-ChildItem -LiteralPath $build -Recurse -File | ForEach-Object {
-        [pscustomobject]@{ Path=(Get-RelativePath $build $_.FullName).Replace('\','/'); Bytes=$_.Length; SHA256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash }
+        [pscustomobject]@{ Path=(Get-RelativePath $build $_.FullName).Replace('\','/'); Bytes=$_.Length; SHA256=(Get-InputHash $_.FullName) }
     }
     $head = (& git -C $repo rev-parse HEAD).Trim()
     if ($head -ne $headAtStart) { throw 'Repository HEAD changed during the build; preserve the output but rebuild for traceable provenance.' }
     $dirty = [bool]((& git -C $repo status --porcelain) | Select-Object -First 1)
-    [pscustomobject]@{ Head=$head; HeadMeaning='workspace HEAD at build; project inputs are identified by hashes'; Dirty=$dirty; ProjectPath=$project; EditorVersion=$version; EditorVersionWithRevision=$versionRevision; Configuration=$Configuration; Compression='Disabled'; DecompressionFallback=$false; Scene=$(if ($ScenePath) { $ScenePath } else { "Assets/StationDesigner/Scenes/$Scene.unity" }); Inputs=@($inputsAtStart); Fixtures=@($fixturesAtStart); InputsVerifiedAfterBuild=$true; Files=@($files) } | ConvertTo-Json -Depth 6 | Set-Content -Encoding utf8 ($build+'.provenance.json')
+    $provenance = [ordered]@{ Head=$head; HeadMeaning='workspace HEAD at build; project inputs are identified by hashes'; Dirty=$dirty; ProjectPath=$project; EditorVersion=$version; EditorVersionWithRevision=$versionRevision; Configuration=$Configuration; Scene=$(if ($Task -eq 'build-web' -and $ScenePath) { $ScenePath } else { "Assets/StationDesigner/Scenes/$Scene.unity" }); Inputs=@($inputsAtStart); Fixtures=@($fixturesAtStart); InputsVerifiedAfterBuild=$true; Files=@($files) }
+    if ($Task -eq 'build-web') {
+        $provenance.Compression = 'Disabled'
+        $provenance.DecompressionFallback = $false
+    }
+    $provenance | ConvertTo-Json -Depth 6 | Set-Content -Encoding utf8 ($build+'.provenance.json')
 }
 Write-Output "$Task succeeded; log: $log"

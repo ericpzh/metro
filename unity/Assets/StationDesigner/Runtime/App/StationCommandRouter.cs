@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Metro.Build;
+using Metro.Persistence;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
@@ -104,6 +105,222 @@ namespace Metro.App {
                 }
             }
             return false;
+        }
+
+        internal readonly struct YieldedOpenPlan {
+            public readonly StationCommand Command;
+            public readonly string DocumentJson;
+            public readonly StationSource Source;
+            public readonly string SourceId;
+
+            public YieldedOpenPlan(StationCommand command, string documentJson, StationSource source, string sourceId) {
+                Command = command;
+                DocumentJson = documentJson;
+                Source = source;
+                SourceId = sourceId;
+            }
+        }
+
+        internal bool TryPrepareYieldedOpen(string json, out YieldedOpenPlan plan) {
+            plan = default;
+            if (string.IsNullOrEmpty(json)) return false;
+            if (json.IndexOf("station.open", StringComparison.Ordinal) < 0) return false;
+            StationCommand command;
+            try {
+                command = Decode(json);
+            } catch (StationRejectedException) {
+                return false;
+            }
+            if (command.ExpectedRevision.HasValue && command.ExpectedRevision.Value != host.CurrentRevision) return false;
+            if (string.Equals(command.Type, "station.openDemo", StringComparison.Ordinal)) {
+                var demoId = command.Payload?["id"] != null ? (string)command.Payload["id"] : "";
+                if (!host.TryResolveDemoInput(demoId, out var demoText, out var demoSource)) return false;
+                if (command.SessionId.Length > 0) host.NoteClientSession(command.SessionId);
+                plan = new YieldedOpenPlan(command, demoText, demoSource, demoId);
+                return true;
+            }
+            if (string.Equals(command.Type, "station.open", StringComparison.Ordinal)) {
+                var docToken = command.Payload?["document"];
+                if (docToken == null || docToken.Type != JTokenType.String) return false;
+                var sourceId = command.Payload?["sourceId"] != null ? (string)command.Payload["sourceId"] : "file";
+                var docText = (string)docToken;
+                if (command.SessionId.Length > 0) host.NoteClientSession(command.SessionId);
+                command.Payload = null;
+                command.Raw = null;
+                plan = new YieldedOpenPlan(command, docText, new StationSource(sourceId == "file" ? "" : sourceId, ""), sourceId);
+                return true;
+            }
+            return false;
+        }
+
+        public string FormatCommitOrReject(StationCommand command, StationLoadResult result) =>
+            CommitOrReject(command, result);
+
+        public bool TryStreamCommitEnvelope(StationCommand command, StationLoadResult result, Action<string> writeChunk) {
+            if (command == null || result == null || !result.Accepted || writeChunk == null) return false;
+            bool forceFullDocument = string.Equals(command.Type, "station.resync", StringComparison.Ordinal);
+            if (!forceFullDocument && host.CanBuildDeltaCommitPayload()) return false;
+            var doc = host.Document;
+            if (!StationDocumentReader.CanStreamEnvelope(doc)) return false;
+            var payloadWithoutDoc = host.BuildFullCommitPayloadWithoutDocument(useRawJsonCache: true);
+            StreamEnvelopeWithDocument("commit", command.Id, command.SessionId, true, null,
+                payloadWithoutDoc, documentFirst: true,
+                seg => StationDocumentReader.TryWriteNormalizedEnvelope(doc, seg),
+                writeChunk);
+            return true;
+        }
+
+        public bool TryStreamDirectReply(string json, Action<string> writeChunk) {
+            if (string.IsNullOrEmpty(json) || writeChunk == null) return false;
+            if (json.IndexOf("station.save", StringComparison.Ordinal) < 0 &&
+                json.IndexOf("station.resync", StringComparison.Ordinal) < 0) return false;
+            StationCommand command;
+            try {
+                command = Decode(json);
+            } catch (StationRejectedException) {
+                return false;
+            }
+            if (command.ExpectedRevision.HasValue && command.ExpectedRevision.Value != host.CurrentRevision) return false;
+            if (string.Equals(command.Type, "station.save", StringComparison.Ordinal)) {
+                bool includeDocument = command.Payload?["includeDocument"] != null &&
+                                       command.Payload["includeDocument"].Type == JTokenType.Boolean &&
+                                       (bool)command.Payload["includeDocument"];
+                if (!includeDocument) return false;
+                var doc = host.Document;
+                if (!StationDocumentReader.CanStreamSavedEnvelope(doc)) return false;
+                if (command.SessionId.Length > 0) host.NoteClientSession(command.SessionId);
+                var savedAt = DateTimeOffset.UtcNow;
+                var payloadWithoutDoc = new JObject {
+                    ["revision"] = host.CurrentRevision,
+                    ["sourceId"] = host.CurrentSourceId,
+                    ["sourceHash"] = host.CurrentSourceHash,
+                };
+                StreamEnvelopeWithDocument("ack", command.Id, command.SessionId, true, null,
+                    payloadWithoutDoc, documentFirst: false,
+                    seg => StationDocumentReader.TryWriteSavedEnvelope(doc, savedAt, seg),
+                    writeChunk);
+                return true;
+            }
+            if (string.Equals(command.Type, "station.resync", StringComparison.Ordinal)) {
+                if (!host.IsLoaded || !StationDocumentReader.CanStreamEnvelope(host.Document)) return false;
+                if (command.SessionId.Length > 0) host.NoteClientSession(command.SessionId);
+                return TryStreamCommitEnvelope(command, host.Resync(), writeChunk);
+            }
+            return false;
+        }
+
+        void StreamEnvelopeWithDocument(string kind, string id, string sessionId, bool accepted, string code,
+            JObject payloadWithoutDocument, bool documentFirst, Action<Action<string>> writeDocumentSegments,
+            Action<string> writeChunk) {
+            using (var chunked = new ChunkedTextWriter(writeChunk))
+            using (var jw = new JsonTextWriter(chunked) { Formatting = Formatting.None }) {
+                jw.WriteStartObject();
+                jw.WritePropertyName("schemaVersion"); jw.WriteValue(SchemaVersion);
+                jw.WritePropertyName("kind"); jw.WriteValue(kind);
+                jw.WritePropertyName("id"); jw.WriteValue(id ?? "");
+                jw.WritePropertyName("sessionId"); jw.WriteValue(sessionId ?? "");
+                jw.WritePropertyName("revision"); jw.WriteValue(host.CurrentRevision);
+                jw.WritePropertyName("accepted"); jw.WriteValue(accepted);
+                jw.WritePropertyName("code");
+                if (code != null) jw.WriteValue(code); else jw.WriteNull();
+                jw.WritePropertyName("payload");
+                jw.WriteStartObject();
+
+                if (documentFirst) {
+                    jw.WritePropertyName("document");
+                    jw.Flush();
+                    chunked.Write('"');
+                    writeDocumentSegments(chunked.WriteJsonEscaped);
+                    chunked.Write('"');
+                    jw.WriteRawValue("");
+                }
+
+                if (payloadWithoutDocument != null) {
+                    foreach (var prop in payloadWithoutDocument.Properties()) {
+                        prop.WriteTo(jw);
+                    }
+                }
+
+                if (!documentFirst) {
+                    jw.WritePropertyName("document");
+                    jw.Flush();
+                    chunked.Write('"');
+                    writeDocumentSegments(chunked.WriteJsonEscaped);
+                    chunked.Write('"');
+                    jw.WriteRawValue("");
+                }
+
+                jw.WriteEndObject();
+                jw.WriteEndObject();
+                jw.Flush();
+                chunked.FlushBuffer();
+            }
+        }
+
+        sealed class ChunkedTextWriter : System.IO.TextWriter {
+            const int FlushThreshold = 32768;
+            readonly Action<string> onChunk;
+            readonly System.Text.StringBuilder buffer = new System.Text.StringBuilder(FlushThreshold + 1024);
+
+            public ChunkedTextWriter(Action<string> onChunk) : base(System.Globalization.CultureInfo.InvariantCulture) {
+                this.onChunk = onChunk;
+            }
+
+            public override System.Text.Encoding Encoding => System.Text.Encoding.UTF8;
+
+            public override void Write(char value) {
+                buffer.Append(value);
+                if (buffer.Length >= FlushThreshold) FlushBuffer();
+            }
+
+            public override void Write(string value) {
+                if (string.IsNullOrEmpty(value)) return;
+                buffer.Append(value);
+                if (buffer.Length >= FlushThreshold) FlushBuffer();
+            }
+
+            public override void Write(char[] chars, int index, int count) {
+                if (chars == null || count <= 0) return;
+                buffer.Append(chars, index, count);
+                if (buffer.Length >= FlushThreshold) FlushBuffer();
+            }
+
+            public void WriteJsonEscaped(string value) {
+                if (string.IsNullOrEmpty(value)) return;
+                int runStart = 0;
+                for (int i = 0; i < value.Length; i++) {
+                    char c = value[i];
+                    string esc = null;
+                    if (c == '"') esc = "\\\"";
+                    else if (c == '\\') esc = "\\\\";
+                    else if (c < 0x20) {
+                        switch (c) {
+                            case '\b': esc = "\\b"; break;
+                            case '\f': esc = "\\f"; break;
+                            case '\n': esc = "\\n"; break;
+                            case '\r': esc = "\\r"; break;
+                            case '\t': esc = "\\t"; break;
+                            default: esc = "\\u" + ((int)c).ToString("x4", System.Globalization.CultureInfo.InvariantCulture); break;
+                        }
+                    } else if (c == '\u0085') esc = "\\u0085";
+                    else if (c == '\u2028') esc = "\\u2028";
+                    else if (c == '\u2029') esc = "\\u2029";
+
+                    if (esc != null) {
+                        if (i > runStart) buffer.Append(value, runStart, i - runStart);
+                        buffer.Append(esc);
+                        runStart = i + 1;
+                    }
+                }
+                if (runStart < value.Length) buffer.Append(value, runStart, value.Length - runStart);
+                if (buffer.Length >= FlushThreshold) FlushBuffer();
+            }
+
+            public void FlushBuffer() {
+                if (buffer.Length == 0) return;
+                onChunk(buffer.ToString());
+                buffer.Clear();
+            }
         }
 
         /// <summary>Decode, dispatch and return exactly one reply envelope as JSON.</summary>
@@ -294,8 +511,30 @@ namespace Metro.App {
             return envelope.ToString(Formatting.None);
         }
 
-        string Envelope(string kind, string id, string sessionId, bool accepted, string code, JObject payload) =>
-            EnvelopeObject(kind, id, sessionId, accepted, code, payload).ToString(Formatting.None);
+        string Envelope(string kind, string id, string sessionId, bool accepted, string code, JObject payload) {
+            var envelope = EnvelopeObject(kind, id, sessionId, accepted, code, payload);
+            int capacity = EstimateEnvelopeCapacity(payload);
+            var sb = new System.Text.StringBuilder(capacity);
+            using (var sw = new System.IO.StringWriter(sb, System.Globalization.CultureInfo.InvariantCulture))
+            using (var jw = new JsonTextWriter(sw) { Formatting = Formatting.None }) {
+                envelope.WriteTo(jw);
+            }
+            return sb.ToString();
+        }
+
+        static int EstimateEnvelopeCapacity(JObject payload) {
+            const int BaseOverhead = 8192;
+            if (payload != null && payload["document"] is JValue docVal && docVal.Value is string docText && docText.Length > 0) {
+                int extra = 0;
+                for (int i = 0; i < docText.Length; i++) {
+                    char c = docText[i];
+                    if (c == '"' || c == '\\') extra++;
+                    else if (c < 0x20) extra += 5;
+                }
+                return docText.Length + extra + BaseOverhead;
+            }
+            return 1024;
+        }
 
         JObject EnvelopeObject(string kind, string id, string sessionId, bool accepted, string code, JObject payload) {
             var envelope = new JObject {

@@ -21,6 +21,15 @@ namespace Metro.App {
             public bool Active;
         }
 
+        readonly struct RestorableInstanced {
+            public readonly Views.StationInstancedSurfaceBatch Batch;
+            public readonly int SourceIndex;
+            public RestorableInstanced(Views.StationInstancedSurfaceBatch batch, int sourceIndex) {
+                Batch = batch;
+                SourceIndex = sourceIndex;
+            }
+        }
+
         /// <summary>
         /// The source's selection pad: `refreshSelection` grows the module's rendered box by
         /// 0.06 m on **every** side (`ModuleSystem.ts`, `box.expandByScalar(0.06)`), so the line
@@ -34,6 +43,7 @@ namespace Metro.App {
         /// <summary>The cell tool's own ghost objects, cleared independently of a module ghost.</summary>
         readonly List<GameObject> cellOwned = new List<GameObject>();
         readonly List<Restorable> hidden = new List<Restorable>();
+        readonly List<RestorableInstanced> hiddenInstanced = new List<RestorableInstanced>();
         readonly List<GameObject> selectedOwned = new List<GameObject>();
         readonly List<GameObject> hoverOwned = new List<GameObject>();
         sealed class SurfaceLink { public string Id; public MeshRenderer Source; public GameObject Overlay; }
@@ -360,9 +370,17 @@ namespace Metro.App {
             var world = CurrentWorld();
             if (world == null) return;
             foreach (var record in world.Records) {
-                if (!string.Equals(record.ModuleId, moduleId, StringComparison.Ordinal) || record.View == null) continue;
-                hidden.Add(new Restorable { View = record.View, Active = record.View.activeSelf });
-                record.View.SetActive(false);
+                if (record?.View == null) continue;
+                if (string.Equals(record.ModuleId, moduleId, StringComparison.Ordinal)) {
+                    hidden.Add(new Restorable { View = record.View, Active = record.View.activeSelf });
+                    record.View.SetActive(false);
+                } else if (record.SourceIds != null && record.SourceIds.Length > 0) {
+                    int sourceIndex = Array.IndexOf(record.SourceIds, moduleId);
+                    if (sourceIndex >= 0 && record.View.TryGetComponent<Views.StationInstancedSurfaceBatch>(out var batch)) {
+                        batch.HideSource(sourceIndex);
+                        hiddenInstanced.Add(new RestorableInstanced(batch, sourceIndex));
+                    }
+                }
             }
         }
 
@@ -372,6 +390,11 @@ namespace Metro.App {
                 if (entry.View != null) entry.View.SetActive(entry.Active);
             }
             hidden.Clear();
+            for (int i = 0; i < hiddenInstanced.Count; i++) {
+                var entry = hiddenInstanced[i];
+                if (entry.Batch != null) entry.Batch.UnhideSource(entry.SourceIndex);
+            }
+            hiddenInstanced.Clear();
             carriedId = "";
             if (selectedId.Length > 0) Select(index?.GetModule(selectedId));
         }
@@ -446,20 +469,39 @@ namespace Metro.App {
                     var mesh = filter.sharedMesh;
                     if (!source || !mesh) continue;
                     if (record.ModuleId != id) {
-                        if (record.SourceSpans == null || mesh.subMeshCount != 1 || mesh.GetTopology(0) != MeshTopology.Triangles) continue;
-                        var indices = mesh.GetTriangles(0);
-                        var selected = new List<int>();
-                        foreach (var span in record.SourceSpans) {
-                            if (span.SourceIndex != sourceIndex) continue;
-                            for (int i = span.StartTriangle * 3; i < (span.StartTriangle + span.TriangleCount) * 3; i++) selected.Add(indices[i]);
+                        var instanced = record.View.GetComponent<Views.StationInstancedSurfaceBatch>();
+                        if (instanced != null) {
+                            if (instanced.SharedMesh == null ||
+                                !instanced.TryGetSourceRange(sourceIndex, out int instStart, out int instCount)) continue;
+                            var combines = new CombineInstance[instCount];
+                            for (int k = 0; k < instCount; k++) {
+                                combines[k] = new CombineInstance {
+                                    mesh = instanced.SharedMesh,
+                                    subMeshIndex = instanced.SubmeshIndex,
+                                    transform = instanced.Matrices[instStart + k],
+                                };
+                            }
+                            var part = new Mesh { name = "highlight source " + id };
+                            part.CombineMeshes(combines, true, true);
+                            part.RecalculateBounds();
+                            overlayMeshes.Add(part);
+                            mesh = part;
+                        } else {
+                            if (record.SourceSpans == null || mesh.subMeshCount != 1 || mesh.GetTopology(0) != MeshTopology.Triangles) continue;
+                            var indices = mesh.GetTriangles(0);
+                            var selected = new List<int>();
+                            foreach (var span in record.SourceSpans) {
+                                if (span.SourceIndex != sourceIndex) continue;
+                                for (int i = span.StartTriangle * 3; i < (span.StartTriangle + span.TriangleCount) * 3; i++) selected.Add(indices[i]);
+                            }
+                            if (selected.Count == 0) continue;
+                            var part = new Mesh { name = "highlight source " + id, indexFormat = mesh.indexFormat };
+                            part.vertices = mesh.vertices;
+                            part.SetTriangles(selected, 0);
+                            part.RecalculateBounds();
+                            overlayMeshes.Add(part);
+                            mesh = part;
                         }
-                        if (selected.Count == 0) continue;
-                        var part = new Mesh { name = "highlight source " + id, indexFormat = mesh.indexFormat };
-                        part.vertices = mesh.vertices;
-                        part.SetTriangles(selected, 0);
-                        part.RecalculateBounds();
-                        overlayMeshes.Add(part);
-                        mesh = part;
                     }
                     var go = new GameObject("surface highlight " + id);
                     go.transform.SetParent(transform, false);
@@ -541,19 +583,46 @@ namespace Metro.App {
             bool any = false;
             foreach (var record in world.Records) {
                 if (record?.View == null) continue;
-                if (!string.Equals(record.ModuleId, moduleId, StringComparison.Ordinal)) continue;
-                foreach (var filter in record.View.GetComponentsInChildren<MeshFilter>(true)) {
-                    var mesh = filter ? filter.sharedMesh : null;
-                    if (!mesh) continue;
-                    var local = mesh.bounds;
-                    var matrix = filter.transform.localToWorldMatrix;
-                    for (int corner = 0; corner < 8; corner++) {
-                        var point = matrix.MultiplyPoint3x4(new Vector3(
-                            (corner & 1) == 0 ? local.min.x : local.max.x,
-                            (corner & 2) == 0 ? local.min.y : local.max.y,
-                            (corner & 4) == 0 ? local.min.z : local.max.z));
-                        if (!any) { bounds = new Bounds(point, Vector3.zero); any = true; }
-                        else bounds.Encapsulate(point);
+                if (string.Equals(record.ModuleId, moduleId, StringComparison.Ordinal)) {
+                    foreach (var filter in record.View.GetComponentsInChildren<MeshFilter>(true)) {
+                        var mesh = filter ? filter.sharedMesh : null;
+                        if (!mesh) continue;
+                        var local = mesh.bounds;
+                        var matrix = filter.transform.localToWorldMatrix;
+                        for (int corner = 0; corner < 8; corner++) {
+                            var point = matrix.MultiplyPoint3x4(new Vector3(
+                                (corner & 1) == 0 ? local.min.x : local.max.x,
+                                (corner & 2) == 0 ? local.min.y : local.max.y,
+                                (corner & 4) == 0 ? local.min.z : local.max.z));
+                            if (!any) { bounds = new Bounds(point, Vector3.zero); any = true; }
+                            else bounds.Encapsulate(point);
+                        }
+                    }
+                    continue;
+                }
+                if (record.SourceIds != null && record.SourceIds.Length > 0) {
+                    int sourceIndex = Array.IndexOf(record.SourceIds, moduleId);
+                    if (sourceIndex < 0) continue;
+                    if (record.View.TryGetComponent<Views.StationInstancedSurfaceBatch>(out var batch) &&
+                        batch.SharedMesh != null &&
+                        batch.TryGetSourceRange(sourceIndex, out int instStart, out int instCount)) {
+                        var local = batch.SharedMesh.bounds;
+                        for (int k = 0; k < instCount; k++) {
+                            var matrix = batch.Matrices[instStart + k];
+                            for (int corner = 0; corner < 8; corner++) {
+                                var point = matrix.MultiplyPoint3x4(new Vector3(
+                                    (corner & 1) == 0 ? local.min.x : local.max.x,
+                                    (corner & 2) == 0 ? local.min.y : local.max.y,
+                                    (corner & 4) == 0 ? local.min.z : local.max.z));
+                                if (!any) { bounds = new Bounds(point, Vector3.zero); any = true; }
+                                else bounds.Encapsulate(point);
+                            }
+                        }
+                    } else if (record.SourceBounds != null && sourceIndex < record.SourceBounds.Length &&
+                               !record.SourceBounds[sourceIndex].IsEmpty) {
+                        var wb = WorldFromDocument(record.SourceBounds[sourceIndex]);
+                        if (!any) { bounds = wb; any = true; }
+                        else bounds.Encapsulate(wb);
                     }
                 }
             }

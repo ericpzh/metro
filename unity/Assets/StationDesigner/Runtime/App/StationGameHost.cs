@@ -71,6 +71,20 @@ namespace Metro.App {
         string clientSessionId = "";
         /// <summary>True while <see cref="ApplyDocumentEdit"/> installs an edit of the committed station.</summary>
         bool editingDocument;
+        bool openInFlight;
+        readonly Queue<string> queuedBrowserCommands = new Queue<string>();
+
+        /// <summary>Test seam: override whether <see cref="BrowserCommand"/> yields frames during station open.</summary>
+        internal static bool? YieldedOpenOverride = null;
+
+        static bool ShouldUseYieldedOpen() {
+            if (YieldedOpenOverride.HasValue) return YieldedOpenOverride.Value;
+#if UNITY_WEBGL && !UNITY_EDITOR
+            return true;
+#else
+            return false;
+#endif
+        }
 
         /// <summary>Every reply this host publishes, for EditMode/PlayMode tests.</summary>
         public event Action<string> ReplyPublished;
@@ -107,6 +121,11 @@ namespace Metro.App {
 
         void OnDestroy() {
             if (ReferenceEquals(Active, this)) Active = null;
+            openInFlight = false;
+            queuedBrowserCommands.Clear();
+            ClearContributorCaches();
+            Metro.App.Views.StationTvSchedule.ClearCache();
+            StationPaintGame.Forget();
             FinishRenderTrace("host-destroyed");
             if (coordinator != null) {
                 coordinator.Committed -= OnCommitted;
@@ -134,7 +153,7 @@ namespace Metro.App {
                 hoverRefreshRequested = false;
                 StationPointerRouter.RefreshHover(this);
             }
-            if (clientSessionId.Length == 0) return;
+            if (clientSessionId.Length == 0 || openInFlight) return;
             stateTimer += Time.unscaledDeltaTime;
             if (stateTimer < Mathf.Max(0.02f, stateIntervalSeconds)) return;
             stateTimer = 0f;
@@ -151,9 +170,14 @@ namespace Metro.App {
         /// <summary>True while a coalesced re-aim is waiting for the next frame (tests, diagnostics).</summary>
         public bool HoverRefreshPending => hoverRefreshRequested;
 
+        internal void TickFrameSinksNow() {
+            if (IsLoaded) TickFrameSinks();
+        }
+
         void TickFrameSinks() {
             var sinks = StationFrameSinks.Snapshot();
             if (sinks.Count == 0) return;
+            bool explodedOnly = StationExplodedView.IsStandaloneActive;
             var simulation = Simulation;
             double simTime = simulation?.SimTimeSeconds ?? 0;
             // The scheduler's fractional tick is a **presentation** input only: the
@@ -171,8 +195,10 @@ namespace Metro.App {
                 fraction,
                 simulation?.Playing ?? false);
             for (int i = 0; i < sinks.Count; i++) {
+                var sink = sinks[i];
+                if (explodedOnly && !(sink is IStationActiveDuringExplodedView)) continue;
                 try {
-                    sinks[i].Tick(Document, Index, clock);
+                    sink.Tick(Document, Index, clock);
                 } catch (Exception error) {
                     Debug.LogException(error);
                 }
@@ -184,6 +210,24 @@ namespace Metro.App {
         /// <summary>The one JS → C# entry point: <c>SendMessage("StationGame", "BrowserCommand", json)</c>.</summary>
         public void BrowserCommand(string json) {
             if (router == null) return;
+            if (openInFlight) {
+                queuedBrowserCommands.Enqueue(json);
+                return;
+            }
+            if (ShouldUseYieldedOpen() && isActiveAndEnabled && Application.isPlaying &&
+                router.TryPrepareYieldedOpen(json, out var plan)) {
+                openInFlight = true;
+                StartCoroutine(RunYieldedOpen(plan));
+                return;
+            }
+            ExecuteBrowserCommandNow(json);
+        }
+
+        void ExecuteBrowserCommandNow(string json) {
+            if (PublishStreamed(writeChunk => router.TryStreamDirectReply(json, writeChunk))) {
+                stateTimer = 0f;
+                return;
+            }
             var preTrace = StationEditProfiling.BeginBrowserCommand(CurrentRevision);
             var reply = router.Handle(json, out var trace, preTrace);
             if (pendingRenderTrace != null && pendingRenderTrace.Revision != CurrentRevision)
@@ -194,6 +238,56 @@ namespace Metro.App {
             }
             bool published = Publish(reply);
             trace?.Mark(published ? "commit-published" : "no-reply-transport");
+        }
+
+        bool PublishStreamed(Func<Action<string>, bool> stream) {
+            if (ReplyPublished != null || !StationWebBridge.CanStream) return false;
+            bool chunkFailed = false;
+            bool streamed = stream(chunk => {
+                if (!chunkFailed && !StationWebBridge.PublishChunk(chunk)) chunkFailed = true;
+            });
+            if (!streamed) return false;
+            return !chunkFailed && StationWebBridge.FlushChunks();
+        }
+
+        System.Collections.IEnumerator RunYieldedOpen(StationCommandRouter.YieldedOpenPlan plan) {
+            var command = plan.Command;
+            var docJson = plan.DocumentJson;
+            var source = plan.Source;
+            var sourceId = plan.SourceId;
+            plan = default;
+
+            StationLoadResult result = null;
+            var enumerator = coordinator.OpenYielded(docJson, source, sourceId, r => result = r);
+            docJson = null;
+            while (enumerator.MoveNext()) {
+                yield return enumerator.Current;
+            }
+            if (router != null && result != null) {
+                stateTimer = 0f;
+                bool streamed = PublishStreamed(writeChunk => router.TryStreamCommitEnvelope(command, result, writeChunk));
+                if (!streamed) {
+                    string reply = router.FormatCommitOrReject(command, result);
+                    Publish(reply);
+                    reply = null;
+                }
+                result = null;
+#if UNITY_WEBGL && !UNITY_EDITOR
+                GC.Collect();
+                yield return null;
+#endif
+            }
+            openInFlight = false;
+            while (!openInFlight && queuedBrowserCommands.Count > 0 && router != null) {
+                string next = queuedBrowserCommands.Dequeue();
+                if (ShouldUseYieldedOpen() && isActiveAndEnabled && Application.isPlaying &&
+                    router.TryPrepareYieldedOpen(next, out var nextPlan)) {
+                    openInFlight = true;
+                    StartCoroutine(RunYieldedOpen(nextPlan));
+                    yield break;
+                }
+                ExecuteBrowserCommandNow(next);
+            }
         }
 
         void StartRenderTrace(StationEditProfiling.CommitTrace trace) {
@@ -357,6 +451,17 @@ namespace Metro.App {
         public StationLoadResult OpenDocument(string json, string sourceId) =>
             coordinator.Open(json, new StationSource(sourceId == "file" ? "" : sourceId, ""), sourceId);
 
+        internal bool TryResolveDemoInput(string id, out string text, out StationSource source) {
+            if (string.IsNullOrEmpty(id) || !demoDocuments.TryGetValue(id, out var document) || document == null) {
+                text = null;
+                source = StationSource.None;
+                return false;
+            }
+            text = document.text;
+            source = new StationSource("demo:" + id, "");
+            return true;
+        }
+
         public StationLoadResult OpenDemo(string id) {
             if (string.IsNullOrEmpty(id) || !demoDocuments.TryGetValue(id, out var document) || document == null) {
                 return StationLoadResult.Rejected(new StationRejection("unknown-demo", StationRecordKind.Document,
@@ -501,18 +606,35 @@ namespace Metro.App {
         string cachedDisplaysDocName = "";
         string cachedDisplaysJson;
 
+        internal bool CanBuildDeltaCommitPayload() {
+            var committedRead = coordinator?.CommittedRead;
+            var previousRead = coordinator?.PreviousCommittedRead;
+            return committedRead != null &&
+                   previousRead != null &&
+                   ReferenceEquals(committedRead.LocalParent, previousRead) &&
+                   committedRead.LocalDelta != null &&
+                   coordinator.PreviousCommittedRevision >= 0 &&
+                   coordinator.PreviousCommittedRevision < CurrentRevision;
+        }
+
+        internal JObject BuildFullCommitPayloadWithoutDocument(bool useRawJsonCache = false) {
+            string fullHash = CurrentSourceHash;
+            var payload = new JObject {
+                ["documentRevision"] = CurrentRevision,
+                ["sourceId"] = CurrentSourceId,
+                ["sourceHash"] = fullHash,
+                ["sourceHashRevision"] = CurrentRevision,
+                ["capabilities"] = router.BuildCapabilities(),
+            };
+            MergeState(payload, useRawJsonCache);
+            return payload;
+        }
+
         public JObject BuildCommitPayload(bool forceFullDocument = false, bool useRawJsonCache = false) {
             using var editSample = StationEditProfiling.Measure("StationEdit.BuildCommitPayload");
             using var traceSample = StationEditTrace.Measure("Host.BuildCommitPayload");
             var committedRead = coordinator?.CommittedRead;
-            var previousRead = coordinator?.PreviousCommittedRead;
-            bool canSendDelta = !forceFullDocument &&
-                                committedRead != null &&
-                                previousRead != null &&
-                                ReferenceEquals(committedRead.LocalParent, previousRead) &&
-                                committedRead.LocalDelta != null &&
-                                coordinator.PreviousCommittedRevision >= 0 &&
-                                coordinator.PreviousCommittedRevision < CurrentRevision;
+            bool canSendDelta = !forceFullDocument && CanBuildDeltaCommitPayload();
 
             if (canSendDelta) {
                 var delta = committedRead.LocalDelta;
@@ -768,12 +890,42 @@ namespace Metro.App {
 
         // ------------------------------------------------------------- commit hook
 
+        void ClearContributorCaches() {
+            cachedCrowdSession = null;
+            cachedCrowdModules = null;
+            cachedCrowdJson = null;
+            cachedCrowdTick = long.MinValue;
+            cachedCrowdEpoch = long.MinValue;
+            cachedCrowdSessionRev = long.MinValue;
+            cachedStatsSession = null;
+            cachedStatsRunId = "";
+            cachedStatsTick = long.MinValue;
+            cachedStatsHistoryCount = -1;
+            cachedStatsJson = null;
+            cachedDisplaysScope = null;
+            cachedDisplaysLocale = "";
+            cachedDisplaysSwaps = -1;
+            cachedDisplaysTick = long.MinValue;
+            cachedDisplaysTvs = null;
+            cachedDisplaysTracks = null;
+            cachedDisplaysEdges = null;
+            cachedDisplaysLines = null;
+            cachedDisplaysDocName = "";
+            cachedDisplaysJson = null;
+        }
+
         void OnCommitted(StationCommitInfo info) {
             cameraBounds = info.CameraBounds;
             // A document edit re-installs the same station: keep the player's storey and
             // framing. Only a New/Open/demo commit opens at the document's lowest authored
             // metre and frames the fresh bounds (plan 11 D4).
             if (!editingDocument) {
+                ClearContributorCaches();
+                Metro.App.Views.StationTvSchedule.ClearCache();
+                StationPaintGame.Forget();
+                StationCellTool.ForgetWorld();
+                StationZoneTool.ForgetWorld();
+                StationEditSession.PruneHistory(info.SourceId ?? "");
                 activeLevel = info.Document == null ? 0 : info.Document.OpeningLevel;
                 if (frameCameraOnCommit && stationCamera != null && !info.CameraBounds.IsEmpty) FrameCamera(info.CameraBounds);
             }
@@ -820,12 +972,26 @@ namespace Metro.App {
         public string SendForTest(string json) => router == null ? "" : router.Handle(json);
     }
 
-    /// <summary>The WebGL transport: one JS function, one DOM event.</summary>
+    /// <summary>The WebGL transport: one JS function, one DOM event (with chunked streaming for multi-MiB documents).</summary>
     public static class StationWebBridge {
 #if UNITY_WEBGL && !UNITY_EDITOR
         [DllImport("__Internal")]
         static extern void StationGameState(string json);
+        [DllImport("__Internal")]
+        static extern void StationGameStateChunk(string chunk);
+        [DllImport("__Internal")]
+        static extern void StationGameStateFlush();
 #endif
+        public static bool CanStream {
+            get {
+#if UNITY_WEBGL && !UNITY_EDITOR
+                return true;
+#else
+                return false;
+#endif
+            }
+        }
+
         /// <summary>
         /// Send one envelope to the WebGL page. Returns false when this build has no
         /// WebGL transport at all (the desktop/Editor player), so a caller can tell
@@ -834,6 +1000,23 @@ namespace Metro.App {
         public static bool Publish(string json) {
 #if UNITY_WEBGL && !UNITY_EDITOR
             try { StationGameState(json); return true; } catch (Exception) { return false; /* a missing glue function must not crash the player */ }
+#else
+            return false;
+#endif
+        }
+
+        public static bool PublishChunk(string chunk) {
+#if UNITY_WEBGL && !UNITY_EDITOR
+            if (string.IsNullOrEmpty(chunk)) return true;
+            try { StationGameStateChunk(chunk); return true; } catch (Exception) { return false; }
+#else
+            return false;
+#endif
+        }
+
+        public static bool FlushChunks() {
+#if UNITY_WEBGL && !UNITY_EDITOR
+            try { StationGameStateFlush(); return true; } catch (Exception) { return false; }
 #else
             return false;
 #endif

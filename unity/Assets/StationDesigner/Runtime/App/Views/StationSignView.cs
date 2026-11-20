@@ -2346,13 +2346,28 @@ namespace Metro.App {
         }
 
         internal static void Detach(StationSignSignageScope scope) {
-            if (scope == null || Scope != scope) return;
-            var previous = scope.Previous;
-            if (previous != null && previous.gameObject != null) {
+            if (scope == null) return;
+            if (Scope == scope) {
+                var previous = scope.Previous;
+                scope.Previous = null;
+                while (previous != null && previous.gameObject == null) {
+                    var next = previous.Previous;
+                    previous.Previous = null;
+                    previous = next;
+                }
                 Scope = previous;
                 return;
             }
-            Scope = null;
+            var cursor = Scope;
+            while (cursor != null) {
+                if (cursor.Previous == scope) {
+                    cursor.Previous = scope.Previous;
+                    scope.Previous = null;
+                    return;
+                }
+                cursor = cursor.Previous;
+            }
+            scope.Previous = null;
         }
 
         /// <summary>Route one `sign.*` command's raw JSON to the painter's reply channel.</summary>
@@ -2737,6 +2752,10 @@ namespace Metro.App {
             }
             released.Bindings.Clear();
             released.Views.Clear();
+            released.ById.Clear();
+            released.HungByColumn.Clear();
+            released.Publish = null;
+            released.Renderer = null;
             if (released.Cache != null) {
                 released.Cache.Dispose();
                 released.Cache = null;

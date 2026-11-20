@@ -256,6 +256,39 @@ namespace Metro.App {
             return neighbours;
         }
 
+        /// <summary>
+        /// Resolve the exact world-space pose of a straight prefab outdoor module (fence panel or
+        /// tree) without instantiating its prefab. Returns false for two-axis fence junctions that
+        /// require arm composition or invalid entries so the caller falls back to <see cref="TryBuild"/>.
+        /// </summary>
+        public static bool TryResolveStaticPose(
+            ModuleFacts module,
+            RuntimeCatalogue.Entry entry,
+            OutdoorNeighbours neighbours,
+            out Vector3 worldPos,
+            out Quaternion worldRot,
+            out Vector3 worldScale) {
+            worldPos = default;
+            worldRot = Quaternion.identity;
+            worldScale = Vector3.one;
+            if (module == null || entry == null || entry.prefab == null || !Owns(module.Type)) return false;
+            if (entry.kind != "prefab" && entry.kind != "live") return false;
+            var req = new OutdoorModuleRequest {
+                ModuleId = module.Id,
+                Type = module.Type,
+                Rotation = module.Rotation,
+                Neighbours = neighbours,
+            };
+            float yaw = SelectedYaw(req, out _, out _, out bool composeArms, out _);
+            if (composeArms) return false;
+            worldPos = ModulePlacement.Position(module, entry);
+            var holderRot = ModulePlacement.Rotation(module.Rotation);
+            var offset = Quaternion.Euler(0f, Mathf.DeltaAngle(ModulePlacement.Yaw(module.Rotation), yaw), 0f);
+            worldRot = holderRot * entry.prefab.transform.localRotation * offset;
+            worldScale = entry.prefab.transform.localScale;
+            return true;
+        }
+
         /// <summary>Build one module; returns the report with <see cref="OutdoorModuleView.Instance"/> null on failure.</summary>
         public static bool TryBuild(OutdoorModuleRequest request, Transform parent, out OutdoorModuleView view) =>
             TryBuild(request, parent, null, out view);

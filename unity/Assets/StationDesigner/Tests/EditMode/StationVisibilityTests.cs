@@ -1225,4 +1225,187 @@ public class StationVisibilityTests {
             UnityEngine.Object.DestroyImmediate(go);
         }
     }
+
+    [Test]
+    public void IncrementalLevelChangeMatchesFullApplyAcrossStoreysEmptyFloorsAndMultiLevelSpans() {
+        var created = new List<GameObject>();
+        var fullReg = new StationVisibilityRegistry();
+        var incReg = new StationVisibilityRegistry();
+        try {
+            var levels = new[] { -20, -15, -10, -5, 0 };
+            var fullTargets = new List<StationVisibilityTarget>();
+            var incTargets = new List<StationVisibilityTarget>();
+            void AddPair(string name, StationPartRole role, int[] lvls, bool gradeOwned = false) {
+                var g1 = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                g1.name = name + "_full";
+                created.Add(g1);
+                fullTargets.Add(fullReg.Register(g1.transform, role, lvls, gradeOwned: gradeOwned));
+
+                var g2 = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                g2.name = name + "_inc";
+                created.Add(g2);
+                incTargets.Add(incReg.Register(g2.transform, role, lvls, gradeOwned: gradeOwned));
+            }
+
+            // Occupied storeys at -20, -10, -5, 0; -15 is intentionally empty (only a spanning lift crosses it).
+            foreach (int z in new[] { -20, -10, -5, 0 }) {
+                AddPair("slab_" + z, StationPartRole.Slab, new[] { z });
+                AddPair("wall_" + z, StationPartRole.Wall, new[] { z });
+                AddPair("prop_" + z, StationPartRole.Prop, new[] { z });
+            }
+            AddPair("grade_lawn", StationPartRole.Surface, new[] { 0 }, gradeOwned: true);
+            AddPair("lift_span", StationPartRole.Prop, new[] { -20, 0 });
+            AddPair("stair_span", StationPartRole.Prop, new[] { -10, -5 });
+            AddPair("grid", StationPartRole.Grid, new[] { 0 });
+
+            foreach (bool dense in new[] { false, true }) {
+                foreach (bool showLevels in new[] { true, false }) {
+                    fullReg.State.Dense = incReg.State.Dense = dense;
+                    fullReg.State.ShowLevels = incReg.State.ShowLevels = showLevels;
+                    fullReg.State.ActiveLevel = incReg.State.ActiveLevel = -5;
+                    fullReg.Apply();
+                    incReg.Apply();
+
+                    // Walk across occupied, empty (-15), adjacent, and distant levels.
+                    var sequence = new[] { 0, -5, -10, -15, -20, -15, -10, -5, 0, -5 };
+                    int prev = -5;
+                    foreach (int next in sequence) {
+                        fullReg.State.ActiveLevel = next;
+                        fullReg.Apply();
+
+                        incReg.State.ActiveLevel = next;
+                        incReg.ApplyLevelChange(prev);
+                        prev = next;
+
+                        Assert.AreEqual(fullReg.ActiveBuilt, incReg.ActiveBuilt, $"ActiveBuilt mismatch dense={dense} show={showLevels} level={next}");
+                        Assert.AreEqual(fullReg.VisibleTargets, incReg.VisibleTargets, $"VisibleTargets mismatch dense={dense} show={showLevels} level={next}");
+                        Assert.AreEqual(fullReg.HiddenTargets, incReg.HiddenTargets, $"HiddenTargets mismatch dense={dense} show={showLevels} level={next}");
+                        Assert.AreEqual(fullReg.GhostTargets, incReg.GhostTargets, $"GhostTargets mismatch dense={dense} show={showLevels} level={next}");
+                        for (int i = 0; i < fullTargets.Count; i++) {
+                            Assert.AreEqual(fullTargets[i].LastMode, incTargets[i].LastMode,
+                                $"Mode mismatch on {fullTargets[i].name} dense={dense} show={showLevels} level={next}");
+                            Assert.AreEqual(fullTargets[i].Renderers[0].enabled, incTargets[i].Renderers[0].enabled,
+                                $"Renderer.enabled mismatch on {fullTargets[i].name} dense={dense} show={showLevels} level={next}");
+                            Assert.AreEqual(fullTargets[i].Colliders[0].enabled, incTargets[i].Colliders[0].enabled,
+                                $"Collider.enabled mismatch on {fullTargets[i].name} dense={dense} show={showLevels} level={next}");
+                        }
+                    }
+                }
+            }
+
+            // Warm adjacent step on dense slice between occupied levels (-5 -> 0) must use subset path and skip -20 targets.
+            incReg.State.Dense = true;
+            incReg.State.ShowLevels = true;
+            incReg.State.ActiveLevel = -5;
+            incReg.Apply();
+            incReg.State.ActiveLevel = 0;
+            incReg.ApplyLevelChange(-5);
+            Assert.IsTrue(incReg.LastApplyUsedSubset, "dense adjacent step between occupied storeys must use subset path");
+            Assert.Less(incReg.LastApplyVisitedTargets, incReg.RegisteredTargets, "subset path must visit strictly fewer targets than full registry");
+
+            // Unchanged accepted level in StationViewCommandApplier must skip Visibility.Apply completely.
+            var grid = StationLevelGrid.FromDocument(0, 5, levels);
+            var cam = new StationCameraController();
+            var applier = new StationViewCommandApplier(cam, incReg, grid);
+            applier.SetStation(new Bounds(Vector3.zero, Vector3.one * 20f), grid, -5);
+            int appliedCount = 0;
+            incReg.Applied += () => appliedCount++;
+            Assert.IsTrue(applier.TryApply(new StationViewCommand { Type = StationViewCommandType.ViewSet, Key = StationViewKey.Level, IntValue = -5 }, out _));
+            Assert.AreEqual(0, appliedCount, "unchanged accepted level must skip Visibility.Apply");
+            Assert.IsTrue(applier.TryApply(new StationViewCommand { Type = StationViewCommandType.ViewSet, Key = StationViewKey.Level, IntValue = 0 }, out _));
+            Assert.AreEqual(1, appliedCount, "changed level must run visibility update once");
+            Assert.IsTrue(incReg.LastApplyUsedSubset, "applier level step must use incremental subset path");
+        } finally {
+            fullReg.Dispose();
+            incReg.Dispose();
+            foreach (var g in created) if (g) UnityEngine.Object.DestroyImmediate(g);
+        }
+    }
+
+    [Test]
+    public void TianheParkIncrementalLevelStepsMatchFullApplyAndBoundVisitedTargets() {
+        string tianhePath = System.IO.Path.GetFullPath("Assets/StationDesigner/Demos/tianhe.metro.json");
+        if (!System.IO.File.Exists(tianhePath)) Assert.Ignore("tianhe.metro.json not exported");
+        var hostGo = new GameObject("TianheStage2Test");
+        var host = hostGo.AddComponent<StationGameHost>();
+        host.frameCameraOnCommit = false;
+        host.catalogue = UnityEditor.AssetDatabase.LoadAssetAtPath<RuntimeCatalogue>(RuntimeCatalogue.AssetPath);
+        host.trainCatalogue = UnityEditor.AssetDatabase.LoadAssetAtPath<TrainCatalogue>(TrainCatalogue.AssetPath);
+        host.stationShader = StationFinishLibrary.FindShader();
+        host.font = UnityEditor.AssetDatabase.LoadAssetAtPath<Font>("Assets/StationDesigner/Fonts/NotoSansSC.ttf");
+        typeof(StationGameHost).GetMethod("Awake", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic).Invoke(host, null);
+        host.RegisterRenderer(new StationCellRenderer());
+        host.RegisterRenderer(new StationSurfaceModuleRenderer());
+        host.RegisterRenderer(new StationStreetModuleRenderer());
+        host.RegisterRenderer(new StationEquipmentModuleRenderer());
+        host.RegisterRenderer(new StationDisplayModuleRenderer());
+        host.RegisterRenderer(new StationStructureModuleRenderer());
+        host.RegisterRenderer(new StationGridRenderer());
+        host.RegisterRenderer(new StationOverlayRenderer());
+        host.RegisterRenderer(new OpeningModuleRenderer());
+        host.RegisterRenderer(new StationRoadRenderer());
+        host.RegisterRenderer(new StationSignRenderer());
+        host.RegisterRenderer(new TrainConsistRenderer());
+        host.RegisterRenderer(new VerticalModuleRenderer());
+        host.RegisterRenderer(new OutdoorModuleRenderer());
+        host.RegisterRenderer(new PassengerCrowdRenderer());
+        var rig = StationViewFeature.Attach(host);
+        try {
+            var res = host.OpenDocument(System.IO.File.ReadAllText(tianhePath), "tianhe");
+            Assert.IsTrue(res.Accepted);
+            var vis = rig.Visibility;
+            var cmds = rig.Commands;
+
+            // Move to -5 m and warm up.
+            Assert.IsTrue(cmds.TryApply(new StationViewCommand { Type = StationViewCommandType.ViewSet, Key = StationViewKey.Level, IntValue = -5 }, out _));
+
+            // 1. Unchanged level (-5 -> -5) must skip visibility walk completely.
+            int appliedFired = 0;
+            void OnApplied() => appliedFired++;
+            vis.Applied += OnApplied;
+            try {
+                Assert.IsTrue(cmds.TryApply(new StationViewCommand { Type = StationViewCommandType.ViewSet, Key = StationViewKey.Level, IntValue = -5 }, out _));
+                Assert.AreEqual(0, appliedFired, "unchanged level must not re-run visibility");
+            } finally {
+                vis.Applied -= OnApplied;
+            }
+
+            // 2. Measure warm -5 -> 0, 0 -> -5, -5 -> -10, -10 -> -5 and verify exact equivalence with full Apply().
+            var sw = new System.Diagnostics.Stopwatch();
+            var pairs = new[] { (-5, 0), (0, -5), (-5, -10), (-10, -5) };
+            // One warmup pass so derived material arrays are populated.
+            foreach (var (_, to) in pairs) {
+                Assert.IsTrue(cmds.TryApply(new StationViewCommand { Type = StationViewCommandType.ViewSet, Key = StationViewKey.Level, IntValue = to }, out _));
+            }
+            foreach (var (from, to) in pairs) {
+                Assert.IsTrue(cmds.TryApply(new StationViewCommand { Type = StationViewCommandType.ViewSet, Key = StationViewKey.Level, IntValue = from }, out _));
+                sw.Restart();
+                Assert.IsTrue(cmds.TryApply(new StationViewCommand { Type = StationViewCommandType.ViewSet, Key = StationViewKey.Level, IntValue = to }, out _));
+                sw.Stop();
+                bool usedSubset = vis.LastApplyUsedSubset;
+                int regCount = vis.RegisteredTargets;
+                int visited = vis.LastApplyVisitedTargets;
+                int changed = vis.LastApplyChangedTargets;
+                int rWrites = vis.LastApplyRendererWrites;
+                int cWrites = vis.LastApplyColliderWrites;
+                int mWrites = vis.LastApplyMaterialWrites;
+                int visAfterInc = vis.VisibleTargets;
+                int hidAfterInc = vis.HiddenTargets;
+                int ghoAfterInc = vis.GhostTargets;
+                Debug.Log($"[Stage2Tianhe] {from}->{to} ms={sw.Elapsed.TotalMilliseconds:F2} subset={usedSubset} reg={regCount} visited={visited} changed={changed} rW={rWrites} cW={cWrites} mW={mWrites}");
+
+                Assert.IsTrue(usedSubset, $"Tianhe {from}->{to} must use subset path");
+                Assert.Less(visited, regCount, $"Tianhe {from}->{to} must visit fewer targets than full registry");
+
+                // Snapshot every target's mode after incremental step, then verify full Apply() produces 0 changes!
+                vis.Apply();
+                Assert.AreEqual(0, vis.LastApplyChangedTargets, $"Full Apply after incremental {from}->{to} must change 0 targets");
+                Assert.AreEqual(visAfterInc, vis.VisibleTargets, $"VisibleTargets exact match {from}->{to}");
+                Assert.AreEqual(hidAfterInc, vis.HiddenTargets, $"HiddenTargets exact match {from}->{to}");
+                Assert.AreEqual(ghoAfterInc, vis.GhostTargets, $"GhostTargets exact match {from}->{to}");
+            }
+        } finally {
+            UnityEngine.Object.DestroyImmediate(hostGo);
+        }
+    }
 }

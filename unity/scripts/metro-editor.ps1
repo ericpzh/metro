@@ -310,9 +310,9 @@ function Get-ConsoleErrorsSince {
     $entries = @()
     $reset = $false
     $sinceSession = $null
-    if ($Cursor.HasValue -and $Session) {
+    if ($null -ne $Cursor -and $Session) {
         $r = Invoke-EditorCommand -Command @('console', 'get', '--level', 'error', '--tail', "$Tail",
-            '--since', "$($Cursor.Value)", '--since-session', $Session) -Label 'console-delta' -AllowFailure
+            '--since', "$Cursor", '--since-session', $Session) -Label 'console-delta' -AllowFailure
         if ($r.ExitCode -eq 0 -and $r.Json) {
             $entries = @($r.Json.entries)
             $reset = [bool]$r.Json.reset
@@ -320,7 +320,7 @@ function Get-ConsoleErrorsSince {
             $sinceSession = $r.Stderr.Trim()
         }
     }
-    if ($entries.Count -eq 0 -and ($reset -or !$Cursor.HasValue -or !$Session)) {
+    if ($entries.Count -eq 0 -and ($reset -or $null -eq $Cursor -or !$Session -or $null -ne $sinceSession)) {
         $r = Invoke-EditorCommand -Command @('console', 'get', '--level', 'error', '--tail', "$Tail") -Label 'console-errors' -AllowFailure
         if ($r.ExitCode -eq 0 -and $r.Json) { $entries = @($r.Json.entries) }
     }
@@ -328,7 +328,11 @@ function Get-ConsoleErrorsSince {
     foreach ($entry in $entries) {
         if (!$entry) { continue }
         $stamp = $null
-        try { $stamp = [datetime]::Parse($entry.timestampUtc, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind) } catch { }
+        if ($entry.timestampUtc -is [datetime]) {
+            $stamp = $entry.timestampUtc
+        } else {
+            try { $stamp = [datetime]::Parse($entry.timestampUtc, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind) } catch { }
+        }
         if ($stamp -and $stamp.ToUniversalTime() -lt $Since.ToUniversalTime()) { continue }
         $fresh += $entry
     }
@@ -647,7 +651,10 @@ function Invoke-SmokeOperation {
     Invoke-Stage 'smoke.host' {
         # The CLI tokenizer strips bare double quotes from a structured argument;
         # escaped quotes survive as the JSON object the command expects.
-        $condition = '{\"find-type\":\"Metro.App.StationGameHost\",\"member\":\"enabled\",\"op\":\"equals\",\"value\":true}'
+        $condition = '{"find-type":"Metro.App.StationGameHost","member":"enabled","op":"equals","value":true}'
+        if ($PSVersionTable.PSVersion -lt [version]'7.3' -or $PSNativeCommandArgumentPassing -eq 'Legacy') {
+            $condition = $condition.Replace('"', '\"')
+        }
         $wait = Invoke-EditorCommand -Command @('job', 'wait', '--condition', $condition, '--tolerate-missing', 'true', '--poll-interval-ms', '100') -Label 'wait-host' -RequestTimeout 60 -AllowFailure
         if ($wait.ExitCode -ne 0) { throw "StationGameHost never became available: $(Format-CliError $wait)" }
         if ($wait.Json -and $wait.Json.state -ne 'met') { throw "StationGameHost wait ended in state '$($wait.Json.state)'." }

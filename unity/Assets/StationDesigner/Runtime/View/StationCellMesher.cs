@@ -287,10 +287,49 @@ namespace Metro.View {
         /// <summary>Whether <see cref="Anchor"/> is meaningful (always true for a built group).</summary>
         public bool HasAnchor;
 
-        public int VertexCount => Positions?.Length ?? 0;
-        public int TriangleCount => (Indices?.Length ?? 0) / 3;
+        internal int RetainedVertexCount;
+        internal int RetainedTriangleCount;
+
+        public int VertexCount => Positions != null ? Positions.Length : RetainedVertexCount;
+        public int TriangleCount => Indices != null ? Indices.Length / 3 : RetainedTriangleCount;
         public string GroupKey => ChunkX + "," + ChunkY + "|" + Storey + "|" + Role + "|" + FinishId;
         public override string ToString() => GroupKey + " tris=" + TriangleCount;
+
+        /// <summary>
+        /// Drop CPU-side mesh upload arrays once the Unity <see cref="Mesh"/> and world pick buffers
+        /// have been constructed, preserving counts, bounds, anchor and per-chunk local face records.
+        /// </summary>
+        public void ReleaseUploadBuffers() {
+            RetainedVertexCount = VertexCount;
+            RetainedTriangleCount = TriangleCount;
+            Positions = null;
+            Normals = null;
+            Colors = null;
+            Uvs = null;
+            Indices = null;
+            TriangleFaces = null;
+        }
+    }
+
+    /// <summary>
+    /// Borrowed staging lists for one meshed chunk group during direct streaming upload.
+    /// Valid only for the duration of the callback; callers must not retain references.
+    /// </summary>
+    public readonly struct StationCellMeshBuffers {
+        public readonly List<float> Positions;
+        public readonly List<float> Normals;
+        public readonly List<float> Colors;
+        public readonly List<float> Uvs;
+        public readonly List<int> Indices;
+
+        public StationCellMeshBuffers(List<float> positions, List<float> normals, List<float> colors,
+            List<float> uvs, List<int> indices) {
+            Positions = positions;
+            Normals = normals;
+            Colors = colors;
+            Uvs = uvs;
+            Indices = indices;
+        }
     }
 
     public sealed class StationCellMeshResult {
@@ -412,6 +451,10 @@ namespace Metro.View {
         bool IsEmitted(StationCellKey key, int band, StationSurfaceRole passRole);
         void NoteCellDrawn();
         void EmitGroup(StationCellMeshGroup group);
+        bool StreamDirect { get; }
+        void EmitStreamedGroup(StationCellMeshGroup group, StationCellMeshBuffers buffers);
+        MeshSession.VecBuilder RentBuilder();
+        void ReturnBuilder(MeshSession.VecBuilder builder);
     }
 
     /// <summary>Per-mesh working state: mirrors one `ChunkSystem.meshStation` rebuild.</summary>
@@ -420,22 +463,17 @@ namespace Metro.View {
         readonly StationCellSurfacePolicy.CellLookup lookup;
         readonly StationCellMeshResult result = new StationCellMeshResult();
 
-        readonly Dictionary<StationCellKey, StationMeshCell> cells = new Dictionary<StationCellKey, StationMeshCell>();
-        readonly HashSet<StationCellKey> solid = new HashSet<StationCellKey>();
-        readonly HashSet<StationCellKey> drawsKeys = new HashSet<StationCellKey>();
+        readonly Dictionary<StationCellKey, StationMeshCell> cells;
         readonly HashSet<StationCellKey> groundKeys = new HashSet<StationCellKey>();
-        readonly Dictionary<StationCellKey, StationCellShape> thin = new Dictionary<StationCellKey, StationCellShape>();
-        readonly Dictionary<StationCellKey, StationFinishSet> finishes = new Dictionary<StationCellKey, StationFinishSet>();
-        readonly Dictionary<StationCellKey, int> bandOfCell = new Dictionary<StationCellKey, int>();
-        readonly Dictionary<string, int> groundOfColumn = new Dictionary<string, int>(StringComparer.Ordinal);
+        readonly Dictionary<long, int> groundOfColumn;
         readonly HashSet<StationCellKey> suspended = new HashSet<StationCellKey>();
-        readonly HashSet<StationCellKey> openingCeiling = new HashSet<StationCellKey>();
         readonly HashSet<StationCellKey> floating = new HashSet<StationCellKey>();
         /// <summary>Top faces of the storey's slab: the source's auto-ceiling/roof surfaces.</summary>
         readonly Dictionary<StationCellKey, StationSlopeCut> slope;
         readonly Dictionary<StationCellKey, StationCellInset> insets;
         readonly HashSet<StationCellKey> fills;
         readonly HashSet<StationCellKey> hidden;
+        readonly Stack<VecBuilder> builderPool = new Stack<VecBuilder>(16);
 
         internal readonly struct FaceRecordKey : IEquatable<FaceRecordKey> {
             readonly long a;
@@ -471,6 +509,8 @@ namespace Metro.View {
 
         public MeshSession(StationCellMeshInput input) {
             this.input = input;
+            cells = new Dictionary<StationCellKey, StationMeshCell>(Math.Max(16, input.Cells.Count));
+            groundOfColumn = new Dictionary<long, int>(Math.Max(16, input.Cells.Count / 2));
             lookup = cells.TryGetValue;
             slope = input.SlopeCuts ?? new Dictionary<StationCellKey, StationSlopeCut>();
             insets = input.Insets ?? new Dictionary<StationCellKey, StationCellInset>();
@@ -479,6 +519,23 @@ namespace Metro.View {
             // The default ids keep stable part order across a station.
             FinishIndex(input.DefaultFinish);
         }
+
+        public VecBuilder RentBuilder() {
+            if (builderPool.Count > 0) {
+                var b = builderPool.Pop();
+                b.Clear();
+                return b;
+            }
+            return new VecBuilder();
+        }
+
+        public void ReturnBuilder(VecBuilder builder) {
+            if (builder == null) return;
+            builder.Clear();
+            if (builderPool.Count < 64) builderPool.Push(builder);
+        }
+
+        static long PackColumn(int x, int y) => ((long)x << 32) | (uint)y;
 
         public StationCellMeshResult Run() {
             CollectCells();
@@ -495,11 +552,6 @@ namespace Metro.View {
                 if (!cell.Solid) continue;
                 var key = cell.Key;
                 cells[key] = cell;
-                solid.Add(key);
-                drawsKeys.Add(key);
-                if (!cell.Shape.IsFull) thin[key] = cell.Shape;
-                if (cell.Finish.Any) finishes[key] = cell.Finish;
-                if ((cell.Flags & StationMeshCellFlags.OpeningCeiling) != 0) openingCeiling.Add(key);
             }
             // The generated street (`sim/ground.ts` `withGround` minus openings): the
             // window is the station's own content plus GROUND_MARGIN, every coordinate
@@ -537,8 +589,6 @@ namespace Metro.View {
                         Shape = StationCellShape.Full, Flags = StationMeshCellFlags.None,
                     };
                     cells[key] = cell;
-                    solid.Add(key);
-                    drawsKeys.Add(key);
                     groundKeys.Add(key);
                     result.GeneratedGroundCells++;
                 }
@@ -561,17 +611,17 @@ namespace Metro.View {
                 var cell = pair.Value;
                 if (!cell.Solid) continue;
                 var band = StoreyBand(cell.Z);
-                bandOfCell[pair.Key] = band;
-                var column = cell.X + "," + cell.Y;
+                var column = PackColumn(cell.X, cell.Y);
                 if (!groundOfColumn.TryGetValue(column, out var current) || band < current) groundOfColumn[column] = band;
             }
             foreach (var pair in cells) {
                 var cell = pair.Value;
                 if (!cell.Solid) continue;
-                if (openingCeiling.Contains(pair.Key) || suspended.Contains(pair.Key)) continue;
-                var band = bandOfCell[pair.Key];
-                if (groundOfColumn.TryGetValue(cell.X + "," + cell.Y, out var ground) && band == ground) floating.Add(pair.Key);
+                if ((cell.Flags & StationMeshCellFlags.OpeningCeiling) != 0 || suspended.Contains(pair.Key)) continue;
+                var band = StoreyBand(cell.Z);
+                if (groundOfColumn.TryGetValue(PackColumn(cell.X, cell.Y), out var ground) && band == ground) floating.Add(pair.Key);
             }
+            groundOfColumn.Clear();
             result.FloatingPlateCells = floating.Count;
             result.SlopeCutCells = slope.Count;
         }
@@ -590,7 +640,7 @@ namespace Metro.View {
                 // cap either: leaving it in `emit` suppressed the cap under a hidden
                 // independent layer and left a hole (`18 §1`).
                 if (hidden.Contains(pair.Key)) continue;
-                if (!bandOfCell.TryGetValue(pair.Key, out var band)) band = StoreyBand(cell.Z);
+                var band = StoreyBand(cell.Z);
                 if (!authoredByBand.TryGetValue(band, out var list)) authoredByBand[band] = list = new List<StationCellKey>();
                 list.Add(pair.Key);
             }
@@ -700,7 +750,7 @@ namespace Metro.View {
         public StationCellFaceRecord GetFaceRecord(int index) =>
             index >= 0 && index < result.Faces.Count ? result.Faces[index] : default;
 
-        public StationCellShape ShapeAt(StationCellKey key) => thin.TryGetValue(key, out var shape) ? shape : StationCellShape.Full;
+        public StationCellShape ShapeAt(StationCellKey key) => cells.TryGetValue(key, out var cell) ? cell.Shape : StationCellShape.Full;
         public StationCellInset InsetAt(StationCellKey key) => insets.TryGetValue(key, out var inset) ? inset : StationCellInset.Full;
         public StationSlopeCut CutAt(StationCellKey key) => slope.TryGetValue(key, out var cut) ? cut : null;
         public bool IsMasonryRoof(StationCellKey key) =>
@@ -713,10 +763,10 @@ namespace Metro.View {
         public bool IsSuspended(StationCellKey key) => suspended.Contains(key);
 
         public bool IsBandSolid(StationCellKey key, int band) =>
-            input.IsolateBandOcclusion ? (emitByBand.TryGetValue(band, out var e) && e.Contains(key)) : solid.Contains(key);
+            input.IsolateBandOcclusion ? (emitByBand.TryGetValue(band, out var e) && e.Contains(key)) : cells.ContainsKey(key);
 
         public bool IsPassSolid(StationCellKey key, int band, StationSurfaceRole passRole) {
-            if (passRole == StationSurfaceRole.Ground) return solid.Contains(key);
+            if (passRole == StationSurfaceRole.Ground) return cells.ContainsKey(key);
             if (passRole == StationSurfaceRole.Plate) return floating.Contains(key);
             return IsBandSolid(key, band);
         }
@@ -733,15 +783,17 @@ namespace Metro.View {
             result.Triangles += group.TriangleCount;
         }
 
+        public bool StreamDirect => false;
+        public void EmitStreamedGroup(StationCellMeshGroup group, StationCellMeshBuffers buffers) => EmitGroup(group);
+
         /// <summary>The finishes a cell's faces wear, with the defaults resolved.</summary>
         public void FinishIndexes(StationCellKey key, StationSlopeCut cut, out int top, out int bottom,
             out int e, out int w, out int n, out int s, out bool filled) {
             filled = fills.Contains(key);
-            finishes.TryGetValue(key, out var own);
-            StationFinishSet fin = own;
+            StationFinishSet fin = cells.TryGetValue(key, out var ownCell) ? ownCell.Finish : default;
             if (!fin.Any && filled) {
                 var below = new StationCellKey(key.X, key.Y, key.Z - 1);
-                if (finishes.TryGetValue(below, out var inherited)) fin = inherited;
+                if (cells.TryGetValue(below, out var belowCell)) fin = belowCell.Finish;
             }
             var truss = filled && cut != null && cut.HasHalf;
             var soffit = truss ? FinishIndex(input.RampSoffitFinish) : -1;
@@ -784,7 +836,7 @@ namespace Metro.View {
             VecBuilder Builder(StationSurfaceRole builtRole, int finishIndex) {
                 var entry = BuilderKey(builtRole, finishIndex);
                 if (!builders.TryGetValue(entry, out var builder)) {
-                    builders[entry] = builder = new VecBuilder();
+                    builders[entry] = builder = session.RentBuilder();
                     builderOrder.Add(entry);
                 }
                 return builder;
@@ -909,9 +961,11 @@ namespace Metro.View {
 
                 var nearSlope = cut != null || CutAt(x + 1, y, z) != null || CutAt(x - 1, y, z) != null ||
                                 CutAt(x, y + 1, z) != null || CutAt(x, y - 1, z) != null;
-                var neighbours = new List<StationSlopeCut>();
+                List<StationSlopeCut> neighbours = null;
                 if (nearSlope) {
-                    foreach (var (dx, dy) in new[] { (1, 0), (-1, 0), (0, 1), (0, -1) }) {
+                    neighbours = new List<StationSlopeCut>(4);
+                    for (int ni = 0; ni < CardinalOffsets.Length; ni++) {
+                        var (dx, dy) = CardinalOffsets[ni];
                         if (!IsSolid(x + dx, y + dy, z)) continue;
                         var neighbour = CutAt(x + dx, y + dy, z);
                         if (neighbour == null) continue;
@@ -933,12 +987,12 @@ namespace Metro.View {
                         neighbours.Add(copy);
                     }
                 }
-                if (cut != null || neighbours.Count > 0) {
+                if (cut != null || (neighbours != null && neighbours.Count > 0)) {
                     var topAo = up ? (float)TopAoAt(x, y, z) : 0f;
                     var surface = cut ?? new StationSlopeCut { Axis = 'x', Lo = 1, Hi = 1, Patches = Array.Empty<StationRampPatch>() };
                     foreach (var built in sections) {
                         var edges = built.Edges;
-                        var outline = Outline(built);
+                        var outline = built.Outline;
                         var regions = RampSurfaceRegions(outline, surface, neighbours);
                         foreach (var region in regions) {
                             var polygon = region.Polygon;
@@ -951,7 +1005,7 @@ namespace Metro.View {
                             var gx = height(cxm + 1e-5, cym) - height(cxm - 1e-5, cym);
                             var gy = height(cxm, cym + 1e-5) - height(cxm, cym - 1e-5);
                             var norm = Math.Sqrt(gx * gx + gy * gy + 2e-5 * 2e-5);
-                            var normal = new[] { -gx / norm, -gy / norm, 2e-5 / norm };
+                            double nmx = -gx / norm, nmy = -gy / norm, nmz = 2e-5 / norm;
                             var topFace = -1;
                             var bottomFace = -1;
                             var topRole = SurfaceRole(x, y, z, topI, false, false);
@@ -967,14 +1021,16 @@ namespace Metro.View {
                                 if (up || height(cxm, cym) < 1 - 1e-9) {
                                     if (topFace < 0) topFace = Face(x, y, z, StationFace.Top, topI, topRole);
                                     PushTri(topBuilder, x + cxm, y + cym, z + height(cxm, cym),
-                                        x + p.X, y + p.Y, z + hp, x + q.X, y + q.Y, z + hq, normal, topAo,
-                                        new[] { (cxm, cym), (p.X, p.Y), (q.X, q.Y) }, topFace);
+                                        x + p.X, y + p.Y, z + hp, x + q.X, y + q.Y, z + hq,
+                                        nmx, nmy, nmz, topAo,
+                                        cxm, cym, p.X, p.Y, q.X, q.Y, topFace);
                                 }
                                 if (down) {
                                     if (bottomFace < 0) bottomFace = Face(x, y, z, StationFace.Bottom, bottomI, bottomRole);
                                     PushTri(bottomBuilder, x + cxm, y + cym, z,
-                                        x + q.X, y + q.Y, z, x + p.X, y + p.Y, z, new[] { 0d, 0, -1d }, 0.6f,
-                                        new[] { (cxm, cym), (q.X, q.Y), (p.X, p.Y) }, bottomFace);
+                                        x + q.X, y + q.Y, z, x + p.X, y + p.Y, z,
+                                        0d, 0d, -1d, 0.6f,
+                                        cxm, cym, q.X, q.Y, p.X, p.Y, bottomFace);
                                 }
                                 var dx = q.X - p.X;
                                 var dy = q.Y - p.Y;
@@ -1031,9 +1087,10 @@ namespace Metro.View {
                 }
 
                 // Ordinary uncut cells: the original profile and face-culling path.
-                foreach (var built in sections) {
+                for (int si = 0; si < sections.Count; si++) {
+                    var built = sections[si];
                     var edges = built.Edges;
-                    var shapePoints = Outline(built);
+                    var shapePoints = built.Outline;
                     for (var i = 0; i < edges.Length; i++) {
                         var edge = edges[i];
                         if (!edge.Exposed) continue;
@@ -1049,31 +1106,42 @@ namespace Metro.View {
                             edge.Nx, edge.Ny, 0, (float)ao, 0f, 0f, (float)Math.Sqrt((q.X - p.X) * (q.X - p.X) + (q.Y - p.Y) * (q.Y - p.Y)), 1f,
                             Face(x, y, z, face, finish, sideRole));
                     }
-                    var centroid = Centroid(shapePoints);
+                    if (!up && !down) continue;
+                    var centroid = built.Centroid;
                     var topAo = up ? (float)TopAoAt(x, y, z) : 0f;
                     // A pick record describes a **drawn** surface: only mint it when the
                     // first triangle of that face is actually pushed (an occluded cap
                     // must not appear in `Faces`).
                     var topFace = -1;
                     var bottomFace = -1;
-                    var topRole = SurfaceRole(x, y, z, topI, false, true);
-                    var bottomRole = SurfaceRole(x, y, z, bottomI, false, false);
-                    var topBuilder = Builder(topRole, topI);
-                    var bottomBuilder = Builder(bottomRole, bottomI);
+                    StationSurfaceRole topRole = default;
+                    StationSurfaceRole bottomRole = default;
+                    VecBuilder topBuilder = null;
+                    VecBuilder bottomBuilder = null;
+                    if (up) {
+                        topRole = SurfaceRole(x, y, z, topI, false, true);
+                        topBuilder = Builder(topRole, topI);
+                    }
+                    if (down) {
+                        bottomRole = SurfaceRole(x, y, z, bottomI, false, false);
+                        bottomBuilder = Builder(bottomRole, bottomI);
+                    }
                     for (var i = 0; i < shapePoints.Length; i++) {
                         var p = shapePoints[i];
                         var q = shapePoints[(i + 1) % shapePoints.Length];
                         if (up) {
                             if (topFace < 0) topFace = Face(x, y, z, StationFace.Top, topI, topRole);
                             PushTri(topBuilder, x + centroid.X, y + centroid.Y, z + 1,
-                                x + p.X, y + p.Y, z + 1, x + q.X, y + q.Y, z + 1, new[] { 0d, 0, 1d }, topAo,
-                                new[] { (centroid.X, centroid.Y), (p.X, p.Y), (q.X, q.Y) }, topFace);
+                                x + p.X, y + p.Y, z + 1, x + q.X, y + q.Y, z + 1,
+                                0d, 0d, 1d, topAo,
+                                centroid.X, centroid.Y, p.X, p.Y, q.X, q.Y, topFace);
                         }
                         if (down) {
                             if (bottomFace < 0) bottomFace = Face(x, y, z, StationFace.Bottom, bottomI, bottomRole);
                             PushTri(bottomBuilder, x + centroid.X, y + centroid.Y, z,
-                                x + q.X, y + q.Y, z, x + p.X, y + p.Y, z, new[] { 0d, 0, -1d }, 0.6f,
-                                new[] { (centroid.X, centroid.Y), (q.X, q.Y), (p.X, p.Y) }, bottomFace);
+                                x + q.X, y + q.Y, z, x + p.X, y + p.Y, z,
+                                0d, 0d, -1d, 0.6f,
+                                centroid.X, centroid.Y, q.X, q.Y, p.X, p.Y, bottomFace);
                         }
                     }
                 }
@@ -1154,16 +1222,31 @@ namespace Metro.View {
 
             /* --------------------------------------------------- profile helpers */
 
+            static readonly (int dx, int dy)[] CardinalOffsets = { (1, 0), (-1, 0), (0, 1), (0, -1) };
+
             public void Flush() {
-                foreach (var entry in builderOrder) {
+                for (int i = 0; i < builderOrder.Count; i++) {
+                    var entry = builderOrder[i];
                     var builder = builders[entry];
-                    if (builder.Triangles == 0) continue;
-                    var finishIndex = (int)(entry & 0xffffffffL);
-                    var role = (StationSurfaceRole)(int)(entry >> 32);
-                    var hasAnchor = anchors.TryGetValue(finishIndex, out var anchor);
-                    var group = builder.Build(cx, cy, band, role, session.FinishId(finishIndex), anchor, hasAnchor, session);
-                    session.EmitGroup(group);
+                    try {
+                        if (builder.Triangles == 0) continue;
+                        var finishIndex = (int)(entry & 0xffffffffL);
+                        var role = (StationSurfaceRole)(int)(entry >> 32);
+                        var hasAnchor = anchors.TryGetValue(finishIndex, out var anchor);
+                        if (session.StreamDirect) {
+                            var group = builder.BuildMetadataOnly(cx, cy, band, role, session.FinishId(finishIndex), anchor, hasAnchor, session);
+                            session.EmitStreamedGroup(group, new StationCellMeshBuffers(
+                                builder.Positions, builder.Normals, builder.Colors, builder.Uvs, builder.Indices));
+                        } else {
+                            var group = builder.Build(cx, cy, band, role, session.FinishId(finishIndex), anchor, hasAnchor, session);
+                            session.EmitGroup(group);
+                        }
+                    } finally {
+                        session.ReturnBuilder(builder);
+                    }
                 }
+                builders.Clear();
+                builderOrder.Clear();
             }
 
             Profile BuildProfile(bool e, bool w, bool n, bool s, StationCellInset inset) {
@@ -1306,6 +1389,15 @@ namespace Metro.View {
 
             public int Triangles => Indices.Count / 3;
 
+            public void Clear() {
+                Positions.Clear();
+                Normals.Clear();
+                Colors.Clear();
+                Uvs.Clear();
+                Indices.Clear();
+                TriangleFace.Clear();
+            }
+
             public StationCellMeshGroup Build(int chunkX, int chunkY, int storey, StationSurfaceRole role, string finishId,
                 StationCellKey anchor, bool hasAnchor, IMeshCellSource source) {
                 var count = Positions.Count / 3;
@@ -1337,6 +1429,8 @@ namespace Metro.View {
                     TriangleFaces = triFaces,
                     LocalFaces = localFaces.ToArray(),
                     LocalTriangleFaces = localTriFaces,
+                    RetainedVertexCount = count,
+                    RetainedTriangleCount = Indices.Count / 3,
                 };
                 for (var i = 0; i < count; i++) {
                     group.Positions[i] = new Vector3(Positions[i * 3], Positions[i * 3 + 1], Positions[i * 3 + 2]);
@@ -1351,6 +1445,46 @@ namespace Metro.View {
                 }
                 group.Bounds = bounds;
                 return group;
+            }
+
+            public StationCellMeshGroup BuildMetadataOnly(int chunkX, int chunkY, int storey, StationSurfaceRole role, string finishId,
+                StationCellKey anchor, bool hasAnchor, IMeshCellSource source) {
+                var count = Positions.Count / 3;
+                var triCount = TriangleFace.Count;
+                var localFaces = new List<StationCellFaceRecord>(Math.Min(triCount, 32));
+                var localMap = new Dictionary<int, int>(Math.Min(triCount, 32));
+                var localTriFaces = new int[triCount];
+                for (int t = 0; t < triCount; t++) {
+                    int globalIdx = TriangleFace[t];
+                    if (globalIdx < 0) {
+                        localTriFaces[t] = -1;
+                        continue;
+                    }
+                    if (!localMap.TryGetValue(globalIdx, out int localIdx)) {
+                        localIdx = localFaces.Count;
+                        localFaces.Add(source.GetFaceRecord(globalIdx));
+                        localMap[globalIdx] = localIdx;
+                    }
+                    localTriFaces[t] = localIdx;
+                }
+                var bounds = new Bounds();
+                if (count > 0) {
+                    var p0 = new Vector3(Positions[0], Positions[1], Positions[2]);
+                    bounds.SetMinMax(p0, p0);
+                    for (var i = 1; i < count; i++) {
+                        int o = i * 3;
+                        bounds.Encapsulate(new Vector3(Positions[o], Positions[o + 1], Positions[o + 2]));
+                    }
+                }
+                return new StationCellMeshGroup {
+                    ChunkX = chunkX, ChunkY = chunkY, Storey = storey, Role = role, FinishId = finishId,
+                    Anchor = anchor, HasAnchor = hasAnchor,
+                    LocalFaces = localFaces.ToArray(),
+                    LocalTriangleFaces = localTriFaces,
+                    Bounds = bounds,
+                    RetainedVertexCount = count,
+                    RetainedTriangleCount = Indices.Count / 3,
+                };
             }
         }
 
@@ -1370,7 +1504,14 @@ namespace Metro.View {
 
         internal sealed class Profile {
             public readonly ProfileEdge[] Edges;
-            public Profile(ProfileEdge[] edges) { Edges = edges; }
+            public readonly Pt[] Outline;
+            public readonly Pt Centroid;
+            public Profile(ProfileEdge[] edges) {
+                Edges = edges;
+                Outline = new Pt[edges.Length];
+                for (var i = 0; i < edges.Length; i++) Outline[i] = edges[i].From;
+                Centroid = MeshSession.Centroid(Outline);
+            }
         }
 
         const double HalfWallT = 0.5;
@@ -1510,16 +1651,27 @@ namespace Metro.View {
 
         internal static void PushTri(VecBuilder builder,
             double p0x, double p0y, double p0z, double p1x, double p1y, double p1z, double p2x, double p2y, double p2z,
-            double[] normal, float ao, (double u, double v)[] uvs, int face) {
+            double[] normal, float ao, (double u, double v)[] uvs, int face) =>
+            PushTri(builder, p0x, p0y, p0z, p1x, p1y, p1z, p2x, p2y, p2z,
+                normal[0], normal[1], normal[2], ao,
+                uvs[0].u, uvs[0].v, uvs[1].u, uvs[1].v, uvs[2].u, uvs[2].v, face);
+
+        internal static void PushTri(VecBuilder builder,
+            double p0x, double p0y, double p0z, double p1x, double p1y, double p1z, double p2x, double p2y, double p2z,
+            double nx, double ny, double nz, float ao,
+            double u0, double v0, double u1, double v1, double u2, double v2, int face) {
             var baseIndex = builder.Positions.Count / 3;
             builder.Positions.Add((float)p0x); builder.Positions.Add((float)p0y); builder.Positions.Add((float)p0z);
             builder.Positions.Add((float)p1x); builder.Positions.Add((float)p1y); builder.Positions.Add((float)p1z);
             builder.Positions.Add((float)p2x); builder.Positions.Add((float)p2y); builder.Positions.Add((float)p2z);
+            float fnx = (float)nx, fny = (float)ny, fnz = (float)nz;
             for (var i = 0; i < 3; i++) {
-                builder.Normals.Add((float)normal[0]); builder.Normals.Add((float)normal[1]); builder.Normals.Add((float)normal[2]);
+                builder.Normals.Add(fnx); builder.Normals.Add(fny); builder.Normals.Add(fnz);
                 builder.Colors.Add(ao); builder.Colors.Add(ao); builder.Colors.Add(ao);
-                builder.Uvs.Add((float)uvs[i].u); builder.Uvs.Add((float)uvs[i].v);
             }
+            builder.Uvs.Add((float)u0); builder.Uvs.Add((float)v0);
+            builder.Uvs.Add((float)u1); builder.Uvs.Add((float)v1);
+            builder.Uvs.Add((float)u2); builder.Uvs.Add((float)v2);
             builder.Indices.Add(baseIndex); builder.Indices.Add(baseIndex + 1); builder.Indices.Add(baseIndex + 2);
             builder.TriangleFace.Add(face);
         }

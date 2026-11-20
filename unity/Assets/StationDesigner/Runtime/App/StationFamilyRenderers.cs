@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Metro.App.Views;
 using Metro.Build;
 using Metro.View;
 using Newtonsoft.Json.Linq;
@@ -17,39 +18,112 @@ namespace Metro.App {
         public const string RoleName = "modules";
         public string Role => RoleName;
 
+        const int ChunkSize = 64;
+        const int BatchThreshold = 6;
+
+        readonly struct OutdoorChunkKey : IEquatable<OutdoorChunkKey> {
+            public readonly int Band, ChunkX, ChunkY;
+            public readonly string ViewKey;
+
+            public OutdoorChunkKey(int band, int chunkX, int chunkY, string viewKey) {
+                Band = band; ChunkX = chunkX; ChunkY = chunkY; ViewKey = viewKey ?? "";
+            }
+
+            public bool Equals(OutdoorChunkKey other) =>
+                Band == other.Band && ChunkX == other.ChunkX && ChunkY == other.ChunkY &&
+                string.Equals(ViewKey, other.ViewKey, StringComparison.Ordinal);
+
+            public override bool Equals(object obj) => obj is OutdoorChunkKey other && Equals(other);
+
+            public override int GetHashCode() {
+                unchecked {
+                    int h = Band;
+                    h = (h * 397) ^ ChunkX;
+                    h = (h * 397) ^ ChunkY;
+                    h = (h * 397) ^ StringComparer.Ordinal.GetHashCode(ViewKey);
+                    return h;
+                }
+            }
+
+            public string Label() => "outdoor " + Band + " " + ChunkX + "," + ChunkY + " " + ViewKey;
+        }
+
+        static int ChunkCoord(int value) => value >= 0 ? value / ChunkSize : (value - (ChunkSize - 1)) / ChunkSize;
+
         sealed class OutdoorWorldState {
             public StationWorldView World;
+            public StationPrefabTemplateCache Templates = new StationPrefabTemplateCache();
+            public StationInstancedSurfaceDrawer Drawer;
             public readonly Dictionary<string, GameObject> HoldersById = new Dictionary<string, GameObject>(StringComparer.Ordinal);
             public readonly Dictionary<(int X, int Y, int Z), string> FencesByCell = new Dictionary<(int X, int Y, int Z), string>();
+            public readonly Dictionary<OutdoorChunkKey, StationInstancedPrefabChunk> InstancedChunks =
+                new Dictionary<OutdoorChunkKey, StationInstancedPrefabChunk>();
+            public readonly Dictionary<string, OutdoorChunkKey> ModuleToChunk =
+                new Dictionary<string, OutdoorChunkKey>(StringComparer.Ordinal);
+            public readonly HashSet<(int Band, string ViewKey)> BatchedGroups = new HashSet<(int Band, string ViewKey)>();
+
+            public void Dispose() {
+                foreach (var chunk in InstancedChunks.Values) {
+                    if (chunk == null) continue;
+                    for (int i = 0; i < chunk.ProxyMeshes.Count; i++) {
+                        var mesh = chunk.ProxyMeshes[i];
+                        if (mesh == null) continue;
+                        if (Application.isPlaying) UnityEngine.Object.Destroy(mesh);
+                        else UnityEngine.Object.DestroyImmediate(mesh);
+                    }
+                    chunk.ProxyMeshes.Clear();
+                }
+                InstancedChunks.Clear();
+                ModuleToChunk.Clear();
+                BatchedGroups.Clear();
+                Templates?.Dispose();
+                Templates = null;
+            }
         }
 
         sealed class StagedOutdoorDelta : IStationLocalRendererStage {
             readonly OutdoorWorldState state;
-            readonly HashSet<string> retiredIds;
-            readonly List<(ModuleFacts Module, GameObject Holder, GameObject Instance)> staged;
+            readonly HashSet<string> retiredIndividualIds;
+            readonly List<(ModuleFacts Module, GameObject Holder, GameObject Instance)> stagedIndividual;
+            readonly List<OutdoorChunkKey> dirtyChunks;
+            readonly Dictionary<OutdoorChunkKey, StationInstancedPrefabChunk> stagedChunks;
+            readonly HashSet<string> removedFenceIds;
+            readonly List<ModuleFacts> addedOrUpdatedFences;
             readonly StationIndex prevIndex;
             bool committed;
 
             public StagedOutdoorDelta(
                 OutdoorWorldState state,
-                HashSet<string> retiredIds,
-                List<(ModuleFacts Module, GameObject Holder, GameObject Instance)> staged,
+                HashSet<string> retiredIndividualIds,
+                List<(ModuleFacts Module, GameObject Holder, GameObject Instance)> stagedIndividual,
+                List<OutdoorChunkKey> dirtyChunks,
+                Dictionary<OutdoorChunkKey, StationInstancedPrefabChunk> stagedChunks,
+                HashSet<string> removedFenceIds,
+                List<ModuleFacts> addedOrUpdatedFences,
                 StationIndex prevIndex) {
                 this.state = state;
-                this.retiredIds = retiredIds;
-                this.staged = staged;
+                this.retiredIndividualIds = retiredIndividualIds;
+                this.stagedIndividual = stagedIndividual;
+                this.dirtyChunks = dirtyChunks;
+                this.stagedChunks = stagedChunks;
+                this.removedFenceIds = removedFenceIds;
+                this.addedOrUpdatedFences = addedOrUpdatedFences;
                 this.prevIndex = prevIndex;
             }
 
             public void Commit(StationWorldView world, StationLocalViewCommit commit) {
                 committed = true;
-                if (retiredIds.Count > 0) {
-                    world.RetireRecordsWhere(rec => rec.Role == RoleName && retiredIds.Contains(rec.ModuleId), commit);
-                    foreach (var id in retiredIds) {
+                if (retiredIndividualIds.Count > 0) {
+                    world.RetireRecordsWhere(rec => rec.Role == RoleName && retiredIndividualIds.Contains(rec.ModuleId), commit);
+                    foreach (var id in retiredIndividualIds) {
                         if (state.HoldersById.TryGetValue(id, out var oldHolder)) {
                             state.HoldersById.Remove(id);
                             if (oldHolder != null) commit.RetiredViews.Add(oldHolder);
                         }
+                    }
+                }
+                if (removedFenceIds != null) {
+                    foreach (var id in removedFenceIds) {
                         if (prevIndex != null && prevIndex.TryGetModule(id, out var oldMod) &&
                             oldMod != null && oldMod.Type == "fence") {
                             var cellKey = (oldMod.X, oldMod.Y, oldMod.Z);
@@ -62,11 +136,34 @@ namespace Metro.App {
                 }
 
                 var roleRoot = world.RoleRoot(RoleName);
-                for (int i = 0; i < staged.Count; i++) {
-                    var (module, holder, instance) = staged[i];
+                if (dirtyChunks != null && dirtyChunks.Count > 0) {
+                    for (int i = 0; i < dirtyChunks.Count; i++) {
+                        var ck = dirtyChunks[i];
+                        if (state.InstancedChunks.TryGetValue(ck, out var oldChunk)) {
+                            foreach (var id in oldChunk.ModuleIds) state.ModuleToChunk.Remove(id);
+                            oldChunk.RetireFrom(world, state.Drawer, commit);
+                            state.InstancedChunks.Remove(ck);
+                        }
+                        if (stagedChunks != null && stagedChunks.TryGetValue(ck, out var newChunk) && newChunk.Views.Count > 0) {
+                            for (int v = 0; v < newChunk.Views.Count; v++) {
+                                newChunk.Views[v].transform.SetParent(roleRoot, false);
+                            }
+                            if (state.Drawer != null) {
+                                for (int b = 0; b < newChunk.Batches.Count; b++) state.Drawer.Add(newChunk.Batches[b]);
+                            }
+                            for (int r = 0; r < newChunk.Records.Count; r++) {
+                                world.AddLocalRecord(newChunk.Records[r], commit);
+                            }
+                            foreach (var id in newChunk.ModuleIds) state.ModuleToChunk[id] = ck;
+                            state.InstancedChunks[ck] = newChunk;
+                        }
+                    }
+                }
+
+                for (int i = 0; i < stagedIndividual.Count; i++) {
+                    var (module, holder, instance) = stagedIndividual[i];
                     holder.transform.SetParent(roleRoot, false);
                     state.HoldersById[module.Id] = holder;
-                    if (module.Type == "fence") state.FencesByCell[(module.X, module.Y, module.Z)] = module.Id;
                     world.AddLocalRecord(new StationViewRecord {
                         Role = RoleName,
                         ModuleId = module.Id,
@@ -75,14 +172,25 @@ namespace Metro.App {
                         LevelMax = module.Z + 1,
                     }, commit);
                 }
+
+                if (addedOrUpdatedFences != null) {
+                    for (int i = 0; i < addedOrUpdatedFences.Count; i++) {
+                        var m = addedOrUpdatedFences[i];
+                        if (m != null && m.Type == "fence") state.FencesByCell[(m.X, m.Y, m.Z)] = m.Id;
+                    }
+                }
             }
 
             public void Dispose() {
                 if (committed) return;
-                for (int i = 0; i < staged.Count; i++) {
-                    if (staged[i].Holder != null) StationWorldView.DestroyView(staged[i].Holder);
+                for (int i = 0; i < stagedIndividual.Count; i++) {
+                    if (stagedIndividual[i].Holder != null) StationWorldView.DestroyView(stagedIndividual[i].Holder);
                 }
-                staged.Clear();
+                stagedIndividual.Clear();
+                if (stagedChunks != null) {
+                    foreach (var chunk in stagedChunks.Values) chunk?.DestroyUncommitted();
+                    stagedChunks.Clear();
+                }
             }
         }
 
@@ -97,7 +205,10 @@ namespace Metro.App {
 
         void Purge() {
             for (int i = states.Count - 1; i >= 0; i--) {
-                if (states[i].World == null || states[i].World.IsDisposed) states.RemoveAt(i);
+                if (states[i].World == null || states[i].World.IsDisposed) {
+                    states[i].Dispose();
+                    states.RemoveAt(i);
+                }
             }
         }
 
@@ -113,18 +224,135 @@ namespace Metro.App {
             var facts = new ModuleFacts[records.Count];
             for (int i = 0; i < facts.Length; i++) facts[i] = records[i].Facts;
             var roleRoot = context.RoleRoot(Role);
-            OutdoorModuleViews.BuildAll(facts, context.Catalogue, roleRoot,
-                (module, view) => {
-                    context.World.RegisterModule(Role, module.Id, view.Instance, "", null, module.Z, module.Z + 1);
-                    if (!string.IsNullOrEmpty(module.Id) && view.Instance != null) {
-                        var holder = view.Instance.transform.parent != null && view.Instance.transform.parent != roleRoot
-                            ? view.Instance.transform.parent.gameObject
-                            : view.Instance;
-                        state.HoldersById[module.Id] = holder;
-                        if (module.Type == "fence") state.FencesByCell[(module.X, module.Y, module.Z)] = module.Id;
+            var grid = StationLevelGrid.FromDocument(context.Document.LevelBase, context.Document.StoreyHeight);
+            var connections = StationFenceConnections.For(facts);
+            bool canInstance = SystemInfo.supportsInstancing;
+
+            var candidates = new List<(ModuleFacts Module, RuntimeCatalogue.Entry Entry, string ViewKey, int Band, Matrix4x4 Matrix, StationBox DocBox, StationPrefabMeshTemplate Template)>();
+            var groupCounts = new Dictionary<(int Band, string ViewKey), int>();
+            var fallback = new List<(ModuleFacts Module, OutdoorNeighbours Neighbours)>();
+
+            for (int i = 0; i < facts.Length; i++) {
+                var module = facts[i];
+                if (module == null || !OutdoorModuleViews.Owns(module.Type)) continue;
+                var neighbours = OutdoorModuleViews.Neighbours(module, connections);
+                if (canInstance) {
+                    var visual = ModuleViews.Resolve(module, facts, context.Catalogue);
+                    if (visual.HasModel && context.Catalogue.TryGet(visual.Key, out var entry) && entry.prefab != null &&
+                        OutdoorModuleViews.TryResolveStaticPose(module, entry, neighbours, out var pos, out var rot, out var scale) &&
+                        state.Templates.TryGetTemplate(entry.prefab, out var template)) {
+                        int band = StationModuleLevels.Band(grid, module.Z);
+                        var worldMatrix = Matrix4x4.TRS(pos, rot, scale);
+                        if (!template.TryDocumentBounds(worldMatrix, out var docBox)) {
+                            docBox = new StationBox(module.X, module.Y, module.Z, module.X + Math.Max(1, module.Width), module.Y + Math.Max(1, module.Depth), module.Z + 1);
+                        }
+                        candidates.Add((module, entry, visual.Key, band, worldMatrix, docBox, template));
+                        var gk = (band, visual.Key);
+                        groupCounts.TryGetValue(gk, out int c);
+                        groupCounts[gk] = c + 1;
+                        continue;
                     }
-                },
-                (module, diagnostic) => context.ReportUnresolved("outdoor", module.Type, module.Id, diagnostic));
+                }
+                fallback.Add((module, neighbours));
+            }
+
+            foreach (var kv in groupCounts) {
+                if (kv.Value >= BatchThreshold) state.BatchedGroups.Add(kv.Key);
+            }
+
+            if (state.BatchedGroups.Count > 0) {
+                state.Drawer = StationInstancedSurfaceDrawer.EnsureFor(context.Root);
+                var chunkItems = new Dictionary<OutdoorChunkKey, (StationPrefabMeshTemplate Template, List<StationStaticPrefabItem> Items)>();
+                for (int i = 0; i < candidates.Count; i++) {
+                    var c = candidates[i];
+                    if (!state.BatchedGroups.Contains((c.Band, c.ViewKey))) {
+                        fallback.Add((c.Module, OutdoorModuleViews.Neighbours(c.Module, connections)));
+                        continue;
+                    }
+                    var ck = new OutdoorChunkKey(c.Band, ChunkCoord(c.Module.X), ChunkCoord(c.Module.Y), c.ViewKey);
+                    if (!chunkItems.TryGetValue(ck, out var entryList)) {
+                        entryList = (c.Template, new List<StationStaticPrefabItem>());
+                        chunkItems[ck] = entryList;
+                    }
+                    entryList.Items.Add(new StationStaticPrefabItem(c.Module.Id, c.Matrix, c.DocBox));
+                    if (c.Module.Type == "fence" && !string.IsNullOrEmpty(c.Module.Id)) {
+                        state.FencesByCell[(c.Module.X, c.Module.Y, c.Module.Z)] = c.Module.Id;
+                    }
+                }
+                foreach (var kv in chunkItems) {
+                    var ck = kv.Key;
+                    var chunk = StationInstancedPrefabChunk.Build(
+                        RoleName,
+                        ck.Label(),
+                        kv.Value.Template,
+                        state.Templates,
+                        roleRoot,
+                        kv.Value.Items,
+                        ck.Band,
+                        ck.Band,
+                        new[] { ck.Band });
+                    chunk.RegisterInto(context.World, state.Drawer);
+                    state.InstancedChunks[ck] = chunk;
+                    foreach (var id in chunk.ModuleIds) state.ModuleToChunk[id] = ck;
+                }
+            } else {
+                for (int i = 0; i < candidates.Count; i++) {
+                    fallback.Add((candidates[i].Module, OutdoorModuleViews.Neighbours(candidates[i].Module, connections)));
+                }
+            }
+
+            for (int i = 0; i < fallback.Count; i++) {
+                var (module, neighbours) = fallback[i];
+                BuildSingleOutdoor(context, state, roleRoot, facts, module, neighbours);
+            }
+        }
+
+        void BuildSingleOutdoor(
+            StationViewBuildContext context,
+            OutdoorWorldState state,
+            Transform roleRoot,
+            ModuleFacts[] station,
+            ModuleFacts module,
+            OutdoorNeighbours neighbours) {
+            var visual = ModuleViews.Resolve(module, station, context.Catalogue);
+            if (!visual.HasModel) {
+                context.ReportUnresolved("outdoor", module.Type, module.Id,
+                    "unresolved:" + (visual.Detail.Length > 0 ? visual.Detail : "no-view"));
+                return;
+            }
+            if (!context.Catalogue.TryGet(visual.Key, out var entry) || entry.prefab == null) {
+                context.ReportUnresolved("outdoor", module.Type, module.Id, "unresolved:no-prefab:" + visual.Key);
+                return;
+            }
+            var holder = new GameObject(string.IsNullOrEmpty(module.Id) ? "outdoor pivot" : module.Id + " pivot");
+            holder.transform.SetParent(roleRoot, false);
+            holder.transform.SetPositionAndRotation(ModulePlacement.Position(module, entry), ModulePlacement.Rotation(module.Rotation));
+            var request = new OutdoorModuleRequest {
+                ModuleId = module.Id,
+                Type = module.Type,
+                ViewKey = visual.Key,
+                Variant = module.Config.Text("variant"),
+                Mount = module.Config.Text("mount"),
+                ConfigJson = "",
+                DimensionsJson = module.Width + "x" + module.Depth,
+                X = module.X, Y = module.Y, Z = module.Z,
+                Rotation = module.Rotation,
+                Width = module.Width, Depth = module.Depth,
+                Prefab = entry.prefab,
+                Catalogue = context.Catalogue,
+                Placement = OutdoorPlacement.ParentPlaced,
+                Neighbours = neighbours,
+            };
+            if (!OutdoorModuleViews.TryBuild(request, holder.transform, null, out var view)) {
+                context.ReportUnresolved("outdoor", module.Type, module.Id, view.Diagnostic);
+                StationWorldView.DestroyView(holder);
+                return;
+            }
+            context.World.RegisterModule(Role, module.Id, view.Instance, "", null, module.Z, module.Z + 1);
+            if (!string.IsNullOrEmpty(module.Id) && view.Instance != null) {
+                state.HoldersById[module.Id] = holder;
+                if (module.Type == "fence") state.FencesByCell[(module.X, module.Y, module.Z)] = module.Id;
+            }
         }
 
         static bool AffectsFenceConnectivity(string type) =>
@@ -211,18 +439,35 @@ namespace Metro.App {
                 return false;
             }
 
-            var retiredIds = new HashSet<string>(removedIds, StringComparer.Ordinal);
-            var staged = new List<(ModuleFacts Module, GameObject Holder, GameObject Instance)>(dirtyIds.Count);
-            var fenceFacts = dirtyIds.Count > 0 && string.Equals(Role, "fences", StringComparison.Ordinal)
-                ? context.GetNextFactsOfTypes("fence", "gate")
+            var grid = StationLevelGrid.FromDocument(context.NextDocument.LevelBase, context.NextDocument.StoreyHeight);
+            var retiredIndividualIds = new HashSet<string>(StringComparer.Ordinal);
+            var dirtyChunkSet = new HashSet<OutdoorChunkKey>();
+            var removedFenceIds = new HashSet<string>(StringComparer.Ordinal);
+            var addedOrUpdatedFences = new List<ModuleFacts>();
+
+            foreach (var id in removedIds) {
+                removedFenceIds.Add(id);
+                if (state.ModuleToChunk.TryGetValue(id, out var oldChunk)) dirtyChunkSet.Add(oldChunk);
+                else retiredIndividualIds.Add(id);
+            }
+
+            var fenceFacts = (dirtyIds.Count > 0 || dirtyChunkSet.Count > 0)
+                ? context.GetNextFactsOfTypes("fence", "gate", "stair", "escalator", "walkway")
                 : null;
             var connections = fenceFacts != null ? StationFenceConnections.For(fenceFacts) : null;
 
+            var stagedIndividual = new List<(ModuleFacts Module, GameObject Holder, GameObject Instance)>();
+            var stagedChunks = new Dictionary<OutdoorChunkKey, StationInstancedPrefabChunk>();
+
             try {
                 foreach (var id in dirtyIds) {
-                    retiredIds.Add(id);
+                    removedFenceIds.Add(id);
+                    if (state.ModuleToChunk.TryGetValue(id, out var prevChunk)) dirtyChunkSet.Add(prevChunk);
+                    else if (state.HoldersById.ContainsKey(id)) retiredIndividualIds.Add(id);
+
                     if (!context.NextIndex.TryGetModule(id, out var record) || record == null) continue;
                     var module = record.Facts;
+                    addedOrUpdatedFences.Add(module);
                     var visual = ModuleViews.Resolve(module, Array.Empty<ModuleFacts>(), catalogue);
                     if (!visual.HasModel) {
                         context.ReportUnresolved("outdoor", module.Type, module.Id,
@@ -231,6 +476,14 @@ namespace Metro.App {
                     }
                     if (!catalogue.TryGet(visual.Key, out var entry) || entry.prefab == null) {
                         context.ReportUnresolved("outdoor", module.Type, module.Id, "unresolved:no-prefab:" + visual.Key);
+                        continue;
+                    }
+                    var neighbours = OutdoorModuleViews.Neighbours(module, connections);
+                    int band = StationModuleLevels.Band(grid, module.Z);
+                    if (state.BatchedGroups.Contains((band, visual.Key)) &&
+                        OutdoorModuleViews.TryResolveStaticPose(module, entry, neighbours, out _, out _, out _) &&
+                        state.Templates.TryGetTemplate(entry.prefab, out _)) {
+                        dirtyChunkSet.Add(new OutdoorChunkKey(band, ChunkCoord(module.X), ChunkCoord(module.Y), visual.Key));
                         continue;
                     }
                     var holder = new GameObject(string.IsNullOrEmpty(module.Id) ? "outdoor pivot" : module.Id + " pivot");
@@ -250,7 +503,7 @@ namespace Metro.App {
                         Prefab = entry.prefab,
                         Catalogue = catalogue,
                         Placement = OutdoorPlacement.ParentPlaced,
-                        Neighbours = OutdoorModuleViews.Neighbours(module, connections),
+                        Neighbours = neighbours,
                     };
                     if (!OutdoorModuleViews.TryBuild(request, holder.transform, null, out var view)) {
                         context.ReportUnresolved("outdoor", module.Type, module.Id, view.Diagnostic);
@@ -258,14 +511,60 @@ namespace Metro.App {
                         continue;
                     }
                     StationEditTrace.AddInstantiatedPrefab();
-                    staged.Add((module, holder, view.Instance));
+                    stagedIndividual.Add((module, holder, view.Instance));
                 }
-                stage = new StagedOutdoorDelta(state, retiredIds, staged, context.PrevIndex);
+
+                var dirtyChunkList = new List<OutdoorChunkKey>(dirtyChunkSet);
+                if (dirtyChunkList.Count > 0) {
+                    var itemsByChunk = new Dictionary<OutdoorChunkKey, (StationPrefabMeshTemplate Template, List<StationStaticPrefabItem> Items)>();
+                    var nextOutdoor = context.GetNextFactsOfTypes("fence", "tree");
+                    for (int i = 0; i < nextOutdoor.Length; i++) {
+                        var m = nextOutdoor[i];
+                        if (m == null) continue;
+                        int band = StationModuleLevels.Band(grid, m.Z);
+                        int cx = ChunkCoord(m.X), cy = ChunkCoord(m.Y);
+                        var visual = ModuleViews.Resolve(m, Array.Empty<ModuleFacts>(), catalogue);
+                        if (!visual.HasModel) continue;
+                        var ck = new OutdoorChunkKey(band, cx, cy, visual.Key);
+                        if (!dirtyChunkSet.Contains(ck)) continue;
+                        if (!catalogue.TryGet(visual.Key, out var entry) || entry.prefab == null) continue;
+                        var neighbours = OutdoorModuleViews.Neighbours(m, connections);
+                        if (!OutdoorModuleViews.TryResolveStaticPose(m, entry, neighbours, out var pos, out var rot, out var scale)) continue;
+                        if (!state.Templates.TryGetTemplate(entry.prefab, out var template)) continue;
+                        var worldMatrix = Matrix4x4.TRS(pos, rot, scale);
+                        if (!template.TryDocumentBounds(worldMatrix, out var docBox)) {
+                            docBox = new StationBox(m.X, m.Y, m.Z, m.X + Math.Max(1, m.Width), m.Y + Math.Max(1, m.Depth), m.Z + 1);
+                        }
+                        if (!itemsByChunk.TryGetValue(ck, out var list)) {
+                            list = (template, new List<StationStaticPrefabItem>());
+                            itemsByChunk[ck] = list;
+                        }
+                        list.Items.Add(new StationStaticPrefabItem(m.Id, worldMatrix, docBox));
+                    }
+                    for (int i = 0; i < dirtyChunkList.Count; i++) {
+                        var ck = dirtyChunkList[i];
+                        if (!itemsByChunk.TryGetValue(ck, out var builtItems) || builtItems.Items.Count == 0) continue;
+                        stagedChunks[ck] = StationInstancedPrefabChunk.Build(
+                            RoleName,
+                            ck.Label(),
+                            builtItems.Template,
+                            state.Templates,
+                            context.StagingRoot,
+                            builtItems.Items,
+                            ck.Band,
+                            ck.Band,
+                            new[] { ck.Band });
+                    }
+                }
+
+                stage = new StagedOutdoorDelta(state, retiredIndividualIds, stagedIndividual, dirtyChunkList, stagedChunks,
+                    removedFenceIds, addedOrUpdatedFences, context.PrevIndex);
                 return true;
             } catch {
-                for (int i = 0; i < staged.Count; i++) {
-                    if (staged[i].Holder != null) StationWorldView.DestroyView(staged[i].Holder);
+                for (int i = 0; i < stagedIndividual.Count; i++) {
+                    if (stagedIndividual[i].Holder != null) StationWorldView.DestroyView(stagedIndividual[i].Holder);
                 }
+                foreach (var chunk in stagedChunks.Values) chunk?.DestroyUncommitted();
                 throw;
             }
         }

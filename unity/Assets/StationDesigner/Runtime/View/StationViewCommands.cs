@@ -703,9 +703,13 @@ namespace Metro.View {
             switch (command.Key) {
                 case StationViewKey.Level:
                     if (!Grid.TryValidate(command.IntValue, out int accepted)) { code = "level-outside-grid"; return false; }
+                    if (state.ActiveLevel == accepted && Camera.ActiveLevel == accepted && Visibility.HasApplied) {
+                        return true;
+                    }
+                    int previousLevel = state.ActiveLevel;
                     Camera.SetActiveLevel(accepted);
                     state.ActiveLevel = accepted;
-                    Visibility.Apply();
+                    Visibility.ApplyLevelChange(previousLevel);
                     return true;
                 case StationViewKey.ShowLevels:
                     state.ShowLevels = command.BoolValue;

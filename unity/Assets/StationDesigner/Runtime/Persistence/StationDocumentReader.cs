@@ -100,7 +100,25 @@ namespace Metro.Persistence {
         };
 
         /// <summary>Read a station envelope. Throws <see cref="StationRejectedException"/> on a refusal.</summary>
-        public static StationReadResult Read(string json, StationSource source) {
+        public static StationReadResult Read(string json, StationSource source) => Read(json, source, null);
+
+        sealed class ProjectedSave {
+            public StationCellRecord[] Cells;
+            public StationModuleRecord[] Modules;
+            public StationLineRecord[] Lines;
+            public JObject RootHeader;
+            public string RawRootJson;
+            public string Name, NameEn, City, FormattedSavedAt;
+            public long Seed;
+            public int LevelBase, StoreyHeight, DroppedCells, DroppedModules;
+            public StationDay Day;
+            public StationSource ResolvedSource;
+            public StationRepairReport Repairs;
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        static ProjectedSave ParseAndProject(string json, StationSource source, Action<string> markLoad) {
+            markLoad?.Invoke("parse.begin");
             if (json == null) throw Reject("parse-failed", StationRecordKind.Document, "", "", "The station input is null.");
             JObject envelope;
             try {
@@ -108,6 +126,7 @@ namespace Metro.Persistence {
             } catch (JsonException error) {
                 throw Reject("parse-failed", StationRecordKind.Document, "", "", "The station is not valid JSON: " + error.Message);
             }
+            markLoad?.Invoke("parse.end");
             if (!string.Equals((string)envelope["format"], SaveFormat, StringComparison.Ordinal))
                 throw Reject("parse-failed", StationRecordKind.Document, "", "", "The input is not a metro-save document.");
             var versionToken = envelope["formatVersion"];
@@ -124,6 +143,7 @@ namespace Metro.Persistence {
             var resolvedSource = source.Hash.Length == 0 ? new StationSource(source.Path, Hash(json)) : source;
             json = null;
 
+            markLoad?.Invoke("repair.begin");
             StationSaveV1 save;
             try {
                 save = StationSaveV1.ReadOwned(envelope);
@@ -138,6 +158,7 @@ namespace Metro.Persistence {
             // The repaired state the save reader already built: projecting it in place avoids a
             // second full serialize + parse of the station (plan 29 §3), and detaching each
             // array as soon as it is projected bounds peak heap usage on large stations.
+            markLoad?.Invoke("repair.end");
             var state = save.State;
             var city = Str(state["cityStyle"]);
             var modules = ReadModules((JArray)state["modules"], city);
@@ -146,6 +167,7 @@ namespace Metro.Persistence {
             state.Remove("cells");
             var lines = ReadLines((JArray)state["lines"]);
             state.Remove("lines");
+            envelope.Remove("static");
 
             var savedAt = Str(envelope["savedAt"]);
             if (savedAt.Length == 0) savedAt = FixedSavedAt;
@@ -160,32 +182,55 @@ namespace Metro.Persistence {
             if (formattedSavedAt.Length == 0) formattedSavedAt = savedAt;
             var rawRootJson = CanonicalRootJson(rootHeader);
 
-#if UNITY_WEBGL && !UNITY_EDITOR
-            GC.Collect();
-#endif
+            return new ProjectedSave {
+                Cells = cells,
+                Modules = modules,
+                Lines = lines,
+                RootHeader = rootHeader,
+                RawRootJson = rawRootJson,
+                Name = Str(state["name"]),
+                NameEn = Str(state["nameEn"]),
+                City = city,
+                FormattedSavedAt = formattedSavedAt,
+                Seed = (long)Num(state["seed"], 1234567),
+                LevelBase = (int)Num(state["levelBase"], 0),
+                StoreyHeight = (int)Num(state["storeyHeight"], 5),
+                Day = ReadDay(state),
+                DroppedCells = save.DroppedCells,
+                DroppedModules = save.DroppedModules,
+                ResolvedSource = resolvedSource,
+                Repairs = save.Repairs ?? new StationRepairReport(),
+            };
+        }
 
-            var cellPages = StationRecordPages<StationCellRecord>.FromArray(cells, out var cellPageIds);
-            var modulePages = StationRecordPages<StationModuleRecord>.FromArray(modules, out var modulePageIds);
-            var lineList = new ReadOnlyCollection<StationLineRecord>(lines ?? Array.Empty<StationLineRecord>());
+        public static StationReadResult Read(string json, StationSource source, Action<string> markLoad) {
+            var projected = ParseAndProject(json, source, markLoad);
+            json = null;
+
+            var cellPages = StationRecordPages<StationCellRecord>.FromArray(projected.Cells, out var cellPageIds);
+            var modulePages = StationRecordPages<StationModuleRecord>.FromArray(projected.Modules, out var modulePageIds);
+            var lineList = new ReadOnlyCollection<StationLineRecord>(projected.Lines ?? Array.Empty<StationLineRecord>());
+            var rootHeader = projected.RootHeader;
 
             var document = new StationDocument(
-                Str(state["name"]), Str(state["nameEn"]), city,
-                (long)Num(state["seed"], 1234567),
-                (int)Num(state["levelBase"], 0), (int)Num(state["storeyHeight"], 5),
-                ReadDay(state), cellPages, modulePages, lineList,
-                save.DroppedCells, save.DroppedModules, resolvedSource, formattedSavedAt,
+                projected.Name, projected.NameEn, projected.City,
+                projected.Seed, projected.LevelBase, projected.StoreyHeight,
+                projected.Day, cellPages, modulePages, lineList,
+                projected.DroppedCells, projected.DroppedModules, projected.ResolvedSource, projected.FormattedSavedAt,
                 null,
                 doc => SerializeEnvelope(rootHeader, doc.SavedAt, doc),
-                doc => Hash(doc.NormalizedJson),
-                rawRootJson, cellPageIds, modulePageIds);
+                doc => HashEnvelope(rootHeader, doc.SavedAt, doc),
+                projected.RawRootJson, cellPageIds, modulePageIds);
             RegisterRootHeader(document, rootHeader);
 
+            markLoad?.Invoke("index.begin");
             StationIndex index;
             StationRejection rejection;
             if (!StationIndex.TryCreate(document, out index, out rejection)) throw new StationRejectedException(rejection);
 
+            markLoad?.Invoke("index.end");
             var diagnostics = new List<StationDiagnostic>(index.Diagnostics);
-            var repairs = save.Repairs ?? new StationRepairReport();
+            var repairs = projected.Repairs;
             var readerDiagnostics = new List<StationDiagnostic>();
             if (repairs.AdPosters > 0)
                 readerDiagnostics.Add(new StationDiagnostic("ad-posters-backfilled", StationDiagnosticSeverity.Info, "module", "",
@@ -238,14 +283,39 @@ namespace Metro.Persistence {
             header.Remove("static");
             var headerJson = header.ToString(Formatting.None);
 
-            int estimatedBytes = headerJson.Length + document.CellCount * 64 + document.ModuleCount * 96 + document.LineCount * 256 + 128;
-            var sb = new StringBuilder(Math.Max(256, estimatedBytes));
+            int exactLength = Math.Max(0, headerJson.Length - 1) + (headerJson.Length > 2 ? 1 : 0)
+                + "\"static\":{\"cells\":[".Length
+                + "],\"modules\":[".Length
+                + "],\"lines\":[".Length
+                + "]}}".Length;
+            var cellPages = document.CellPages;
+            int totalCells = 0;
+            for (int p = 0; p < cellPages.PageCount; p++) {
+                var page = cellPages.PageSpan(p);
+                totalCells += page.Length;
+                for (int j = 0; j < page.Length; j++) exactLength += page[j].RawJson.Length;
+            }
+            if (totalCells > 1) exactLength += totalCells - 1;
+
+            var modPages = document.ModulePages;
+            int totalMods = 0;
+            for (int p = 0; p < modPages.PageCount; p++) {
+                var page = modPages.PageSpan(p);
+                totalMods += page.Length;
+                for (int j = 0; j < page.Length; j++) exactLength += page[j].RawJson.Length;
+            }
+            if (totalMods > 1) exactLength += totalMods - 1;
+
+            var lines = document.Lines;
+            for (int i = 0; i < lines.Count; i++) exactLength += lines[i].RawJson.Length;
+            if (lines.Count > 1) exactLength += lines.Count - 1;
+
+            var sb = new StringBuilder(Math.Max(256, exactLength));
             sb.Append(headerJson, 0, headerJson.Length - 1);
             if (headerJson.Length > 2) sb.Append(',');
             sb.Append("\"static\":{\"cells\":[");
 
             bool first = true;
-            var cellPages = document.CellPages;
             for (int p = 0; p < cellPages.PageCount; p++) {
                 var page = cellPages.PageSpan(p);
                 for (int j = 0; j < page.Length; j++) {
@@ -257,7 +327,6 @@ namespace Metro.Persistence {
 
             sb.Append("],\"modules\":[");
             first = true;
-            var modPages = document.ModulePages;
             for (int p = 0; p < modPages.PageCount; p++) {
                 var page = modPages.PageSpan(p);
                 for (int j = 0; j < page.Length; j++) {
@@ -268,13 +337,134 @@ namespace Metro.Persistence {
             }
 
             sb.Append("],\"lines\":[");
-            var lines = document.Lines;
             for (int i = 0; i < lines.Count; i++) {
                 if (i > 0) sb.Append(',');
                 sb.Append(lines[i].RawJson);
             }
             sb.Append("]}}");
             return sb.ToString();
+        }
+
+        internal static void WriteEnvelopeSegments(JObject rootHeader, string savedAtText, StationDocument document, Action<string> write) {
+            if (document == null || write == null) return;
+            var header = rootHeader != null ? (JObject)rootHeader.DeepClone() : new JObject();
+            header["format"] = SaveFormat;
+            header["formatVersion"] = SupportedVersion;
+            header["savedAt"] = string.IsNullOrEmpty(savedAtText) ? FixedSavedAt : savedAtText;
+            header.Remove("static");
+            var headerJson = header.ToString(Formatting.None);
+
+            if (headerJson.Length > 1) write(headerJson.Substring(0, headerJson.Length - 1));
+            if (headerJson.Length > 2) write(",");
+            write("\"static\":{\"cells\":[");
+
+            var cellPages = document.CellPages;
+            bool first = true;
+            for (int p = 0; p < cellPages.PageCount; p++) {
+                var page = cellPages.PageSpan(p);
+                for (int j = 0; j < page.Length; j++) {
+                    if (!first) write(",");
+                    first = false;
+                    write(page[j].RawJson);
+                }
+            }
+
+            write("],\"modules\":[");
+            var modPages = document.ModulePages;
+            first = true;
+            for (int p = 0; p < modPages.PageCount; p++) {
+                var page = modPages.PageSpan(p);
+                for (int j = 0; j < page.Length; j++) {
+                    if (!first) write(",");
+                    first = false;
+                    write(page[j].RawJson);
+                }
+            }
+
+            write("],\"lines\":[");
+            var lines = document.Lines;
+            for (int i = 0; i < lines.Count; i++) {
+                if (i > 0) write(",");
+                write(lines[i].RawJson);
+            }
+            write("]}}");
+        }
+
+        /// <summary>True when <paramref name="document"/> can be streamed segment-by-segment without materializing a full envelope string.</summary>
+        public static bool CanStreamEnvelope(StationDocument document) =>
+            document != null && (TryGetRootHeader(document, out _) || document.HasMaterializedJson);
+
+        /// <summary>True when <paramref name="document"/> can stream a freshly stamped save envelope without materializing a full string.</summary>
+        public static bool CanStreamSavedEnvelope(StationDocument document) =>
+            document != null && TryGetRootHeader(document, out _);
+
+        /// <summary>Stream the document's normalized envelope in small segments without allocating a single multi-MiB string.</summary>
+        public static bool TryWriteNormalizedEnvelope(StationDocument document, Action<string> write) {
+            if (document == null || write == null) return false;
+            if (TryGetRootHeader(document, out var rootHeader)) {
+                WriteEnvelopeSegments(rootHeader, document.SavedAt, document, write);
+                return true;
+            }
+            if (document.HasMaterializedJson) {
+                write(document.NormalizedJson);
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>Stream a freshly stamped save envelope in small segments without allocating a single multi-MiB string.</summary>
+        public static bool TryWriteSavedEnvelope(StationDocument document, DateTimeOffset savedAt, Action<string> write) {
+            if (document == null || write == null) return false;
+            if (TryGetRootHeader(document, out var rootHeader)) {
+                WriteEnvelopeSegments(rootHeader, FormatSavedAt(savedAt), document, write);
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>Streamed lower-case SHA-256 of the document's normalized envelope without materializing <see cref="StationDocument.NormalizedJson"/>.</summary>
+        public static string HashNormalizedEnvelope(StationDocument document) {
+            if (document == null) return Hash("");
+            if (TryGetRootHeader(document, out var rootHeader))
+                return HashEnvelope(rootHeader, document.SavedAt, document);
+            return Hash(document.NormalizedJson);
+        }
+
+        /// <summary>Streamed lower-case SHA-256 of the normalized envelope directly from record pages (zero multi-MiB allocations).</summary>
+        internal static string HashEnvelope(JObject rootHeader, string savedAtText, StationDocument document) {
+            if (document == null) return Hash("");
+            using (var sha = SHA256.Create()) {
+                const int CharChunk = 16384;
+                var charBuf = new char[CharChunk];
+                var byteBuf = new byte[Encoding.UTF8.GetMaxByteCount(CharChunk)];
+                var encoder = Encoding.UTF8.GetEncoder();
+                int buffered = 0;
+
+                void Feed(string segment) {
+                    if (string.IsNullOrEmpty(segment)) return;
+                    int offset = 0;
+                    while (offset < segment.Length) {
+                        int copy = Math.Min(CharChunk - buffered, segment.Length - offset);
+                        segment.CopyTo(offset, charBuf, buffered, copy);
+                        buffered += copy;
+                        offset += copy;
+                        if (buffered == CharChunk) {
+                            int bytes = encoder.GetBytes(charBuf, 0, buffered, byteBuf, 0, false);
+                            if (bytes > 0) sha.TransformBlock(byteBuf, 0, bytes, null, 0);
+                            buffered = 0;
+                        }
+                    }
+                }
+
+                WriteEnvelopeSegments(rootHeader, savedAtText, document, Feed);
+
+                int finalBytes = encoder.GetBytes(charBuf, 0, buffered, byteBuf, 0, true);
+                sha.TransformFinalBlock(byteBuf, 0, finalBytes);
+                var hash = sha.Hash;
+                var builder = new StringBuilder(hash.Length * 2);
+                for (int i = 0; i < hash.Length; i++) builder.Append(hash[i].ToString("x2", CultureInfo.InvariantCulture));
+                return builder.ToString();
+            }
         }
 
         /// <summary>Read a station from a file path; the path and content hash travel with the document.</summary>
@@ -312,12 +502,31 @@ namespace Metro.Persistence {
         /// <summary>Write with the current UTC time.</summary>
         public static string Write(StationDocument document) => Write(document, DateTimeOffset.UtcNow);
 
-        /// <summary>Lower-case SHA-256 of the exact input text.</summary>
+        /// <summary>Lower-case SHA-256 of the exact input text (streamed in fixed chunks to avoid multi-MiB byte arrays).</summary>
         public static string Hash(string text) {
+            text = text ?? "";
             using (var sha = SHA256.Create()) {
-                var bytes = sha.ComputeHash(Encoding.UTF8.GetBytes(text ?? ""));
-                var builder = new StringBuilder(bytes.Length * 2);
-                for (int i = 0; i < bytes.Length; i++) builder.Append(bytes[i].ToString("x2", CultureInfo.InvariantCulture));
+                if (text.Length == 0) {
+                    sha.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
+                } else {
+                    const int CharChunk = 16384;
+                    var charBuf = new char[Math.Min(CharChunk, text.Length)];
+                    var byteBuf = new byte[Encoding.UTF8.GetMaxByteCount(charBuf.Length)];
+                    var encoder = Encoding.UTF8.GetEncoder();
+                    int offset = 0;
+                    while (offset < text.Length) {
+                        int count = Math.Min(charBuf.Length, text.Length - offset);
+                        text.CopyTo(offset, charBuf, 0, count);
+                        offset += count;
+                        bool flush = offset >= text.Length;
+                        int bytes = encoder.GetBytes(charBuf, 0, count, byteBuf, 0, flush);
+                        if (flush) sha.TransformFinalBlock(byteBuf, 0, bytes);
+                        else if (bytes > 0) sha.TransformBlock(byteBuf, 0, bytes, null, 0);
+                    }
+                }
+                var hash = sha.Hash;
+                var builder = new StringBuilder(hash.Length * 2);
+                for (int i = 0; i < hash.Length; i++) builder.Append(hash[i].ToString("x2", CultureInfo.InvariantCulture));
                 return builder.ToString();
             }
         }
@@ -327,10 +536,16 @@ namespace Metro.Persistence {
 
         static StationCellRecord[] ReadCells(JArray source) {
             var cells = new StationCellRecord[source.Count];
+            var sb = new StringBuilder(256);
+            using var sw = new StringWriter(sb, CultureInfo.InvariantCulture);
+            using var jw = new JsonTextWriter(sw) { Formatting = Formatting.None };
             for (int i = 0; i < source.Count; i++) {
                 var cell = source[i] as JObject;
                 if (cell == null) throw Reject("parse-failed", StationRecordKind.Cell, "cell", "#" + i, "A saved cell is not an object.");
-                cells[i] = BuildCellRecord(cell);
+                sb.Clear();
+                cell.WriteTo(jw);
+                jw.Flush();
+                cells[i] = BuildCellRecord(cell, sb.ToString());
             }
             return cells;
         }
@@ -339,19 +554,20 @@ namespace Metro.Persistence {
         /// One saved cell → its typed record. Shared with the local edit path, which projects
         /// only the records a patch touched (plan 30 §3).
         /// </summary>
-        internal static StationCellRecord BuildCellRecord(JObject cell) {
-            var finish = new Dictionary<string, string>(StringComparer.Ordinal);
-            if (cell["finish"] is JObject faces) {
+        internal static StationCellRecord BuildCellRecord(JObject cell, string rawJson = null) {
+            Dictionary<string, string> finish = null;
+            if (cell["finish"] is JObject faces && faces.HasValues) {
                 foreach (var face in faces.Properties()) {
                     var value = face.Value;
                     if (value == null || value.Type == JTokenType.Null) continue;
+                    if (finish == null) finish = new Dictionary<string, string>(StringComparer.Ordinal);
                     finish[face.Name] = value.Type == JTokenType.String ? (string)value : value.ToString(Formatting.None);
                 }
             }
             return new StationCellRecord(
                 Int(cell["x"]), Int(cell["y"]), Int(cell["z"]),
                 Str(cell["shape"]), Str(cell["fill"]), Str(cell["zone"]),
-                StringArray(cell["tags"]), finish, Str(cell["room"]), cell.ToString(Formatting.None));
+                StringArray(cell["tags"]), finish, Str(cell["room"]), rawJson ?? cell.ToString(Formatting.None));
         }
 
         /// <summary>The typed key of one saved cell record, as <see cref="BuildCellRecord"/> reads it.</summary>
@@ -360,10 +576,16 @@ namespace Metro.Persistence {
 
         static StationModuleRecord[] ReadModules(JArray source, string city) {
             var modules = new StationModuleRecord[source.Count];
+            var sb = new StringBuilder(256);
+            using var sw = new StringWriter(sb, CultureInfo.InvariantCulture);
+            using var jw = new JsonTextWriter(sw) { Formatting = Formatting.None };
             for (int i = 0; i < source.Count; i++) {
                 var module = source[i] as JObject;
                 if (module == null) throw Reject("parse-failed", StationRecordKind.Module, "module", "#" + i, "A saved module is not an object.");
-                modules[i] = BuildModule(module, city);
+                sb.Clear();
+                module.WriteTo(jw);
+                jw.Flush();
+                modules[i] = BuildModule(module, city, sb.ToString());
             }
             return modules;
         }
@@ -372,7 +594,7 @@ namespace Metro.Persistence {
         /// One saved module → its typed record. Shared with the repair pass, which
         /// needs the same facts to answer placement for a bridge-pillar candidate.
         /// </summary>
-        internal static StationModuleRecord BuildModule(JObject module, string city) {
+        internal static StationModuleRecord BuildModule(JObject module, string city, string rawJson = null) {
             var type = Str(module["type"]);
             var id = Str(module["id"]);
             if (type.Length == 0) throw Reject("unsupported-record", StationRecordKind.Module, "module", id, "The module has no type.");
@@ -397,7 +619,7 @@ namespace Metro.Persistence {
                 Int(module["h"], 1), facts.CeilingAnchored,
                 facts.From.HasValue ? new StationPoint(facts.From.X, facts.From.Y, facts.From.Z) : (StationPoint?)null,
                 facts.To.HasValue ? new StationPoint(facts.To.X, facts.To.Y, facts.To.Z) : (StationPoint?)null,
-                StringArray(module["tags"]), module.ToString(Formatting.None), facts,
+                StringArray(module["tags"]), rawJson ?? module.ToString(Formatting.None), facts,
                 Num(module["panelH"], 0), offsetX, offsetY);
         }
 

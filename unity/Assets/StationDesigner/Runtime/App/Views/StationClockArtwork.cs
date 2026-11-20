@@ -54,7 +54,7 @@ namespace Metro.App.Views {
             /// <summary>The angle the arm is baked at, degrees clockwise from 12 o'clock.</summary>
             public float AuthoredDegrees;
             /// <summary>The angle last applied, degrees clockwise from 12 o'clock.</summary>
-            public float AppliedDegrees;
+            public float AppliedDegrees = float.NaN;
             public override string ToString() =>
                 (Minute ? "minute" : "hour") + " face" + Face + " authored=" +
                 AuthoredDegrees.ToString("0.##", CultureInfo.InvariantCulture) +
@@ -296,12 +296,16 @@ namespace Metro.App.Views {
                 minute = Wrap(minute);
             }
             int repaints = 0;
+            string digitalKey = null;
+            Texture2D sharedDigital = null;
             for (int i = 0; i < entries.Count; i++) {
                 var entry = entries[i];
                 for (int h = 0; h < entry.Hands.Count; h++) {
                     var hand = entry.Hands[h];
                     if (hand.Pivot == null) continue;
                     double live = hand.Minute ? minute : hour;
+                    float wrappedLive = (float)Wrap(live);
+                    if (Mathf.Abs(wrappedLive - hand.AppliedDegrees) < 1e-4f) continue;
                     double delta = live - hand.AuthoredDegrees;
                     if (delta < -180) delta += 360;
                     else if (delta > 180) delta -= 360;
@@ -309,13 +313,16 @@ namespace Metro.App.Views {
                     // outward normal turns 12 o'clock (+Up) clockwise toward 3 o'clock (+Right).
                     hand.Pivot.localRotation =
                         Quaternion.AngleAxis((float)delta * hand.Handedness, hand.Axis) * hand.Original;
-                    hand.AppliedDegrees = (float)Wrap(live);
+                    hand.AppliedDegrees = wrappedLive;
                 }
                 if (entry.Digital.Count == 0) continue;
-                var key = DigitalKeyOf(clock);
-                if (string.Equals(entry.DigitalKey, key, StringComparison.Ordinal) && entry.DigitalMaterial) continue;
-                var texture = DigitalTexture(scope, clock, ref entry.DigitalTexture);
-                if (texture == null) continue;
+                digitalKey ??= DigitalKeyOf(clock);
+                if (string.Equals(entry.DigitalKey, digitalKey, StringComparison.Ordinal) && entry.DigitalMaterial) continue;
+                if (sharedDigital == null) {
+                    sharedDigital = SharedDigitalTexture(scope, clock, digitalKey);
+                }
+                if (sharedDigital == null) continue;
+                entry.DigitalTexture = sharedDigital;
                 if (!entry.DigitalMaterial) {
                     var template = entry.DigitalSurfaces.Count > 0 && entry.DigitalSurfaces[0]?.Template != null
                         ? entry.DigitalSurfaces[0].Template
@@ -329,12 +336,12 @@ namespace Metro.App.Views {
                         entry.DigitalMaterial.SetColor("baseColorFactor", Color.white);
                     scope.Materials["clock-display|" + entry.ModuleId] = entry.DigitalMaterial;
                 }
-                StationDisplayArtwork.SetTexture(entry.DigitalMaterial, texture);
+                StationDisplayArtwork.SetTexture(entry.DigitalMaterial, sharedDigital);
                 for (int d = 0; d < entry.Digital.Count; d++) {
                     entry.Digital[d].sharedMaterial = entry.DigitalMaterial;
                     world?.RecaptureArtwork(entry.Digital[d]);
                 }
-                entry.DigitalKey = key;
+                entry.DigitalKey = digitalKey;
                 entry.Repaints++;
                 repaints++;
             }
@@ -350,18 +357,27 @@ namespace Metro.App.Views {
         public static string DigitalKeyOf(StationClockFrame clock) =>
             "led|" + clock.ClockSeconds + "|" + clock.DateKey + "|" + clock.Weekday;
 
-        static Texture2D DigitalTexture(StationDisplayArtwork.Scope scope, StationClockFrame clock,
-            ref Texture2D cached) {
-            var next = PaintDigital(clock);
-            if (next == null) return cached;
-            if (cached) {
-                scope.Textures.Remove(cached);
-                if (Application.isPlaying) UnityEngine.Object.Destroy(cached);
-                else UnityEngine.Object.DestroyImmediate(cached);
+        /// <summary>Total physical digital-clock texture paints performed (diagnostic counter).</summary>
+        public static long TotalDigitalPaints { get; private set; }
+        public static void ResetDigitalPaintCount() => TotalDigitalPaints = 0;
+
+        static Texture2D SharedDigitalTexture(StationDisplayArtwork.Scope scope, StationClockFrame clock, string key) {
+            if (scope.SharedDigitalClockTexture != null &&
+                string.Equals(scope.SharedDigitalClockKey, key, StringComparison.Ordinal)) {
+                return scope.SharedDigitalClockTexture;
             }
-            cached = next;
-            scope.Textures.Add(cached);
-            return cached;
+            var next = PaintDigital(clock);
+            if (next == null) return scope.SharedDigitalClockTexture;
+            TotalDigitalPaints++;
+            if (scope.SharedDigitalClockTexture != null) {
+                scope.Textures.Remove(scope.SharedDigitalClockTexture);
+                if (Application.isPlaying) UnityEngine.Object.Destroy(scope.SharedDigitalClockTexture);
+                else UnityEngine.Object.DestroyImmediate(scope.SharedDigitalClockTexture);
+            }
+            scope.SharedDigitalClockTexture = next;
+            scope.SharedDigitalClockKey = key;
+            scope.Textures.Add(next);
+            return next;
         }
 
         /// <summary>
@@ -545,6 +561,10 @@ namespace Metro.App.Views {
             for (int i = 0; i < normals.Length; i++) sum += normals[i];
             if (sum.sqrMagnitude < 1e-10f) return fallback;
             return face.TransformDirection(sum.normalized);
+        }
+
+        internal static void ReleaseScope(StationDisplayArtwork.Scope scope) {
+            if (scope != null) byScope.Remove(scope);
         }
 
         public static void Reset() {

@@ -291,15 +291,82 @@ namespace Metro.App.Views {
         }
 
         /// <summary>`zoneMapFloorsAt`: the map of **one storey**, the floor the active level holds.</summary>
-        public static IReadOnlyList<StationZoneFloor> FloorsAt(StationDocument document, int level) {
-            var all = Floors(document);
-            if (all.Count == 0) return all;
-            int band = Band(level, document);
-            var at = new List<StationZoneFloor>(all.Count);
-            for (int i = 0; i < all.Count; i++) {
-                if (Band(all[i].Z, document) == band) at.Add(all[i]);
+        public static IReadOnlyList<StationZoneFloor> FloorsAt(StationDocument document, int level) =>
+            FloorsAt(document, null, level);
+
+        /// <summary>
+        /// Indexed fast path for one storey's floor map: scans only cells in <paramref name="level"/>'s
+        /// storey band and queries <paramref name="index"/> directly for above/below cells and tracks,
+        /// avoiding whole-station HashSet/Dictionary allocations.
+        /// </summary>
+        public static IReadOnlyList<StationZoneFloor> FloorsAt(StationDocument document, StationIndex index, int level) {
+            if (document == null) return new List<StationZoneFloor>();
+            if (index == null || !ReferenceEquals(index.Document, document)) {
+                var all = Floors(document);
+                if (all.Count == 0) return all;
+                int targetBand = Band(level, document);
+                var at = new List<StationZoneFloor>(all.Count);
+                for (int i = 0; i < all.Count; i++) {
+                    if (Band(all[i].Z, document) == targetBand) at.Add(all[i]);
+                }
+                return at;
             }
-            return at;
+
+            int band = Band(level, document);
+            var floors = new List<StationZoneFloor>(256);
+            var have = new HashSet<StationCellKey>();
+            var pages = document.CellPages;
+            for (int p = 0; p < pages.PageCount; p++) {
+                var page = pages.PageSpan(p);
+                for (int i = 0; i < page.Length; i++) {
+                    var cell = page[i];
+                    if (cell == null || !cell.IsSolid) continue;
+                    if (Band(cell.Z, document) != band) continue;
+                    if (!IsFloorCellIndexed(cell, index)) continue;
+                    floors.Add(new StationZoneFloor(cell.X, cell.Y, cell.Z, cell.Zone, cell.Room, false));
+                    have.Add(cell.Key);
+                }
+            }
+
+            var tracks = index.ModulesOfType("track");
+            for (int i = 0; i < tracks.Count; i++) {
+                var module = tracks[i];
+                if (module == null) continue;
+                var bed = StationFootprints.TrackCells(module);
+                for (int c = 0; c < bed.Length; c++) {
+                    var point = bed[c];
+                    int x = (int)Math.Round(point.X, MidpointRounding.AwayFromZero);
+                    int y = (int)Math.Round(point.Y, MidpointRounding.AwayFromZero);
+                    int z = (int)Math.Round(point.Z, MidpointRounding.AwayFromZero);
+                    if (Band(z, document) != band) continue;
+                    var key = new StationCellKey(x, y, z);
+                    if (!have.Add(key)) continue;
+                    floors.Add(new StationZoneFloor(x, y, z, "restricted", "", true));
+                }
+            }
+            return floors;
+        }
+
+        static bool IsFloorCellIndexed(StationCellRecord cell, StationIndex index) {
+            if (IsCeilingPlate(cell)) return false;
+            var shape = StationCellRules.ShapeOf(cell.Tags);
+            if (shape.Kind == StationShapeKind.Half || shape.Kind == StationShapeKind.Corner ||
+                shape.Kind == StationShapeKind.Cuts) return false;
+            var above = index.GetCell(new StationCellKey(cell.X, cell.Y, cell.Z + 1));
+            if (above != null && above.IsSolid) {
+                var aboveShape = StationCellRules.ShapeOf(above.Tags);
+                bool openAbove = aboveShape.Kind == StationShapeKind.Half ||
+                                 aboveShape.Kind == StationShapeKind.Corner ||
+                                 aboveShape.Kind == StationShapeKind.Cuts ||
+                                 (aboveShape.Kind == StationShapeKind.Triangle && aboveShape.Triangle == StationTriangleKind.Lower);
+                if (!openAbove) return false;
+            }
+            var top = FinishTop(cell);
+            bool trackBed = string.Equals(StationFinishIds.BaseId(top), TrackBedFinish, StringComparison.Ordinal);
+            if (FloorSpeed(top) > 0) return true;
+            if (!trackBed) return false;
+            var below = index.GetCell(new StationCellKey(cell.X, cell.Y, cell.Z - 1));
+            return below == null || !below.IsSolid;
         }
 
         /// <summary>

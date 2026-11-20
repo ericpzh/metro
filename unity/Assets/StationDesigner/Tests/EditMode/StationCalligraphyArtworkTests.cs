@@ -689,5 +689,30 @@ namespace Metro.EditModeTests {
                 Dispose(run);
             }
         }
+
+        [Test]
+        public void TvPlateAdvanceRespectsPaintBudgetSkipsHiddenFacesAndCatchesUp() {
+            var run = Build(zoo, "tv budget probe");
+            try {
+                var scope = run.Display.Current.Displays;
+                var faces = Faces(scope).Where(f => f.Plate != null).ToList();
+                Assert.GreaterOrEqual(faces.Count, 2, "Zoo carries multiple TV faces");
+                var clock1 = Clock("06:31");
+                var frame1 = Frame(clock1);
+
+                // Hide the first face and advance with skipHidden=true & budget=1.
+                faces[0].Plate.enabled = false;
+                StationDisplayTvArtwork.Advance(scope, run.World, 10, zoo, frame1, true, maxNewPaints: 1, skipHidden: true);
+                Assert.GreaterOrEqual(StationDisplayTvArtwork.LastSkippedHiddenPlates, 1, "hidden TV face must be skipped");
+                Assert.LessOrEqual(StationDisplayTvArtwork.LastPaintedPlates, 1, "new paints must respect per-frame budget");
+
+                // Re-enable the hidden face and advance again; it must catch up to 06:31.
+                faces[0].Plate.enabled = true;
+                StationDisplayTvArtwork.Advance(scope, run.World, 11, zoo, frame1, true, maxNewPaints: 8, skipHidden: true);
+                Assert.AreEqual(6 * 60 + 31, faces[0].Minute, "re-enabled TV face caught up to current minute");
+            } finally {
+                Dispose(run);
+            }
+        }
     }
 }

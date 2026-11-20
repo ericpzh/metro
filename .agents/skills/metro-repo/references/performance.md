@@ -1779,3 +1779,567 @@ After the ownership fix, a matched managed probe compared copying the full solid
 | Tanwei | 0.46 / 0.58 | 0.42 / 0.26 | 1,295,000 / 1,904 |
 
 The first Zoo iteration also includes managed first-call and lazy opening/equipment work. The measurements exclude pointer input, world preparation, preview drawing, commit, transport and rendering. Raw samples and the probe are in `.preview/unity/plan32-implementation/planner-measure/`. The commands were `check-unity-compile.ps1 -OutSuffix plan32` for copied coverage and `-OutSuffix plan32Final` for effective coverage, then `dotnet run --project .preview/unity/plan32-implementation/planner-measure/Planner.csproj` with the corresponding assembly references. For the complete end-to-end Windows and WebGL pointer-to-present latency matrix, see "Current block commit stages" above.
+
+### Tianhe Park Unity Q/E storey steps
+
+Static audit of `e5dd034b` (November 19, 2026). Scope is plain Q/E in the
+normal station editor. Ctrl+Q/E is camera pan. The Windows Release fixture
+above has 151,852 cells and 76,438 modules. Those are document counts, not the
+number of visibility targets, renderers or draw calls a switch touches. The
+block-commit timings above measure a different path. The recorded Unity WebGL
+build ran out of memory opening this fixture, so there is no matched Unity
+WebGL storey-step result. The cause ranking below is based on code paths and
+their scaling. No new runtime timings were taken.
+
+#### Why the step can stall
+
+1. **Every accepted step walks the registry synchronously.**
+   [AppShell](../../../../game/src/app/windows/AppShell.tsx#L198) changes
+   `activeZ`. The [Unity shell subscription](../../../../game/src/unity-web/main.tsx#L272)
+   sends `view.set level`. The [command applier](../../../../unity/Assets/StationDesigner/Runtime/View/StationViewCommands.cs#L700)
+   snaps and sets the level, then calls
+   [`StationVisibilityRegistry.Apply`](../../../../unity/Assets/StationDesigner/Runtime/View/StationVisibility.cs#L1177)
+   unconditionally. It searches for occupied geometry, clears its summaries,
+   then decides, applies and records a mode for every live target. A module or
+   chunk that stays hidden across the switch still enters the apply path.
+   The dense-station rule bounds what gets drawn, while CPU traversal still
+   scales with the entire registry. That is the strongest static explanation
+   for warm steps remaining expensive on Tianhe.
+2. **The pass writes into Unity for unchanged targets.**
+   [`StationVisibilityTarget.Apply`](../../../../unity/Assets/StationDesigner/Runtime/View/StationVisibility.cs#L797)
+   walks its collected renderers and colliders, writes their enabled flags,
+   assigns shared materials to visible renderers and invokes `ModeApplied`.
+   The palette already caches Ghost/Clear material objects by source.
+   `Map` still allocates a material array per eligible Ghost/Clear renderer
+   on each application. The occupied-storey search can scan all targets on a
+   miss, and the contact-shadow branch reads renderer-derived world bounds.
+   With section clipping enabled the decision and summary paths also classify
+   bounds. Those costs grow independently of the number of visible meshes.
+3. **Hover and overlays can add work to the same interaction.**
+   [The view handler](../../../../unity/Assets/StationDesigner/Runtime/App/StationSectionView.cs#L1548)
+   re-aims hover before returning its view ack.
+   [`RefreshHover`](../../../../unity/Assets/StationDesigner/Runtime/App/StationPointerRouter.cs#L723)
+   resolves one scene pick and runs the active tool's aim/preview with a cached
+   screen pointer, or takes the cell-tool fallback when the pointer is parked.
+   The rig then advances overlays at the new level on tick, and the registry's
+   applied event refreshes live crowd/vehicle counts. Profile these separately
+   from static visibility, especially with a stationary pointer over equipment,
+   zones displayed, or simulation running. The handler updates a view and an
+   active-level field. Document installation, save parsing and graph rebuilding
+   are outside this path.
+
+#### Three.js parity and the missing pieces
+
+| Area | Three.js editor | Unity editor and proposed work |
+| --- | --- | --- |
+| Visibility and occupancy | [`LevelSystem.applyLevel`](../../../../game/src/render/scene/systems/LevelSystem.ts#L121) skips the same view key and checks the active chunk group for built geometry. A changed slice still walks chunk and module roots. | Add a no-op check against the accepted level and keep occupied-level counts as targets register, update or retire. Then index static targets by real level span and role and apply the set whose mode can change, including the old/new ghost bands and occupancy changes. Reuse the existing subset/summary APIs. This is an additional Unity-specific improvement over the web full walk. |
+| Material and engine writes | The slice reuses base and dim materials. Equipment batches cache source records and prepared view entries. | Start by suppressing redundant enable/material writes and allocating Ghost/Clear material-slot arrays only when source slots or palette generation change. Key or invalidate against ownership/eligibility and clip state as well as draw mode. A same-mode short circuit alone would miss recaptured renderers, retired pieces and section-plane updates. Keep diagnostics consistent and retain dynamic actors' individual updates. |
+| Batch reuse and draw count | [`ModuleSystem.syncBatches`](../../../../game/src/render/scene/systems/ModuleSystem.ts#L233) feeds [bounded equipment view caches](../../../../game/src/render/equipmentBatches.ts#L269) and separate instanced paving buckets. A warm switch can reuse prepared batches even though source roots are still walked. Chunk and equipment detail can be reduced for Low and inactive levels. | Unity already retains cell chunks and combines compatible surface modules in [`StationSurfaceModuleRenderer`](../../../../unity/Assets/StationDesigner/Runtime/App/Views/StationModuleGroups.cs#L694). There is no equivalent prepared equipment-slice cache in the Q/E path. Inventory renderer and draw counts first, then target the high-volume static equipment families with spatial/storey/material batches and measured ghost/Low detail. Preserve source ids for picking, separate move ghosts and independent animated or live-texture pieces. |
+| First switch and revisits | [`SceneRenderer.prepareBuildViews`](../../../../game/src/render/scene/SceneRenderer.ts#L718) prepares both neighbors after art is ready and submits their batches to a 1×1 offscreen target. It warms batch/buffer/program work. It still restores the active slice and reruns slice logic on later steps. | If profiling shows a first-use tail after reducing the synchronous pass, prime a bounded pair of neighbor draw plans or material bindings after first presentation. Measure shader/GPU preparation separately. Avoid invoking the full visibility pass twice during opening or retaining complete Unity hierarchies per level. |
+
+Implement the no-op and write/allocation suppression first, then measure the
+indexed transition. Consider prewarming and batching after the CPU/GPU
+breakdown. Invalidate on local record changes, base-material recapture, level-base
+changes, dense-policy changes, and global view flags. Verify occupied and empty
+levels, multi-storey stairs/lifts, grade, ceilings, walls/PSD, contact shadows,
+Hide UI, clipping, ghost pickability, and stationary-pointer preview. Retain
+one scene pick per event. Hide UI and clipping still move the edit level even
+when the static slice does not change.
+
+#### Reproduction for runtime validation
+
+Use the Windows Release Tianhe fixture and hash listed above. Open at `-5 m`,
+pause with the station loaded, keep camera, quality, canvas size and visibility
+flags fixed, and record the first Q and first E from separate fresh opens.
+Then alternate between `-5 m` and each adjacent level over at least 20 round
+trips. Repeat with the pointer parked and over geometry. Run zones, ghosting,
+section mode and running simulation as separate cases. Use Tanwei as a
+scale control and the Three.js editor with matched view settings as the
+parity reference. Record keydown to the first frame drawn at the new level,
+then report first-use latency and warm median/p95/max separately. Keep the
+bridge receipt timestamp as a separate boundary.
+
+In a separate profiled capture, split occupied-level lookup, target decisions,
+target applications/material arrays, renderer and collider writes, applied
+listeners, hover pick/aim, overlays, and render-thread/GPU submission. Count
+registered, visited and changed targets along with draw calls and managed
+allocations. Include build and fixture hashes, view flags and floor pair in
+the capture. A paused warm switch that still visits almost the entire registry
+while changing only the old/new bands would confirm where the indexed path
+can save work. A large first-frame gap after the ack would direct the next
+investigation toward overlay or rendering work.
+
+### Tianhe WebGL cold-open OOM resolution and memory reduction
+
+Hardware for all captures below: Windows 11, Intel i7-14700KF / RTX 4080 SUPER,
+headless Chrome hardware GPU (`1400 × 900`), local static pack server, Wasm32
+effective ceiling `4,080 MiB` (`4,278,190,080` bytes). Fixture SHA-256 hashes:
+Tianhe `efc73693ef4606fe7df7ba7db93bbab2fa871ae7457fd83776b324ca2a63654e`
+(151,852 cells, 76,438 modules, 3 lines), Zoo
+`1be9b3a20804b0d0944ba361bc80f8c7ede8eef7b233767eecd92e2f2ca5194e`, Tanwei
+`620e8b459850f0d080127191eac41463dd913ffbd28b722ffd80489b11f368a4`.
+
+**Before (baseline reproduction):** At source `e5dd034b` (`pack-20261119221025755`,
+`StationGameLocalWeb`, Wasm SHA-256
+`e333e54869baff9677d711ed02fa0b73fdc8f51b1c082613e0acb0ecffb495bd`), Tianhe Park
+aborted with `OOM` in `_emscripten_resize_heap` at `4,080 MiB` during
+`renderer.cells.begin` (after indexing reached `1,006 MiB` managed at `2,406 ms`).
+On the same build, Zoo peaked at `1,739 MiB` Wasm and Tanwei at `2,187 MiB`.
+Subsequent stage isolation exposed four additional causes once cell meshing
+survived: (1) combining 69,857 grade `lawn`/`sidewalk` tiles into monolithic
+`Mesh.CombineMeshes` buffers expanded native Wasm memory by ~1.5–2.8 GiB;
+(2) `VerticalModuleRenderer.Build` passed all 76,438 modules as neighbours
+(`10.2 s` on Tianhe); (3) synchronous `SendMessage` prevented Boehm GC from
+sweeping transient parse/mesher/renderer staging buffers; and (4) materializing
+a 16.8 MiB `NormalizedJson` string plus a 40 MiB JSON-escaped commit envelope
+and P/Invoke UTF-8 marshal buffer caused `+340–440 MiB` post-commit Wasm spikes
+and repeated-switch fragmentation, compounded by unbounded `Previous` chains on
+artwork scopes (`StationSignSignageScope`, `StationExitArtworkScope`,
+`PsdHeaderArtworkScope`) and retaining two full Tianhe worlds simultaneously on
+back-to-back replacement. Raw baseline captures live in
+`.preview/unity/plan35/webgl-{tianhe,tianhe-resize,probe-tianhe,probe-zoo,probe-tanwei}/`.
+
+**Changed code:**
+- Direct chunk-mesh streaming without intermediate managed vertex/index/face
+  arrays, pooled `VecBuilder`, scalar `PushTri`, and opt-in upload-buffer release
+  (`StationCellMesher.cs`, `StationCellMeshWorkspace.cs`, `StationCellView.cs`;
+  `.NET 10` Tianhe `cells.stream-mesh` managed alloc `1,404.9 → 171.0 MiB`, −88%).
+- GPU-instanced grade `lawn`/`sidewalk` rendering (`Graphics.DrawMeshInstanced`
+  in ≤1,023 slices via `StationInstancedSurfaceBatch` / `StationInstancedSurfaceDrawer`),
+  single bucket dictionary, prefab part caching, instanced triangle picking and
+  selection overlay support (`StationModuleGroups.cs`, `StationScenePicker.cs`,
+  `StationPlacementPreview.cs`, `StationVisibility.cs`; Tianhe `renderer.surfaces`
+  dropped from native OOM to `256 ms` / `+11 MiB` native).
+- Filtered vertical neighbour list in `VerticalModuleRenderer.Build`
+  (`VerticalModuleViews.cs`; Tianhe `renderer.vertical` dropped `10,200.6 → 65.8 ms`).
+- Reused JSON serialization buffers, streamed 16 KiB-chunked SHA-256
+  (`Hash` / `HashEnvelope`) without materializing `NormalizedJson`, and 32 KiB
+  chunked WebGL commit/save streaming (`StationDocumentReader.cs`,
+  `StationLocalEdit.cs`, `StationCommandRouter.cs`, `StationGameHost.cs`,
+  `StationGame.jslib`).
+- Frame-yielded WebGL `OpenYielded` with deferred-destroy sweep and low-memory
+  visual-world replacement (rebuilding from untouched committed document+index on
+  rollback), plus scope/cache teardown fixes (`StationLoadCoordinator.cs`,
+  `StationWorldView.cs`, `StationSectionView.cs`, `StationDisplayArtwork.cs`,
+  `StationDisplayTvArtwork.cs`, `StationClockArtwork.cs`, `StationSignView.cs`,
+  `StationExitArtwork.cs`, `PsdHeaderArtwork.cs`, `StationTvSchedule.cs`).
+
+**After (clean uninstrumented captures, no `--load-probe`, no concurrent builds):**
+Captured on dirty `e5dd034b` (`StationGameLocal` `pack-20261120011358282`, data
+SHA-256 `66469dcf322abbe8c2dea6453b65cf92c0ad579145b79a00656488c31ead475e`;
+`StationGameLocalWeb` `pack-20261120012130875`, 15-recipe 3D passenger cohort,
+data SHA-256 `9ba3b467aae537e8388cd5d580bb9366996a947f35cbf52a6eacc07b10edb151`;
+shared Wasm SHA-256
+`6ee1b8b43071b4d844a199065a3fa900a9fca803e6a5b443e01cf327a12b2feb`). Raw report
+in `.preview/unity/plan35/stage1-clean-capture/report.json`.
+
+| Demo | Baseline `StationGameLocalWeb` peak Wasm | After `StationGameLocalWeb` peak Wasm (nav→commit / 2-RAF) | After `StationGameLocal` peak Wasm (nav→commit / 2-RAF) |
+| --- | ---: | ---: | ---: |
+| `zoo` | `1,739 MiB` | `1,439.6 MiB` (`63.5 s` / `64.2 s`) | `1,311.5 MiB` (`62.9 s` / `63.4 s`) |
+| `tanwei` | `2,187 MiB` | `1,546.7 MiB` (`64.6 s` / `65.1 s`) | `1,418.6 MiB` (`64.7 s` / `65.2 s`) |
+| `tianhe` | OOM (`>4,080 MiB`) | `3,050.5 MiB` (`69.7 s` / `71.6 s`) | `3,056.7 MiB` (`69.6 s` / `71.5 s`) |
+
+Note: `nav→commit` includes ~61 s of cold Wasm compilation and WebGL shader
+initialization in a fresh browser profile; Tianhe station load adds ~6.2 s over
+Zoo. Both packs also passed the full probed verification (`verify-stage1-tianhe.mjs`:
+Tianhe cold open at `2,922.4 MiB` / `3,050.5 MiB` Wasm, `0 m` street grade
+instanced paving visual check, corrupt `station.open` rollback, 16× Play
+spawning `542–1,497` live passengers, repeated switches
+`tianhe → zoo → tanwei → tianhe → tianhe` with flat native `unityAllocatedBytes`
+`~1,024–1,052 MB` on `StationGameLocal` and `~1,174–1,210 MB` on
+`StationGameLocalWeb`, and streamed `station.save` round-trip of `16,805,095`
+bytes), plus official `verify-station-game.mjs --demo tianhe --locale zh`.
+
+**Remaining cold-open bottleneck:** `StationDocumentReader.ParseAndProject` still
+builds a full Newtonsoft `JObject.Parse` DOM (`~770 MiB` managed spike on Tianhe)
+before projecting typed cell/module records, and cold browser boot spends ~61 s
+in Wasm instantiation and shader compilation before `parse.begin`.
+
+The Three.js High diagnostic opened all three demos and submitted a frame
+for each. From `loadReference` to first submission, the single runs took
+39.62 s for Tianhe, 8.05 s for Zoo and 10.73 s for Tanwei. Builds were active,
+and the browser probe starts at the load API after the shell is ready.
+Use these runs to confirm the workload and inspect renderer inventories.
+The matched timing baseline remains open. Outputs and browser/fixture
+details are in `.preview/unity/plan35/threejs-load-diagnostic/report.json`.
+
+### Tianhe and Tanwei WebGL Q/E storey-step optimization
+
+Hardware: Windows 11, Intel i7-14700KF / RTX 4080 SUPER, headless Chrome
+hardware GPU (`1400 × 900`), local static pack server, paused at `-5 m`, zero
+concurrent builds/tests. Matched packs on dirty `e5dd034b` (`StationGameLocal`,
+Release): before `pack-20261120011358282` (Wasm SHA-256
+`6ee1b8b43071b4d844a199065a3fa900a9fca803e6a5b443e01cf327a12b2feb`), after
+`pack-20261120015939334` (Wasm SHA-256
+`1b432d612b743255312d465cb7143074564bf323d1796bd9f292e9c8893e6c7f`). Raw reports:
+`.preview/unity/plan35/stage2-qe-{before,after}-webgl.json`.
+
+**Changed code:**
+- `StationVisibility.cs`: added `StationVisibilityPalette.Generation`, per-target
+  cached derived `Material[]` arrays (`ghost`/`clear`/`section`) and cached
+  `_SectionPlane` property flags (eliminating per-step `renderer.sharedMaterials`
+  getter allocations and redundant `MaterialPropertyBlock` updates), unchanged
+  `renderer.enabled` / `collider.enabled` / `sharedMaterials` write suppression,
+  zero-allocation `StationLevelGrid` construction in `Decide`, occupied-level
+  counts, single-level + dynamic target index, and `ApplyLevelChange(previousLevel)`
+  visiting only affected storey bands under stable global flags and unchanged
+  occupied-floor state.
+- `StationViewCommands.cs` & `StationSectionView.cs`: skipped `Visibility.Apply`
+  and `StationPointerRouter.RefreshHover` on unchanged accepted `view.set level`
+  and routed level transitions through `Visibility.ApplyLevelChange`.
+- Verified equivalence against full `Apply()` in `StationVisibilityTests` (40/40)
+  including `TianheParkIncrementalLevelStepsMatchFullApplyAndBoundVisitedTargets`
+  and `StationMovingVisibilityTests` (5/5).
+
+**Before / After (20 warm round trips each, `ackMs` median / p95):**
+
+| Case | Tianhe Before | Tianhe After | Tanwei Before | Tanwei After |
+| --- | ---: | ---: | ---: | ---: |
+| Unchanged `-5 → -5` | `14.0 / 14.0 ms` | `0.3 / 0.3 ms` | `3.1 / 3.4 ms` | `0.3 / 0.3 ms` |
+| Warm parked `-5 → 0` | `17.1 / 18.7 ms` | `7.3 / 8.5 ms` | `6.8 / 7.2 ms` | `2.8 / 3.4 ms` |
+| Warm parked `0 → -5` | `16.4 / 16.9 ms` | `7.1 / 7.5 ms` | `4.5 / 4.7 ms` | `2.5 / 2.8 ms` |
+| Warm parked `-10 → -5` | `21.6 / 22.6 ms` | `10.3 / 10.8 ms` | `2.9 / 3.2 ms` | `0.8 / 0.9 ms` |
+| Warm parked `-5 → -10` | `13.4 / 15.2 ms` | `9.8 / 10.4 ms` | `3.1 / 4.3 ms` | `0.8 / 0.9 ms` |
+| Warm over equipment `-5 → 0` | `32.3 / 34.9 ms` | `21.0 / 22.1 ms` | `9.9 / 10.6 ms` | `5.7 / 6.2 ms` |
+| Warm parked `-5 → 0` `raf2Ms` max | `565.2 ms` | `335.1 ms` | `76.0 ms` | `70.4 ms` |
+| Warm parked `-10 → -5` `raf2Ms` max | `499.0 ms` | `265.4 ms` | `41.6 ms` | `40.3 ms` |
+
+**Remaining bottleneck isolated by counters:** On Tianhe Park, `ApplyLevelChange`
+now visits only affected targets (`6,128` of `7,658` registered on `-5 ↔ 0`,
+99.5% changed; `5,115` on `-5 ↔ -10`, 99.1% changed), but storey `-5 m` alone
+contains **52,020 individual `MeshRenderer` components** across ~3,657 unbatched
+static module instances (`mW = 52,020` on `-5 ↔ 0`, `rW = 50,326` on `-5 ↔ -10`).
+That same ~52k unbatched renderer count drives the paused steady-state frame
+time at `-5 m` (`~122 ms/frame`, `raf2Ms = 252 ms`) and `0 m` (`~154 ms/frame`,
+`raf2Ms = 316 ms`, with `-5 m` ghosted) versus `~28 ms/frame` at `-10 m`.
+Reducing both steady-state frame time and per-step renderer writes requires
+batching static equipment/fixtures by storey/chunk/material.
+
+#### Stage 3 closure — Tianhe Park local edits & zone overlays (`2026-11-19`)
+
+EditMode measurements on the real `tianhe.metro.json` fixture (`151,196` cells,
+`3,890` modules, SHA-256 `61fd80be1a49e0814f3855d08f45dc12516e2f90e84f1be3271147329d187e3e`,
+`StationLocalEditTests.TianheParkEditLatencyFallbacksAndRendererInventory`) isolated
+two large edit/overlay stalls before changes:
+
+1. **Opening-family local fallback (`gate`, `door`, `cubicle`):** `OpeningModuleRenderer`
+   did not implement `IStationLocalViewRenderer`, so placing or deleting a single
+   fare gate triggered `viewFb=local-module-family:gate` and rebuilt the entire
+   Tianhe world (`11,654.2 ms` place, `11,465.1 ms` delete).
+2. **Zone overlay full-document scan & uncached band rebuilds:** `StationZoneMap.FloorsAt`
+   allocated a `151,196`-entry `HashSet<StationCellKey>` and scanned all cells on every
+   call, and `StationOverlayRenderer` discarded and rebuilt zone meshes and label plates
+   on every Q/E level switch (`144.1–235.3 ms` per switch).
+
+**Changed code:**
+
+- `OpeningModuleViews.cs`: Added `OpeningModuleSet.Remove(string)` and typed local
+  delta staging (`StagedOpeningDelta`) in `OpeningModuleRenderer.TryStageLocalDelta`
+  for `gate`, `door`, and `cubicle` (including adjacent doorless-gate fence-panel
+  refresh when nearby `fence`/`gate` records change, atomic rollback on dispose, and
+  conservative fallback for `platform-edge`/`psd-end`).
+- `StationZoneMap.cs`: Added indexed `FloorsAt(StationDocument, StationIndex, int)`
+  scanning only the target storey band via `index.GetCell` and `index.ModulesOfType("track")`.
+- `StationOverlayViews.cs`: Added per-band `CachedZoneBand` retention on `OverlayState`
+  (keyed by storey band, validated on locale + section plane, `IndexFormat.UInt32` for
+  large floors), touched-band-only invalidation in `StagedOverlayDelta`, and clean mesh
+  release when `zones` is toggled off.
+
+| Tianhe Park action (EditMode, real fixture) | Before (ms) | After (ms) | Speedup | View fallback |
+| --- | ---: | ---: | ---: | --- |
+| `1-block-place` (cold) / `undo` / `redo` / `delete` | `116.6` / `18.3` / `10.6` / `11.2` | `110.7` / `18.7` / `10.5` / `11.2` | ~1.0× (already local) | `-` (`3/954` chunks) |
+| `4x3-drag-place` / `delete` / `undo` / `redo` | `12.5` / `10.6` / `13.0` / `11.0` | `12.5` / `11.3` / `10.2` / `10.9` | ~1.0× (already local) | `-` (`3/954` chunks) |
+| `bench-place` / `move` / `delete` | `77.6` / `129.5` / `190.7` | `58.5` / `47.4` / `16.9` | 1.3–11.3× | `-` |
+| `fence-place` / `delete` | `171.2` / `17.6` | `36.1` / `17.6` | 4.7× / 1.0× | `-` |
+| **`gate-place`** | **`11,654.2`** | **`90.5`** | **128.8×** | `local-module-family:gate` → **`-`** |
+| **`gate-delete`** | **`11,465.1`** | **`215.9`** | **53.1×** | `local-module-family:gate` → **`-`** |
+| `billboard-place` / `delete` | `80.0` / `11.4` | `27.0` / `10.8` | 3.0× / 1.1× | `-` |
+| `zones-switch(0)` (first cold visit) | `235.3` | `58.9` | **4.0×** | indexed `FloorsAt` |
+| `zones-switch(-10)` (first cold visit) | `144.1` | `63.9` | **2.3×** | indexed `FloorsAt` |
+| **`zones-switch(-5 / 0)` (cached revisit)** | **`214.4` / `235.3`** | **`0.3` / `0.2`** | **715–1,176×** | cached band reuse |
+
+Verified with zero failures and zero new console errors across `StationLocalEditTests`
+(10/10, including `OpeningModuleLocalDeltaHandlesGateDoorCubicleAndUndoWithoutFallback`),
+`StationZoneMapTests` (16/16, including `IndexedFloorsAtMatchesDocumentScanExactly` and
+`ZoneOverlayCachesVisitedBandsAndPreservesStateAcrossSwitches`), `OpeningModuleViewTests`,
+`StationScenePickerTests` (17/17), and `StationSelectionPreviewTests` (4/4).
+
+**Remaining bottleneck (Stage 4):** Real Tianhe Park `MeshRenderer` inventory captured
+in the same run confirms `44,522` renderers in `trains` (6 targets, `4.07M` tris),
+`30,704` in `equipment` (`2,058` targets, `2.95M` tris), and `19,444` in `modules`
+(fences/trees, `842` targets, `623k` tris). Storey `-5 m` alone holds `52,020` individual
+renderers led by `fence` (`18,582`), `shelf` (`8,890`), `desk` (`3,416`), `court` (`3,186`),
+`cctv` (`2,738`), `light` (`1,212`), `checkout` (`1,141`), and `electrical-cabinet` (`1,020`).
+
+#### Stage 4 closure — Static equipment, fences & train static-body batching (`2026-11-19`)
+
+The Tianhe Park renderer inventory proved that 81.5% (`94,670 / 116,160`) of all scene
+`MeshRenderer` components came from unbatched static prefab children across three roles:
+`trains` (`44,522` across 6 consists), `equipment` (`30,704` across `2,058` modules), and
+`modules` (fences & trees, `19,444` across `842` modules). Storey `-5 m` alone held `52,020`
+individual renderers, driving both `122–154 ms/frame` paused WebGL2 frame times and
+`50k–52k` per-step Q/E renderer/material writes.
+
+**Changed code:**
+
+- `StationPrefabBatch.cs`: Added per-world `StationPrefabMeshTemplate` (material-grouped
+  static prefab baking without mutating imported asset materials, preserving unreadable and
+  `MeshTopology.Lines` submeshes), `StationPrefabTemplateCache`, and `StationInstancedPrefabChunk`
+  (`64×64 m` spatial chunks, `BatchThreshold = 6` per `(storeyBand, viewKey)`).
+- `StationModuleGroups.cs`: Added `HideSource`/`UnhideSource` and `ShadowCastingMode` to
+  `StationInstancedSurfaceBatch`, shared `StationInstancedSurfaceDrawer.EnsureFor(root)`,
+  and GPU-instanced static batching + chunk-local delta updates (including ceiling-hung
+  `light`/`cctv` column refreshes) in `StationEquipmentModuleRenderer`.
+- `OutdoorModuleViews.cs` & `StationFamilyRenderers.cs`: Added `TryResolveStaticPose`,
+  GPU-instanced static batching for straight `fence`/`tree` panels + chunk-local delta
+  updates (fixing the pre-existing `Role == "fences"` neighbour-connection lookup), while
+  keeping composed two-axis junctions exact.
+- `StationPlacementPreview.cs` & `StationExplodedTrayBuilder.cs`: Wired instanced batch
+  `SourceIds` into `HideCarried`/`RestoreCarried`, `TryRenderedBounds`, and exploded-tray
+  extraction.
+- `TrainConsistViews.cs`: Added per-`(formationKey, carPart)` static car & gangway body
+  compaction (`CompactConsistStaticBodies`), sharing combined static meshes across repeated
+  cars/consists while keeping `Unity basis`, `Consist` scale, `Car<n>`, `Gangway<n>`, and
+  all `TrainDoorRig` `*DoorNN` leaves intact.
+
+**EditMode inventory & Q/E visibility writes on real `tianhe.metro.json`:**
+
+| Tianhe Park metric (EditMode) | Before Stage 4 | After Stage 4 | Reduction |
+| --- | ---: | ---: | ---: |
+| `trains` `MeshRenderer`s (6 consists, `4,072,976` tris preserved) | `44,522` | **`4,002`** | **11.1×** (`−40,520`) |
+| `equipment` `MeshRenderer`s / targets | `30,704` / `2,058` | **`2,712` / `1,399`** | **11.3×** (`−27,992`) |
+| `modules` (fences/trees) `MeshRenderer`s / targets | `19,444` / `842` | **`348` / `112`** | **55.9×** (`−19,096`) |
+| **Total scene `MeshRenderer`s** | **`116,160`** | **`28,552`** | **4.07×** (`−87,608`) |
+| Q/E `-5 ↔ 0` material writes (`mW`) | `52,020` | **`11,684`** | **4.45×** (`−40,336`) |
+| Q/E `-5 ↔ -10` renderer enable writes (`rW`) | `50,326` | **`9,518`** | **5.29×** (`−40,808`) |
+
+**Matched Chrome Hardware WebGL2 Release (`StationGameLocal`, `pack-20261120025314506`, Wasm SHA-256 `a814e6b46e439a7463e6d88c2c7b223af09e631cb58904651ca8942102350498`):**
+
+| Benchmark (Tianhe Park unless noted) | Stage 2 After (`pack-20261120015939334`) | Stage 4 After (`pack-20261120025314506`) | Speedup / Delta |
+| --- | ---: | ---: | ---: |
+| Paused `-5 m` `unchangedRaf2` median (`2` frames) | `~252 ms` (`~122 ms/f`) | **`90.6 ms`** (`~45 ms/f`) | **2.78× faster** |
+| Paused `-5 → 0` `warmParked_m5_to_0_raf2` median / p95 | `316 ms` / `335.1 ms` | **`105.9 ms` / `111.2 ms`** | **2.98× faster** |
+| Paused `0 → -5` `warmParked_0_to_m5_raf2` median / p95 | `~252 ms` | **`96.4 ms` / `100.3 ms`** | **2.61× faster** |
+| Q/E `-5 → 0` warm parked `ackMs` median / p95 | `7.3 ms` / `8.5 ms` | **`3.8 ms` / `4.1 ms`** | **1.92× faster** (4.5× vs baseline) |
+| Q/E `0 → -5` warm parked `ackMs` median / p95 | `7.1 ms` / `8.1 ms` | **`3.8 ms` / `3.9 ms`** | **1.87× faster** (4.3× vs baseline) |
+| Q/E `-5 → -10` warm parked `ackMs` median / p95 | `9.8 ms` / `11.1 ms` | **`3.2 ms` / `3.7 ms`** | **3.06× faster** (4.2× vs baseline) |
+| Q/E `-10 → -5` warm parked `ackMs` median / p95 | `10.3 ms` / `11.4 ms` | **`3.5 ms` / `3.9 ms`** | **2.94× faster** (6.2× vs baseline) |
+| Tanwei `-5 ↔ 0` warm parked `ackMs` median | `2.8 ms` / `2.5 ms` | **`1.1 ms` / `1.1 ms`** | **2.3–2.5× faster** |
+| Tianhe cold-open peak Wasm memory (`load=1`) | `3,056.7 MiB` | **`2,807.5 MiB`** | **`−249.2 MiB`** |
+| Tianhe `renderer.surfaces → renderer.vertical` WebGL build | `~15.6 s` | **`1.78 s`** | **~8.7× faster** |
+
+Verified with zero failures across 11 EditMode suites (`TrainConsistViewTests`,
+`TrainConsistTests`, `StationScenePickerTests`, `StationHighlightRetentionTests`,
+`StationCourtModuleTests`, `StationCeilingMountTests`, `StationVisibilityTests`,
+`StationMovingVisibilityTests`, `OutdoorModuleViewTests`, `StationBindingReportTests`,
+`TianheParkEditLatencyFallbacksAndRendererInventory`) and all 7 WebGL Tianhe checks
+(cold open, grade screenshot, corrupt rollback, 16× Play, 5× station switches, 16.8 MiB save).
+
+#### Stage 5 closure — Crowd animation, offscreen bounds & hidden-storey culling (`2026-11-19`)
+
+Audit of `PassengerCrowdView.Render` isolated three per-frame CPU/GPU animation overheads on large crowds:
+
+1. **`updateWhenOffscreen = true` on every skinned passenger:** Every `SkinnedMeshRenderer` recomputed bone bounds every frame even when off-camera or on hidden storeys.
+2. **Unconditional `Clip.SampleAnimation` per actor:** Paused, queued, and hidden-storey passengers still ran CPU skeletal sampling every frame, and distant walkers sampled at full render frame rate.
+3. **Redundant `Transform` writes & per-actor camera lookups:** `position`, `rotation`, and `localScale` were reassigned every frame even for stationary actors.
+
+**Changed code:**
+
+- `PassengerCrowdView.cs`: Disabled `skin.updateWhenOffscreen` with explicit generous `skin.localBounds` (`center=(0,0.9,0), size=(1.4,2.2,1.4)`), bound `actor.Target` storey visibility *before* animation so hidden-storey actors skip `SampleAnimation` cleanly (re-marking `AnimationDirty = true` until visible), skipped redundant `SampleAnimation` when `(ClipName, ClipTime)` is unchanged (`1e-4 s` near/EditMode; distance-quantized `0.065 s` at `45–85 m` and `0.125 s` beyond `85 m` in PlayMode), skipped unchanged transform writes, cached camera position & `followId` once per frame, and exposed `SampledThisFrame` / `SkippedHiddenAnimationThisFrame` / `SkippedUnchangedAnimationThisFrame`.
+- `StationCrowdStateTests.cs`: Added `CrowdPoseSkipsUnchangedAnimationsAndUsesFixedLocalBounds` (200 pooled 3D skinned actors).
+
+| 200 pooled 3D skinned actors (`StationCrowdStateTests`, EditMode) | Result |
+| --- | ---: |
+| First frame (spawn + initial pose) | `950.40 ms` (`200` sampled) |
+| Paused / stationary frame | **`0.74 ms`** (`0` sampled, `200` skipped) |
+| Half-walking frame (`100` moving, `100` idle) | **`2.03 ms`** (`100` sampled, `100` skipped) |
+| `SkinnedMeshRenderer.updateWhenOffscreen` | `false` on all `200` actors (fixed `localBounds`) |
+
+Verified with zero failures across `StationCrowdStateTests` (3/3) and `StationMovingVisibilityTests` (5/5).
+
+#### Stage 6 closure — Simulation A* hot-path & bounded route reuse (`2026-11-19`)
+
+EditMode peak-rush profiling on real `tianhe.metro.json` (`180` simulated seconds, `1,445`
+peak crowd, `1,504` spawned, `1,468` alighted, `StationServiceFrameTests.TianheParkPeakRushSimulationAndRouteProfile`)
+isolated three routing bottlenecks before changes (`25,838.3 ms` total, `143.55 ms` avg,
+`625.39 ms` p95, `1,190.73 ms` max tick, `49,478,238` A* node expansions):
+
+1. **Stale heap re-expansions:** `StationRoutePlanner.MinHeap` pushed improved nodes without
+   skipping superseded entries on `Pop()`, re-expanding ~10.9M stale nodes across 180 ticks.
+2. **Per-edge congestion dictionary lookups:** `CongestionAt(next)` ran `Math.Floor`, `JsRound`,
+   and a `Dictionary<(int, int, int), int>` lookup on every relaxed edge (~400M lookups).
+3. **No lift-inclusive reachability fast-reject & no route reuse:** `graph.CanReach` was skipped
+   whenever lifts existed (`useLifts == true`), and repeated spawn/alighting `(from, to, needs)`
+   queries re-ran full A* synchronously every time.
+
+**Changed code:**
+
+- `StationRoutePlanner.cs`: Added exact `gValues` tracking in `MinHeap.Pop(out double g)` to
+  skip superseded heap pops (`poppedG > gScore[current]`, preserving optimality even on
+  non-consistent edges), per-tick lazy flat `double[] congestionVal` + `int[] congestionStamp`
+  cache (`InvalidateCongestionCache()` called once per tick in `PriceCrowd()`), and undirected
+  Union-Find lift-inclusive reachability components (`CanReachWithLifts`).
+- `StationServiceRuntime.cs`: Added exact same-cost-state reuse (`liveCostVersion`, invalidated
+  on `PriceCrowd`, `RefreshGateTraffic`, `SyncServerQueue`, gate reservation changes, and graph
+  edits) plus bounded cross-tick LRU reuse (`1,024` entries, `60 s` walk / `5 s` lift TTL,
+  cleared on `graphEpoch` change and `Restart()`) for initial spawn and alighting legs, while
+  keeping live fare-line gate re-choices, `avoidServer` reroutes, and `walkOnly` detours uncached.
+
+| Tianhe Park 180-tick peak rush (`seed=42`, EditMode) | Before Stage 6 | After Stage 6 | Speedup / Delta |
+| --- | ---: | ---: | ---: |
+| Total sim time (`180` ticks) | `25,838.3 ms` | **`12,847.6 ms`** | **2.01× faster** (`−13.0 s`) |
+| Mean / median tick time | `143.55` / `64.18 ms` | **`71.38` / `46.93 ms`** | **2.01× / 1.37× faster** |
+| p95 / max tick time | `625.39` / `1,190.73 ms` | **`270.94` / `598.54 ms`** | **2.31× / 1.99× faster** |
+| A* queries / route cache hits | `3,343` / `0` | **`2,804` / `555`** | `−539` searches |
+| A* expanded nodes (stale pops skipped) | `49,478,238` (`0`) | **`27,201,291`** (`8,552,445` skipped) | **−45.0%** (`−22.3M` nodes) |
+| Crowd parity (`peak / final / spawned / alighted / exited / stuck`) | `1445 / 1386 / 1504 / 1468 / 70 / 49` | **`1445 / 1386 / 1504 / 1468 / 70 / 49`** | **Exact parity** |
+
+Verified with zero failures across `StationRoutePlannerTests` (9/9), `StationSimulationSessionTests`
+(16/16), `StationCrowdStateTests` (2/2), and `StationServiceFrameTests` (35/35, including all
+door/gate/lift/wave oracles and `TianheParkPeakRushSimulationAndRouteProfile`).
+
+#### Stage 7 closure — Live displays, clocks & sign upload budgeting (`2026-11-19`)
+
+Audit of live display refresh paths isolated three burst/leak sources during 1×/16× playback:
+
+1. **Per-clock redundant digital renders:** `StationClockArtwork.Apply` ran a full
+   `Camera.Render()` + `Canvas` + `ReadPixels` pass per placed digital clock on every
+   simulated second, even though every digital clock in a station displays identical time.
+   Analogue hands also rewrote `Pivot.localRotation` even when their angle had not moved.
+2. **Unbudgeted TV plate bursts & unbounded texture retention:** `StationDisplayTvArtwork.Advance`
+   repainted every dirty TV face across all storeys (including hidden storeys) in one frame
+   on minute rollovers/arrivals, and `scope.PlateTextures` / `scope.Materials` accumulated
+   historical minute textures without eviction for the lifetime of the world.
+3. **Unbudgeted sign PNG decode bursts:** `StationSignTextureCache.Pump` drained all arrived
+   sign responses synchronously via `ImageConversion.LoadImage` in a single frame.
+
+**Changed code:**
+
+- `StationDisplayArtwork.cs` & `StationClockArtwork.cs`: Shared a single
+  `SharedDigitalClockTexture` per `Scope` across all digital clocks (`N` digital clocks → `1`
+  GPU paint/readback per changed second) and skipped unchanged analogue hand rotations
+  (`|wrappedLive - AppliedDegrees| < 1e-4f`, initialized to `float.NaN`).
+- `StationDisplayTvArtwork.cs`: Added round-robin budgeted PlayMode plate painting
+  (`DefaultMaxNewPaintsPerAdvance = 4`, cache hits remain free), skipped hidden TV faces
+  (`!Plate.enabled || !activeInHierarchy`, invalidating `LastSimTick` so they catch up on
+  visibility), tightened the same-tick guard with `LastTrains` + `LastClockSeconds`, and
+  added `TrimUnusedPlateCache` eviction above `MaxCachedPlateTextures = 64`.
+- `StationSignTextureCache.cs`: Added a FIFO `pendingPainted` decode queue draining up to
+  `DefaultMaxDecodeFacesPerPump = 4` PNG decodes/uploads per PlayMode `Pump()`, dropping
+  stale responses before decode while keeping EditMode synchronous.
+
+Verified with zero failures across `StationClockArtworkTests` (6/6, including
+`MultipleDigitalClocksShareOnePaintedTexturePerSecond`), `StationClockTests` (12/12),
+`StationCalligraphyArtworkTests` (15/15, including `TvPlateAdvanceRespectsPaintBudgetSkipsHiddenFacesAndCatchesUp`),
+and all `StationSign*` suites (42/42).
+
+#### Stage 8 closure — Exploded view memory, GPU-instanced props, train compaction & sink isolation (`2026-11-19`)
+
+Profiling real `tianhe.metro.json` across three consecutive exploded-view open → props-complete → select → close round trips (`StationExplodedLayoutTests.TianheParkExplodedViewProfileAndRoundTrip`) plus Chrome Hardware WebGL2 Release round-trip testing exposed six overlap costs while the editor world remained resident:
+
+1. **Uncompacted non-service train consists:** `StationExplodedTrayBuilder.BuildLiveConsists` instantiated a full uncompacted 6-car train for *every* track module (36 tracks instead of the 12 service tracks returned by `TrainConsistGeometry.ServiceTracks`), spawning **`133,566` train `MeshRenderer`s** (`148,824` total exploded renderers, `18.07M` triangles) and adding **`+1,082.6 MiB`** Unity native overlap.
+2. **Unpacking GPU-instanced props into baked CPU meshes:** `ExtractWorldRecord` expanded every `StationInstancedSurfaceBatch` (equipment, fences, trees, lawn, sidewalk) back into baked world-space vertex arrays and `PickBuckets` (~5M+ extra vertices on Tianhe), pushing WebGL Round 1 from `2,911 → 3,960 MiB` and causing Round 2 to OOM at the 4 GiB Wasm32 ceiling.
+3. **Eager per-tray material cloning:** `GetOrCloneTrayMaterial` eagerly cloned every source material per tray (`1,981` cloned materials on Tianhe) plus separate lift palettes per tray, even when no tray was selected.
+4. **Redundant finish library & per-instance mesh marshalling:** Opening exploded view re-acquired a fresh `StationFinishLibrary` and called `mesh.vertices`/`normals`/`uv`/`colors`/`GetTriangles` plus temporary `List`/`Dictionary` allocations on every single prop instance (`propsMs ≈ 6,860 ms`).
+5. **Retained temporary build state & deferred mesh teardown:** `allDocumentSolids` (`151,196` cells), `modulesById`, `allModuleFacts`, `deferredItems`, and `propBuckets` stayed resident after deferred props completed, and `Destroy(mesh)` waited until end-of-frame on WebGL before freeing native vertex/index buffers.
+6. **Duplicate hidden editor frame sinks & instanced drawers:** While `StationExplodedView` owned presentation with the editor camera disabled, hidden editor sinks (`PassengerFrameSink`, `TrainConsistFrameSink`, `RoadFrameSink`, `StationClockArtwork.Sink`, `StationDisplayTvArtwork.Sink`) and the editor's `StationInstancedSurfaceDrawer` kept running.
+
+**Changed code:**
+
+- `TrainConsistViews.cs`: Exposed `CompactConsistInstance` so `StationExplodedTrayBuilder` shares the Stage 4 static car/gangway compaction path.
+- `StationModuleGroups.cs`: Added `FollowTransformOffset` / `ConfigureMatrices` / `ResolveDrawSlices` on `StationInstancedSurfaceBatch` (zero-allocation offset tracking during rigid tray drags) and `PauseDuringExplodedView` on `StationInstancedSurfaceDrawer`.
+- `StationExplodedTrayBuilder.cs`: Restricted `BuildLiveConsists` to `TrainConsistGeometry.ServiceTracks` with `CompactConsistInstance` (`133,566 → 4,002` train renderers); kept `StationInstancedSurfaceBatch` props GPU-instanced under `tray.PropsRoot` (wired into `tray.TintRenderers` for selection tinting and bounds encapsulation); borrowed the active editor `StationCellRenderer.CurrentFinishes` library; switched to lazy per-tray selection-tint material cloning (sharing immutable source materials and one shared lift palette until selected); cached extracted source submeshes per `(Mesh, submesh)` and streamed transformed vertices directly into `PropCombineBucket` with `UploadMeshData(markNoLongerReadable: true)` on `PropsRoot` combined meshes (keeping `FloorRoot`/`WallsRoot` readable); released all temporary build tables via `ReleaseTemporaryBuildState()` on completion and cleared `PickBuckets` + called `mesh.Clear(false)` synchronously before `Destroy` in `Dispose()`.
+- `StationWorldView.cs`, `StationGameHost.cs`, `StationExplodedView.cs`, `ModuleMotion.cs`, `VerticalModuleViews.cs`: Added `IStationActiveDuringExplodedView` and `StationExplodedView.IsStandaloneActive` so `StationGameHost.TickFrameSinks()` ticks only the exploded viewer and vertical/motion sinks while exploded view is open, refreshing editor sinks on PlayMode `Close()` and running `GC.Collect()` on WebGL `Close()`.
+
+| Tianhe Park Exploded View (`3` round trips, EditMode) | Before Stage 8 | After Stage 8 | Improvement |
+| --- | ---: | ---: | ---: |
+| Structural open `structMs` (r1 / r2 / r3) | `4,597 / 4,449 / 4,462 ms` | **`2,389 / 2,339 / 2,336 ms`** | **1.91–1.92× faster** |
+| Deferred props `propsMs` (r1 / r2 / r3) | `6,885 / 6,822 / 6,867 ms` | **`1,805 / 1,811 / 1,792 ms`** | **3.83× faster** |
+| Close & return `closeMs` (r1 / r2 / r3) | `443.2 / 459.9 / 475.0 ms` | **`40.7 / 44.7 / 46.4 ms`** | **10.3–10.9× faster** |
+| Structural / total exploded renderers | `134,621` (`133,566` trains) / `148,824` | **`5,057` (`4,002` trains) / `19,236`** | **7.74× fewer (−129,588)** |
+| Baked vertices / triangles | `34.25M` / `18.07M` | **`12.88M` / `6.47M`** | **−62.4% / −64.2%** |
+| Cloned materials on open (after props) | `1,981` | **`15`** (`661` lazily after selecting 2 trays) | **132× fewer on open** |
+| Managed peak overlap (`open − editorReady`) | `+760.0 MiB` | **`+332.9 MiB`** | **−427 MiB (−56%)** |
+| Post-close managed delta (`closed − editorReady`, r1/r2/r3) | `+204.7 / +206.6 / +206.7 MiB` | **`+9.2 / +9.5 / +9.7 MiB`** | **−197 MiB (−95%, flat slope)** |
+| Peak Unity native overlap (`open − editorReady`) | `+1,082.6 → +1,123.8 MiB` | **`+331.7 → +354.8 MiB`** | **−751 to −769 MiB (−69%)** |
+| Post-close native residual (r1 / r2 / r3) | `+74.4 / +110.7 / +114.0 MiB` | **`+4.5 / +25.1 / +27.7 MiB`** | **−86 MiB (−76%)** |
+
+**Integrated WebGL2 Release verification** (`StationGameLocal`, `pack-20261120041339214`, Chrome Hardware WebGL2, all Stages 1–8 combined):
+
+- **Tianhe Park Exploded View 2× round trip** (`verify-stage8-exploded-webgl.mjs`): Editor ready at `2,946.8 MiB` Wasm; Round 1 `openAckMs = 1,654 ms`, `equippedMs = 3,939 ms`, `closeMs = 375 ms`, `maxWasm = 3,967.3 MiB`; Round 2 `openAckMs = 1,560 ms`, `equippedMs = 3,534 ms`, `closeMs = 290 ms`, `maxWasm = 3,967.3 MiB` (**`0.0 MiB` Wasm growth across round trips**, eliminating the Round 2 OOM); post-return `view.set(0)` `ackMs = 42 ms`.
+- **Tianhe Park & Tanwei Q/E + paused frame time** (`.preview/unity/plan35/final-qe-webgl.json`): Held Stage 4 gains with all Stages 1–8 active — Tianhe paused `-5 m` `unchangedRaf2` median `92.4 ms`, warm parked `-5 → 0` `ackMs = 3.7 ms` / `raf2Ms = 106.9 ms`, `-5 → -10` `ackMs = 3.3 ms` / `raf2Ms = 45.0 ms`; Tanwei `-5 → 0` `ackMs = 1.1 ms` / `raf2Ms = 38.9 ms`.
+- **Tianhe Park cold open, 16× Play, station switches & save** (`verify-stage1-tianhe.mjs`): Cold open `2,780.8 MiB` peak Wasm (`8.72 s` commit), 16× Play advanced `+61` sim seconds in `4 s` with `1,280` 3D passengers, all 7 checks passed.
+
+Verified with zero failures across EditMode `StationExplodedLayoutTests` (9/9), `StationExplodedConnectionTests` (8/8), `StationCourtModuleTests` (4/4), PlayMode `StationExplodedViewPlayTests` (7/7), `metro-editor.ps1 compile`, and `npm run test:unity` (152/152).
+
+For an allocation-stage diagnostic, rebuild the Release pack with the
+load markers and pass `--load-probe`. The verifier subscribes to console
+events before navigating so the report can retain the last marker even if
+the player never commits. Each marker records elapsed time, managed heap
+and Unity allocator totals. These counters can overlap. The browser also logs
+calls to grow Wasm memory. Collect separate uninstrumented runs for timing gates.
+
+```powershell
+npm run build:unity -- --scene StationGameLocal
+$stationPack = (Get-Content .preview/unity/dev-workspace/state.json -Raw | ConvertFrom-Json).activePackedDir
+$env:METRO_STATIC_SERVER = '1'
+$env:METRO_BROWSER_GPU = 'hardware'
+node tools/unity-web/verify-station-game.mjs .preview/unity/plan35/webgl-tianhe-probe --packed $stationPack --demo tianhe --locale zh --only demo --load-probe
+```
+
+The Windows wrapper accepts `build-windows -Configuration Release` against
+an isolated copy of the Unity project with the exported demos and generated
+catalogues. It records the same project-input, fixture and output SHA-256
+manifest as `build-web`. For a Windows load diagnostic, pass
+`-metroLoadProbe` to the player and collect its Unity log.
+
+### Remaining Three.js performance parity gaps in Unity
+
+Static audit of `e5dd034b`, covering the official editor, playback and
+exploded viewer. “Web” here means the Three.js game. Unity WebGL shares the
+React shell with it and uses the Unity renderer and simulation. The rows
+identify different production paths and work to verify. Their order within
+each workload reflects the source evidence. Runtime impact is unmeasured in
+this audit. The [Q/E audit](#tianhe-park-unity-qe-storey-steps) covers the
+visibility transition itself.
+
+| Workload | Three.js optimization | Unity coverage and remaining gap |
+| --- | --- | --- |
+| Cold open and peak memory | The web [scene renderer](../../../../game/src/render/scene/SceneRenderer.ts#L566) defers the bounded train fleet until first presentation/idle and can build a consist on demand. The [surface system](../../../../game/src/render/surfaceBatches.ts) instances repeated lawn and pavement by finish and spatial bucket. | Unity now streams cell meshes directly without intermediate managed arrays, GPU-instances grade `lawn`/`sidewalk` tiles (`StationInstancedSurfaceBatch`), filters vertical neighbours, yields WebGL open frames with low-memory visual replacement and rollback (`OpenYielded`), and streams WebGL commit/save envelopes in 32 KiB chunks with streamed SHA-256 (`HashEnvelope`). Tianhe Park opens on WebGL at `~3,050 MiB` peak Wasm (>1 GiB headroom) across repeated switches and 16× Play. Remaining gaps: optional train-fleet deferral (`TrainConsistViews.cs`) and eliminating the `~770 MiB` Newtonsoft `JObject.Parse` DOM spike during `StationDocumentReader.ParseAndProject`. |
+| Stationary editor and camera movement | [SceneRenderer](../../../../game/src/render/scene/SceneRenderer.ts#L1171) retains the last framebuffer on a still frame, and separate frame loops continue to handle animation and invalidation. Equipment, chunks and paving have quality/detail selection, with prepared per-view equipment batches. | Static equipment (`StationEquipmentModuleRenderer`) and straight fences/trees (`OutdoorModuleRenderer`) now batch via `StationPrefabMeshTemplate` + `StationInstancedSurfaceBatch` (`64×64 m` spatial chunks), cutting Tianhe `MeshRenderer`s by `87,608` (with train static bodies) and slashing WebGL paused `-5 m`/`0 m` frame times ~2.8–3.0× (`122–154 → 45–50 ms/frame`) and Q/E `ackMs` to `3.2–3.8 ms`. Remaining draws are led by `openings` (`8,593` renderers) and `vertical` (`5,520`). |
+| Playing crowds | [CrowdSystem](../../../../game/src/render/scene/systems/CrowdSystem.ts#L86) submits packed instance attributes for animated atlas people and has a coarse Low pass. | `PassengerCrowdView` now uses fixed `localBounds` (`updateWhenOffscreen = false`), skips `SampleAnimation` on hidden-storey and unchanged actors (`200` stationary actors pose in `0.74 ms`), distance-quantizes PlayMode skeletal sampling beyond `45 m` / `85 m`, and suppresses redundant transform writes while preserving full 3D picking, activity poses, and train/lift attachment. Remaining gap: optional far/Low instanced billboard/atlas representation for multi-thousand-actor draw reduction. |
+| Moving trains, PSDs and road vehicles | [Train batching](../../../../game/src/render/trainBatches.ts) instances compatible repeated leaves and updates leaf matrices only when the doors change pose. It keeps transparency on a separate path. | `TrainConsistViews` now compacts each car and gangway's static non-door body per `(formationKey, part)` into shared material-grouped meshes, cutting Tianhe train `MeshRenderer`s from `44,522` to `4,002` (11.1×) while keeping all `TrainDoorRig` leaves and door timing intact. Road traffic stays pooled. |
+| Simulation and route spikes | [SimSlice](../../../../game/src/app/store/slices/SimSlice.ts#L196) starts simulation in a Worker. [PathFinder](../../../../game/src/sim/station.ts#L1111) has a bounded LRU for reusable paths, a budgeted pending queue with a head index, and uncached live-cost searches where required. | `StationRoutePlanner` now skips superseded heap pops, caches per-node tick congestion in a flat array, and fast-rejects disconnected lift queries via Union-Find; `StationServiceRuntime` adds exact same-cost-state reuse plus bounded cross-tick LRU reuse for spawn/alighting legs while keeping fare-line gate choices, `avoidServer`, and `walkOnly` detours live (`2.01×` faster Tianhe rush, `p95 625 → 271 ms`, exact passenger counts). Remaining gap: off-thread Worker/cooperative tick budgeting for 16× multi-tick spikes. |
+| Live TVs, signs and clocks | The [panel atlas](../../../../game/src/render/panelAtlas.ts#L148) coalesces changing slots and drains one per render frame. Equipment batches use atlas coordinates to share materials. Printed minute changes and service-card changes have distinct triggers. | `StationClockArtwork` now shares one digital texture per world across all digital clocks (`1` render/second regardless of clock count) and skips unchanged hand writes. `StationDisplayTvArtwork` skips hidden TV faces, budgets PlayMode paints round-robin (`4/frame`), and evicts unused plate textures above `64`. `StationSignTextureCache` budgets PlayMode PNG decode/uploads (`4/frame`) via a FIFO queue and drops stale replies before decode. |
+| Edit commits and undo | Web uses dependency-local invalidation, retained roots, and immutable snapshots with retired [derived-cache release](#undo-history-and-derived-placement-indexes). | Unity has paged records, sharded index deltas, local chunk and graph updates, selective simulation reconciliation, incremental React adoption, and now local opening deltas (`gate`, `door`, `cubicle` in `OpeningModuleRenderer`, cutting Tianhe gate edits from `11.5–11.7 s` to `90–216 ms`). Remaining fallbacks are `platform-edge`/`psd-end` and whole-station structural repairs. |
+| Pointer previews and overlays | [Web drag scheduling](../../../../game/src/app/tools/geometry/multiPlaceDrag.ts#L45) keeps only the latest expensive target, while mouse release resolves its own committed pick. Web zone work is scoped to the active storey. | The [Unity shell already coalesces moves](../../../../game/src/unity-web/pointerInput.ts#L165), with one shared scene pick per event. `StationZoneMap.FloorsAt(doc, index, level)` now scans only the active storey band (`4×` faster cold zone switch on Tianhe), and `StationOverlayRenderer` caches visited bands (`0.2–0.3 ms` on Q/E revisits) with touched-band local invalidation and clean release when toggled off. |
+| Exploded-view memory | The [web renderer handoff](#explodededitor-renderer-handoff) sheds editor renderer resources, presents structure and streams equipment. Returning pays a rebuild. | `StationExplodedTrayBuilder` now borrows the active `StationFinishLibrary`, builds only service-track consists compacted via `TrainConsistViews.CompactConsistInstance` (`133,566 → 4,002` train renderers; total `148,824 → 19,236`), keeps `StationInstancedSurfaceBatch` props GPU-instanced under `tray.PropsRoot` with zero-allocation drag offset tracking, lazily clones selection-tint materials per tray on demand (`1,981 → 15` on open), caches source submeshes and releases temporary tables + clears native mesh buffers synchronously on close (`−751 MiB` native / `−427 MiB` managed overlap in EditMode; WebGL2 Tianhe 2× round trips complete with `0.0 MiB` Wasm slope at `3,967 MiB` peak), and pauses duplicate hidden editor frame sinks and instanced drawers while open. |
+
+#### Measurement order
+
+1. **Tianhe open and memory.** Measure Windows Release from load command
+   through first geometry, first accepted input and completion of deferred
+   work. Record peak and steady managed/native/GPU memory plus renderer,
+   draw and texture counts. Repeat a station replacement and the exploded
+   round trip to expose peak overlap. Use Unity WebGL build telemetry through
+   the last successful milestone until the recorded fixture opens.
+2. **Editor responsiveness.** Run parked-pointer camera motion, cold and warm
+   Q/E, previews and actual release/undo/redo. Include one cell, a 4×3 drag
+   and a cosmetic equipment operation. Report p95/max key or pointer to first
+   updated frame, commit time and fallback reason separately. Reuse the
+   [editor action matrix](#repeatable-editor-action-matrix) for the family
+   inventory and sample Windows and Unity WebGL separately.
+3. **Playback.** Use the same paused start, saved camera, quality and canvas
+   across builds, then run 1× and 16× with matched crowd counts and train
+   arrivals. Compare CPU simulation, route work, animation, texture
+   paints/uploads and GPU/frame tails. Run crowd and plate ablations in
+   separate captures so improving one stage cannot mask another.
+
+Use Zoo and Tanwei as scale controls. On each engine retain the exact build,
+fixture hash and visibility flags. Existing browser software-GPU, Windows
+Release and Unity WebGL observations above have different boundaries and
+must stay separate from a matched comparison. Shared shell thumbnails,
+one-pick input, pooled traffic, retained grid geometry and the existing
+ordinary-block fast path already have Unity coverage. Optional Rust/Wasm A*
+is an experiment excluded from the normal web build and is outside this
+production parity list.

@@ -1104,7 +1104,7 @@ namespace Metro.App {
     /// identity and the pose holds exactly where it was; a seek/restart/switch drops
     /// the interpolation history so nothing blends across the discontinuity.
     /// </summary>
-    public sealed class ModuleMotionFrameSink : IStationFrameSink {
+    public sealed class ModuleMotionFrameSink : IStationFrameSink, IStationActiveDuringExplodedView {
         readonly ModuleMotionDispatch dispatch = new ModuleMotionDispatch();
         StationDocument document;
         StationSimulationSession session;

@@ -3,10 +3,14 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Security.Cryptography;
+using System.Text;
 using Metro.App;
+using Metro.App.Views;
 using Metro.Build;
 using Metro.Persistence;
 using Metro.Sim;
+using Metro.View;
 using Newtonsoft.Json.Linq;
 using NUnit.Framework;
 using UnityEngine;
@@ -703,6 +707,412 @@ namespace Metro.EditModeTests {
             Assert.AreNotEqual(activeRun, postDateRun);
             Assert.AreEqual(0, (int)dateSeek["payload"]["statistics"]["history"]["count"]);
             Assert.AreEqual(boardedBeforeEdits, (int)dateSeek["payload"]["statistics"]["metrics"]["boarded"]);
+        }
+
+        [Test]
+        public void YieldedOpenCommitsRollsBackAndClearsPreviousReadOnSwitch() {
+            var coordinator = new StationLoadCoordinator(rootObject.transform);
+            var renderer = new CountingRenderer();
+            coordinator.RegisterRenderer(renderer);
+            try {
+                string saveA = TinySave(new JArray());
+                StationLoadResult resA = null;
+                var enumA = coordinator.OpenYielded(saveA, StationSource.None, "station-a", r => resA = r);
+                int stepsA = 0;
+                while (enumA.MoveNext()) stepsA++;
+                Assert.GreaterOrEqual(stepsA, 3, "yielded open must pause across read, build, and commit boundaries");
+                Assert.IsNotNull(resA);
+                Assert.IsTrue(resA.Accepted);
+                Assert.AreEqual(1, coordinator.Revision);
+                Assert.AreEqual("station-a", coordinator.SourceId);
+                var worldA = coordinator.World;
+
+                // Failed render on yielded open must roll back atomically and leave station-a untouched.
+                renderer.FailNext = true;
+                StationLoadResult resFail = null;
+                var enumFail = coordinator.OpenYielded(TinySave(new JArray { Module("b1", "bench", 0, 0, 0) }), StationSource.None, "station-fail", r => resFail = r);
+                while (enumFail.MoveNext()) { }
+                renderer.FailNext = false;
+                Assert.IsNotNull(resFail);
+                Assert.IsFalse(resFail.Accepted);
+                Assert.AreEqual("render-failed", resFail.Rejection.Code);
+                Assert.AreEqual(1, coordinator.Revision);
+                Assert.AreSame(worldA, coordinator.World);
+                Assert.IsFalse(worldA.IsDisposed);
+
+                // Corrupt JSON on yielded open must reject with parse-failed and leave station-a untouched.
+                StationLoadResult resBad = null;
+                var enumBad = coordinator.OpenYielded("{bad json", StationSource.None, "station-bad", r => resBad = r);
+                while (enumBad.MoveNext()) { }
+                Assert.IsNotNull(resBad);
+                Assert.IsFalse(resBad.Accepted);
+                Assert.AreEqual("parse-failed", resBad.Rejection.Code);
+                Assert.AreEqual(1, coordinator.Revision);
+                Assert.AreSame(worldA, coordinator.World);
+
+                // Successful station switch must dispose worldA and clear PreviousCommittedRead so old station is not pinned.
+                StationLoadResult resB = null;
+                var enumB = coordinator.OpenYielded(TinySave(new JArray { Module("b2", "bench", 1, 0, 0) }), StationSource.None, "station-b", r => resB = r);
+                while (enumB.MoveNext()) { }
+                Assert.IsNotNull(resB);
+                Assert.IsTrue(resB.Accepted);
+                Assert.AreEqual(2, coordinator.Revision);
+                Assert.AreEqual("station-b", coordinator.SourceId);
+                Assert.IsTrue(worldA.IsDisposed, "replaced world must be disposed");
+                Assert.IsNull(coordinator.PreviousCommittedRead, "station switch must not pin previous station's read result");
+            } finally {
+                coordinator.Dispose();
+            }
+        }
+
+        [Test]
+        public void StreamingHashMatchesUtf8Sha256AcrossChunkBoundaries() {
+            var longMixed = new StringBuilder(40000);
+            for (int i = 0; i < 6000; i++) longMixed.Append("天河公园Tianhe-0123456789🚇");
+            var samples = new[] { "", "hello", "广州地铁天河公园站", longMixed.ToString() };
+            using var sha = SHA256.Create();
+            foreach (var sample in samples) {
+                var expectedBytes = sha.ComputeHash(Encoding.UTF8.GetBytes(sample));
+                var expected = BitConverter.ToString(expectedBytes).Replace("-", "").ToLowerInvariant();
+                Assert.AreEqual(expected, StationDocumentReader.Hash(sample), "mismatch for len=" + sample.Length);
+            }
+        }
+
+        [Test]
+        public void CellViewDirectStreamMatchesStandardMeshAndReleasesUploadBuffers() {
+            var read = StationDocumentReader.Read(TinySave(new JArray(), new JArray {
+                Cell(0, 0, 0, "floor.concrete"),
+                Cell(1, 0, 0, "floor.terrazzo"),
+                Cell(0, 1, 0, "floor.concrete"),
+            }), StationSource.None);
+            var fallback = new Material(Shader.Find("Hidden/InternalErrorShader") ?? Shader.Find("Standard"));
+            try {
+                var input = StationCellRenderer.BuildInput(read.Document, null, new List<string>(), null);
+                var standardReq = new StationCellViewRequest {
+                    Mesh = input,
+                    FallbackMaterial = fallback,
+                    Name = "Standard",
+                };
+                var directReq = new StationCellViewRequest {
+                    Mesh = input,
+                    FallbackMaterial = fallback,
+                    Name = "Direct",
+                    ReleaseUploadBuffers = true,
+                    MarkMeshNoLongerReadable = false,
+                };
+                using var standardView = StationCellView.Build(standardReq, rootObject.transform);
+                var workspace = StationCellMeshWorkspace.Create(input);
+                using var directView = StationCellView.BuildFromWorkspace(directReq, rootObject.transform, workspace);
+
+                Assert.AreEqual(standardView.MeshGroups, directView.MeshGroups, "group count");
+                Assert.AreEqual(standardView.Triangles, directView.Triangles, "triangle count");
+                Assert.Greater(directView.Triangles, 0);
+                for (int i = 0; i < directView.Groups.Count; i++) {
+                    var dg = directView.Groups[i];
+                    var sg = standardView.Groups[i];
+                    Assert.AreEqual(sg.Triangles, dg.Triangles);
+                    Assert.AreEqual(sg.Data.VertexCount, dg.Data.VertexCount);
+                    Assert.IsNull(dg.Data.Positions, "direct stream must not allocate retained Positions array");
+                    Assert.IsNull(dg.Data.Normals, "direct stream must not allocate retained Normals array");
+                    Assert.IsNull(dg.Data.TriangleFaces, "direct stream must not allocate retained TriangleFaces array");
+                    Assert.IsNotNull(dg.WorldVertices, "picking vertices retained");
+                    Assert.IsNotNull(dg.WorldIndices, "picking indices retained");
+                }
+
+                // Ray straight down onto top face of cell (0,0,0) in world space: (0.5, 5, 0.5) -> down
+                var ray = new Ray(new Vector3(0.5f, 5f, 0.5f), Vector3.down);
+                Assert.IsTrue(standardView.TryPick(ray, StationCellPickFilter.Default, out var sHit));
+                Assert.IsTrue(directView.TryPick(ray, StationCellPickFilter.Default, out var dHit));
+                Assert.AreEqual(sHit.CellKey, dHit.CellKey);
+                Assert.AreEqual(sHit.Face, dHit.Face);
+                Assert.AreEqual(sHit.FinishId, dHit.FinishId);
+                Assert.AreEqual(standardView.Faces.Count, directView.Faces.Count, "lazy Faces rebuild count");
+            } finally {
+                UnityEngine.Object.DestroyImmediate(fallback);
+            }
+        }
+
+        [Test]
+        public void RepeatedDemoSwitchesHaveFlatManagedMemory() {
+            var coordinator = new StationLoadCoordinator(rootObject.transform);
+            coordinator.RegisterRenderer(new StationCellRenderer());
+            coordinator.RegisterRenderer(new StationSurfaceModuleRenderer());
+            coordinator.RegisterRenderer(new StationStreetModuleRenderer());
+            coordinator.RegisterRenderer(new StationEquipmentModuleRenderer());
+            coordinator.RegisterRenderer(new StationDisplayModuleRenderer());
+            coordinator.RegisterRenderer(new StationStructureModuleRenderer());
+            coordinator.RegisterRenderer(new StationGridRenderer());
+            coordinator.RegisterRenderer(new StationOverlayRenderer());
+            coordinator.RegisterRenderer(new OpeningModuleRenderer());
+            coordinator.RegisterRenderer(new StationRoadRenderer());
+            coordinator.RegisterRenderer(new StationSignRenderer());
+            coordinator.RegisterRenderer(new TrainConsistRenderer());
+            coordinator.RegisterRenderer(new VerticalModuleRenderer());
+            coordinator.RegisterRenderer(new OutdoorModuleRenderer());
+            coordinator.RegisterRenderer(new PassengerCrowdRenderer());
+            var simHost = new StationSimulationHost();
+            coordinator.SetSimulationHost(simHost);
+            var visibility = new StationVisibilityRegistry();
+            coordinator.Committed += info => StationViewFeature.RegisterWorld(visibility, coordinator.World);
+            try {
+                (long live, WeakReference docRef, WeakReference idxRef, WeakReference worldRef, WeakReference cellRef, WeakReference simRef) OpenOne(string label, string id) {
+                    var json = File.ReadAllText(DemoPath(id));
+                    var res = coordinator.Open(json, new StationSource("demo:" + id, ""), id);
+                    Assert.IsTrue(res.Accepted, id + " failed: " + res.Rejection?.Reason);
+                    var refs = (
+                        new WeakReference(res.Document),
+                        new WeakReference(res.Index),
+                        new WeakReference(coordinator.World),
+                        new WeakReference(StationCellRenderer.Current),
+                        new WeakReference(simHost.Session));
+                    json = null;
+                    res = null;
+                    GC.Collect();
+                    GC.WaitForPendingFinalizers();
+                    GC.Collect();
+                    long live = GC.GetTotalMemory(true);
+                    Debug.Log($"[MemSlope] {label} ({id}) liveMiB={live / (1024.0 * 1024.0):F1}");
+                    return (live, refs.Item1, refs.Item2, refs.Item3, refs.Item4, refs.Item5);
+                }
+                var t1 = OpenOne("1-tianhe", "tianhe");
+                var z1 = OpenOne("2-zoo", "zoo");
+                Debug.Log($"[MemSlope] After 2-zoo, t1 alive: doc={t1.docRef.IsAlive} idx={t1.idxRef.IsAlive} world={t1.worldRef.IsAlive} cell={t1.cellRef.IsAlive} sim={t1.simRef.IsAlive}");
+                var w1 = OpenOne("3-tanwei", "tanwei");
+                Debug.Log($"[MemSlope] After 3-tanwei, t1 alive: doc={t1.docRef.IsAlive} idx={t1.idxRef.IsAlive} world={t1.worldRef.IsAlive} cell={t1.cellRef.IsAlive} sim={t1.simRef.IsAlive}");
+                var t2 = OpenOne("4-tianhe", "tianhe");
+                var z2 = OpenOne("5-zoo", "zoo");
+                Debug.Log($"[MemSlope] After 5-zoo, t2 alive: doc={t2.docRef.IsAlive} idx={t2.idxRef.IsAlive} world={t2.worldRef.IsAlive} cell={t2.cellRef.IsAlive} sim={t2.simRef.IsAlive}");
+                Assert.IsFalse(t1.docRef.IsAlive, "t1 Document leaked");
+                Assert.IsFalse(t1.worldRef.IsAlive, "t1 World leaked");
+                Assert.IsFalse(t1.cellRef.IsAlive, "t1 CellState leaked");
+                Assert.IsFalse(t1.simRef.IsAlive, "t1 Session leaked");
+                Assert.IsFalse(t2.docRef.IsAlive, "t2 Document leaked");
+                Assert.IsFalse(t2.worldRef.IsAlive, "t2 World leaked");
+                Assert.IsFalse(t2.cellRef.IsAlive, "t2 CellState leaked");
+                Assert.IsFalse(t2.simRef.IsAlive, "t2 Session leaked");
+            } finally {
+                visibility.Dispose();
+                coordinator.Dispose();
+            }
+        }
+
+        [Test]
+        public void HashEnvelopeMatchesNormalizedJsonSha256WithoutMaterializingJson() {
+            foreach (var demoId in new[] { "zoo", "tianhe" }) {
+                var read = StationDocumentReader.Read(File.ReadAllText(DemoPath(demoId)), new StationSource("demo:" + demoId, ""));
+                var doc = read.Document;
+                Assert.IsFalse(doc.HasMaterializedJson, demoId + ": Read must not eagerly materialize NormalizedJson");
+                string streamedHash = StationDocumentReader.HashNormalizedEnvelope(doc);
+                Assert.IsFalse(doc.HasMaterializedJson, demoId + ": HashEnvelope must not materialize NormalizedJson");
+                Assert.IsNotEmpty(streamedHash);
+                string expectedHash = StationDocumentReader.Hash(doc.NormalizedJson);
+                Assert.IsTrue(doc.HasMaterializedJson);
+                Assert.AreEqual(expectedHash, streamedHash, demoId + ": streamed envelope hash must match NormalizedJson SHA-256");
+            }
+        }
+
+        [Test]
+        public void StreamedCommitAndSaveEnvelopesMatchFullEnvelopesExactly() {
+            var hostGo = new GameObject("StreamHost");
+            hostGo.transform.SetParent(rootObject.transform, false);
+            var host = hostGo.AddComponent<StationGameHost>();
+            host.frameCameraOnCommit = false;
+            typeof(StationGameHost).GetMethod("Awake", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(host, null);
+            try {
+                var zooJson = File.ReadAllText(DemoPath("zoo"));
+                var openRes = host.OpenDocument(zooJson, "demo:zoo");
+                Assert.IsTrue(openRes.Accepted);
+                Assert.IsFalse(host.Document.HasMaterializedJson, "OpenDocument must not materialize NormalizedJson");
+
+                var router = new StationCommandRouter(host);
+                var cmd = new StationCommand {
+                    SchemaVersion = StationCommandRouter.SchemaVersion,
+                    Id = "cmd-open-1",
+                    SessionId = "sess-1",
+                    Type = "station.openDemo",
+                };
+
+                var chunks = new List<string>();
+                Assert.IsTrue(router.TryStreamCommitEnvelope(cmd, openRes, chunks.Add), "TryStreamCommitEnvelope should stream");
+                Assert.Greater(chunks.Count, 1, "zoo envelope should stream in multiple chunks");
+                Assert.IsFalse(host.Document.HasMaterializedJson, "TryStreamCommitEnvelope must not materialize NormalizedJson");
+                string streamedCommit = string.Concat(chunks);
+
+                string fullCommit = router.FormatCommitOrReject(cmd, openRes);
+                Assert.AreEqual(fullCommit, streamedCommit, "streamed commit envelope must match FormatCommitOrReject character-for-character");
+
+                // Verify station.save includeDocument: true streaming produces valid ack with stamped document.
+                var saveChunks = new List<string>();
+                var saveCmd = new JObject {
+                    ["schemaVersion"] = StationCommandRouter.SchemaVersion,
+                    ["id"] = "cmd-save-1",
+                    ["sessionId"] = "sess-1",
+                    ["type"] = "station.save",
+                    ["expectedRevision"] = host.CurrentRevision,
+                    ["payload"] = new JObject { ["includeDocument"] = true },
+                }.ToString(Newtonsoft.Json.Formatting.None);
+                Assert.IsTrue(router.TryStreamDirectReply(saveCmd, saveChunks.Add), "station.save should stream");
+                var saveEnv = JObject.Parse(string.Concat(saveChunks));
+                Assert.AreEqual("ack", (string)saveEnv["kind"]);
+                Assert.AreEqual("cmd-save-1", (string)saveEnv["id"]);
+                Assert.AreEqual(host.CurrentSourceHash, (string)saveEnv["payload"]["sourceHash"]);
+                var savedDocText = (string)saveEnv["payload"]["document"];
+                Assert.IsNotEmpty(savedDocText);
+                var reread = StationDocumentReader.Read(savedDocText, StationSource.None);
+                Assert.AreEqual(host.Document.Cells.Count, reread.Document.Cells.Count);
+                Assert.AreEqual(host.Document.Modules.Count, reread.Document.Modules.Count);
+            } finally {
+                UnityEngine.Object.DestroyImmediate(hostGo);
+            }
+        }
+
+        [Test]
+        public void DisplayArtworkReleaseScopeRemovesTvAndClockEntries() {
+            var catalogue = UnityEditor.AssetDatabase.LoadAssetAtPath<RuntimeCatalogue>(RuntimeCatalogue.AssetPath);
+            var font = UnityEditor.AssetDatabase.LoadAssetAtPath<Font>("Assets/StationDesigner/Fonts/NotoSansSC.ttf");
+            var assets = new StationViewAssets {
+                Catalogue = catalogue,
+                Shader = StationFinishLibrary.FindShader(),
+                Font = font,
+            };
+            var read = StationDocumentReader.Read(File.ReadAllText(DemoPath("zoo")), new StationSource("demo:zoo", ""));
+            var world = new StationWorldView(rootObject.transform, "DisplayScopeTest",
+                new IStationViewRenderer[] { new StationDisplayModuleRenderer() }, assets);
+            try {
+                world.Build(read.Document, read.Index);
+                world.Activate();
+                var scope = world.Root.GetComponentInChildren<StationDisplayArtwork.Scope>(true);
+                Assert.IsNotNull(scope, "zoo display build should create a StationDisplayArtwork.Scope");
+                Assert.Greater(StationDisplayTvArtwork.EntriesFor(scope).Count, 0, "zoo should register TV entries");
+                world.Dispose();
+                Assert.AreEqual(0, StationDisplayTvArtwork.EntriesFor(scope).Count, "ReleaseScope must remove TV entries");
+                Assert.AreEqual(0, StationClockArtwork.EntriesFor(scope).Count, "ReleaseScope must remove clock entries");
+            } finally {
+                if (!world.IsDisposed) world.Dispose();
+            }
+        }
+
+        [Test]
+        public void FullHostRepeatedDemoSwitchesReleasePreviousWorldsAndScopes() {
+            var hostGo = new GameObject("FullHostLeakCheck");
+            hostGo.transform.SetParent(rootObject.transform, false);
+            var host = hostGo.AddComponent<StationGameHost>();
+            host.frameCameraOnCommit = false;
+            host.catalogue = UnityEditor.AssetDatabase.LoadAssetAtPath<RuntimeCatalogue>(RuntimeCatalogue.AssetPath);
+            host.trainCatalogue = UnityEditor.AssetDatabase.LoadAssetAtPath<TrainCatalogue>(TrainCatalogue.AssetPath);
+            host.stationShader = StationFinishLibrary.FindShader();
+            host.font = UnityEditor.AssetDatabase.LoadAssetAtPath<Font>("Assets/StationDesigner/Fonts/NotoSansSC.ttf");
+            typeof(StationGameHost).GetMethod("Awake", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(host, null);
+            StationViewFeature.Attach(host);
+            try {
+                (long live, WeakReference docRef, WeakReference worldRef, WeakReference signRef, WeakReference exitRef) Open(string label, string id) {
+                    var json = File.ReadAllText(DemoPath(id));
+                    var res = host.OpenDocument(json, id);
+                    Assert.IsTrue(res.Accepted, id + " failed: " + res.Rejection?.Reason);
+                    var signScope = host.Coordinator.World.Root.GetComponentInChildren<StationSignSignageScope>(true);
+                    var exitScope = host.Coordinator.World.Root.GetComponentInChildren<StationExitArtworkScope>(true);
+                    var refs = (
+                        new WeakReference(res.Document),
+                        new WeakReference(host.Coordinator.World),
+                        new WeakReference(signScope),
+                        new WeakReference(exitScope));
+                    json = null;
+                    res = null;
+                    signScope = null;
+                    exitScope = null;
+                    GC.Collect();
+                    GC.WaitForPendingFinalizers();
+                    GC.Collect();
+                    long live = GC.GetTotalMemory(true);
+                    Debug.Log($"[FullHostSlope] {label} ({id}) liveMiB={live / (1024.0 * 1024.0):F1}");
+                    return (live, refs.Item1, refs.Item2, refs.Item3, refs.Item4);
+                }
+
+                var t1 = Open("1-tianhe", "tianhe");
+                var z1 = Open("2-zoo", "zoo");
+                var w1 = Open("3-tanwei", "tanwei");
+                var t2 = Open("4-tianhe", "tianhe");
+                var z2 = Open("5-zoo", "zoo");
+                Debug.Log($"[FullHostSlope] t1 alive: doc={t1.docRef.IsAlive} world={t1.worldRef.IsAlive} sign={t1.signRef.IsAlive} exit={t1.exitRef.IsAlive}");
+                Debug.Log($"[FullHostSlope] t2 alive: doc={t2.docRef.IsAlive} world={t2.worldRef.IsAlive} sign={t2.signRef.IsAlive} exit={t2.exitRef.IsAlive}");
+                Assert.IsFalse(t1.docRef.IsAlive, "t1 Document leaked in full host");
+                Assert.IsFalse(t1.worldRef.IsAlive, "t1 World leaked in full host");
+                Assert.IsFalse(t2.docRef.IsAlive, "t2 Document leaked in full host");
+                Assert.IsFalse(t2.worldRef.IsAlive, "t2 World leaked in full host");
+                // Verify Detach unlinked replaced scopes so Previous chains never grow unbounded.
+                var curSign = StationSignSignage.Scope;
+                if (curSign != null) {
+                    var prevSign = typeof(StationSignSignageScope).GetField("Previous", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(curSign);
+                    Assert.IsNull(prevSign, "active sign scope must not retain disposed Previous chain");
+                }
+                var curExit = StationExitArtwork.Scope;
+                if (curExit != null) {
+                    var prevExit = typeof(StationExitArtworkScope).GetField("Previous", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(curExit);
+                    Assert.IsNull(prevExit, "active exit scope must not retain disposed Previous chain");
+                }
+            } finally {
+                UnityEngine.Object.DestroyImmediate(hostGo);
+            }
+        }
+
+        [Test]
+        public void YieldedOpenLowMemoryReplaceRollsBackCleanlyOnParseAndRenderFailure() {
+            var coordinator = new StationLoadCoordinator(rootObject.transform);
+            bool failNextBuild = false;
+            var flaky = new ConditionalFailRenderer(() => failNextBuild);
+            coordinator.RegisterRenderer(flaky);
+            int restoredCount = 0;
+            coordinator.WorldRestored += _ => restoredCount++;
+            StationLoadCoordinator.LowMemoryReplaceRecordThresholdOverride = 1;
+            try {
+                StationLoadResult res1 = null;
+                var e1 = coordinator.OpenYielded(TinySave(new JArray { Module("b1", "bench", 0, 0, 0) }), StationSource.None, "st-a", r => res1 = r);
+                while (e1.MoveNext()) { }
+                Assert.IsTrue(res1.Accepted);
+                Assert.AreEqual(1, coordinator.Revision);
+
+                // Parse failure under low-memory replace must restore visual world at revision 1.
+                StationLoadResult badParse = null;
+                var eBad = coordinator.OpenYielded("{not valid json", StationSource.None, "bad", r => badParse = r);
+                while (eBad.MoveNext()) { }
+                Assert.IsFalse(badParse.Accepted);
+                Assert.AreEqual("parse-failed", badParse.Rejection.Code);
+                Assert.AreEqual(1, coordinator.Revision);
+                Assert.IsNotNull(coordinator.World);
+                Assert.IsFalse(coordinator.World.IsDisposed);
+                Assert.AreEqual(1, restoredCount);
+
+                // Render failure under low-memory replace must restore visual world at revision 1.
+                failNextBuild = true;
+                StationLoadResult badRender = null;
+                var eFail = coordinator.OpenYielded(TinySave(new JArray { Module("b2", "bench", 1, 0, 0) }), StationSource.None, "st-b", r => badRender = r);
+                while (eFail.MoveNext()) { }
+                Assert.IsFalse(badRender.Accepted);
+                Assert.AreEqual("render-failed", badRender.Rejection.Code);
+                Assert.AreEqual(1, coordinator.Revision);
+                Assert.IsNotNull(coordinator.World);
+                Assert.IsFalse(coordinator.World.IsDisposed);
+                Assert.AreEqual("st-a", coordinator.SourceId);
+                Assert.AreEqual(2, restoredCount);
+            } finally {
+                StationLoadCoordinator.LowMemoryReplaceRecordThresholdOverride = null;
+                coordinator.Dispose();
+            }
+        }
+
+        sealed class ConditionalFailRenderer : IStationViewRenderer {
+            readonly Func<bool> shouldFail;
+            public ConditionalFailRenderer(Func<bool> shouldFail) => this.shouldFail = shouldFail;
+            public string Role => "flaky";
+            public void Build(StationViewBuildContext context) {
+                if (!failTriggered && shouldFail()) {
+                    // Fail only once so the rollback rebuild of the previous station succeeds.
+                    failTriggered = true;
+                    throw new InvalidOperationException("injected renderer failure");
+                }
+            }
+            bool failTriggered;
+            public void Release() { }
         }
     }
 }

@@ -670,9 +670,23 @@ namespace Metro.App {
         /// rather than wedging the station's boards. The host calls this after each
         /// bridge delivery and on a short tick.
         /// </summary>
-        public void Pump() {
+        public const int DefaultMaxDecodeFacesPerPump = 4;
+
+        readonly Queue<StationSignPaintedFace> pendingPainted = new Queue<StationSignPaintedFace>();
+        public int MaxDecodeFacesPerPump { get; set; } = DefaultMaxDecodeFacesPerPump;
+        public int PendingDecodeCount => pendingPainted.Count;
+
+        public void Pump() => Pump(Application.isPlaying ? MaxDecodeFacesPerPump : int.MaxValue);
+
+        public void Pump(int maxDecodeFaces) {
             if (disposed) return;
-            while (provider.TryTake(out var response)) Apply(response);
+            while (provider.TryTake(out var response)) EnqueueResponse(response);
+            int budget = maxDecodeFaces <= 0 ? int.MaxValue : maxDecodeFaces;
+            int decoded = 0;
+            while (pendingPainted.Count > 0 && decoded < budget) {
+                var painted = pendingPainted.Dequeue();
+                if (ApplySingle(painted)) decoded++;
+            }
             TrimIdle();
             if (wanted.Count == 0) return;
             float now = Time.realtimeSinceStartup;
@@ -722,35 +736,11 @@ namespace Metro.App {
             attempts.Clear();
         }
 
-        void Apply(StationSignFaceResponse response) {
+        void EnqueueResponse(StationSignFaceResponse response) {
             if (response == null) return;
             foreach (var painted in response.Painted ?? Array.Empty<StationSignPaintedFace>()) {
                 if (painted == null || painted.Png == null || painted.Png.Length == 0) continue;
-                if (!wanted.TryGetValue(painted.Key, out var request)) continue; // stale: no one wants it now
-                if (painted.Width != request.PlateWidth || painted.Height != request.PlateHeight) continue;
-                if (entries.ContainsKey(painted.Key)) continue;                 // already painted by another batch
-                var texture = Decode(painted.Png, painted.Width, painted.Height, "sign face " + Short(painted.Key));
-                if (texture == null) continue;
-                // Every binding for this board switches to the new pixels in this loop, so
-                // an entry retired by an invalidation has no reader left.
-                DropRetiredFor(painted.Key);
-                var entry = new Entry {
-                    Key = painted.Key,
-                    Texture = texture,
-                    Fingerprint = Short(painted.Key) + "@" + painted.Width + "x" + painted.Height,
-                    LineDeps = request.LineDependencies,
-                    DependsOnFont = request.DependsOnFont,
-                    LastUsed = Time.realtimeSinceStartup,
-                };
-                entries[painted.Key] = entry;
-                wanted.Remove(painted.Key);
-                Forget(painted.Key);
-                if (!subscribers.TryGetValue(painted.Key, out var list)) continue;
-                foreach (var binding in list.ToArray()) {
-                    entry.Refs++;
-                    entry.LastUsed = Time.realtimeSinceStartup;
-                    binding.Apply(entry.Texture, entry.Fingerprint);
-                }
+                pendingPainted.Enqueue(painted);
             }
             foreach (var pending in response.Pending ?? Array.Empty<StationSignPendingFace>()) {
                 if (pending == null) continue;
@@ -762,7 +752,36 @@ namespace Metro.App {
                     Forget(pending.Key);
                 }
             }
-            TrimIdle();
+        }
+
+        bool ApplySingle(StationSignPaintedFace painted) {
+            if (painted == null || painted.Png == null || painted.Png.Length == 0) return false;
+            if (!wanted.TryGetValue(painted.Key, out var request)) return false; // stale: no one wants it now
+            if (painted.Width != request.PlateWidth || painted.Height != request.PlateHeight) return false;
+            if (entries.ContainsKey(painted.Key)) return false;                 // already painted by another batch
+            var texture = Decode(painted.Png, painted.Width, painted.Height, "sign face " + Short(painted.Key));
+            if (texture == null) return false;
+            // Every binding for this board switches to the new pixels in this loop, so
+            // an entry retired by an invalidation has no reader left.
+            DropRetiredFor(painted.Key);
+            var entry = new Entry {
+                Key = painted.Key,
+                Texture = texture,
+                Fingerprint = Short(painted.Key) + "@" + painted.Width + "x" + painted.Height,
+                LineDeps = request.LineDependencies,
+                DependsOnFont = request.DependsOnFont,
+                LastUsed = Time.realtimeSinceStartup,
+            };
+            entries[painted.Key] = entry;
+            wanted.Remove(painted.Key);
+            Forget(painted.Key);
+            if (!subscribers.TryGetValue(painted.Key, out var list)) return true;
+            foreach (var binding in list.ToArray()) {
+                entry.Refs++;
+                entry.LastUsed = Time.realtimeSinceStartup;
+                binding.Apply(entry.Texture, entry.Fingerprint);
+            }
+            return true;
         }
 
         /// <summary>Ask for the pending faces now instead of after `RetrySeconds`.</summary>
@@ -835,6 +854,7 @@ namespace Metro.App {
             foreach (var key in keys) Retire(key);
             foreach (var list in subscribers.Values) foreach (var binding in list) binding.Clear();
             wanted.Clear();
+            pendingPainted.Clear();
             ForgetAll();
         }
 
@@ -921,6 +941,7 @@ namespace Metro.App {
             retired.Clear();
             subscribers.Clear();
             wanted.Clear();
+            pendingPainted.Clear();
             ForgetAll();
         }
 

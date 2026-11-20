@@ -1035,13 +1035,28 @@ namespace Metro.App {
         }
 
         internal static void Detach(StationExitArtworkScope scope) {
-            if (scope == null || current != scope) return;
-            var previous = scope.Previous;
-            if (previous != null && previous.gameObject != null) {
+            if (scope == null) return;
+            if (current == scope) {
+                var previous = scope.Previous;
+                scope.Previous = null;
+                while (previous != null && previous.gameObject == null) {
+                    var next = previous.Previous;
+                    previous.Previous = null;
+                    previous = next;
+                }
                 current = previous;
                 return;
             }
-            current = null;
+            var cursor = current;
+            while (cursor != null) {
+                if (cursor.Previous == scope) {
+                    cursor.Previous = scope.Previous;
+                    scope.Previous = null;
+                    return;
+                }
+                cursor = cursor.Previous;
+            }
+            scope.Previous = null;
         }
 
         /// <summary>Route one `exit.faceChunk` / `exit.faceReady` into the active painter.</summary>
@@ -1619,6 +1634,8 @@ namespace Metro.App {
             }
             released.Bindings.Clear();
             released.Provider = null;
+            released.World = null;
+            released.Publish = null;
         }
 
         static void SafeDestroy(UnityEngine.Object value) {

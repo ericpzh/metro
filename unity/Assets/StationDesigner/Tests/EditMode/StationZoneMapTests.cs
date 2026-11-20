@@ -697,6 +697,41 @@ namespace Metro.EditModeTests {
             Assert.AreEqual("overlays", contributor.Key, "the state key moved");
             Assert.AreEqual((int)json["labelCount"], (int)contributor.BuildPayload(built.World.Document, built.World.Index)["labelCount"]);
         }
+
+        [Test]
+        public void IndexedFloorsAtMatchesDocumentScanExactly() {
+            var doc = Fixture();
+            var index = new StationIndex(doc);
+            var slow = StationZoneMap.FloorsAt(doc, ActiveLevel);
+            var fast = StationZoneMap.FloorsAt(doc, index, ActiveLevel);
+            Assert.AreEqual(slow.Count, fast.Count, "indexed FloorsAt cell count mismatch");
+            var slowSet = new HashSet<(int, int, int, int)>(slow.Select(c => (c.X, c.Y, c.Z, c.Display)));
+            var fastSet = new HashSet<(int, int, int, int)>(fast.Select(c => (c.X, c.Y, c.Z, c.Display)));
+            Assert.IsTrue(slowSet.SetEquals(fastSet), "indexed FloorsAt cells differ from full scan");
+
+            var emptySlow = StationZoneMap.FloorsAt(doc, ActiveLevel + StoreyHeight);
+            var emptyFast = StationZoneMap.FloorsAt(doc, index, ActiveLevel + StoreyHeight);
+            Assert.AreEqual(emptySlow.Count, emptyFast.Count);
+        }
+
+        [Test]
+        public void ZoneOverlayCachesVisitedBandsAndPreservesStateAcrossSwitches() {
+            var built = Build(Fixture());
+            var overlay = built.Overlay;
+            overlay.SetView(zones: true, density: false, level: ActiveLevel);
+            var state = built.State;
+            Assert.AreEqual(57, state.ZoneCells);
+            Assert.AreEqual(7, state.LabelCount);
+            var firstMesh = state.ZoneMeshes[0];
+
+            // Switching to an empty band and back should reuse the cached band mesh instance.
+            overlay.SetView(zones: true, density: false, level: ActiveLevel + StoreyHeight);
+            Assert.AreEqual(0, state.ZoneCells);
+            overlay.SetView(zones: true, density: false, level: ActiveLevel);
+            Assert.AreEqual(57, state.ZoneCells);
+            Assert.AreEqual(7, state.LabelCount);
+            Assert.AreSame(firstMesh, state.ZoneMeshes[0], "returning to a previously built zone band should reuse its cached mesh");
+        }
     }
 
     /// <summary>Small helper so a test can read a label's colour without a Color32 cast.</summary>

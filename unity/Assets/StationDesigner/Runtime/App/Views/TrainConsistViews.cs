@@ -587,7 +587,254 @@ namespace Metro.App.Views {
         readonly List<TrainDoorEvent> doorEvents = new List<TrainDoorEvent>();
         readonly HashSet<string> activeIds = new HashSet<string>(StringComparer.Ordinal);
         readonly ModuleMotionDispatch dispatch = new ModuleMotionDispatch();
+        readonly Dictionary<string, StaticCombinedPart[]> staticBodyCache =
+            new Dictionary<string, StaticCombinedPart[]>(StringComparer.Ordinal);
+        readonly List<Mesh> staticBodyMeshes = new List<Mesh>();
         StationViewBuildContext context;
+
+        internal readonly struct StaticCombinedPart {
+            public readonly Mesh Mesh;
+            public readonly Material Material;
+            public readonly UnityEngine.Rendering.ShadowCastingMode Shadow;
+            public readonly string Label;
+
+            public StaticCombinedPart(Mesh mesh, Material material, UnityEngine.Rendering.ShadowCastingMode shadow, string label) {
+                Mesh = mesh; Material = material; Shadow = shadow; Label = label;
+            }
+        }
+
+        internal static void CompactConsistInstance(
+            GameObject consist,
+            string formationKey,
+            Dictionary<string, StaticCombinedPart[]> cache,
+            List<Mesh> ownedMeshes,
+            UnityEngine.Rendering.ShadowCastingMode? forceShadowMode = null) {
+            if (consist == null || cache == null || ownedMeshes == null) return;
+            var carNodes = CollectCars(consist);
+            for (int i = 0; i < carNodes.Count; i++) {
+                var node = carNodes[i];
+                if (node == null) continue;
+                string originalName = node.name;
+                int dash = originalName.IndexOf('-');
+                string part = dash >= 0 && dash + 1 < originalName.Length ? originalName.Substring(dash + 1) : originalName;
+                CompactSubtreeCore(node, (formationKey ?? "") + "|car|" + part, preserveDoors: true, cache, ownedMeshes, forceShadowMode);
+            }
+            var gangways = CollectGangways(consist);
+            for (int i = 0; i < gangways.Count; i++) {
+                var gw = gangways[i];
+                if (gw == null) continue;
+                CompactSubtreeCore(gw, (formationKey ?? "") + "|gangway", preserveDoors: false, cache, ownedMeshes, forceShadowMode);
+            }
+        }
+
+        static readonly System.Text.RegularExpressions.Regex DoorLeafPattern =
+            new System.Text.RegularExpressions.Regex(@"Door\d+$", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+        sealed class StaticMatKey : IEquatable<StaticMatKey> {
+            public readonly Material Material;
+            public readonly UnityEngine.Rendering.ShadowCastingMode Shadow;
+            public StaticMatKey(Material material, UnityEngine.Rendering.ShadowCastingMode shadow) {
+                Material = material; Shadow = shadow;
+            }
+            public bool Equals(StaticMatKey other) =>
+                other != null && ReferenceEquals(Material, other.Material) && Shadow == other.Shadow;
+            public override bool Equals(object obj) => obj is StaticMatKey other && Equals(other);
+            public override int GetHashCode() {
+                unchecked {
+                    int h = Material != null ? System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(Material) : 0;
+                    return (h * 397) ^ (int)Shadow;
+                }
+            }
+        }
+
+        sealed class StaticCombineBucket {
+            public Material Material;
+            public UnityEngine.Rendering.ShadowCastingMode Shadow;
+            public readonly List<CombineInstance> Combines = new List<CombineInstance>();
+            public int VertexCount;
+        }
+
+        void CompactConsistStaticBodies(string formationKey, IReadOnlyList<TrainCarView> carViews, List<Transform> gangways) {
+            if (carViews != null) {
+                for (int i = 0; i < carViews.Count; i++) {
+                    var car = carViews[i];
+                    if (car?.Root == null) continue;
+                    CompactSubtree(car.Root.transform, (formationKey ?? "") + "|car|" + (car.Part ?? ""), preserveDoors: true);
+                }
+            }
+            if (gangways != null) {
+                for (int i = 0; i < gangways.Count; i++) {
+                    var gw = gangways[i];
+                    if (gw == null) continue;
+                    CompactSubtree(gw, (formationKey ?? "") + "|gangway", preserveDoors: false);
+                }
+            }
+        }
+
+        static bool IsAnchorName(string name) {
+            if (string.IsNullOrEmpty(name)) return false;
+            return name.StartsWith("DoorCentre", StringComparison.Ordinal) ||
+                string.Equals(name, "AxisX", StringComparison.Ordinal) ||
+                string.Equals(name, "Front", StringComparison.Ordinal) ||
+                string.Equals(name, "Up", StringComparison.Ordinal) ||
+                string.Equals(name, "Approach", StringComparison.Ordinal);
+        }
+
+        static void MarkSubtree(Transform root, HashSet<Transform> set) {
+            set.Add(root);
+            for (int i = 0; i < root.childCount; i++) MarkSubtree(root.GetChild(i), set);
+        }
+
+        static void MarkAncestors(Transform node, Transform stopAt, HashSet<Transform> set) {
+            var cur = node;
+            while (cur != null) {
+                set.Add(cur);
+                if (cur == stopAt) break;
+                cur = cur.parent;
+            }
+        }
+
+        static bool IsActiveUnder(Transform node, Transform stopAt) {
+            var cur = node;
+            while (cur != null) {
+                if (!cur.gameObject.activeSelf) return false;
+                if (cur == stopAt) return true;
+                cur = cur.parent;
+            }
+            return true;
+        }
+
+        void CompactSubtree(Transform subtreeRoot, string baseKey, bool preserveDoors) =>
+            CompactSubtreeCore(subtreeRoot, baseKey, preserveDoors, staticBodyCache, staticBodyMeshes, null);
+
+        static void CompactSubtreeCore(
+            Transform subtreeRoot,
+            string baseKey,
+            bool preserveDoors,
+            Dictionary<string, StaticCombinedPart[]> cache,
+            List<Mesh> ownedMeshes,
+            UnityEngine.Rendering.ShadowCastingMode? forceShadowMode) {
+            if (subtreeRoot == null) return;
+            var protectedNodes = new HashSet<Transform> { subtreeRoot };
+            var allTransforms = subtreeRoot.GetComponentsInChildren<Transform>(true);
+            for (int i = 0; i < allTransforms.Length; i++) {
+                var t = allTransforms[i];
+                if (t == null || t == subtreeRoot) continue;
+                if (preserveDoors && DoorLeafPattern.IsMatch(t.name)) {
+                    MarkSubtree(t, protectedNodes);
+                    MarkAncestors(t, subtreeRoot, protectedNodes);
+                } else if (IsAnchorName(t.name)) {
+                    MarkAncestors(t, subtreeRoot, protectedNodes);
+                }
+            }
+
+            var filters = subtreeRoot.GetComponentsInChildren<MeshFilter>(true);
+            var eligible = new List<(MeshFilter Filter, MeshRenderer Renderer, Mesh Mesh, Material[] Mats)>(filters.Length);
+            int totalVerts = 0;
+            for (int i = 0; i < filters.Length; i++) {
+                var mf = filters[i];
+                if (mf == null || protectedNodes.Contains(mf.transform)) continue;
+                if (!IsActiveUnder(mf.transform, subtreeRoot)) continue;
+                var mr = mf.GetComponent<MeshRenderer>();
+                if (mr == null || !mr.enabled) continue;
+                var mesh = mf.sharedMesh;
+                if (mesh == null || mesh.vertexCount == 0 || !mesh.isReadable) {
+                    MarkAncestors(mf.transform, subtreeRoot, protectedNodes);
+                    continue;
+                }
+                var mats = mr.sharedMaterials;
+                if (mats == null || mats.Length == 0) continue;
+                bool allTri = true;
+                int subCount = Math.Max(1, mesh.subMeshCount);
+                for (int s = 0; s < subCount; s++) {
+                    if (mesh.GetTopology(s) != MeshTopology.Triangles) { allTri = false; break; }
+                }
+                if (!allTri) {
+                    MarkAncestors(mf.transform, subtreeRoot, protectedNodes);
+                    continue;
+                }
+                eligible.Add((mf, mr, mesh, mats));
+                totalVerts += mesh.vertexCount;
+            }
+
+            if (eligible.Count < 4) return;
+
+            string cacheKey = baseKey + "|" + eligible.Count + "|" + totalVerts;
+            if (!cache.TryGetValue(cacheKey, out var cachedParts)) {
+                var rootInv = subtreeRoot.worldToLocalMatrix;
+                var buckets = new Dictionary<StaticMatKey, StaticCombineBucket>();
+                var order = new List<StaticCombineBucket>();
+                for (int i = 0; i < eligible.Count; i++) {
+                    var item = eligible[i];
+                    var localMat = rootInv * item.Filter.transform.localToWorldMatrix;
+                    int subCount = Math.Max(1, item.Mesh.subMeshCount);
+                    var shadow = forceShadowMode ?? item.Renderer.shadowCastingMode;
+                    for (int s = 0; s < subCount; s++) {
+                        var mat = item.Mats[Math.Min(s, item.Mats.Length - 1)];
+                        if (mat == null) continue;
+                        var key = new StaticMatKey(mat, shadow);
+                        if (!buckets.TryGetValue(key, out var bucket)) {
+                            bucket = new StaticCombineBucket { Material = mat, Shadow = shadow };
+                            buckets[key] = bucket;
+                            order.Add(bucket);
+                        }
+                        bucket.Combines.Add(new CombineInstance {
+                            mesh = item.Mesh,
+                            subMeshIndex = s,
+                            transform = localMat,
+                        });
+                        bucket.VertexCount += item.Mesh.vertexCount;
+                    }
+                }
+                var builtParts = new List<StaticCombinedPart>(order.Count);
+                for (int b = 0; b < order.Count; b++) {
+                    var bucket = order[b];
+                    if (bucket.Combines.Count == 0) continue;
+                    var matName = bucket.Material != null ? bucket.Material.name : "mat";
+                    var combined = new Mesh {
+                        name = cacheKey + " [" + matName + "]",
+                        indexFormat = bucket.VertexCount > 65535
+                            ? UnityEngine.Rendering.IndexFormat.UInt32
+                            : UnityEngine.Rendering.IndexFormat.UInt16,
+                    };
+                    combined.CombineMeshes(bucket.Combines.ToArray(), mergeSubMeshes: true, useMatrices: true);
+                    combined.RecalculateBounds();
+                    ownedMeshes.Add(combined);
+                    builtParts.Add(new StaticCombinedPart(combined, bucket.Material, bucket.Shadow, matName));
+                }
+                cachedParts = builtParts.ToArray();
+                cache[cacheKey] = cachedParts;
+            }
+
+            if (cachedParts == null || cachedParts.Length == 0) return;
+
+            var detachRoots = new HashSet<Transform>();
+            for (int i = 0; i < eligible.Count; i++) {
+                var cur = eligible[i].Filter.transform;
+                while (cur != null && cur.parent != null && !protectedNodes.Contains(cur.parent)) {
+                    cur = cur.parent;
+                }
+                if (cur != null && !protectedNodes.Contains(cur)) detachRoots.Add(cur);
+            }
+            foreach (var t in detachRoots) {
+                if (t == null) continue;
+                t.SetParent(null, false);
+                t.gameObject.SetActive(false);
+                DestroyNow(t.gameObject);
+            }
+
+            for (int p = 0; p < cachedParts.Length; p++) {
+                var part = cachedParts[p];
+                if (part.Mesh == null || part.Material == null) continue;
+                var go = new GameObject("StaticBody " + part.Label);
+                go.transform.SetParent(subtreeRoot, false);
+                go.AddComponent<MeshFilter>().sharedMesh = part.Mesh;
+                var mr = go.AddComponent<MeshRenderer>();
+                mr.sharedMaterial = part.Material;
+                mr.shadowCastingMode = part.Shadow;
+                mr.receiveShadows = true;
+            }
+        }
 
         public IReadOnlyList<TrainConsistView> Consists => consists;
         /// <summary>The per-world door dispatch; its probes measure the leaves' real travel.</summary>
@@ -735,6 +982,7 @@ namespace Metro.App.Views {
             // is the membership — never a child's measured bounds.
             var gangways = CollectGangways(instance);
             for (int i = 0; i < gangways.Count; i++) view.Gangways.Add(gangways[i]);
+            CompactConsistStaticBodies(formationKey, view.CarViews, gangways);
             var grid = StationLevelGrid.FromDocument(document.LevelBase, document.StoreyHeight);
             var bands = StationModuleLevels.Of(track.Facts, grid);
             int trackLevel = bands.Length > 0 ? bands[0] : StationModuleLevels.Band(grid, track.Z);
@@ -910,6 +1158,11 @@ namespace Metro.App.Views {
             consists.Clear();
             byId.Clear();
             dispatch.Clear();
+            for (int i = 0; i < staticBodyMeshes.Count; i++) {
+                if (staticBodyMeshes[i] != null) DestroyNow(staticBodyMeshes[i]);
+            }
+            staticBodyMeshes.Clear();
+            staticBodyCache.Clear();
         }
 
         /* -------------------------------------------------------------- helpers */

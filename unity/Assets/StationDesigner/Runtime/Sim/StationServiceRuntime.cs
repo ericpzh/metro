@@ -523,6 +523,8 @@ namespace Metro.Sim {
                 lifts[i].CarDoor = 0; lifts[i].CarStop = 0; lifts[i].Served = 0; lifts[i].Admitted = 0;
             }
             Invalidate();
+            InvalidateExactRouteCache();
+            ClearReusableRouteCache();
             PublishServerCounts();
         }
 
@@ -695,10 +697,12 @@ namespace Metro.Sim {
             walkReplans = queueReplans = gateReplans = patienceReplans = 0;
             StepConsists(trains);
             StepSpawn(serviceOpen, demandRate);
+            InvalidateExactRouteCache();
             StepGates();
             StepRides();
             StepDoors(trains);
             StepLiftQueues();
+            InvalidateExactRouteCache();
             StepPassengers();
             SeparateWalkers();
             Compact();
@@ -1008,6 +1012,8 @@ namespace Metro.Sim {
                 planner.GateWait = GateWait;
             }
             graphEpoch++;
+            InvalidateExactRouteCache();
+            ClearReusableRouteCache();
             gates.Clear(); gateByServer.Clear(); gateByNode.Clear();
             doors.Clear(); doorByServer.Clear(); doorsByService.Clear();
             rides.Clear(); rideByServer.Clear();
@@ -1037,6 +1043,8 @@ namespace Metro.Sim {
             nextPassengerId = 0;
             Spawned = Onboard = Boarded = BoardingsThisTick = Alighted = LeftBehind = Exited = Stuck = CapHit = 0;
             Invalidate();
+            InvalidateExactRouteCache();
+            ClearReusableRouteCache();
             PublishServerCounts();
         }
 
@@ -1874,6 +1882,8 @@ namespace Metro.Sim {
 
         void PriceCrowd() {
             nearbyCrowd.Clear();
+            planner?.InvalidateCongestionCache();
+            InvalidateExactRouteCache();
             for (int i = 0; i < passengers.Count; i++) {
                 var p = passengers[i];
                 if (p.Phase != Phase.Walking && p.Phase != Phase.Queuing && p.Phase != Phase.LiftQueuing) continue;
@@ -1925,6 +1935,7 @@ namespace Metro.Sim {
             if (gate == null) return;
             gate.IncomingByDirection[passenger.ReservedGateDir + 1]--;
             passenger.ReservedGate = null;
+            InvalidateExactRouteCache();
         }
 
         void ReserveGate(Passenger passenger) {
@@ -1937,6 +1948,7 @@ namespace Metro.Sim {
             passenger.ReservedGate = gate;
             passenger.ReservedGateDir = direction;
             gate.IncomingByDirection[direction + 1]++;
+            InvalidateExactRouteCache();
         }
 
         GateFact UpcomingGate(Passenger passenger, double limit, bool includeRise, out int at) {
@@ -1981,8 +1993,12 @@ namespace Metro.Sim {
         }
 
         void SyncServerQueue(int server, int count) {
-            if (graph != null && server >= 0 && server < graph.Servers.Count)
-                graph.Servers[server].QueueCount = count;
+            if (graph != null && server >= 0 && server < graph.Servers.Count) {
+                if (graph.Servers[server].QueueCount != count) {
+                    graph.Servers[server].QueueCount = count;
+                    InvalidateExactRouteCache();
+                }
+            }
         }
 
         void RegisterGateQueue(Passenger passenger, GateFact gate) {
@@ -2159,7 +2175,7 @@ namespace Metro.Sim {
             passenger.WalkPhase = IdentityUnit(passenger.Id, 0x9e3779b9u);
             ServiceRoute route = board
                 ? PlanDoorRoute(entrance, lineId, needs)
-                : PlanRoute(entrance, destinationExit, needs);
+                : PlanRoute(entrance, destinationExit, needs, allowReusableCache: true);
             if (route == null) { nextPassengerId--; Stuck++; return; }
             passengers.Add(passenger);
             Spawned++;
@@ -2180,8 +2196,113 @@ namespace Metro.Sim {
 
         static double LiftQueueWait(LiftConnector lift) => Math.Min(600, lift.Queue.Count * LiftCycleSeconds / LiftBatch);
 
-        ServiceRoute PlanRoute(int from, int to, StationRouteNeeds needs, int avoidServer = -1) {
+        public long RouteCalls { get; private set; }
+        public long RouteCacheHits { get; private set; }
+        public long RouteAvoidCalls { get; private set; }
+        public long PlannerQueries => planner?.TotalQueries ?? 0;
+        public long PlannerExpandedNodes => planner?.TotalExpandedNodes ?? 0;
+        public long PlannerSkippedStalePops => planner?.TotalSkippedStalePops ?? 0;
+
+        readonly struct ExactRouteKey : IEquatable<ExactRouteKey> {
+            public readonly int From, To;
+            public readonly byte NeedsBits;
+            public ExactRouteKey(int from, int to, StationRouteNeeds needs) {
+                From = from;
+                To = to;
+                NeedsBits = (byte)((needs.StepFree ? 1 : 0) | (needs.Luggage ? 2 : 0));
+            }
+            public bool Equals(ExactRouteKey other) => From == other.From && To == other.To && NeedsBits == other.NeedsBits;
+            public override bool Equals(object obj) => obj is ExactRouteKey other && Equals(other);
+            public override int GetHashCode() {
+                unchecked { return (((From * 397) ^ To) * 397) ^ NeedsBits; }
+            }
+        }
+
+        const int ReusableRouteCacheMax = 1024;
+        const double ReusableRouteTtlSeconds = 60.0;
+        const double ReusableLiftRouteTtlSeconds = 5.0;
+
+        readonly struct CachedRouteEntry {
+            public readonly ServiceRoute Route;
+            public readonly double StoredAt;
+            public readonly int GraphEpoch;
+            public CachedRouteEntry(ServiceRoute route, double storedAt, int graphEpoch) {
+                Route = route;
+                StoredAt = storedAt;
+                GraphEpoch = graphEpoch;
+            }
+        }
+
+        readonly Dictionary<ExactRouteKey, ServiceRoute> exactRouteCache = new Dictionary<ExactRouteKey, ServiceRoute>();
+        readonly Dictionary<ExactRouteKey, CachedRouteEntry> reusableRouteCache = new Dictionary<ExactRouteKey, CachedRouteEntry>();
+        readonly Queue<ExactRouteKey> reusableRouteFifo = new Queue<ExactRouteKey>();
+        int liveCostVersion;
+        int exactRouteCacheVersion = -1;
+
+        void InvalidateExactRouteCache() => liveCostVersion++;
+
+        void ClearReusableRouteCache() {
+            reusableRouteCache.Clear();
+            reusableRouteFifo.Clear();
+        }
+
+        public void ResetRouteMetrics() {
+            RouteCalls = 0;
+            RouteCacheHits = 0;
+            RouteAvoidCalls = 0;
+            planner?.ResetMetrics();
+        }
+
+        ServiceRoute PlanRoute(int from, int to, StationRouteNeeds needs, int avoidServer = -1, bool allowReusableCache = false) {
             if (planner == null) return null;
+            RouteCalls++;
+            if (avoidServer >= 0) {
+                RouteAvoidCalls++;
+                return ComputeRoute(from, to, needs, avoidServer);
+            }
+
+            var key = new ExactRouteKey(from, to, needs);
+            if (allowReusableCache && reusableRouteCache.TryGetValue(key, out var entry)) {
+                double ttl = entry.Route?.Lifts != null && entry.Route.Lifts.Length > 0
+                    ? ReusableLiftRouteTtlSeconds
+                    : ReusableRouteTtlSeconds;
+                if (entry.GraphEpoch == graphEpoch && simTime >= entry.StoredAt && (simTime - entry.StoredAt) <= ttl) {
+                    RouteCacheHits++;
+                    return entry.Route;
+                }
+                reusableRouteCache.Remove(key);
+            }
+
+            if (exactRouteCacheVersion != liveCostVersion) {
+                exactRouteCache.Clear();
+                exactRouteCacheVersion = liveCostVersion;
+            }
+            if (exactRouteCache.TryGetValue(key, out var exactCached)) {
+                RouteCacheHits++;
+                return exactCached;
+            }
+
+            var computed = ComputeRoute(from, to, needs, avoidServer: -1);
+            exactRouteCache[key] = computed;
+            if (allowReusableCache) {
+                if (reusableRouteCache.Count >= ReusableRouteCacheMax) {
+                    int drop = ReusableRouteCacheMax >> 2;
+                    while (drop > 0 && reusableRouteFifo.Count > 0) {
+                        var oldKey = reusableRouteFifo.Dequeue();
+                        if (reusableRouteCache.Remove(oldKey)) drop--;
+                    }
+                    if (reusableRouteCache.Count >= ReusableRouteCacheMax) {
+                        reusableRouteCache.Clear();
+                        reusableRouteFifo.Clear();
+                    }
+                }
+                reusableRouteCache[key] = new CachedRouteEntry(computed, simTime, graphEpoch);
+                reusableRouteFifo.Enqueue(key);
+            }
+            return computed;
+        }
+
+        ServiceRoute ComputeRoute(int from, int to, StationRouteNeeds needs, int avoidServer) {
             var path = planner.Astar(from, to, needs, avoidServer: avoidServer, useLifts: true);
             if (path == null) return null;
             double cost = planner.LastSearchCost(to);
@@ -2230,7 +2351,7 @@ namespace Metro.Sim {
             int tried = 0;
             for (int i = 0; i < candidates.Count && tried < 4; i++, tried++) {
                 if (doors.Count == 0) break;
-                var route = PlanRoute(from, candidates[i].Node, needs);
+                var route = PlanRoute(from, candidates[i].Node, needs, allowReusableCache: true);
                 if (route != null) return route;
             }
             return null;
@@ -2820,7 +2941,7 @@ namespace Metro.Sim {
             passenger.Activity = StationPassengerActivity.Walk;
             passenger.WalkWeight = 1;
             int exit = passenger.DestExit >= 0 ? passenger.DestExit : ResolveExitNode(passenger.DestExitId);
-            var route = PlanRoute(passenger.DoorNode, exit, passenger.Needs);
+            var route = PlanRoute(passenger.DoorNode, exit, passenger.Needs, allowReusableCache: true);
             passenger.DoorNode = -1;
             if (route == null) { Stuck++; Kill(passenger); return; }
             passenger.Phase = Phase.Walking;

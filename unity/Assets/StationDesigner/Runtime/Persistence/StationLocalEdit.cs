@@ -99,7 +99,7 @@ namespace Metro.Persistence {
                 new StationSource(sourceId ?? "", existingHash),
                 savedAt,
                 doc => StationDocumentReader.SerializeEnvelope(rootHeader, doc.SavedAt, doc),
-                doc => StationDocumentReader.Hash(doc.NormalizedJson),
+                doc => StationDocumentReader.HashEnvelope(rootHeader, doc.SavedAt, doc),
                 rawRootJson);
             StationDocumentReader.RegisterRootHeader(nextDoc, rootHeader);
 
@@ -518,7 +518,7 @@ namespace Metro.Persistence {
                 new StationSource(sourceId ?? "", ""), savedAt,
                 null,
                 doc => StationDocumentReader.SerializeEnvelope(rootHeader, doc.SavedAt, doc),
-                doc => StationDocumentReader.Hash(doc.NormalizedJson),
+                doc => StationDocumentReader.HashEnvelope(rootHeader, doc.SavedAt, doc),
                 rawRootJson);
             StationDocumentReader.RegisterRootHeader(document, rootHeader);
 

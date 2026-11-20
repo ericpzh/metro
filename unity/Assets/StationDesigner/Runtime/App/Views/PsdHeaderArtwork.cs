@@ -1101,13 +1101,28 @@ namespace Metro.App {
         }
 
         internal static void Detach(PsdHeaderArtworkScope scope) {
-            if (scope == null || Scope != scope) return;
-            var previous = scope.Previous;
-            if (previous != null && previous.gameObject != null) {
+            if (scope == null) return;
+            if (Scope == scope) {
+                var previous = scope.Previous;
+                scope.Previous = null;
+                while (previous != null && previous.gameObject == null) {
+                    var next = previous.Previous;
+                    previous.Previous = null;
+                    previous = next;
+                }
                 Scope = previous;
                 return;
             }
-            Scope = null;
+            var cursor = Scope;
+            while (cursor != null) {
+                if (cursor.Previous == scope) {
+                    cursor.Previous = scope.Previous;
+                    scope.Previous = null;
+                    return;
+                }
+                cursor = cursor.Previous;
+            }
+            scope.Previous = null;
         }
 
         /// <summary>Route one `psd.*` command's raw JSON to the painter's reply channel.</summary>
@@ -1153,6 +1168,7 @@ namespace Metro.App {
             }
             released.Bindings.Clear();
             released.Provider = null;
+            released.Publish = null;
         }
 
         static void SafeDestroy(UnityEngine.Object value) {

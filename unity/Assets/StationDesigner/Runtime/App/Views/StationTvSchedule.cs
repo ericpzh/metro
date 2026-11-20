@@ -85,6 +85,13 @@ namespace Metro.App.Views {
         static IReadOnlyList<StationModuleRecord> anchorPlatformEdges;
         static Dictionary<string, StationRailAnchor> anchorCache;
 
+        internal static void ClearCache() {
+            anchorDocument = null;
+            anchorTracks = null;
+            anchorPlatformEdges = null;
+            anchorCache = null;
+        }
+
         internal static object RailAnchorFingerprint(StationDocument document, StationIndex index = null) {
             if (document == null) return null;
             var idx = index != null && ReferenceEquals(index.Document, document)

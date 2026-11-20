@@ -163,7 +163,11 @@ namespace Metro.View {
         readonly Dictionary<MeshSession.FaceRecordKey, int> faceRecordIndex = new Dictionary<MeshSession.FaceRecordKey, int>();
         readonly Dictionary<StationCellKey, byte> suspendedCache = new Dictionary<StationCellKey, byte>();
         readonly Dictionary<StationCellKey, byte> masonryRoofCache = new Dictionary<StationCellKey, byte>();
+        readonly Stack<MeshSession.VecBuilder> builderPool = new Stack<MeshSession.VecBuilder>(16);
         List<StationCellMeshGroup> activeGroupSink;
+        Action<ChunkBandKey, StationCellMeshGroup> activeChunkCallback;
+        Action<ChunkBandKey, StationCellMeshGroup, StationCellMeshBuffers> activeDirectCallback;
+        ChunkBandKey activeChunkKey;
 
         List<MeshSession.Profile> IMeshCellSource.Sections => sections;
         MeshSession.Profile[] IMeshCellSource.BlockProfiles => blockProfiles;
@@ -250,6 +254,78 @@ namespace Metro.View {
         public Dictionary<ChunkBandKey, List<StationCellMeshGroup>> MeshAll() {
             var allKeys = CollectAllChunkKeys();
             return MeshChunkList(allKeys);
+        }
+
+        /// <summary>
+        /// Stream every chunk's meshed groups in deterministic order so a caller can upload each
+        /// Unity mesh and drop its CPU staging arrays before the next chunk is meshed.
+        /// </summary>
+        public void ForEachChunkMesh(Action<ChunkBandKey, StationCellMeshGroup> onGroup) {
+            if (onGroup == null) throw new ArgumentNullException(nameof(onGroup));
+            var allKeys = CollectAllChunkKeys();
+            suspendedCache.Clear();
+            masonryRoofCache.Clear();
+            activeGroupSink = null;
+            activeChunkCallback = onGroup;
+            try {
+                for (int i = 0; i < allKeys.Count; i++) {
+                    var ck = allKeys[i];
+                    activeChunkKey = ck;
+                    batchFaces.Clear();
+                    faceRecordIndex.Clear();
+                    if (ck.IsGround) {
+                        if (buildGround && virtualGround) MeshSingleGroundChunk(ck.ChunkX, ck.ChunkY, ck.Storey);
+                    } else {
+                        MeshSingleBandChunk(ck.ChunkX, ck.ChunkY, ck.Storey);
+                    }
+                }
+            } finally {
+                activeChunkCallback = null;
+                activeDirectCallback = null;
+                activeGroupSink = null;
+                batchFaces.Clear();
+                faceRecordIndex.Clear();
+                suspendedCache.Clear();
+                masonryRoofCache.Clear();
+                builderPool.Clear();
+            }
+        }
+
+        /// <summary>
+        /// Stream every chunk's meshed groups in deterministic order directly from the pooled vertex
+        /// staging lists, skipping intermediate per-group <see cref="Vector3"/>/<see cref="Color"/>/<see cref="Vector2"/>
+        /// upload arrays when the caller immediately uploads each Unity <see cref="Mesh"/>.
+        /// </summary>
+        public void ForEachChunkMeshDirect(Action<ChunkBandKey, StationCellMeshGroup, StationCellMeshBuffers> onGroup) {
+            if (onGroup == null) throw new ArgumentNullException(nameof(onGroup));
+            var allKeys = CollectAllChunkKeys();
+            suspendedCache.Clear();
+            masonryRoofCache.Clear();
+            activeGroupSink = null;
+            activeChunkCallback = null;
+            activeDirectCallback = onGroup;
+            try {
+                for (int i = 0; i < allKeys.Count; i++) {
+                    var ck = allKeys[i];
+                    activeChunkKey = ck;
+                    batchFaces.Clear();
+                    faceRecordIndex.Clear();
+                    if (ck.IsGround) {
+                        if (buildGround && virtualGround) MeshSingleGroundChunk(ck.ChunkX, ck.ChunkY, ck.Storey);
+                    } else {
+                        MeshSingleBandChunk(ck.ChunkX, ck.ChunkY, ck.Storey);
+                    }
+                }
+            } finally {
+                activeDirectCallback = null;
+                activeChunkCallback = null;
+                activeGroupSink = null;
+                batchFaces.Clear();
+                faceRecordIndex.Clear();
+                suspendedCache.Clear();
+                masonryRoofCache.Clear();
+                builderPool.Clear();
+            }
         }
 
         List<ChunkBandKey> CollectAllChunkKeys() {
@@ -1064,6 +1140,30 @@ namespace Metro.View {
 
         public void NoteCellDrawn() { }
 
-        public void EmitGroup(StationCellMeshGroup group) => activeGroupSink?.Add(group);
+        public void EmitGroup(StationCellMeshGroup group) {
+            activeGroupSink?.Add(group);
+            activeChunkCallback?.Invoke(activeChunkKey, group);
+        }
+
+        public bool StreamDirect => activeDirectCallback != null;
+
+        public void EmitStreamedGroup(StationCellMeshGroup group, StationCellMeshBuffers buffers) {
+            activeDirectCallback?.Invoke(activeChunkKey, group, buffers);
+        }
+
+        MeshSession.VecBuilder IMeshCellSource.RentBuilder() {
+            if (builderPool.Count > 0) {
+                var b = builderPool.Pop();
+                b.Clear();
+                return b;
+            }
+            return new MeshSession.VecBuilder();
+        }
+
+        void IMeshCellSource.ReturnBuilder(MeshSession.VecBuilder builder) {
+            if (builder == null) return;
+            builder.Clear();
+            if (builderPool.Count < 64) builderPool.Push(builder);
+        }
     }
 }

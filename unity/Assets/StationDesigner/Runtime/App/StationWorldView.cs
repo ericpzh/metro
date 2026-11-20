@@ -33,7 +33,11 @@ namespace Metro.App {
     /// <summary>What a renderer is given: the committed document, its index, the staged root and the scene assets.</summary>
     public sealed class StationViewBuildContext {
         readonly StationWorldView world;
-        internal StationViewBuildContext(StationWorldView world) { this.world = world; }
+        internal StationViewBuildContext(StationWorldView world, Action<string> markLoad) {
+            this.world = world;
+            MarkLoad = markLoad;
+        }
+        internal Action<string> MarkLoad { get; }
         public StationDocument Document => world.Document;
         public StationIndex Index => world.Index;
         public StationWorldView World => world;
@@ -325,18 +329,20 @@ namespace Metro.App {
         public bool IsActivated => activated;
 
         /// <summary>Build every renderer into the staged root. Leaves the root inactive.</summary>
-        public void Build(StationDocument stationDocument, StationIndex stationIndex) {
+        public void Build(StationDocument stationDocument, StationIndex stationIndex, Action<string> markLoad = null) {
             using var editSample = StationEditProfiling.Measure("StationEdit.Build");
             if (IsBuilt) throw new InvalidOperationException("Station world is already built.");
             if (IsDisposed) throw new ObjectDisposedException(nameof(StationWorldView));
             document = stationDocument ?? throw new ArgumentNullException(nameof(stationDocument));
             index = stationIndex ?? throw new ArgumentNullException(nameof(stationIndex));
-            var context = new StationViewBuildContext(this);
+            var context = new StationViewBuildContext(this, markLoad);
             foreach (var renderer in renderers) {
                 if (renderer == null) continue;
                 try {
                     using var familySample = StationEditProfiling.Measure("StationEdit.View." + renderer.Role);
+                    if (markLoad != null) markLoad("renderer." + renderer.Role + ".begin");
                     renderer.Build(context);
+                    if (markLoad != null) markLoad("renderer." + renderer.Role + ".end");
                 } catch (Exception error) {
                     throw new StationViewBuildException(renderer.Role ?? renderer.GetType().Name, error);
                 }
@@ -746,7 +752,13 @@ namespace Metro.App {
             }
             records.Clear();
             roleRoots.Clear();
+            roleCounts.Clear();
+            roleVisibility.Clear();
+            unresolved.Clear();
             modulesById = null;
+            document = null;
+            index = null;
+            StationScenePicker.ReleaseWorld(this);
             if (rootObject != null) {
                 if (Application.isPlaying) UnityEngine.Object.Destroy(rootObject);
                 else UnityEngine.Object.DestroyImmediate(rootObject);
@@ -794,6 +806,13 @@ namespace Metro.App {
     public interface IStationFrameSink {
         void Tick(StationDocument document, StationIndex index, StationFrameClock clock);
     }
+
+    /// <summary>
+    /// Marker for frame sinks that must keep ticking while the standalone exploded viewer owns
+    /// presentation (the exploded viewer itself and vertical/motion sinks feeding its live steps).
+    /// Hidden editor-only sinks are paused while the editor camera is disabled.
+    /// </summary>
+    public interface IStationActiveDuringExplodedView { }
 
     /// <summary>Process-wide frame-sink registry.</summary>
     public static class StationFrameSinks {

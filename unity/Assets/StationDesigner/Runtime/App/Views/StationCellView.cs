@@ -46,6 +46,10 @@ namespace Metro.App.Views {
         public string Name = "Station cells";
         /// <summary>Whether the view computes and keeps the per-triangle pick map.</summary>
         public bool BuildPickMap = true;
+        /// <summary>Release CPU-side document-space mesh arrays on each group once the Unity mesh is uploaded.</summary>
+        public bool ReleaseUploadBuffers;
+        /// <summary>Drop Unity's readable native CPU mesh copy after upload (picking uses WorldVertices/WorldIndices).</summary>
+        public bool MarkMeshNoLongerReadable;
     }
 
     /// <summary>One emitted run of geometry and the Unity objects that draw it.</summary>
@@ -259,11 +263,27 @@ namespace Metro.App.Views {
         /// Build the cell view under `parent`. The parent is the station's placement
         /// transform: the view never adds a station offset of its own.
         /// </summary>
-        public static StationCellView Build(StationCellViewRequest request, Transform parent) {
+        public static StationCellView Build(StationCellViewRequest request, Transform parent) =>
+            Build(request, parent, null);
+
+        internal static StationCellView Build(StationCellViewRequest request, Transform parent, Action<string> markLoad) {
             if (request == null) throw new ArgumentNullException(nameof(request));
             if (parent == null) throw new ArgumentNullException(nameof(parent));
             var view = new StationCellView();
-            view.BuildInternal(request, parent);
+            view.BuildInternal(request, parent, markLoad);
+            return view;
+        }
+
+        public static StationCellView BuildFromWorkspace(
+            StationCellViewRequest request,
+            Transform parent,
+            StationCellMeshWorkspace workspace,
+            Action<string> markLoad = null) {
+            if (request == null) throw new ArgumentNullException(nameof(request));
+            if (parent == null) throw new ArgumentNullException(nameof(parent));
+            if (workspace == null) throw new ArgumentNullException(nameof(workspace));
+            var view = new StationCellView();
+            view.BuildFromWorkspaceInternal(request, parent, workspace, markLoad);
             return view;
         }
 
@@ -274,7 +294,7 @@ namespace Metro.App.Views {
                 group.Storey,
                 group.Role == StationSurfaceRole.Ground);
 
-        void BuildInternal(StationCellViewRequest request, Transform parent) {
+        void BuildInternal(StationCellViewRequest request, Transform parent, Action<string> markLoad) {
             buildRequest = request;
             toWorld = request.ToWorld ?? StationCoordinates.Point;
             var rootObject = new GameObject(string.IsNullOrEmpty(request.Name) ? "Station cells" : request.Name);
@@ -284,10 +304,15 @@ namespace Metro.App.Views {
             root.localRotation = Quaternion.identity;
             root.localScale = Vector3.one;
 
+            markLoad?.Invoke("cells.mesher.begin");
             mesh = StationCellMesher.Mesh(request.Mesh);
+            if (markLoad != null) {
+                markLoad($"cells.mesher.end groups={mesh.Groups.Count} faces={mesh.Faces.Count} triangles={mesh.Triangles}");
+            }
             faces.AddRange(mesh.Faces);
             totalTriangles = mesh.Triangles;
 
+            markLoad?.Invoke("cells.mesh-creation.begin");
             foreach (var group in mesh.Groups) {
                 var entry = CreateGroupView(request, group, RoleRoot(group.Role));
                 groups.Add(entry);
@@ -295,6 +320,85 @@ namespace Metro.App.Views {
                 if (!groupsByChunk.TryGetValue(ck, out var bucket)) groupsByChunk[ck] = bucket = new List<StationCellGroupView>(4);
                 bucket.Add(entry);
             }
+            markLoad?.Invoke("cells.mesh-creation.end");
+        }
+
+        void BuildFromWorkspaceInternal(
+            StationCellViewRequest request,
+            Transform parent,
+            StationCellMeshWorkspace workspace,
+            Action<string> markLoad) {
+            buildRequest = request;
+            toWorld = request.ToWorld ?? StationCoordinates.Point;
+            var rootObject = new GameObject(string.IsNullOrEmpty(request.Name) ? "Station cells" : request.Name);
+            root = rootObject.transform;
+            root.SetParent(parent, false);
+            root.localPosition = Vector3.zero;
+            root.localRotation = Quaternion.identity;
+            root.localScale = Vector3.one;
+
+            markLoad?.Invoke("cells.stream-mesh.begin");
+            if (request.ReleaseUploadBuffers) {
+                var scratchNormals = new List<Vector3>(1024);
+                var scratchColors = new List<Color>(1024);
+                var scratchUvs = new List<Vector2>(1024);
+                workspace.ForEachChunkMeshDirect((ck, group, buffers) => {
+                    var entry = CreateGroupViewDirect(request, group, buffers, RoleRoot(group.Role),
+                        scratchNormals, scratchColors, scratchUvs);
+                    groups.Add(entry);
+                    totalTriangles += entry.Triangles;
+                    if (!groupsByChunk.TryGetValue(ck, out var bucket)) groupsByChunk[ck] = bucket = new List<StationCellGroupView>(4);
+                    bucket.Add(entry);
+                });
+                scratchNormals.Clear();
+                scratchColors.Clear();
+                scratchUvs.Clear();
+            } else {
+                workspace.ForEachChunkMesh((ck, group) => {
+                    var entry = CreateGroupView(request, group, RoleRoot(group.Role));
+                    groups.Add(entry);
+                    totalTriangles += entry.Triangles;
+                    if (!groupsByChunk.TryGetValue(ck, out var bucket)) groupsByChunk[ck] = bucket = new List<StationCellGroupView>(4);
+                    bucket.Add(entry);
+                });
+            }
+            facesDirty = true;
+            if (markLoad != null) {
+                markLoad($"cells.stream-mesh.end groups={groups.Count} triangles={totalTriangles}");
+            }
+        }
+
+        StationCellGroupView CreateGroupViewDirect(
+            StationCellViewRequest request,
+            StationCellMeshGroup group,
+            StationCellMeshBuffers buffers,
+            Transform parentTransform,
+            List<Vector3> scratchNormals,
+            List<Color> scratchColors,
+            List<Vector2> scratchUvs) {
+            var material = Resolve(request, group.FinishId);
+            var child = new GameObject(group.GroupKey);
+            var transform = child.transform;
+            transform.SetParent(parentTransform, false);
+            transform.localPosition = Vector3.zero;
+            transform.localRotation = Quaternion.identity;
+            transform.localScale = Vector3.one;
+            var filter = child.AddComponent<MeshFilter>();
+            var renderer = child.AddComponent<MeshRenderer>();
+            renderer.shadowCastingMode = ShadowCastingMode.Off;
+            renderer.receiveShadows = true;
+            renderer.sharedMaterial = material;
+            var builtMesh = BuildMeshDirect(group.GroupKey, buffers, request.MarkMeshNoLongerReadable,
+                scratchNormals, scratchColors, scratchUvs, out var worldVertices, out var worldIndices);
+            filter.sharedMesh = builtMesh;
+            if (request.Finishes != null && !request.Finishes.IsKnown(group.FinishId)) unknownFinishes.Add(group.FinishId);
+            return new StationCellGroupView {
+                Data = group, GameObject = child, Filter = filter, Renderer = renderer,
+                Mesh = builtMesh, Material = material,
+                WorldVertices = worldVertices, WorldIndices = worldIndices,
+                Wall = group.Role == StationSurfaceRole.Wall ||
+                    (request.Finishes != null && !string.IsNullOrEmpty(group.FinishId) && request.Finishes.IsWall(group.FinishId)),
+            };
         }
 
         StationCellGroupView CreateGroupView(StationCellViewRequest request, StationCellMeshGroup group, Transform parentTransform) {
@@ -310,8 +414,9 @@ namespace Metro.App.Views {
             renderer.shadowCastingMode = ShadowCastingMode.Off;
             renderer.receiveShadows = true;
             renderer.sharedMaterial = material;
-            var builtMesh = BuildMesh(group, out var worldVertices, out var worldIndices);
+            var builtMesh = BuildMesh(group, request.MarkMeshNoLongerReadable, out var worldVertices, out var worldIndices);
             filter.sharedMesh = builtMesh;
+            if (request.ReleaseUploadBuffers) group.ReleaseUploadBuffers();
             if (request.Finishes != null && !request.Finishes.IsKnown(group.FinishId)) unknownFinishes.Add(group.FinishId);
             return new StationCellGroupView {
                 Data = group, GameObject = child, Filter = filter, Renderer = renderer,
@@ -447,8 +552,57 @@ namespace Metro.App.Views {
             throw new InvalidOperationException("StationCellViewRequest has no finish resolver (Finishes, ResolveFinish or FallbackMaterial)");
         }
 
+        /// <summary>Document axes -> world directly from pooled staging lists, reversing winding.</summary>
+        Mesh BuildMeshDirect(
+            string groupKey,
+            StationCellMeshBuffers buffers,
+            bool markNoLongerReadable,
+            List<Vector3> scratchNormals,
+            List<Color> scratchColors,
+            List<Vector2> scratchUvs,
+            out Vector3[] vertices,
+            out int[] indices) {
+            var pos = buffers.Positions;
+            var norm = buffers.Normals;
+            var col = buffers.Colors;
+            var uv = buffers.Uvs;
+            var srcIdx = buffers.Indices;
+            int vertexCount = pos.Count / 3;
+            vertices = new Vector3[vertexCount];
+            scratchNormals.Clear();
+            if (scratchNormals.Capacity < vertexCount) scratchNormals.Capacity = vertexCount;
+            scratchColors.Clear();
+            if (scratchColors.Capacity < vertexCount) scratchColors.Capacity = vertexCount;
+            scratchUvs.Clear();
+            if (scratchUvs.Capacity < vertexCount) scratchUvs.Capacity = vertexCount;
+            for (int i = 0; i < vertexCount; i++) {
+                int o3 = i * 3;
+                int o2 = i * 2;
+                vertices[i] = toWorld(new Vector3(pos[o3], pos[o3 + 1], pos[o3 + 2]));
+                scratchNormals.Add(toWorld(new Vector3(norm[o3], norm[o3 + 1], norm[o3 + 2])));
+                scratchColors.Add(new Color(col[o3], col[o3 + 1], col[o3 + 2], 1f));
+                scratchUvs.Add(new Vector2(uv[o2], uv[o2 + 1]));
+            }
+            int indexCount = srcIdx.Count;
+            indices = new int[indexCount];
+            for (int t = 0; t < indexCount; t += 3) {
+                indices[t] = srcIdx[t];
+                indices[t + 1] = srcIdx[t + 2];
+                indices[t + 2] = srcIdx[t + 1];
+            }
+            var mesh = new Mesh { name = groupKey };
+            if (vertexCount > 65000) mesh.indexFormat = IndexFormat.UInt32;
+            mesh.SetVertices(vertices);
+            mesh.SetNormals(scratchNormals);
+            mesh.SetColors(scratchColors);
+            mesh.SetUVs(0, scratchUvs);
+            mesh.SetTriangles(indices, 0, calculateBounds: true);
+            if (markNoLongerReadable) mesh.UploadMeshData(true);
+            return mesh;
+        }
+
         /// <summary>Document axes -> world, then the reflected winding is reversed.</summary>
-        Mesh BuildMesh(StationCellMeshGroup group, out Vector3[] vertices, out int[] indices) {
+        Mesh BuildMesh(StationCellMeshGroup group, bool markNoLongerReadable, out Vector3[] vertices, out int[] indices) {
             var vertexCount = group.Positions.Length;
             vertices = new Vector3[vertexCount];
             var normals = new Vector3[vertexCount];
@@ -471,6 +625,7 @@ namespace Metro.App.Views {
             mesh.SetColors(group.Colors);
             mesh.SetUVs(0, group.Uvs);
             mesh.SetTriangles(indices, 0, calculateBounds: true);
+            if (markNoLongerReadable) mesh.UploadMeshData(true);
             return mesh;
         }
 
@@ -897,6 +1052,8 @@ namespace Metro.App.Views {
         }
 
         /// <summary>The active world's pick, for a handler that has no view reference.</summary>
+        public static StationFinishLibrary CurrentFinishes => Current?.Finishes;
+
         public static bool TryPickActive(Ray worldRay, out StationCellPickHit hit) {
             var view = Current?.View;
             if (view != null) {
@@ -917,21 +1074,33 @@ namespace Metro.App.Views {
                     "The exported finish library is not staged: run `node tools/unity-assets/export-station-finishes.mjs --stage unity/Assets/Resources/StationFinishes` (or keep unity/asset-recipes/finishes next to Assets) and rebuild. No cell surface is drawn.");
             }
             var notes = new List<string>();
+            var markLoad = context.MarkLoad;
+            markLoad?.Invoke("cells.input.begin");
             var input = BuildInputCore(context.Document, context.Index, finishes, notes, null, out var unthinnedShapes, out var preparedRamps);
+            markLoad?.Invoke("cells.input.end");
+            markLoad?.Invoke("cells.workspace.begin");
+            var workspace = StationCellMeshWorkspace.Create(input, preparedRamps, unthinnedShapes);
+            var snapshot = StationPaintSnapshot.FromDocument(context.Document, input.GroundHoles, -1);
+            unthinnedShapes = null;
+            preparedRamps = null;
+            input = null;
+            markLoad?.Invoke("cells.workspace.end");
             var request = new StationCellViewRequest {
-                Mesh = input,
+                Mesh = null,
                 Finishes = finishes,
                 Name = "Station cells",
                 ToWorld = StationCoordinates.Point,
                 BuildPickMap = true,
+                ReleaseUploadBuffers = true,
+                MarkMeshNoLongerReadable = Application.isPlaying,
             };
-            var view = StationCellView.Build(request, context.RoleRoot(RoleName));
+            var view = StationCellView.BuildFromWorkspace(request, context.RoleRoot(RoleName), workspace, markLoad);
             var state = new CellState {
                 World = context.World,
                 View = view,
-                Snapshot = StationPaintSnapshot.FromDocument(context.Document, input.GroundHoles, -1),
+                Snapshot = snapshot,
                 Finishes = finishes,
-                Workspace = StationCellMeshWorkspace.Create(input, preparedRamps, unthinnedShapes),
+                Workspace = workspace,
                 Groups = view.Groups.Count,
                 Triangles = view.Triangles,
             };
@@ -952,12 +1121,17 @@ namespace Metro.App.Views {
             }
             var registered = 0;
             foreach (var group in view.Groups) {
-                var triangleFaces = group.Data?.TriangleFaces;
-                if (triangleFaces == null || triangleFaces.Length == 0) continue;
-                var faceIndex = triangleFaces[0];
-                if (faceIndex < 0 || faceIndex >= view.Faces.Count) continue;
-                var record = view.Faces[faceIndex];
-                var anchor = group.Data.HasAnchor ? group.Data.Anchor : record.CellKey;
+                StationCellKey anchor;
+                if (group.Data != null && group.Data.HasAnchor) {
+                    anchor = group.Data.Anchor;
+                } else if (group.Data?.LocalFaces != null && group.Data.LocalTriangleFaces != null &&
+                           group.Data.LocalTriangleFaces.Length > 0 &&
+                           group.Data.LocalTriangleFaces[0] >= 0 &&
+                           group.Data.LocalTriangleFaces[0] < group.Data.LocalFaces.Length) {
+                    anchor = group.Data.LocalFaces[group.Data.LocalTriangleFaces[0]].CellKey;
+                } else {
+                    continue;
+                }
                 context.World.RegisterCell(RoleName, anchor, group.GameObject, new[] { group.Storey });
                 registered++;
             }

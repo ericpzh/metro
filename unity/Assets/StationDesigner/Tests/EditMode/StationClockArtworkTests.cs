@@ -291,5 +291,35 @@ namespace Metro.EditModeTests {
                 UnityEngine.Object.DestroyImmediate(host);
             }
         }
+
+        [Test]
+        public void MultipleDigitalClocksShareOnePaintedTexturePerSecond() {
+            Assert.IsTrue(catalogue.TryGet("clock-digital", out var prefabEntry), "clock-digital prefab resolves");
+            var host = new GameObject("shared digital clock test");
+            var scope = StationDisplayArtwork.CreateScope(host.transform);
+            scope.Font = font;
+            try {
+                StationClockArtwork.ResetDigitalPaintCount();
+                var clock0 = Clock(6 * 3600 + 30 * 60);
+                for (int i = 0; i < 4; i++) {
+                    var inst = UnityEngine.Object.Instantiate(prefabEntry.prefab, host.transform);
+                    var facts = new ModuleFacts { Id = "digital-clock-" + i, Type = "clock" };
+                    Assert.IsTrue(StationClockArtwork.Bind(scope, inst, facts, clock0));
+                }
+                Assert.AreEqual(1, StationClockArtwork.TotalDigitalPaints, "4 digital clocks must share 1 initial paint");
+
+                StationClockArtwork.ResetDigitalPaintCount();
+                int repaints = StationClockArtwork.Apply(scope, Clock(6 * 3600 + 30 * 60 + 1), 0);
+                Assert.AreEqual(4, repaints, "all 4 digital clocks updated");
+                Assert.AreEqual(1, StationClockArtwork.TotalDigitalPaints, "4 digital clocks must share 1 paint per second");
+                var entries = StationClockArtwork.EntriesFor(scope);
+                for (int i = 1; i < entries.Count; i++) {
+                    Assert.AreSame(entries[0].DigitalTexture, entries[i].DigitalTexture, "all digital clocks share one Texture2D");
+                }
+            } finally {
+                StationDisplayArtwork.ReleaseScope(scope);
+                UnityEngine.Object.DestroyImmediate(host);
+            }
+        }
     }
 }

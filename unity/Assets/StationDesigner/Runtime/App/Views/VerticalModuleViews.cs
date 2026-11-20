@@ -3280,8 +3280,13 @@ namespace Metro.App.Views {
             var index = context.Index;
             var catalogue = context.Catalogue;
             var modules = document.Modules;
-            var facts = new ModuleFacts[modules.Count];
-            for (int i = 0; i < modules.Count; i++) facts[i] = modules[i].Facts;
+            var verticalNeighbours = new List<ModuleFacts>(64);
+            for (int i = 0; i < modules.Count; i++) {
+                var m = modules[i];
+                if (m != null && (IsVerticalType(m.Type) || string.Equals(m.Type, "exit", StringComparison.Ordinal))) {
+                    verticalNeighbours.Add(m.Facts);
+                }
+            }
 
             HashSet<StationCellKey> fallbackSolids = null;
             Dictionary<StationCellKey, string> fallbackTops = null;
@@ -3319,7 +3324,7 @@ namespace Metro.App.Views {
                 GameObject prefab = null;
                 string prefabKey = null;
                 if (catalogue != null) {
-                    var visual = ModuleViews.Resolve(module.Facts, facts, catalogue);
+                    var visual = ModuleViews.Resolve(module.Facts, Array.Empty<ModuleFacts>(), catalogue);
                     if (visual.HasModel && catalogue.TryGet(visual.Key, out var entry) && entry != null) {
                         prefab = entry.prefab;
                         prefabKey = visual.Key;
@@ -3329,7 +3334,7 @@ namespace Metro.App.Views {
                     }
                 }
                 var request = VerticalModuleRequest.FromFacts(module.Facts, prefab, prefabKey, solid, state.MaterialFor,
-                    state.FinishFor, cellFinish, facts);
+                    state.FinishFor, cellFinish, verticalNeighbours);
                 if (!VerticalModuleViews.TryBuild(request, roleRoot, out var view)) {
                     context.ReportUnresolved("vertical-build", module.Type, module.Id, "the authored record could not be built");
                     continue;
@@ -3446,7 +3451,7 @@ namespace Metro.App.Views {
             try { state.EnsureFinishes(context.World.Shader); } catch (Exception) { }
 
             var rampAndExitFacts = dirtyIds.Count > 0
-                ? context.GetNextFactsOfTypes("stair", "escalator", "walkway", "exit")
+                ? context.GetNextFactsOfTypes("stair", "escalator", "walkway", "lift", "exit")
                 : Array.Empty<ModuleFacts>();
             var nextIndex = context.NextIndex;
             var catalogue = context.World.Catalogue;
@@ -3580,7 +3585,7 @@ namespace Metro.App.Views {
     /// 1 Hz simulation ticks instead of stepping once a second (RCA 14 §5.1). A paused
     /// clock is a frozen presentation instant, which holds the pose; lifts stay parked.
     /// </summary>
-    sealed class VerticalFrameSink : IStationFrameSink {
+    sealed class VerticalFrameSink : IStationFrameSink, IStationActiveDuringExplodedView {
         public void Tick(StationDocument document, StationIndex index, StationFrameClock clock) {
             var renderer = VerticalModuleRenderer.Current;
             if (renderer != null) renderer.ApplyAll(clock.PresentationSeconds, clock.Playing, bandsOnly: true);

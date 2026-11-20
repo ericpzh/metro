@@ -40,20 +40,61 @@ namespace Metro.App.Views {
         sealed class StagedOverlayDelta : IStationLocalRendererStage {
             readonly OverlayState state;
             readonly StationDocument nextDoc;
-            readonly bool cellsChanged;
+            readonly StationIndex nextIndex;
+            readonly HashSet<int> dirtyBands;
+            readonly bool invalidateAll;
 
-            public StagedOverlayDelta(OverlayState state, StationDocument nextDoc, bool cellsChanged) {
+            public StagedOverlayDelta(OverlayState state, StationDocument nextDoc, StationIndex nextIndex,
+                HashSet<int> dirtyBands, bool invalidateAll) {
                 this.state = state;
                 this.nextDoc = nextDoc;
-                this.cellsChanged = cellsChanged;
+                this.nextIndex = nextIndex;
+                this.dirtyBands = dirtyBands;
+                this.invalidateAll = invalidateAll;
             }
 
             public void Commit(StationWorldView world, StationLocalViewCommit commit) {
                 state.Document = nextDoc;
-                if (cellsChanged) state.ZoneDirty = true;
+                state.Index = nextIndex;
+                if (invalidateAll) {
+                    InvalidateAllCachedZones(state);
+                    state.ZoneDirty = true;
+                } else if (dirtyBands != null && dirtyBands.Count > 0) {
+                    int activeBand = nextDoc != null ? StationCoordinates.StoreyBand(state.Level, nextDoc.LevelBase) : state.Level;
+                    foreach (int band in dirtyBands) {
+                        InvalidateCachedZoneBand(state, band);
+                        if (band == activeBand) state.ZoneDirty = true;
+                    }
+                }
             }
 
             public void Dispose() { }
+        }
+
+        internal sealed class CachedZoneBand {
+            public int Band;
+            public string Locale = "";
+            public bool SectionClipping;
+            public float SectionOffset;
+            public float SectionAzimuth;
+            public Transform ZoneSubRoot;
+            public Transform LabelSubRoot;
+            public readonly List<StationZoneFloor> Floors = new List<StationZoneFloor>();
+            public readonly List<StationZoneLabel> Labels = new List<StationZoneLabel>();
+            public readonly List<string> LabelTexts = new List<string>();
+            public readonly List<int> LabelInks = new List<int>();
+            public readonly List<GameObject> LabelPlates = new List<GameObject>();
+            public readonly List<Mesh> ZoneMeshes = new List<Mesh>();
+            public readonly List<Material> ZoneMaterials = new List<Material>();
+            public readonly List<GameObject> ZoneObjects = new List<GameObject>();
+            public int ZoneCells;
+            public int LabelInk;
+            public string PainterNote = "";
+
+            public bool Matches(string locale, bool clipping, float offset, float azimuth) =>
+                string.Equals(Locale, locale, StringComparison.Ordinal) &&
+                SectionClipping == clipping &&
+                (!clipping || (Mathf.Approximately(SectionOffset, offset) && Mathf.Approximately(SectionAzimuth, azimuth)));
         }
 
         /// <summary>Zone tints, in `ZONE_PAINT_LIST` order (the palette the labels border with).</summary>
@@ -107,7 +148,10 @@ namespace Metro.App.Views {
             public Transform LabelRoot;
             public Transform DensityRoot;
             public StationDocument Document;
+            public StationIndex Index;
             public int Level;
+            internal readonly Dictionary<int, CachedZoneBand> CachedZoneBands = new Dictionary<int, CachedZoneBand>();
+            internal CachedZoneBand ActiveZoneBand;
             public bool Zones;
             public bool Density;
             public int Revision = -1;
@@ -184,6 +228,7 @@ namespace Metro.App.Views {
             var state = new OverlayState {
                 World = context.World,
                 Document = context.Document,
+                Index = context.Index,
                 Root = context.RoleRoot(RoleName),
             };
             // The zone tint, its labels and the heat map are three layers with three
@@ -216,7 +261,34 @@ namespace Metro.App.Views {
             fallbackReason = null;
             var state = StateOf(context.World);
             if (state == null) return true;
-            stage = new StagedOverlayDelta(state, context.NextDocument, context.CellsChanged);
+            bool invalidateAll = context.PrevDocument != null && context.NextDocument != null &&
+                context.PrevDocument.LevelBase != context.NextDocument.LevelBase;
+            HashSet<int> dirtyBands = null;
+            if (!invalidateAll && context.Delta != null && context.NextDocument != null) {
+                int levelBase = context.NextDocument.LevelBase;
+                void TouchZ(int z) {
+                    dirtyBands ??= new HashSet<int>();
+                    dirtyBands.Add(StationCoordinates.StoreyBand(z, levelBase));
+                    dirtyBands.Add(StationCoordinates.StoreyBand(z - 1, levelBase));
+                    dirtyBands.Add(StationCoordinates.StoreyBand(z + 1, levelBase));
+                }
+                var delta = context.Delta;
+                for (int i = 0; i < delta.RemovedCells.Count; i++) TouchZ(delta.RemovedCells[i].Z);
+                for (int i = 0; i < delta.ChangedCells.Count; i++) TouchZ(delta.ChangedCells[i].Z);
+                for (int i = 0; i < delta.RemovedModules.Count; i++) {
+                    if (context.PrevIndex != null && context.PrevIndex.TryGetModule(delta.RemovedModules[i], out var oldMod) &&
+                        oldMod != null && string.Equals(oldMod.Type, "track", StringComparison.Ordinal)) {
+                        TouchZ(oldMod.Z);
+                    }
+                }
+                for (int i = 0; i < delta.ChangedModules.Count; i++) {
+                    var mod = delta.ChangedModules[i];
+                    if (mod != null && string.Equals(mod.Type, "track", StringComparison.Ordinal)) {
+                        TouchZ(mod.Z);
+                    }
+                }
+            }
+            stage = new StagedOverlayDelta(state, context.NextDocument, context.NextIndex, dirtyBands, invalidateAll);
             return true;
         }
 
@@ -283,7 +355,10 @@ namespace Metro.App.Views {
             var plane = visibility != null ? visibility.Section : StationSectionPlane.Default;
             // A language switch re-keys every label material (locale is part of the plate
             // identity), so it rebuilds the layer like a level change does.
-            if (!string.Equals(state.Locale, Locale, StringComparison.Ordinal)) state.ZoneDirty = true;
+            if (!string.Equals(state.Locale, Locale, StringComparison.Ordinal)) {
+                InvalidateAllCachedZones(state);
+                state.ZoneDirty = true;
+            }
             // Without a section cut the plane's numbers cannot hide anything, so only a
             // clipping change matters; with one on, moving the plane re-cuts the floor.
             bool changed = state.SectionClipping != clipping ||
@@ -292,6 +367,7 @@ namespace Metro.App.Views {
             state.SectionClipping = clipping;
             state.SectionOffset = plane.Offset;
             state.SectionAzimuth = plane.Azimuth;
+            InvalidateAllCachedZones(state);
             state.ZoneDirty = true;
         }
 
@@ -320,46 +396,219 @@ namespace Metro.App.Views {
 
         void RefreshZones(OverlayState state) {
             state.ZoneDirty = false;
-            ClearZones(state);
             state.Locale = Locale;
             if (!state.Zones || state.Document == null) {
+                ClearZones(state);
+                ApplyVisibility(state);
                 return;
             }
             var rig = StationViewFeature.Active;
             var visibility = rig != null ? rig.Visibility : null;
             bool clipping = visibility != null && visibility.SectionClipping;
             var plane = visibility != null ? visibility.Section : StationSectionPlane.Default;
-            var floors = StationZoneMap.FloorsAt(state.Document, state.Level);
+            int band = StationCoordinates.StoreyBand(state.Level, state.Document.LevelBase);
+
+            if (state.CachedZoneBands.TryGetValue(band, out var cached)) {
+                if (cached.Matches(state.Locale, clipping, plane.Offset, plane.Azimuth)) {
+                    ActivateZoneBand(state, cached);
+                    ApplyVisibility(state);
+                    return;
+                }
+                InvalidateCachedZoneBand(state, band);
+            }
+
+            DeactivateActiveZoneBand(state);
+            var built = new CachedZoneBand {
+                Band = band,
+                Locale = state.Locale,
+                SectionClipping = clipping,
+                SectionOffset = plane.Offset,
+                SectionAzimuth = plane.Azimuth,
+                ZoneSubRoot = LayerRoot(state.ZoneRoot, "zone band " + band),
+                LabelSubRoot = LayerRoot(state.LabelRoot, "label band " + band),
+            };
+
+            var floors = StationZoneMap.FloorsAt(state.Document, state.Index, state.Level);
             var kept = new List<StationZoneFloor>(floors.Count);
-            // One grouped list per palette category, built in floors order so the mesh
-            // vertices and labels are stable for the same document.
             var byCategory = new List<Vector3>[StationZoneMap.CategoryCount];
             for (int i = 0; i < floors.Count; i++) {
                 var floor = floors[i];
                 if (clipping && !plane.Keeps(FloorPoint(floor))) continue;
                 kept.Add(floor);
-                state.Floors.Add(floor);
+                built.Floors.Add(floor);
                 var vertices = byCategory[floor.Display];
                 if (vertices == null) byCategory[floor.Display] = vertices = new List<Vector3>();
                 AddQuad(vertices, floor);
             }
-            state.ZoneCells = kept.Count;
+            built.ZoneCells = kept.Count;
             for (int category = 0; category < byCategory.Length; category++) {
                 if (byCategory[category] == null || byCategory[category].Count == 0) continue;
                 var tint = StationZoneMap.Category(category).Tint;
-                AddMesh(state, byCategory[category], tint, "zone " + category, ZoneSortingOrder, zoneLayer: true);
+                AddZoneBandMesh(state, built, byCategory[category], tint, "zone " + category, ZoneSortingOrder);
             }
             var labels = StationZoneMap.Labels(kept, state.Locale);
             var font = StationOverlayFont.Resolve(state.World != null ? state.World.Font : null);
-            if (font == null && labels.Count > 0) state.PainterNote = "no-font";
+            if (font == null && labels.Count > 0) built.PainterNote = "no-font";
             for (int i = 0; i < labels.Count; i++) {
                 var label = labels[i];
                 if (clipping && !plane.Keeps(label.DocumentPoint)) continue;
-                state.Labels.Add(label);
-                state.LabelTexts.Add(label.Text);
-                state.LabelInks.Add(AddLabel(state, label, state.Locale, font));
+                built.Labels.Add(label);
+                built.LabelTexts.Add(label.Text);
+                int ink = AddZoneBandLabel(state, built, label, state.Locale, font);
+                built.LabelInks.Add(ink);
+                built.LabelInk += ink;
             }
+            state.CachedZoneBands[band] = built;
+            ActivateZoneBand(state, built);
             ApplyVisibility(state);
+        }
+
+        void DeactivateActiveZoneBand(OverlayState state) {
+            if (state.ActiveZoneBand != null) {
+                SetRootActive(state.ActiveZoneBand.ZoneSubRoot, false);
+                SetRootActive(state.ActiveZoneBand.LabelSubRoot, false);
+                for (int i = 0; i < state.ActiveZoneBand.ZoneMeshes.Count; i++)
+                    state.Meshes.Remove(state.ActiveZoneBand.ZoneMeshes[i]);
+                for (int i = 0; i < state.ActiveZoneBand.ZoneMaterials.Count; i++)
+                    state.Materials.Remove(state.ActiveZoneBand.ZoneMaterials[i]);
+                state.ActiveZoneBand = null;
+            }
+            state.ZoneObjects.Clear();
+            state.LabelPlates.Clear();
+            state.ZoneMeshes.Clear();
+            state.ZoneMaterials.Clear();
+            state.Floors.Clear();
+            state.Labels.Clear();
+            state.LabelTexts.Clear();
+            state.LabelInks.Clear();
+            state.ZoneCells = 0;
+            state.LabelInk = 0;
+            state.PainterNote = "";
+        }
+
+        void ActivateZoneBand(OverlayState state, CachedZoneBand band) {
+            if (ReferenceEquals(state.ActiveZoneBand, band)) {
+                SetRootActive(band.ZoneSubRoot, true);
+                SetRootActive(band.LabelSubRoot, true);
+                return;
+            }
+            DeactivateActiveZoneBand(state);
+            state.ActiveZoneBand = band;
+            SetRootActive(band.ZoneSubRoot, true);
+            SetRootActive(band.LabelSubRoot, true);
+            state.Floors.AddRange(band.Floors);
+            state.Labels.AddRange(band.Labels);
+            state.LabelTexts.AddRange(band.LabelTexts);
+            state.LabelInks.AddRange(band.LabelInks);
+            state.LabelPlates.AddRange(band.LabelPlates);
+            state.ZoneObjects.AddRange(band.ZoneObjects);
+            state.ZoneMeshes.AddRange(band.ZoneMeshes);
+            state.ZoneMaterials.AddRange(band.ZoneMaterials);
+            state.Meshes.AddRange(band.ZoneMeshes);
+            state.Materials.AddRange(band.ZoneMaterials);
+            state.ZoneCells = band.ZoneCells;
+            state.LabelInk = band.LabelInk;
+            state.PainterNote = band.PainterNote;
+        }
+
+        static void DestroyCachedZoneBand(CachedZoneBand band) {
+            if (band == null) return;
+            DestroyRoot(band.ZoneSubRoot);
+            DestroyRoot(band.LabelSubRoot);
+            for (int i = 0; i < band.ZoneMeshes.Count; i++) Destroy(band.ZoneMeshes[i]);
+            for (int i = 0; i < band.ZoneMaterials.Count; i++) Destroy(band.ZoneMaterials[i]);
+            band.ZoneMeshes.Clear();
+            band.ZoneMaterials.Clear();
+            band.ZoneObjects.Clear();
+            band.LabelPlates.Clear();
+        }
+
+        static void InvalidateCachedZoneBand(OverlayState state, int band) {
+            if (state == null || !state.CachedZoneBands.TryGetValue(band, out var cached)) return;
+            if (ReferenceEquals(state.ActiveZoneBand, cached)) {
+                for (int i = 0; i < cached.ZoneMeshes.Count; i++) state.Meshes.Remove(cached.ZoneMeshes[i]);
+                for (int i = 0; i < cached.ZoneMaterials.Count; i++) state.Materials.Remove(cached.ZoneMaterials[i]);
+                state.ActiveZoneBand = null;
+                state.ZoneObjects.Clear();
+                state.LabelPlates.Clear();
+                state.ZoneMeshes.Clear();
+                state.ZoneMaterials.Clear();
+                state.Floors.Clear();
+                state.Labels.Clear();
+                state.LabelTexts.Clear();
+                state.LabelInks.Clear();
+                state.ZoneCells = 0;
+                state.LabelInk = 0;
+            }
+            state.CachedZoneBands.Remove(band);
+            DestroyCachedZoneBand(cached);
+        }
+
+        static void InvalidateAllCachedZones(OverlayState state) {
+            if (state == null) return;
+            if (state.ActiveZoneBand != null) {
+                for (int i = 0; i < state.ActiveZoneBand.ZoneMeshes.Count; i++)
+                    state.Meshes.Remove(state.ActiveZoneBand.ZoneMeshes[i]);
+                for (int i = 0; i < state.ActiveZoneBand.ZoneMaterials.Count; i++)
+                    state.Materials.Remove(state.ActiveZoneBand.ZoneMaterials[i]);
+                state.ActiveZoneBand = null;
+            }
+            foreach (var pair in state.CachedZoneBands) DestroyCachedZoneBand(pair.Value);
+            state.CachedZoneBands.Clear();
+            state.ZoneObjects.Clear();
+            state.LabelPlates.Clear();
+            state.ZoneMeshes.Clear();
+            state.ZoneMaterials.Clear();
+            state.Floors.Clear();
+            state.Labels.Clear();
+            state.LabelTexts.Clear();
+            state.LabelInks.Clear();
+            state.ZoneCells = 0;
+            state.LabelInk = 0;
+        }
+
+        void AddZoneBandMesh(OverlayState state, CachedZoneBand band, List<Vector3> vertices, Color32 colour, string name, int sortingOrder) {
+            if (vertices == null || vertices.Count == 0) return;
+            var mesh = new Mesh { name = name };
+            if (vertices.Count > 65535) mesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
+            var indices = new int[vertices.Count];
+            for (int i = 0; i < indices.Length; i++) indices[i] = i;
+            mesh.SetVertices(vertices);
+            mesh.SetIndices(indices, MeshTopology.Triangles, 0);
+            mesh.RecalculateBounds();
+            var go = new GameObject(name);
+            go.transform.SetParent(band.ZoneSubRoot, false);
+            go.AddComponent<MeshFilter>().sharedMesh = mesh;
+            var renderer = go.AddComponent<MeshRenderer>();
+            var material = CreateMaterial(colour, false);
+            renderer.sharedMaterial = material;
+            renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            renderer.receiveShadows = false;
+            renderer.sortingOrder = sortingOrder;
+            band.ZoneMeshes.Add(mesh);
+            band.ZoneMaterials.Add(material);
+            band.ZoneObjects.Add(go);
+            Register(state, go, name);
+        }
+
+        int AddZoneBandLabel(OverlayState state, CachedZoneBand band, in StationZoneLabel label, string locale, Font font) {
+            if (font == null) return 0;
+            var plate = ResolveLabelPlate(state, label, locale, font);
+            if (plate == null) return 0;
+            var go = new GameObject("zone label " + label.Text);
+            go.transform.SetParent(band.LabelSubRoot, false);
+            go.transform.position = StationCoordinates.Point(label.DocumentPoint);
+            go.transform.rotation = Quaternion.identity;
+            var mesh = PlateMeshOf(state);
+            if (mesh != null) go.AddComponent<MeshFilter>().sharedMesh = mesh;
+            var renderer = go.AddComponent<MeshRenderer>();
+            renderer.sharedMaterial = plate.Material;
+            renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            renderer.receiveShadows = false;
+            renderer.sortingOrder = LabelSortingOrder;
+            band.LabelPlates.Add(go);
+            Register(state, go, "zone label");
+            return plate.Ink;
         }
 
         void RefreshDensity(OverlayState state) {
@@ -565,26 +814,9 @@ namespace Metro.App.Views {
         }
 
         void ClearZones(OverlayState state) {
+            InvalidateAllCachedZones(state);
             ClearChildren(state.ZoneRoot);
             ClearChildren(state.LabelRoot);
-            for (int i = 0; i < state.ZoneMeshes.Count; i++) {
-                state.Meshes.Remove(state.ZoneMeshes[i]);
-                Destroy(state.ZoneMeshes[i]);
-            }
-            for (int i = 0; i < state.ZoneMaterials.Count; i++) {
-                state.Materials.Remove(state.ZoneMaterials[i]);
-                Destroy(state.ZoneMaterials[i]);
-            }
-            state.ZoneObjects.Clear();
-            state.LabelPlates.Clear();
-            state.ZoneMeshes.Clear();
-            state.ZoneMaterials.Clear();
-            state.Floors.Clear();
-            state.Labels.Clear();
-            state.LabelTexts.Clear();
-            state.LabelInks.Clear();
-            state.ZoneCells = 0;
-            state.LabelInk = 0;
         }
 
         void ClearDensity(OverlayState state) {
@@ -627,6 +859,7 @@ namespace Metro.App.Views {
             state.Materials.Clear();
             state.World = null;
             state.Document = null;
+            state.Index = null;
             state.Root = null;
         }
 

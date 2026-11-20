@@ -453,7 +453,7 @@ namespace Metro.View {
                     return source;
             }
             if (!shader || !shader.isSupported) return source;
-            clone = new Material(source) { name = source.name + " (section)", shader = shader };
+            clone = new Material(source) { name = source.name + " (section)", shader = shader, enableInstancing = source.enableInstancing };
             if (paving) {
                 clone.SetFloat("_VertexColorWeight", source.name == "outdoorSurface" ? 1f : 0f);
                 clone.SetColor("_BaseColor", source.GetColor("baseColorFactor"));
@@ -495,7 +495,7 @@ namespace Metro.View {
             var active = ActiveShader();
             if (!source || active == null) return source;
             if (cache.TryGetValue(source, out var cached) && cached) return cached;
-            var clone = new Material(source) { name = source.name + (opacity < .2f ? " (clear)" : " (ghost)") };
+            var clone = new Material(source) { name = source.name + (opacity < .2f ? " (clear)" : " (ghost)"), enableInstancing = source.enableInstancing };
             ApplyTranslucentOverrides(source, clone, opacity);
             cache[source] = clone;
             return clone;
@@ -586,6 +586,9 @@ namespace Metro.View {
             }
         }
 
+        /// <summary>Monotonically incremented whenever cached clones are cleared, so targets invalidate derived material arrays.</summary>
+        public int Generation { get; private set; }
+
         /// <summary>Drop the cached clones; a new station rebuilds its own materials.</summary>
         public void Clear() {
             foreach (var material in ghosts.Values) if (material) Destroy(material);
@@ -594,6 +597,7 @@ namespace Metro.View {
             ghosts.Clear();
             clears.Clear();
             sectionMaterials.Clear();
+            Generation++;
         }
 
         static void Destroy(UnityEngine.Object value) {
@@ -629,11 +633,29 @@ namespace Metro.View {
         Renderer[] renderers;
         Collider[] colliders;
         Material[][] baseMaterials;
+        Material[][] ghostMaterials;
+        Material[][] clearMaterials;
+        Material[][] sectionMaterials;
+        byte[] baseHasSection;
+        byte[] ghostHasSection;
+        byte[] clearHasSection;
+        byte[] sectionHasSection;
+        byte[] appliedMaterialValid;
+        StationDrawMode[] appliedMaterialMode;
+        bool[] appliedMaterialClip;
+        byte[] appliedSectionPlaneValid;
+        bool[] appliedSectionPlaneClip;
+        Vector4[] appliedSectionPlaneVec;
         bool collected;
+        bool hasApplied;
         StationDrawMode lastMode = StationDrawMode.Base;
         StationVisibilityPalette lastPalette;
+        int cachedPaletteGeneration = -1;
         MaterialPropertyBlock sectionBlock;
         public bool SectionShaderActive { get; private set; }
+        public int LastRendererWrites { get; private set; }
+        public int LastColliderWrites { get; private set; }
+        public int LastMaterialWrites { get; private set; }
 
         bool UsesSection => role != StationPartRole.Grid && role != StationPartRole.Cursor && role != StationPartRole.Overlay;
 
@@ -722,8 +744,24 @@ namespace Metro.View {
             collected = true;
             renderers = GetComponentsInChildren<Renderer>(true);
             colliders = GetComponentsInChildren<Collider>(true);
-            baseMaterials = new Material[renderers.Length][];
-            for (int i = 0; i < renderers.Length; i++) {
+            int rCount = renderers.Length;
+            baseMaterials = new Material[rCount][];
+            ghostMaterials = null;
+            clearMaterials = null;
+            sectionMaterials = null;
+            baseHasSection = new byte[rCount];
+            ghostHasSection = null;
+            clearHasSection = null;
+            sectionHasSection = null;
+            appliedMaterialValid = new byte[rCount];
+            appliedMaterialMode = new StationDrawMode[rCount];
+            appliedMaterialClip = new bool[rCount];
+            appliedSectionPlaneValid = new byte[rCount];
+            appliedSectionPlaneClip = new bool[rCount];
+            appliedSectionPlaneVec = new Vector4[rCount];
+            cachedPaletteGeneration = -1;
+            hasApplied = false;
+            for (int i = 0; i < rCount; i++) {
                 var renderer = renderers[i];
                 baseMaterials[i] = renderer ? renderer.sharedMaterials : Array.Empty<Material>();
                 // First sight only: a renderer already switched off by its builder is retired
@@ -755,24 +793,40 @@ namespace Metro.View {
                     for (int m = 0; m < next.Length; m++) lastPalette.SyncDerived(next[m]);
                 }
                 baseMaterials[i] = next;
+                InvalidateRendererDerived(i);
                 if (lastMode == StationDrawMode.Hidden || !Eligible(renderer) || lastPalette == null || next == null || next.Length == 0)
                     return;
-                switch (lastMode) {
-                    case StationDrawMode.Base:
-                        if (UsesSection) ApplySection(renderer, next, lastPalette);
-                        else renderer.sharedMaterials = next;
-                        break;
-                    case StationDrawMode.Ghost:
-                        renderer.sharedMaterials = Map(next, lastPalette.Ghost);
-                        if (UsesSection) SetSectionPlane(renderer, lastPalette);
-                        break;
-                    case StationDrawMode.Clear:
-                        renderer.sharedMaterials = Map(next, lastPalette.Clear);
-                        if (UsesSection) SetSectionPlane(renderer, lastPalette);
-                        break;
-                }
+                EnsurePaletteCache(lastPalette);
+                ApplyRendererMaterials(i, renderer, next, lastMode, lastPalette);
                 return;
             }
+        }
+
+        void InvalidateRendererDerived(int i) {
+            if (ghostMaterials != null && i < ghostMaterials.Length) ghostMaterials[i] = null;
+            if (clearMaterials != null && i < clearMaterials.Length) clearMaterials[i] = null;
+            if (sectionMaterials != null && i < sectionMaterials.Length) sectionMaterials[i] = null;
+            if (baseHasSection != null && i < baseHasSection.Length) baseHasSection[i] = 0;
+            if (ghostHasSection != null && i < ghostHasSection.Length) ghostHasSection[i] = 0;
+            if (clearHasSection != null && i < clearHasSection.Length) clearHasSection[i] = 0;
+            if (sectionHasSection != null && i < sectionHasSection.Length) sectionHasSection[i] = 0;
+            if (appliedMaterialValid != null && i < appliedMaterialValid.Length) appliedMaterialValid[i] = 0;
+            if (appliedSectionPlaneValid != null && i < appliedSectionPlaneValid.Length) appliedSectionPlaneValid[i] = 0;
+        }
+
+        void EnsurePaletteCache(StationVisibilityPalette palette) {
+            int gen = palette != null ? palette.Generation : -1;
+            if (ReferenceEquals(lastPalette, palette) && cachedPaletteGeneration == gen) return;
+            lastPalette = palette;
+            cachedPaletteGeneration = gen;
+            if (ghostMaterials != null) Array.Clear(ghostMaterials, 0, ghostMaterials.Length);
+            if (clearMaterials != null) Array.Clear(clearMaterials, 0, clearMaterials.Length);
+            if (sectionMaterials != null) Array.Clear(sectionMaterials, 0, sectionMaterials.Length);
+            if (ghostHasSection != null) Array.Clear(ghostHasSection, 0, ghostHasSection.Length);
+            if (clearHasSection != null) Array.Clear(clearHasSection, 0, clearHasSection.Length);
+            if (sectionHasSection != null) Array.Clear(sectionHasSection, 0, sectionHasSection.Length);
+            if (appliedMaterialValid != null) Array.Clear(appliedMaterialValid, 0, appliedMaterialValid.Length);
+            if (appliedSectionPlaneValid != null) Array.Clear(appliedSectionPlaneValid, 0, appliedSectionPlaneValid.Length);
         }
 
         /// <summary>Forget destroyed entries so a long session does not grow the maps.</summary>
@@ -796,62 +850,137 @@ namespace Metro.View {
 
         public void Apply(StationDrawMode mode, StationVisibilityPalette palette) {
             Collect();
-            lastPalette = palette;
+            EnsurePaletteCache(palette);
+            LastRendererWrites = 0;
+            LastColliderWrites = 0;
+            LastMaterialWrites = 0;
+            if (hasApplied && lastMode == StationDrawMode.Hidden && mode == StationDrawMode.Hidden) {
+                SectionShaderActive = false;
+                ModeApplied?.Invoke(mode);
+                return;
+            }
             SectionShaderActive = false;
             bool visible = mode != StationDrawMode.Hidden;
             // A part that was drawable after the last pass and is now off was retired by its
             // owner since then: record that as authored and never switch it back on.
-            bool wasVisible = lastMode != StationDrawMode.Hidden;
+            bool wasVisible = hasApplied ? lastMode != StationDrawMode.Hidden : true;
+            if (!hasApplied && lastMode == StationDrawMode.Hidden) wasVisible = false;
             lastMode = mode;
-            for (int i = 0; i < renderers.Length; i++) {
+            hasApplied = true;
+            int rCount = renderers.Length;
+            for (int i = 0; i < rCount; i++) {
                 var renderer = renderers[i];
                 if (!renderer) continue;
-                if (wasVisible && !renderer.enabled) eligibleRenderers[renderer] = false;
+                bool currentlyEnabled = renderer.enabled;
+                if (wasVisible && !currentlyEnabled) eligibleRenderers[renderer] = false;
                 bool eligible = Eligible(renderer);
-                renderer.enabled = visible && eligible;
-                if (!visible || !eligible || palette == null) continue;
+                bool wantEnabled = visible && eligible;
+                if (currentlyEnabled != wantEnabled) {
+                    renderer.enabled = wantEnabled;
+                    LastRendererWrites++;
+                }
+                if (!wantEnabled || palette == null) continue;
                 var bases = baseMaterials[i];
                 if (bases == null || bases.Length == 0) continue;
-                switch (mode) {
-                    case StationDrawMode.Base:
-                        if (UsesSection) ApplySection(renderer, bases, palette);
-                        else renderer.sharedMaterials = bases;
-                        break;
-                    case StationDrawMode.Ghost:
-                        renderer.sharedMaterials = Map(bases, palette.Ghost);
-                        if (UsesSection) SetSectionPlane(renderer, palette);
-                        break;
-                    case StationDrawMode.Clear:
-                        renderer.sharedMaterials = Map(bases, palette.Clear);
-                        if (UsesSection) SetSectionPlane(renderer, palette);
-                        break;
-                }
+                ApplyRendererMaterials(i, renderer, bases, mode, palette);
             }
-            for (int i = 0; i < colliders.Length; i++) {
+            int cCount = colliders.Length;
+            for (int i = 0; i < cCount; i++) {
                 var collider = colliders[i];
                 if (!collider) continue;
-                if (wasVisible && !collider.enabled) eligibleColliders[collider] = false;
-                collider.enabled = visible && Eligible(collider);
+                bool currentlyEnabled = collider.enabled;
+                if (wasVisible && !currentlyEnabled) eligibleColliders[collider] = false;
+                bool wantEnabled = visible && Eligible(collider);
+                if (currentlyEnabled != wantEnabled) {
+                    collider.enabled = wantEnabled;
+                    LastColliderWrites++;
+                }
             }
             ModeApplied?.Invoke(mode);
         }
 
-        void ApplySection(Renderer renderer, Material[] bases, StationVisibilityPalette palette) {
-            renderer.sharedMaterials = palette.SectionClipping ? Map(bases, source => palette.SectionMaterial(source, role)) : bases;
-            SetSectionPlane(renderer, palette);
+        void ApplyRendererMaterials(int index, Renderer renderer, Material[] bases, StationDrawMode mode, StationVisibilityPalette palette) {
+            bool clip = UsesSection && palette.SectionClipping;
+            bool needsMatWrite = appliedMaterialValid[index] == 0 ||
+                appliedMaterialMode[index] != mode ||
+                (mode == StationDrawMode.Base && appliedMaterialClip[index] != clip);
+
+            Material[] targetMats;
+            byte[] sectionFlags;
+            switch (mode) {
+                case StationDrawMode.Base:
+                    if (clip) {
+                        sectionMaterials ??= new Material[renderers.Length][];
+                        targetMats = sectionMaterials[index] ?? (sectionMaterials[index] = MapSection(bases, palette, role));
+                        sectionHasSection ??= new byte[renderers.Length];
+                        sectionFlags = sectionHasSection;
+                    } else {
+                        targetMats = bases;
+                        sectionFlags = baseHasSection;
+                    }
+                    break;
+                case StationDrawMode.Ghost:
+                    ghostMaterials ??= new Material[renderers.Length][];
+                    targetMats = ghostMaterials[index] ?? (ghostMaterials[index] = Map(bases, palette.Ghost));
+                    ghostHasSection ??= new byte[renderers.Length];
+                    sectionFlags = ghostHasSection;
+                    break;
+                case StationDrawMode.Clear:
+                    clearMaterials ??= new Material[renderers.Length][];
+                    targetMats = clearMaterials[index] ?? (clearMaterials[index] = Map(bases, palette.Clear));
+                    clearHasSection ??= new byte[renderers.Length];
+                    sectionFlags = clearHasSection;
+                    break;
+                default:
+                    return;
+            }
+
+            if (needsMatWrite) {
+                renderer.sharedMaterials = targetMats;
+                appliedMaterialValid[index] = 1;
+                appliedMaterialMode[index] = mode;
+                appliedMaterialClip[index] = clip;
+                LastMaterialWrites++;
+            }
+
+            if (UsesSection) {
+                byte hasFlag = sectionFlags[index];
+                if (hasFlag == 0) {
+                    hasFlag = HasSectionProperty(targetMats) ? (byte)2 : (byte)1;
+                    sectionFlags[index] = hasFlag;
+                }
+                if (hasFlag == 2) {
+                    SectionShaderActive = true;
+                    bool planeDirty = appliedSectionPlaneValid[index] == 0 ||
+                        appliedSectionPlaneClip[index] != palette.SectionClipping ||
+                        (palette.SectionClipping && appliedSectionPlaneVec[index] != palette.SectionPlane);
+                    if (planeDirty) {
+                        sectionBlock ??= new MaterialPropertyBlock();
+                        renderer.GetPropertyBlock(sectionBlock);
+                        sectionBlock.SetVector("_SectionPlane", palette.SectionPlane);
+                        sectionBlock.SetFloat("_SectionClip", palette.SectionClipping ? 1f : 0f);
+                        renderer.SetPropertyBlock(sectionBlock);
+                        appliedSectionPlaneValid[index] = 1;
+                        appliedSectionPlaneClip[index] = palette.SectionClipping;
+                        appliedSectionPlaneVec[index] = palette.SectionPlane;
+                    }
+                }
+            }
         }
 
-        void SetSectionPlane(Renderer renderer, StationVisibilityPalette palette) {
-            foreach (var material in renderer.sharedMaterials) {
-                if (!material || !material.HasProperty("_SectionPlane")) continue;
-                sectionBlock ??= new MaterialPropertyBlock();
-                renderer.GetPropertyBlock(sectionBlock);
-                sectionBlock.SetVector("_SectionPlane", palette.SectionPlane);
-                sectionBlock.SetFloat("_SectionClip", palette.SectionClipping ? 1f : 0f);
-                renderer.SetPropertyBlock(sectionBlock);
-                SectionShaderActive = true;
-                break;
+        static bool HasSectionProperty(Material[] materials) {
+            if (materials == null) return false;
+            for (int i = 0; i < materials.Length; i++) {
+                var m = materials[i];
+                if (m && m.HasProperty("_SectionPlane")) return true;
             }
+            return false;
+        }
+
+        static Material[] MapSection(Material[] sources, StationVisibilityPalette palette, StationPartRole role) {
+            var result = new Material[sources.Length];
+            for (int i = 0; i < sources.Length; i++) result[i] = palette.SectionMaterial(sources[i], role);
+            return result;
         }
 
         static Material[] Map(Material[] sources, Func<Material, Material> map) {
@@ -1020,6 +1149,7 @@ namespace Metro.View {
         }
 
         struct AppliedTargetSummary {
+            public StationDrawMode Mode;
             public byte Visible;
             public byte Hidden;
             public byte Ghost;
@@ -1029,12 +1159,69 @@ namespace Metro.View {
             public byte SectionShader;
         }
 
+        struct TargetIndexEntry {
+            public bool InSingleLevel;
+            public int SingleLevel;
+            public bool InDynamic;
+            public bool InOccupiedCount;
+        }
+
+        struct GlobalPolicySnapshot {
+            public bool ShowLevels;
+            public bool AutoCeiling;
+            public bool HideWalls;
+            public bool HideGround;
+            public bool HideRoof;
+            public bool HideUi;
+            public bool Cutaway;
+            public bool Dense;
+            public int LevelBase;
+            public int StoreyHeight;
+            public bool SectionClipping;
+
+            public static GlobalPolicySnapshot Capture(StationVisibilityState state, bool sectionClipping) => new GlobalPolicySnapshot {
+                ShowLevels = state.ShowLevels,
+                AutoCeiling = state.AutoCeiling,
+                HideWalls = state.HideWalls,
+                HideGround = state.HideGround,
+                HideRoof = state.HideRoof,
+                HideUi = state.HideUi,
+                Cutaway = state.Cutaway,
+                Dense = state.Dense,
+                LevelBase = state.LevelBase,
+                StoreyHeight = state.StoreyHeight,
+                SectionClipping = sectionClipping,
+            };
+
+            public bool Equals(in GlobalPolicySnapshot other) =>
+                ShowLevels == other.ShowLevels &&
+                AutoCeiling == other.AutoCeiling &&
+                HideWalls == other.HideWalls &&
+                HideGround == other.HideGround &&
+                HideRoof == other.HideRoof &&
+                HideUi == other.HideUi &&
+                Cutaway == other.Cutaway &&
+                Dense == other.Dense &&
+                LevelBase == other.LevelBase &&
+                StoreyHeight == other.StoreyHeight &&
+                SectionClipping == other.SectionClipping;
+        }
+
         readonly List<IStationVisibilityTarget> targets = new List<IStationVisibilityTarget>();
         readonly HashSet<IStationVisibilityTarget> targetSet =
             new HashSet<IStationVisibilityTarget>(ReferenceTargetComparer.Instance);
         readonly Dictionary<IStationVisibilityTarget, AppliedTargetSummary> appliedSummaries =
             new Dictionary<IStationVisibilityTarget, AppliedTargetSummary>(ReferenceTargetComparer.Instance);
+        readonly Dictionary<IStationVisibilityTarget, TargetIndexEntry> targetIndex =
+            new Dictionary<IStationVisibilityTarget, TargetIndexEntry>(ReferenceTargetComparer.Instance);
+        readonly Dictionary<int, List<IStationVisibilityTarget>> singleLevelTargets =
+            new Dictionary<int, List<IStationVisibilityTarget>>();
+        readonly List<IStationVisibilityTarget> dynamicTargets = new List<IStationVisibilityTarget>();
+        readonly Dictionary<int, int> occupiedLevelCounts = new Dictionary<int, int>();
+        readonly List<int> affectedLevelsScratch = new List<int>(8);
         readonly StationVisibilityPalette palette;
+        bool hasFullApply;
+        GlobalPolicySnapshot lastAppliedPolicy;
         public readonly StationVisibilityState State = new StationVisibilityState();
         public StationSectionPlane Section = StationSectionPlane.Default;
         public bool SectionClipping;
@@ -1052,9 +1239,89 @@ namespace Metro.View {
         public int SectionShaderTargets { get; private set; }
         public bool SectionShaderSupported => SectionShaderTargets > 0;
         public bool ActiveBuilt { get; private set; }
+        public bool HasApplied => hasFullApply;
+        public int LastApplyVisitedTargets { get; private set; }
+        public int LastApplyChangedTargets { get; private set; }
+        public bool LastApplyUsedSubset { get; private set; }
+        public int LastApplyRendererWrites { get; private set; }
+        public int LastApplyColliderWrites { get; private set; }
+        public int LastApplyMaterialWrites { get; private set; }
 
         public StationVisibilityRegistry(Shader materialShader = null) {
             palette = new StationVisibilityPalette(materialShader);
+        }
+
+        static bool IsOccupiedGeometryRole(StationPartRole role) =>
+            role != StationPartRole.Ground && role != StationPartRole.Road &&
+            role != StationPartRole.Grid && role != StationPartRole.Cursor &&
+            role != StationPartRole.Overlay && role != StationPartRole.Actor &&
+            role != StationPartRole.Train && role != StationPartRole.Vehicle;
+
+        static bool IsFurnitureRole(StationPartRole role) =>
+            role == StationPartRole.Grid || role == StationPartRole.Cursor || role == StationPartRole.Overlay;
+
+        void AddToIndex(IStationVisibilityTarget target) {
+            if (target == null) return;
+            RemoveFromIndex(target);
+            var role = target.Role;
+            if (IsFurnitureRole(role)) {
+                targetIndex[target] = default;
+                return;
+            }
+            var concrete = target as StationVisibilityTarget;
+            var levels = target.LevelZs;
+            bool isSingleStatic = concrete != null &&
+                !concrete.parked &&
+                !concrete.contactShadow &&
+                !concrete.floating &&
+                concrete.groundBand == StationVisibilityTarget.NoGroundBand &&
+                role != StationPartRole.Train &&
+                role != StationPartRole.Actor &&
+                role != StationPartRole.Vehicle &&
+                levels != null && levels.Count == 1;
+
+            if (isSingleStatic) {
+                int level = levels[0];
+                if (!singleLevelTargets.TryGetValue(level, out var list)) {
+                    list = new List<IStationVisibilityTarget>();
+                    singleLevelTargets[level] = list;
+                }
+                list.Add(target);
+                bool occupies = !concrete.gradeOwned && IsOccupiedGeometryRole(role);
+                if (occupies) {
+                    occupiedLevelCounts.TryGetValue(level, out int count);
+                    occupiedLevelCounts[level] = count + 1;
+                }
+                targetIndex[target] = new TargetIndexEntry {
+                    InSingleLevel = true,
+                    SingleLevel = level,
+                    InOccupiedCount = occupies,
+                };
+            } else {
+                dynamicTargets.Add(target);
+                targetIndex[target] = new TargetIndexEntry { InDynamic = true };
+            }
+        }
+
+        void RemoveFromIndex(IStationVisibilityTarget target) {
+            if (target == null || !targetIndex.TryGetValue(target, out var entry)) return;
+            targetIndex.Remove(target);
+            if (entry.InSingleLevel) {
+                if (singleLevelTargets.TryGetValue(entry.SingleLevel, out var list)) {
+                    for (int i = list.Count - 1; i >= 0; i--) {
+                        if (ReferenceEquals(list[i], target)) { list.RemoveAt(i); break; }
+                    }
+                    if (list.Count == 0) singleLevelTargets.Remove(entry.SingleLevel);
+                }
+                if (entry.InOccupiedCount && occupiedLevelCounts.TryGetValue(entry.SingleLevel, out int count)) {
+                    if (count <= 1) occupiedLevelCounts.Remove(entry.SingleLevel);
+                    else occupiedLevelCounts[entry.SingleLevel] = count - 1;
+                }
+            } else if (entry.InDynamic) {
+                for (int i = dynamicTargets.Count - 1; i >= 0; i--) {
+                    if (ReferenceEquals(dynamicTargets[i], target)) { dynamicTargets.RemoveAt(i); break; }
+                }
+            }
         }
 
         public StationVisibilityTarget Register(Transform root, StationPartRole role, int[] levels,
@@ -1062,18 +1329,25 @@ namespace Metro.View {
             bool contactShadow = false, bool gradeOwned = false) {
             if (!root) return null;
             var target = root.GetComponent<StationVisibilityTarget>() ?? root.gameObject.AddComponent<StationVisibilityTarget>();
+            bool existed = !targetSet.Add(target);
+            if (existed) RemoveFromIndex(target);
+            else targets.Add(target);
             target.Configure(role, levels, groundBand, parked, floating, contactShadow, gradeOwned);
-            if (targetSet.Add(target)) targets.Add(target);
+            AddToIndex(target);
             return target;
         }
 
         public void Register(IStationVisibilityTarget target) {
-            if (target != null && targetSet.Add(target)) targets.Add(target);
+            if (target != null && targetSet.Add(target)) {
+                targets.Add(target);
+                AddToIndex(target);
+            }
         }
 
         public bool Unregister(IStationVisibilityTarget target) {
             if (target == null || !targetSet.Remove(target)) return false;
             SubtractSummary(target);
+            RemoveFromIndex(target);
             for (int i = targets.Count - 1; i >= 0; i--) {
                 if (ReferenceEquals(targets[i], target)) {
                     targets.RemoveAt(i);
@@ -1087,6 +1361,11 @@ namespace Metro.View {
             targets.Clear();
             targetSet.Clear();
             appliedSummaries.Clear();
+            targetIndex.Clear();
+            singleLevelTargets.Clear();
+            dynamicTargets.Clear();
+            occupiedLevelCounts.Clear();
+            hasFullApply = false;
             VisibleTargets = HiddenTargets = GhostTargets = ClearTargets = CutTargets = StraddlingTargets = 0;
             SectionShaderTargets = 0;
         }
@@ -1105,6 +1384,7 @@ namespace Metro.View {
 
         void RecordSummary(IStationVisibilityTarget target, StationDrawMode mode) {
             var next = default(AppliedTargetSummary);
+            next.Mode = mode;
             if (mode == StationDrawMode.Hidden) next.Hidden = 1;
             else {
                 next.Visible = 1;
@@ -1174,13 +1454,135 @@ namespace Metro.View {
             Applied?.Invoke();
         }
 
+        void AddAffectedLevel(int level) {
+            if (!singleLevelTargets.ContainsKey(level)) return;
+            for (int i = 0; i < affectedLevelsScratch.Count; i++) {
+                if (affectedLevelsScratch[i] == level) return;
+            }
+            affectedLevelsScratch.Add(level);
+        }
+
+        void ApplySubsetList(List<IStationVisibilityTarget> list, StationSliceOptions slice, ref bool prunedAny) {
+            for (int i = list.Count - 1; i >= 0; i--) {
+                var target = list[i];
+                if (target == null || (target is UnityEngine.Object unityObj && unityObj == null)) {
+                    list.RemoveAt(i);
+                    if (target != null) {
+                        SubtractSummary(target);
+                        targetSet.Remove(target);
+                        if (targetIndex.TryGetValue(target, out var deadEntry)) {
+                            targetIndex.Remove(target);
+                            if (deadEntry.InOccupiedCount && occupiedLevelCounts.TryGetValue(deadEntry.SingleLevel, out int occ)) {
+                                if (occ <= 1) occupiedLevelCounts.Remove(deadEntry.SingleLevel);
+                                else occupiedLevelCounts[deadEntry.SingleLevel] = occ - 1;
+                            }
+                        }
+                    }
+                    prunedAny = true;
+                    continue;
+                }
+                LastApplyVisitedTargets++;
+                bool hadPrev = appliedSummaries.TryGetValue(target, out var prevSummary);
+                var mode = Decide(target, slice);
+                bool modeChanged = !hadPrev || prevSummary.Mode != mode;
+                if (modeChanged) LastApplyChangedTargets++;
+                if (!modeChanged && !SectionClipping && mode == StationDrawMode.Hidden && target is StationVisibilityTarget hiddenConcrete) {
+                    hiddenConcrete.Apply(mode, palette);
+                    continue;
+                }
+                SubtractSummary(target);
+                target.Apply(mode, palette);
+                if (target is StationVisibilityTarget concrete) {
+                    LastApplyRendererWrites += concrete.LastRendererWrites;
+                    LastApplyColliderWrites += concrete.LastColliderWrites;
+                    LastApplyMaterialWrites += concrete.LastMaterialWrites;
+                }
+                RecordSummary(target, mode);
+            }
+        }
+
+        /// <summary>
+        /// Incremental level-step path: when only <see cref="StationVisibilityState.ActiveLevel"/>
+        /// moved under stable global flags and unchanged occupied-floor state, re-evaluates only
+        /// targets in the affected storey bands plus dynamic/multi-level targets. Falls back to
+        /// full <see cref="Apply"/> whenever global policy or empty/occupied floor state changed.
+        /// </summary>
+        public void ApplyLevelChange(int previousActiveLevel) {
+            var policy = GlobalPolicySnapshot.Capture(State, SectionClipping);
+            bool nextActiveBuilt = ComputeActiveBuilt();
+            if (!hasFullApply ||
+                State.Cutaway ||
+                State.HideUi ||
+                !policy.Equals(lastAppliedPolicy) ||
+                nextActiveBuilt != ActiveBuilt ||
+                appliedSummaries.Count != targets.Count) {
+                Apply();
+                return;
+            }
+
+            ActiveBuilt = nextActiveBuilt;
+            SyncPaletteSection();
+            var slice = StationVisibilityRules.SliceOptions(State.ShowLevels, State.AutoCeiling, State.HideUi, State.Cutaway, ActiveBuilt);
+            LastApplyVisitedTargets = 0;
+            LastApplyChangedTargets = 0;
+            LastApplyUsedSubset = true;
+            LastApplyRendererWrites = 0;
+            LastApplyColliderWrites = 0;
+            LastApplyMaterialWrites = 0;
+
+            affectedLevelsScratch.Clear();
+            int nextLevel = State.ActiveLevel;
+            if (!State.ShowLevels) {
+                AddAffectedLevel(previousActiveLevel);
+                AddAffectedLevel(nextLevel);
+            } else if (State.Dense) {
+                int step = State.StoreyHeight > 0 ? State.StoreyHeight : StationLevelGrid.LadderStep;
+                AddAffectedLevel(previousActiveLevel - step);
+                AddAffectedLevel(previousActiveLevel);
+                AddAffectedLevel(nextLevel - step);
+                AddAffectedLevel(nextLevel);
+                if (!slice.HideAbove) {
+                    AddAffectedLevel(previousActiveLevel + step);
+                    AddAffectedLevel(nextLevel + step);
+                }
+            } else {
+                int lo = Math.Min(previousActiveLevel, nextLevel);
+                int hi = Math.Max(previousActiveLevel, nextLevel);
+                foreach (var level in singleLevelTargets.Keys) {
+                    if (level >= lo && level <= hi) affectedLevelsScratch.Add(level);
+                }
+            }
+
+            bool prunedAny = false;
+            for (int b = 0; b < affectedLevelsScratch.Count; b++) {
+                int level = affectedLevelsScratch[b];
+                if (singleLevelTargets.TryGetValue(level, out var bucket)) {
+                    ApplySubsetList(bucket, slice, ref prunedAny);
+                    if (bucket.Count == 0) singleLevelTargets.Remove(level);
+                }
+            }
+            ApplySubsetList(dynamicTargets, slice, ref prunedAny);
+            if (prunedAny) {
+                for (int i = targets.Count - 1; i >= 0; i--) {
+                    var t = targets[i];
+                    if (t == null || !targetSet.Contains(t)) targets.RemoveAt(i);
+                }
+            }
+            Applied?.Invoke();
+        }
+
         public void Apply() {
             ActiveBuilt = ComputeActiveBuilt();
             SyncPaletteSection();
             var slice = StationVisibilityRules.SliceOptions(State.ShowLevels, State.AutoCeiling, State.HideUi, State.Cutaway, ActiveBuilt);
             VisibleTargets = HiddenTargets = GhostTargets = ClearTargets = CutTargets = StraddlingTargets = 0;
             SectionShaderTargets = 0;
-            appliedSummaries.Clear();
+            LastApplyVisitedTargets = 0;
+            LastApplyChangedTargets = 0;
+            LastApplyUsedSubset = false;
+            LastApplyRendererWrites = 0;
+            LastApplyColliderWrites = 0;
+            LastApplyMaterialWrites = 0;
             for (int i = targets.Count - 1; i >= 0; i--) {
                 var target = targets[i];
                 if (target == null) { targets.RemoveAt(i); continue; }
@@ -1189,13 +1591,25 @@ namespace Metro.View {
                 // at all, so `Root == null` is not the liveness test.
                 if (target is UnityEngine.Object unityObject && unityObject == null) {
                     targetSet.Remove(target);
+                    appliedSummaries.Remove(target);
+                    RemoveFromIndex(target);
                     targets.RemoveAt(i);
                     continue;
                 }
+                LastApplyVisitedTargets++;
+                bool hadPrev = appliedSummaries.TryGetValue(target, out var prevSummary);
                 var mode = Decide(target, slice);
+                if (!hadPrev || prevSummary.Mode != mode) LastApplyChangedTargets++;
                 target.Apply(mode, palette);
+                if (target is StationVisibilityTarget concrete) {
+                    LastApplyRendererWrites += concrete.LastRendererWrites;
+                    LastApplyColliderWrites += concrete.LastColliderWrites;
+                    LastApplyMaterialWrites += concrete.LastMaterialWrites;
+                }
                 RecordSummary(target, mode);
             }
+            hasFullApply = true;
+            lastAppliedPolicy = GlobalPolicySnapshot.Capture(State, SectionClipping);
             Applied?.Invoke();
         }
 
@@ -1279,8 +1693,11 @@ namespace Metro.View {
             if (role == StationPartRole.Roof && State.HideRoof) return StationDrawMode.Hidden;
             if (role == StationPartRole.Ceiling && State.AutoCeiling && !State.HideUi) return StationDrawMode.Hidden;
 
-            var grid = StationLevelGrid.FromDocument(State.LevelBase, State.StoreyHeight, null);
             if (target.ContactShadow) {
+                var grid = new StationLevelGrid {
+                    LevelBase = StationLevelGrid.NormalizeBase(State.LevelBase),
+                    StoreyHeight = State.StoreyHeight > 0 ? State.StoreyHeight : StationLevelGrid.LadderStep,
+                };
                 int shadowZ = Mathf.RoundToInt(StationCameraSpace.ToDocument(target.WorldBounds.center).z);
                 bool everyStorey = State.HideUi || State.Cutaway;
                 if (!StationVisibilityRules.ContactShadowVisible(shadowZ, State.ActiveLevel, everyStorey, grid)) {
@@ -1330,15 +1747,12 @@ namespace Metro.View {
         /// an occupied one.
         /// </summary>
         bool ComputeActiveBuilt() {
-            foreach (var target in targets) {
-                if (target == null || target.Parked || target.ContactShadow || target.GradeOwned) continue;
-                var role = target.Role;
-                if (role == StationPartRole.Ground || role == StationPartRole.Road ||
-                    role == StationPartRole.Grid || role == StationPartRole.Cursor ||
-                    role == StationPartRole.Overlay || role == StationPartRole.Actor ||
-                    role == StationPartRole.Train || role == StationPartRole.Vehicle) {
-                    continue;
-                }
+            if (occupiedLevelCounts.TryGetValue(State.ActiveLevel, out int count) && count > 0) return true;
+            for (int i = 0; i < dynamicTargets.Count; i++) {
+                var target = dynamicTargets[i];
+                if (target == null || (target is UnityEngine.Object unityObj && unityObj == null)) continue;
+                if (target.Parked || target.ContactShadow || target.GradeOwned) continue;
+                if (!IsOccupiedGeometryRole(target.Role)) continue;
                 if (StationVisibilityRules.LevelSide(target.LevelZs, State.ActiveLevel) == StationLevelSide.Active) return true;
             }
             return false;
@@ -1351,6 +1765,11 @@ namespace Metro.View {
             targets.Clear();
             targetSet.Clear();
             appliedSummaries.Clear();
+            targetIndex.Clear();
+            singleLevelTargets.Clear();
+            dynamicTargets.Clear();
+            occupiedLevelCounts.Clear();
+            hasFullApply = false;
             Applied = null;
             palette.Dispose();
         }

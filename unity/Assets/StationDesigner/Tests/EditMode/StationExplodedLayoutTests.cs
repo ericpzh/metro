@@ -4,12 +4,15 @@ using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
+using Metro.App;
+using Metro.App.Views;
 using Metro.Build;
 using Metro.Persistence;
 using Metro.View;
 using Newtonsoft.Json.Linq;
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.Profiling;
 
 /// <summary>
 /// Plan 19 §2.2 &amp; §5.1 EditMode parity suite for <see cref="StationExplodedLayoutPlan"/>.
@@ -168,6 +171,132 @@ public class StationExplodedLayoutTests {
                 Assert.AreEqual(expected[i], actual[i], 1e-4f, $"{id}[{i}] mismatch");
             }
             Assert.AreEqual((int)sample["absentBit"], StationExplodedLayoutPlan.ExplodedLiftAbsent);
+        }
+    }
+
+    [Test]
+    public void TianheParkExplodedViewProfileAndRoundTrip() {
+        string tianhePath = Path.Combine(Application.dataPath, "StationDesigner/Demos/tianhe.metro.json");
+        if (!File.Exists(tianhePath)) Assert.Ignore("tianhe.metro.json not exported");
+
+        var camGo = new GameObject("Stage8ProfileCam");
+        var cam = camGo.AddComponent<Camera>();
+        cam.orthographic = true;
+
+        var hostGo = new GameObject(StationGameHost.ObjectName);
+        var host = hostGo.AddComponent<StationGameHost>();
+        host.stationCamera = cam;
+        host.frameCameraOnCommit = false;
+        host.catalogue = UnityEditor.AssetDatabase.LoadAssetAtPath<RuntimeCatalogue>(RuntimeCatalogue.AssetPath);
+        host.trainCatalogue = UnityEditor.AssetDatabase.LoadAssetAtPath<TrainCatalogue>(TrainCatalogue.AssetPath);
+        host.stationShader = StationFinishLibrary.FindShader();
+        host.font = UnityEditor.AssetDatabase.LoadAssetAtPath<Font>("Assets/StationDesigner/Fonts/NotoSansSC-Regular.ttf");
+
+        try {
+            typeof(StationGameHost).GetMethod("Awake",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic).Invoke(host, null);
+            host.RegisterRenderer(new StationCellRenderer());
+            host.RegisterRenderer(new StationSurfaceModuleRenderer());
+            host.RegisterRenderer(new StationStreetModuleRenderer());
+            host.RegisterRenderer(new StationEquipmentModuleRenderer());
+            host.RegisterRenderer(new StationDisplayModuleRenderer());
+            host.RegisterRenderer(new StationStructureModuleRenderer());
+            host.RegisterRenderer(new StationGridRenderer());
+            host.RegisterRenderer(new StationOverlayRenderer());
+            host.RegisterRenderer(new OpeningModuleRenderer());
+            host.RegisterRenderer(new StationRoadRenderer());
+            host.RegisterRenderer(new StationSignRenderer());
+            host.RegisterRenderer(new TrainConsistRenderer());
+            host.RegisterRenderer(new VerticalModuleRenderer());
+            host.RegisterRenderer(new OutdoorModuleRenderer());
+            host.RegisterRenderer(new PassengerCrowdRenderer());
+            StationViewFeature.Attach(host);
+            var exploded = StationViewFeature.ActiveExploded;
+            Assert.IsNotNull(exploded);
+
+            var opened = host.OpenDocument(File.ReadAllText(tianhePath), "tianhe");
+            Assert.IsTrue(opened.Accepted, opened.ToString());
+
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+            long baseManaged = GC.GetTotalMemory(true);
+            long baseUnity = Profiler.GetTotalAllocatedMemoryLong();
+            int editorRenderers = host.Coordinator.World.Root.GetComponentsInChildren<MeshRenderer>(true).Length;
+
+            Debug.Log($"[Stage8] editorReady renderers={editorRenderers} managedMiB={baseManaged / (1024.0 * 1024.0):F1} unityMiB={baseUnity / (1024.0 * 1024.0):F1}");
+
+            int firstDynamicMeshes = -1;
+            int firstClonedMats = -1;
+            int firstExplodedRenderers = -1;
+            for (int round = 1; round <= 3; round++) {
+                var swStruct = System.Diagnostics.Stopwatch.StartNew();
+                Assert.IsTrue(exploded.Open("blueprint", 1280, 720, out var err), err);
+                swStruct.Stop();
+
+                var builder = exploded.Builder;
+                int structRenderers = builder.RootObject.GetComponentsInChildren<MeshRenderer>(true).Length;
+                int structConsistRenderers = 0;
+                foreach (var tray in builder.Trays) {
+                    if (tray.LiveRoot != null) structConsistRenderers += tray.LiveRoot.GetComponentsInChildren<MeshRenderer>(true).Length;
+                }
+                int structMeshes = builder.DynamicMeshCount;
+                int structMats = builder.ClonedMaterialCount;
+
+                var swProps = System.Diagnostics.Stopwatch.StartNew();
+                exploded.CompleteAllPropsNow();
+                swProps.Stop();
+
+                int totalRenderers = builder.RootObject.GetComponentsInChildren<MeshRenderer>(true).Length;
+                int totalMeshes = builder.DynamicMeshCount;
+                int totalMats = builder.ClonedMaterialCount;
+                long totalVerts = 0, totalTris = 0;
+                foreach (var mf in builder.RootObject.GetComponentsInChildren<MeshFilter>(true)) {
+                    var m = mf != null ? mf.sharedMesh : null;
+                    if (m == null) continue;
+                    totalVerts += m.vertexCount;
+                    for (int sm = 0; sm < m.subMeshCount; sm++) {
+                        if (m.GetTopology(sm) == MeshTopology.Triangles) totalTris += m.GetIndexCount(sm) / 3;
+                    }
+                }
+                // Exercise selection tint & deselect
+                var swSel = System.Diagnostics.Stopwatch.StartNew();
+                builder.SelectTray(0);
+                builder.SelectTray(1);
+                builder.SelectTray(null);
+                swSel.Stop();
+                int matsAfterSelect = builder.ClonedMaterialCount;
+
+                long openManaged = GC.GetTotalMemory(false);
+                long openUnity = Profiler.GetTotalAllocatedMemoryLong();
+
+                var swClose = System.Diagnostics.Stopwatch.StartNew();
+                exploded.Close();
+                swClose.Stop();
+
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                GC.Collect();
+                long closedManaged = GC.GetTotalMemory(true);
+                long closedUnity = Profiler.GetTotalAllocatedMemoryLong();
+
+                Debug.Log($"[Stage8] round={round} structMs={swStruct.Elapsed.TotalMilliseconds:F1} propsMs={swProps.Elapsed.TotalMilliseconds:F1} selMs={swSel.Elapsed.TotalMilliseconds:F2} closeMs={swClose.Elapsed.TotalMilliseconds:F1} structR={structRenderers}(trains={structConsistRenderers}) totalR={totalRenderers} meshes={structMeshes}->{totalMeshes} mats={structMats}->{totalMats}->{matsAfterSelect} verts={totalVerts} tris={totalTris} openManagedMiB={openManaged / (1024.0 * 1024.0):F1} openUnityMiB={openUnity / (1024.0 * 1024.0):F1} closedManagedMiB={closedManaged / (1024.0 * 1024.0):F1} closedUnityMiB={closedUnity / (1024.0 * 1024.0):F1}");
+
+                if (round == 1) {
+                    firstDynamicMeshes = totalMeshes;
+                    firstClonedMats = totalMats;
+                    firstExplodedRenderers = totalRenderers;
+                } else {
+                    Assert.AreEqual(firstDynamicMeshes, totalMeshes, "Reopen dynamic mesh count must stay constant");
+                    Assert.AreEqual(firstClonedMats, totalMats, "Reopen cloned material count must stay constant");
+                    Assert.AreEqual(firstExplodedRenderers, totalRenderers, "Reopen renderer count must stay constant");
+                }
+            }
+        } finally {
+            var activeExploded = StationViewFeature.ActiveExploded;
+            if (activeExploded != null) activeExploded.Close();
+            if (hostGo != null) UnityEngine.Object.DestroyImmediate(hostGo);
+            if (camGo != null) UnityEngine.Object.DestroyImmediate(camGo);
         }
     }
 }

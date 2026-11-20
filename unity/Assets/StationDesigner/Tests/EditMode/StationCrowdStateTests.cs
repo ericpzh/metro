@@ -90,5 +90,64 @@ namespace Metro.Tests {
                 UnityEngine.Object.DestroyImmediate(parent);
             }
         }
+
+        [Test]
+        public void CrowdPoseSkipsUnchangedAnimationsAndUsesFixedLocalBounds() {
+            var catalogue = AssetDatabase.LoadAssetAtPath<PassengerCatalogue>(PassengerCatalogue.AssetPath);
+            if (catalogue == null) Assert.Ignore("local passenger catalogue is not present in this project");
+            var parent = new GameObject("crowd stage5 probe");
+            try {
+                var view = PassengerCrowdView.Build(parent.transform, catalogue);
+                var poses = new System.Collections.Generic.List<PassengerPose>(200);
+                for (int i = 1; i <= 200; i++) {
+                    poses.Add(new PassengerPose {
+                        SimId = i,
+                        X = (i % 20) * 1.5,
+                        Y = (i / 20) * 1.5,
+                        Z = -5,
+                        Heading = 0,
+                        Activity = PassengerActivity.Walk,
+                        WalkDistance = i * 0.1,
+                        WalkPhase = 0.25,
+                        WalkWeight = i <= 100 ? 0.0 : 1.0,
+                        HasWalkWeight = true,
+                        Visible = true,
+                    });
+                }
+
+                // First render samples all 200 actors and sets fixed local bounds with updateWhenOffscreen=false.
+                var swFirst = System.Diagnostics.Stopwatch.StartNew();
+                view.Render(poses, 1.0);
+                swFirst.Stop();
+                Assert.AreEqual(200, view.Spawned);
+                Assert.AreEqual(200, view.SampledThisFrame, "initial render samples every visible actor");
+                foreach (var actor in view.Actors) {
+                    Assert.IsFalse(actor.Skin.updateWhenOffscreen, "offscreen skinning must be disabled");
+                    Assert.Greater(actor.Skin.localBounds.size.y, 1.5f, "fixed local bounds must cover full actor height");
+                }
+
+                // Repeated identical frame (e.g. paused): 0 SampleAnimation calls!
+                var swPaused = System.Diagnostics.Stopwatch.StartNew();
+                view.Render(poses, 1.0);
+                swPaused.Stop();
+                Assert.AreEqual(0, view.SampledThisFrame, "identical paused frame must skip redundant SampleAnimation");
+                Assert.AreEqual(200, view.SkippedUnchangedAnimationThisFrame);
+
+                // Next walking step: only the 100 walking actors advance; the 100 standing actors stay skipped!
+                for (int i = 0; i < poses.Count; i++) {
+                    var p = poses[i];
+                    if (p.WalkWeight > 0.5) p.WalkDistance += 0.35;
+                    poses[i] = p;
+                }
+                var swWalk = System.Diagnostics.Stopwatch.StartNew();
+                view.Render(poses, 1.25);
+                swWalk.Stop();
+                Assert.AreEqual(100, view.SampledThisFrame, "only moving walkers resample");
+                Assert.AreEqual(100, view.SkippedUnchangedAnimationThisFrame, "standing actors remain skipped");
+                Debug.Log($"[Stage5Crowd] n=200 firstMs={swFirst.Elapsed.TotalMilliseconds:F2} pausedMs={swPaused.Elapsed.TotalMilliseconds:F2} halfWalkMs={swWalk.Elapsed.TotalMilliseconds:F2}");
+            } finally {
+                UnityEngine.Object.DestroyImmediate(parent);
+            }
+        }
     }
 }

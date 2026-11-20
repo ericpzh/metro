@@ -40,8 +40,9 @@ namespace Metro.App.Views {
     /// <summary>One rigid floor tray under the standalone exploded presentation root.</summary>
     public sealed class StationExplodedTrayInstance {
         internal readonly List<StationExplodedTrayBuilder.PickBucket> PickBuckets = new List<StationExplodedTrayBuilder.PickBucket>();
-        internal readonly List<StationExplodedTrayBuilder.TintedMaterialSlot> MaterialSlots = new List<StationExplodedTrayBuilder.TintedMaterialSlot>();
+        internal readonly List<(MeshRenderer Renderer, Material SourceMaterial)> TintRenderers = new List<(MeshRenderer, Material)>();
         internal readonly Dictionary<Material, Material> ClonedBySource = new Dictionary<Material, Material>();
+        internal bool IsTinted;
 
         public StationExplodedTrayInstance(
             int index,
@@ -142,17 +143,6 @@ namespace Metro.App.Views {
             public bool IsFrontWall;
         }
 
-        internal sealed class TintedMaterialSlot {
-            public Material Material;
-            public bool HasBaseColor;
-            public Color OriginalBaseColor;
-            public bool HasLegacyColor;
-            public Color OriginalLegacyColor;
-            public bool HasEmission;
-            public Color OriginalEmission;
-            public bool HadEmissionKeyword;
-        }
-
         sealed class PropCombineBucket {
             public int TrayIndex;
             public Material SourceMaterial;
@@ -198,6 +188,15 @@ namespace Metro.App.Views {
             public int OwnerTrayIndex;
         }
 
+        sealed class CachedSourceSubmesh {
+            public Vector3[] Positions;
+            public Vector3[] Normals;
+            public Vector2[] Uvs;
+            public Color[] Colors;
+            public int[] Indices;
+            public bool HasNormals;
+        }
+
         readonly StationDocument document;
         readonly StationWorldView world;
         readonly RuntimeCatalogue catalogue;
@@ -211,9 +210,9 @@ namespace Metro.App.Views {
         readonly Vector3[] manualOffsets;
         readonly bool[] floorVisible;
 
-        readonly Dictionary<string, StationModuleRecord> modulesById;
-        readonly ModuleFacts[] allModuleFacts;
-        readonly HashSet<StationCellKey> allDocumentSolids;
+        Dictionary<string, StationModuleRecord> modulesById;
+        ModuleFacts[] allModuleFacts;
+        HashSet<StationCellKey> allDocumentSolids;
 
         readonly List<Mesh> ownedMeshes = new List<Mesh>();
         readonly List<Material> ownedMaterials = new List<Material>();
@@ -224,10 +223,14 @@ namespace Metro.App.Views {
         readonly Dictionary<string, ConsistTrayBinding> consistById = new Dictionary<string, ConsistTrayBinding>(StringComparer.Ordinal);
         readonly ModuleMotionDispatch trainDoorDispatch = new ModuleMotionDispatch();
 
-        // Deferred prop batch state
+        // Deferred prop batch state (cleared once equipmentReady is true)
         readonly List<PropWorkItem> deferredItems = new List<PropWorkItem>();
         readonly Dictionary<(int tray, Material mat), PropCombineBucket> propBuckets =
             new Dictionary<(int tray, Material mat), PropCombineBucket>();
+        readonly Dictionary<(int tray, Mesh mesh, int submesh, Material mat), List<Matrix4x4>> instancedPropBuckets =
+            new Dictionary<(int tray, Mesh mesh, int submesh, Material mat), List<Matrix4x4>>();
+        readonly Dictionary<(Mesh mesh, int submesh), CachedSourceSubmesh> sourceSubmeshCache =
+            new Dictionary<(Mesh mesh, int submesh), CachedSourceSubmesh>();
         readonly List<StationSurfaceModuleRenderer.SurfacePart> tempSurfaceParts =
             new List<StationSurfaceModuleRenderer.SurfacePart>(16);
         int deferredCursor;
@@ -254,7 +257,8 @@ namespace Metro.App.Views {
         bool lastClockPlaying;
 
         StationFinishLibrary finishLibrary;
-        Material[][] trayLiftPalettes;
+        bool ownsFinishLibrary;
+        Material[] sharedLiftPalette;
         GameObject rootObject;
         Transform traysContainer;
         GameObject guidesObject;
@@ -442,7 +446,14 @@ namespace Metro.App.Views {
                 foreach (var key in plan.Trays[i].RetainedCellSet) allRetained.Add(key);
             }
 
-            finishLibrary = StationCellRenderer.AcquireLibrary(fallbackShader);
+            var sharedFinishes = StationCellRenderer.CurrentFinishes;
+            if (sharedFinishes != null) {
+                finishLibrary = sharedFinishes;
+                ownsFinishLibrary = false;
+            } else {
+                finishLibrary = StationCellRenderer.AcquireLibrary(fallbackShader);
+                ownsFinishLibrary = true;
+            }
             var policy = new StationCellViewerPolicy(allRetained, omitSuspendedCeilings: true, isolateBandOcclusion: true);
             var meshInput = StationCellRenderer.BuildInput(document, finishLibrary, null, policy);
             var meshResult = StationCellMesher.Mesh(meshInput);
@@ -485,6 +496,7 @@ namespace Metro.App.Views {
             structuralBuilt = true;
             if (deferredItems.Count == 0) {
                 equipmentReady = true;
+                ReleaseTemporaryBuildState();
             }
         }
 
@@ -584,9 +596,8 @@ namespace Metro.App.Views {
             mesh.SetTriangles(triArr, 0, calculateBounds: true);
             ownedMeshes.Add(mesh);
 
-            var clonedMat = GetOrCloneTrayMaterial(tray, sourceMaterial);
             var parent = wantFrontWall ? tray.WallsRoot : tray.FloorRoot;
-            CreateTrayMeshObject(parent, mesh.name, mesh, clonedMat);
+            CreateTrayMeshObject(tray, parent, mesh.name, mesh, sourceMaterial);
 
             tray.PickBuckets.Add(new PickBucket {
                 SourceWorldBounds = mesh.bounds,
@@ -684,7 +695,11 @@ namespace Metro.App.Views {
 
             if (deferredCursor >= deferredItems.Count) {
                 FlushAllPropBuckets();
+                ReleaseTemporaryBuildState();
                 equipmentReady = true;
+                if (selectedIndex.HasValue && selectedIndex.Value >= 0 && selectedIndex.Value < trays.Length) {
+                    trays[selectedIndex.Value].IsTinted = false;
+                }
                 ApplySelectionTint();
                 SyncEscalatorSteps();
                 RefreshPausedPoses();
@@ -702,8 +717,8 @@ namespace Metro.App.Views {
                 slice.Module.Facts,
                 prefab: null,
                 prefabKey: null,
-                solid: (x, y, z) => allDocumentSolids.Contains(new StationCellKey(x, y, z)),
-                materialFor: slot => trayLiftPalettes[trayIndex][Mathf.Clamp(slot, 0, trayLiftPalettes[trayIndex].Length - 1)]);
+                solid: (x, y, z) => allDocumentSolids != null && allDocumentSolids.Contains(new StationCellKey(x, y, z)),
+                materialFor: slot => sharedLiftPalette[Mathf.Clamp(slot, 0, sharedLiftPalette.Length - 1)]);
 
             request.ModuleId = slice.Id;
             request.Z = (int)Math.Round(slice.FromZ);
@@ -729,10 +744,13 @@ namespace Metro.App.Views {
                 Transform cabinTransform = view.Lift?.Cabin;
                 foreach (var filter in view.Root.GetComponentsInChildren<MeshFilter>(true)) {
                     if (filter == null || filter.sharedMesh == null) continue;
-                    if (cabinTransform != null && filter.transform.IsChildOf(cabinTransform)) continue;
                     var renderer = filter.GetComponent<MeshRenderer>();
                     if (renderer == null || !renderer.enabled) continue;
                     renderer.shadowCastingMode = ShadowCastingMode.Off;
+                    if (renderer.sharedMaterial != null) {
+                        tray.TintRenderers.Add((renderer, renderer.sharedMaterial));
+                    }
+                    if (cabinTransform != null && filter.transform.IsChildOf(cabinTransform)) continue;
                     RegisterTransformedPickMesh(tray, filter.sharedMesh, filter.transform.localToWorldMatrix, out var worldBounds);
                     tray.EncapsulateWorldBounds(worldBounds);
                 }
@@ -782,24 +800,19 @@ namespace Metro.App.Views {
         }
 
         void EnsureLiftPalettes() {
-            if (trayLiftPalettes != null) return;
-            trayLiftPalettes = new Material[trays.Length][];
-            for (int t = 0; t < trays.Length; t++) {
-                var palette = new Material[VerticalModuleViews.Palette.Length];
-                for (int i = 0; i < palette.Length; i++) {
-                    var mat = new Material(fallbackShader) {
-                        color = VerticalModuleViews.Palette[i],
-                        name = "ExplodedLift " + trays[t].Level + "m #" + i,
-                    };
-                    if (mat.HasProperty(BaseColorId)) mat.SetColor(BaseColorId, VerticalModuleViews.Palette[i]);
-                    if (i == VerticalModuleViews.PaletteGlass) {
-                        StationGlass.MakeTransparent(mat, 0.26f);
-                    }
-                    ownedMaterials.Add(mat);
-                    RegisterTintSlot(trays[t], mat);
-                    palette[i] = mat;
+            if (sharedLiftPalette != null) return;
+            sharedLiftPalette = new Material[VerticalModuleViews.Palette.Length];
+            for (int i = 0; i < sharedLiftPalette.Length; i++) {
+                var mat = new Material(fallbackShader) {
+                    color = VerticalModuleViews.Palette[i],
+                    name = "ExplodedLiftShared #" + i,
+                };
+                if (mat.HasProperty(BaseColorId)) mat.SetColor(BaseColorId, VerticalModuleViews.Palette[i]);
+                if (i == VerticalModuleViews.PaletteGlass) {
+                    StationGlass.MakeTransparent(mat, 0.26f);
                 }
-                trayLiftPalettes[t] = palette;
+                ownedMaterials.Add(mat);
+                sharedLiftPalette[i] = mat;
             }
         }
 
@@ -914,7 +927,7 @@ namespace Metro.App.Views {
 
         void AttachEscalatorStepFollowers(VerticalModuleView sourceVertical, StationExplodedTrayInstance tray, float lowY, float highY) {
             EnsureLiftPalettes();
-            var stepMaterial = trayLiftPalettes[tray.Index][VerticalModuleViews.PaletteSteel];
+            var stepMaterial = sharedLiftPalette[VerticalModuleViews.PaletteSteel];
             var groupGo = new GameObject(sourceVertical.ModuleId + "-steps");
             groupGo.layer = presentationLayer;
             var groupTransform = groupGo.transform;
@@ -934,13 +947,13 @@ namespace Metro.App.Views {
                 if (srcStep.Tread != null) {
                     var mf = srcStep.Tread.GetComponent<MeshFilter>();
                     if (mf != null && mf.sharedMesh != null) {
-                        dstTread = CreateTrayMeshObject(groupTransform, "tread-" + i, mf.sharedMesh, stepMaterial).transform;
+                        dstTread = CreateTrayMeshObject(tray, groupTransform, "tread-" + i, mf.sharedMesh, stepMaterial).transform;
                     }
                 }
                 if (srcStep.Riser != null) {
                     var mf = srcStep.Riser.GetComponent<MeshFilter>();
                     if (mf != null && mf.sharedMesh != null) {
-                        dstRiser = CreateTrayMeshObject(groupTransform, "riser-" + i, mf.sharedMesh, stepMaterial).transform;
+                        dstRiser = CreateTrayMeshObject(tray, groupTransform, "riser-" + i, mf.sharedMesh, stepMaterial).transform;
                     }
                 }
                 binding.Steps.Add(new EscalatorStepFollower {
@@ -1010,6 +1023,37 @@ namespace Metro.App.Views {
                 return;
             }
 
+            if (record.SourceIds != null && record.SourceIds.Length > 0 &&
+                record.View.TryGetComponent<StationInstancedSurfaceBatch>(out var instBatch) &&
+                instBatch.SharedMesh != null && instBatch.ProxyRenderer != null &&
+                StationVisibilityTarget.ResolveDrawableBaseMaterials(instBatch.ProxyRenderer, out var instMats) &&
+                instMats != null && instMats.Length > 0 && instMats[0] != null) {
+                var ids = record.SourceIds;
+                var mat = instMats[0];
+                var sharedMesh = instBatch.SharedMesh;
+                int subIdx = instBatch.SubmeshIndex;
+                var localBounds = sharedMesh.bounds;
+                for (int i = 0; i < ids.Length; i++) {
+                    string id = ids[i];
+                    if (string.IsNullOrEmpty(id) || !plan.ModuleOwnerById.TryGetValue(id, out int ownerLevel)) continue;
+                    int trayIdx = plan.IndexOfLevel(ownerLevel);
+                    if (trayIdx < 0) continue;
+                    if (!instBatch.TryGetSourceRange(i, out int start, out int count)) continue;
+                    var key = (trayIdx, sharedMesh, subIdx, mat);
+                    if (!instancedPropBuckets.TryGetValue(key, out var list)) {
+                        list = new List<Matrix4x4>(Math.Max(16, count));
+                        instancedPropBuckets[key] = list;
+                    }
+                    var tray = trays[trayIdx];
+                    for (int k = 0; k < count; k++) {
+                        var m = instBatch.Matrices[start + k];
+                        list.Add(m);
+                        tray.EncapsulateWorldBounds(TransformLocalBounds(localBounds, m));
+                    }
+                }
+                return;
+            }
+
             if (string.IsNullOrEmpty(record.ModuleId)) return;
             if (!plan.ModuleOwnerById.TryGetValue(record.ModuleId, out int modOwnerLevel)) return;
             int ownerTrayIndex = plan.IndexOfLevel(modOwnerLevel);
@@ -1054,31 +1098,144 @@ namespace Metro.App.Views {
                     }
                 }
                 if (submeshAsset != null) {
-                    var lineMat = GetOrCloneTrayMaterial(tray, sourceMaterial);
-                    var lineGo = CreateTrayMeshObject(tray.PropsRoot, submeshAsset.name, submeshAsset, lineMat);
+                    var lineGo = CreateTrayMeshObject(tray, tray.PropsRoot, submeshAsset.name, submeshAsset, sourceMaterial);
                     ApplyWorldMatrixToTransform(lineGo.transform, worldMatrix);
                     tray.EncapsulateWorldBounds(TransformLocalBounds(submeshAsset.bounds, worldMatrix));
                 }
                 return;
             }
             if (mesh.isReadable) {
-                if (ExtractWorldSubmesh(mesh, submesh, worldMatrix,
-                        out var pos, out var norm, out var uv, out var col, out var idx)) {
-                    AppendToPropBucket(trayIndex, sourceMaterial, pos, norm, uv, col, idx);
-                    for (int i = 0; i < pos.Count; i++) {
-                        tray.EncapsulateDocumentPoint(StationCoordinates.WorldToDocument(pos[i]));
-                    }
+                var cached = GetOrCacheSourceSubmesh(mesh, clampedSubmesh);
+                if (cached != null) {
+                    AppendTransformedSubmeshToPropBucket(trayIndex, cached, sourceMaterial, worldMatrix);
                 }
                 return;
             }
 
             // Fallback when an imported mesh is marked non-readable: instantiate a single viewer-owned
             // MeshRenderer sharing the imported Mesh asset (never destroyed on viewer dispose).
-            var clonedMat = GetOrCloneTrayMaterial(tray, sourceMaterial);
-            var go = CreateTrayMeshObject(tray.PropsRoot, mesh.name, mesh, clonedMat);
+            var go = CreateTrayMeshObject(tray, tray.PropsRoot, mesh.name, mesh, sourceMaterial);
             ApplyWorldMatrixToTransform(go.transform, worldMatrix);
             var wb = TransformLocalBounds(mesh.bounds, worldMatrix);
             tray.EncapsulateWorldBounds(wb);
+        }
+
+        CachedSourceSubmesh GetOrCacheSourceSubmesh(Mesh mesh, int clampedSubmesh) {
+            if (mesh == null || !mesh.isReadable) return null;
+            var key = (mesh, clampedSubmesh);
+            if (sourceSubmeshCache.TryGetValue(key, out var cached)) return cached;
+
+            if (mesh.GetTopology(clampedSubmesh) != MeshTopology.Triangles) {
+                sourceSubmeshCache[key] = null;
+                return null;
+            }
+            var tris = mesh.GetTriangles(clampedSubmesh);
+            if (tris == null || tris.Length < 3) {
+                sourceSubmeshCache[key] = null;
+                return null;
+            }
+            var srcVerts = mesh.vertices;
+            if (srcVerts == null || srcVerts.Length == 0) {
+                sourceSubmeshCache[key] = null;
+                return null;
+            }
+            var srcNorms = mesh.normals;
+            var srcUvs = mesh.uv;
+            var srcCols = mesh.colors;
+            bool hasNorms = srcNorms != null && srcNorms.Length == srcVerts.Length;
+            bool hasUvs = srcUvs != null && srcUvs.Length == srcVerts.Length;
+            bool hasCols = srcCols != null && srcCols.Length == srcVerts.Length;
+
+            if (mesh.subMeshCount <= 1) {
+                var full = new CachedSourceSubmesh {
+                    Positions = srcVerts,
+                    Normals = hasNorms ? srcNorms : null,
+                    Uvs = hasUvs ? srcUvs : null,
+                    Colors = hasCols ? srcCols : null,
+                    Indices = tris,
+                    HasNormals = hasNorms,
+                };
+                sourceSubmeshCache[key] = full;
+                return full;
+            }
+
+            // Compact multi-submesh vertices once so repeated instances copy only referenced vertices.
+            var remap = new Dictionary<int, int>(tris.Length);
+            var outPos = new List<Vector3>();
+            var outNorm = hasNorms ? new List<Vector3>() : null;
+            var outUv = hasUvs ? new List<Vector2>() : null;
+            var outCol = hasCols ? new List<Color>() : null;
+            var outIdx = new int[tris.Length];
+            for (int t = 0; t < tris.Length; t++) {
+                int srcIdx = tris[t];
+                if (!remap.TryGetValue(srcIdx, out int mapped)) {
+                    mapped = outPos.Count;
+                    remap[srcIdx] = mapped;
+                    outPos.Add(srcVerts[srcIdx]);
+                    if (outNorm != null) outNorm.Add(srcNorms[srcIdx]);
+                    if (outUv != null) outUv.Add(srcUvs[srcIdx]);
+                    if (outCol != null) outCol.Add(srcCols[srcIdx]);
+                }
+                outIdx[t] = mapped;
+            }
+            var compact = new CachedSourceSubmesh {
+                Positions = outPos.ToArray(),
+                Normals = outNorm != null ? outNorm.ToArray() : null,
+                Uvs = outUv != null ? outUv.ToArray() : null,
+                Colors = outCol != null ? outCol.ToArray() : null,
+                Indices = outIdx,
+                HasNormals = hasNorms,
+            };
+            sourceSubmeshCache[key] = compact;
+            return compact;
+        }
+
+        void AppendTransformedSubmeshToPropBucket(
+            int trayIndex,
+            CachedSourceSubmesh src,
+            Material sourceMaterial,
+            Matrix4x4 worldMatrix) {
+            var key = (trayIndex, sourceMaterial);
+            if (!propBuckets.TryGetValue(key, out var bucket)) {
+                bucket = new PropCombineBucket { TrayIndex = trayIndex, SourceMaterial = sourceMaterial };
+                propBuckets[key] = bucket;
+            }
+            var srcPos = src.Positions;
+            int vCount = srcPos.Length;
+            if (bucket.Positions.Count + vCount >= 120000) {
+                FlushPropBucket(bucket);
+            }
+            var tray = trays[trayIndex];
+            int baseVertex = bucket.Positions.Count;
+            var srcNorms = src.Normals;
+            var srcUvs = src.Uvs;
+            var srcCols = src.Colors;
+            bool hasNorms = src.HasNormals && srcNorms != null;
+            var normalMatrix = hasNorms ? worldMatrix.inverse.transpose : Matrix4x4.identity;
+            bool flipWinding = worldMatrix.determinant < 0f;
+
+            for (int i = 0; i < vCount; i++) {
+                var wp = worldMatrix.MultiplyPoint3x4(srcPos[i]);
+                bucket.Positions.Add(wp);
+                tray.EncapsulateDocumentPoint(StationCoordinates.WorldToDocument(wp));
+                if (hasNorms) {
+                    var n = normalMatrix.MultiplyVector(srcNorms[i]);
+                    if (n.sqrMagnitude > 1e-8f) n.Normalize();
+                    bucket.Normals.Add(n);
+                } else {
+                    bucket.Normals.Add(Vector3.up);
+                }
+                bucket.Uvs.Add(srcUvs != null ? srcUvs[i] : Vector2.zero);
+                bucket.Colors.Add(srcCols != null ? srcCols[i] : Color.white);
+            }
+
+            var srcIdx = src.Indices;
+            int idxCount = srcIdx.Length;
+            for (int t = 0; t + 2 < idxCount; t += 3) {
+                bucket.Indices.Add(baseVertex + srcIdx[t]);
+                bucket.Indices.Add(baseVertex + srcIdx[flipWinding ? t + 2 : t + 1]);
+                bucket.Indices.Add(baseVertex + srcIdx[flipWinding ? t + 1 : t + 2]);
+            }
         }
 
         void AppendToPropBucket(
@@ -1110,6 +1267,33 @@ namespace Metro.App.Views {
                 FlushPropBucket(bucket);
             }
             propBuckets.Clear();
+
+            if (instancedPropBuckets.Count > 0 && rootObject != null) {
+                var drawer = StationInstancedSurfaceDrawer.EnsureFor(rootObject.transform);
+                drawer.PauseDuringExplodedView = false;
+                foreach (var kv in instancedPropBuckets) {
+                    var (trayIdx, mesh, subIdx, mat) = kv.Key;
+                    var matrices = kv.Value;
+                    if (mesh == null || mat == null || matrices == null || matrices.Count == 0) continue;
+                    var tray = trays[trayIdx];
+                    var go = new GameObject("ExplodedInstanced " + tray.Level + "m " + mesh.name);
+                    go.layer = presentationLayer;
+                    go.transform.SetParent(tray.PropsRoot, false);
+                    go.transform.localPosition = Vector3.zero;
+                    go.transform.localRotation = Quaternion.identity;
+                    go.transform.localScale = Vector3.one;
+                    var proxy = go.AddComponent<MeshRenderer>();
+                    proxy.sharedMaterial = mat;
+                    proxy.shadowCastingMode = ShadowCastingMode.Off;
+                    proxy.receiveShadows = true;
+                    tray.TintRenderers.Add((proxy, mat));
+                    var batch = go.AddComponent<StationInstancedSurfaceBatch>();
+                    batch.ShadowCasting = ShadowCastingMode.Off;
+                    batch.ConfigureMatrices(mesh, subIdx, proxy, matrices, followTransformOffset: true);
+                    drawer.Add(batch);
+                }
+                instancedPropBuckets.Clear();
+            }
         }
 
         void FlushPropBucket(PropCombineBucket bucket) {
@@ -1127,10 +1311,10 @@ namespace Metro.App.Views {
             mesh.SetUVs(0, bucket.Uvs);
             mesh.SetColors(bucket.Colors);
             mesh.SetTriangles(triArr, 0, calculateBounds: true);
+            mesh.UploadMeshData(markNoLongerReadable: true);
             ownedMeshes.Add(mesh);
 
-            var clonedMat = GetOrCloneTrayMaterial(tray, bucket.SourceMaterial);
-            CreateTrayMeshObject(tray.PropsRoot, mesh.name, mesh, clonedMat);
+            CreateTrayMeshObject(tray, tray.PropsRoot, mesh.name, mesh, bucket.SourceMaterial);
 
             tray.PickBuckets.Add(new PickBucket {
                 SourceWorldBounds = mesh.bounds,
@@ -1383,30 +1567,17 @@ namespace Metro.App.Views {
 
         void ApplySelectionTint() {
             for (int i = 0; i < trays.Length; i++) {
+                var tray = trays[i];
                 bool selected = selectedIndex.HasValue && selectedIndex.Value == i;
-                var slots = trays[i].MaterialSlots;
-                for (int s = 0; s < slots.Count; s++) {
-                    var slot = slots[s];
-                    if (slot.Material == null) continue;
-                    if (slot.HasBaseColor) {
-                        slot.Material.SetColor(BaseColorId, selected
-                            ? Color.Lerp(slot.OriginalBaseColor, SelectionTintColor, SelectionTintLerp)
-                            : slot.OriginalBaseColor);
-                    }
-                    if (slot.HasLegacyColor) {
-                        slot.Material.SetColor(ColorId, selected
-                            ? Color.Lerp(slot.OriginalLegacyColor, SelectionTintColor, SelectionTintLerp)
-                            : slot.OriginalLegacyColor);
-                    }
-                    if (slot.HasEmission) {
-                        if (selected) {
-                            slot.Material.EnableKeyword("_EMISSION");
-                            slot.Material.SetColor(EmissionColorId, slot.OriginalEmission + SelectionEmissionAdd);
-                        } else {
-                            if (!slot.HadEmissionKeyword) slot.Material.DisableKeyword("_EMISSION");
-                            slot.Material.SetColor(EmissionColorId, slot.OriginalEmission);
-                        }
-                    }
+                if (tray.IsTinted == selected) continue;
+                tray.IsTinted = selected;
+                var bindings = tray.TintRenderers;
+                for (int b = 0; b < bindings.Count; b++) {
+                    var (renderer, sourceMat) = bindings[b];
+                    if (renderer == null || sourceMat == null) continue;
+                    renderer.sharedMaterial = selected
+                        ? GetOrCreateTintedMaterial(tray, sourceMat)
+                        : sourceMat;
                 }
             }
         }
@@ -1693,20 +1864,13 @@ namespace Metro.App.Views {
             consistById.Clear();
             if (trainCatalogue == null) return;
 
-            var tracksByLine = new Dictionary<string, List<StationModuleRecord>>(StringComparer.Ordinal);
-            for (int i = 0; i < document.Modules.Count; i++) {
-                var m = document.Modules[i];
-                if (m == null || !string.Equals(m.Type, "track", StringComparison.Ordinal)) continue;
-                string lineId = m.Config.Text("line");
-                if (string.IsNullOrEmpty(lineId)) continue;
-                if (!tracksByLine.TryGetValue(lineId, out var list)) tracksByLine[lineId] = list = new List<StationModuleRecord>();
-                list.Add(m);
-            }
-
+            var staticBodyCache = new Dictionary<string, TrainConsistViews.StaticCombinedPart[]>(StringComparer.Ordinal);
             for (int l = 0; l < document.Lines.Count; l++) {
                 var line = document.Lines[l];
-                if (line == null || !tracksByLine.TryGetValue(line.Id, out var tracks)) continue;
-                string formationKey = TrainFormations.Key(line.Stock, line.Cars, line.Power);
+                if (line == null || string.IsNullOrEmpty(line.Id)) continue;
+                var tracks = TrainConsistGeometry.ServiceTracks(document, line.Id);
+                if (tracks.Count == 0) continue;
+                string formationKey = TrainFormations.Select(line.Stock, line.Cars, line.Power, trainCatalogue);
                 if (!trainCatalogue.TryGet(formationKey, out var entry) || entry == null || entry.prefab == null) continue;
                 float scale = entry.bakedScale > 0f ? entry.bakedScale : 1f;
 
@@ -1723,6 +1887,8 @@ namespace Metro.App.Views {
                     var instance = UnityEngine.Object.Instantiate(entry.prefab, trays[trayIdx].LiveRoot, false);
                     instance.name = "exploded-consist " + trainId;
                     instance.transform.localScale = Vector3.one;
+                    TrainConsistViews.CompactConsistInstance(
+                        instance, formationKey, staticBodyCache, ownedMeshes, ShadowCastingMode.Off);
                     SetLayerRecursively(instance, presentationLayer);
 
                     var view = new TrainConsistView {
@@ -2054,7 +2220,7 @@ namespace Metro.App.Views {
 
         /* ---------------------------------------- materials & object helpers */
 
-        Material GetOrCloneTrayMaterial(StationExplodedTrayInstance tray, Material sourceMaterial) {
+        Material GetOrCreateTintedMaterial(StationExplodedTrayInstance tray, Material sourceMaterial) {
             if (sourceMaterial == null) {
                 sourceMaterial = ResolveFinishMaterial(null);
             }
@@ -2062,31 +2228,27 @@ namespace Metro.App.Views {
                 return existing;
             }
             var clone = new Material(sourceMaterial) {
-                name = sourceMaterial.name + " [Tray " + tray.Level + "m]",
+                name = sourceMaterial.name + " [Tray " + tray.Level + "m Selected]",
             };
+            if (clone.HasProperty(BaseColorId)) {
+                clone.SetColor(BaseColorId, Color.Lerp(clone.GetColor(BaseColorId), SelectionTintColor, SelectionTintLerp));
+            }
+            if (clone.HasProperty(ColorId)) {
+                clone.SetColor(ColorId, Color.Lerp(clone.GetColor(ColorId), SelectionTintColor, SelectionTintLerp));
+            }
+            if (clone.HasProperty(EmissionColorId)) {
+                clone.EnableKeyword("_EMISSION");
+                clone.SetColor(EmissionColorId, clone.GetColor(EmissionColorId) + SelectionEmissionAdd);
+            }
             ownedMaterials.Add(clone);
             tray.ClonedBySource[sourceMaterial] = clone;
-            RegisterTintSlot(tray, clone);
             return clone;
         }
 
-        static void RegisterTintSlot(StationExplodedTrayInstance tray, Material clone) {
-            bool hasBase = clone.HasProperty(BaseColorId);
-            bool hasLegacy = clone.HasProperty(ColorId);
-            bool hasEmission = clone.HasProperty(EmissionColorId);
-            tray.MaterialSlots.Add(new TintedMaterialSlot {
-                Material = clone,
-                HasBaseColor = hasBase,
-                OriginalBaseColor = hasBase ? clone.GetColor(BaseColorId) : Color.white,
-                HasLegacyColor = hasLegacy,
-                OriginalLegacyColor = hasLegacy ? clone.GetColor(ColorId) : Color.white,
-                HasEmission = hasEmission,
-                OriginalEmission = hasEmission ? clone.GetColor(EmissionColorId) : Color.black,
-                HadEmissionKeyword = clone.IsKeywordEnabled("_EMISSION"),
-            });
-        }
-
-        GameObject CreateTrayMeshObject(Transform parent, string name, Mesh mesh, Material material) {
+        GameObject CreateTrayMeshObject(StationExplodedTrayInstance tray, Transform parent, string name, Mesh mesh, Material sourceMaterial) {
+            if (sourceMaterial == null) {
+                sourceMaterial = ResolveFinishMaterial(null);
+            }
             var go = new GameObject(name);
             go.layer = presentationLayer;
             go.transform.SetParent(parent, false);
@@ -2096,10 +2258,31 @@ namespace Metro.App.Views {
             var mf = go.AddComponent<MeshFilter>();
             mf.sharedMesh = mesh;
             var mr = go.AddComponent<MeshRenderer>();
-            mr.sharedMaterial = material;
+            mr.sharedMaterial = sourceMaterial;
             mr.shadowCastingMode = ShadowCastingMode.Off;
             mr.receiveShadows = true;
+            if (tray != null) {
+                tray.TintRenderers.Add((mr, sourceMaterial));
+            }
             return go;
+        }
+
+        void ReleaseTemporaryBuildState() {
+            deferredItems.Clear();
+            deferredItems.TrimExcess();
+            propBuckets.Clear();
+            instancedPropBuckets.Clear();
+            sourceSubmeshCache.Clear();
+            tempSurfaceParts.Clear();
+            if (modulesById != null) {
+                modulesById.Clear();
+                modulesById = null;
+            }
+            allModuleFacts = null;
+            if (allDocumentSolids != null) {
+                allDocumentSolids.Clear();
+                allDocumentSolids = null;
+            }
         }
 
         static Material SubmeshMaterial(Material[] materials, int submesh) {
@@ -2190,8 +2373,20 @@ namespace Metro.App.Views {
             consistById.Clear();
             trainDoorDispatch.Clear();
 
+            for (int i = 0; i < trays.Length; i++) {
+                var tray = trays[i];
+                if (tray == null) continue;
+                tray.PickBuckets.Clear();
+                tray.TintRenderers.Clear();
+                tray.ClonedBySource.Clear();
+            }
+
             for (int i = 0; i < ownedMeshes.Count; i++) {
-                DestroyUnityObject(ownedMeshes[i]);
+                var m = ownedMeshes[i];
+                if (m != null) {
+                    m.Clear(keepVertexLayout: false);
+                    DestroyUnityObject(m);
+                }
             }
             ownedMeshes.Clear();
 
@@ -2201,9 +2396,12 @@ namespace Metro.App.Views {
             ownedMaterials.Clear();
 
             if (finishLibrary != null) {
-                finishLibrary.Dispose();
+                if (ownsFinishLibrary) finishLibrary.Dispose();
                 finishLibrary = null;
+                ownsFinishLibrary = false;
             }
+            sharedLiftPalette = null;
+            ReleaseTemporaryBuildState();
 
             if (rootObject != null) {
                 DestroyUnityObject(rootObject);

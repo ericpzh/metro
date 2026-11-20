@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using Metro.App.Views;
 using Metro.Build;
@@ -159,7 +160,19 @@ namespace Metro.App {
             this.parent = parent;
         }
 
+        /// <summary>
+        /// Test seam: override the record-count threshold above which <see cref="OpenYielded"/>
+        /// releases the previous visual world before building/parsing a huge replacement on Wasm32
+        /// (restoring it from the untouched committed document+index on rollback).
+        /// </summary>
+        public static int? LowMemoryReplaceRecordThresholdOverride = null;
+
         public event Action<StationCommitInfo> Committed;
+        /// <summary>
+        /// Invoked if <see cref="OpenYielded"/> released the previous visual world under low-memory
+        /// replacement and then rebuilt it from the untouched committed document after a rejected load.
+        /// </summary>
+        public event Action<StationWorldView> WorldRestored;
         /// <summary>
         /// Invoked during <see cref="Install"/> only after the incoming candidate world and
         /// simulation have succeeded and <c>world.Activate()</c> has run, immediately before
@@ -214,13 +227,219 @@ namespace Metro.App {
         public void SetSimulationHost(IStationSimulationHost host) => simulation = host;
 
         public StationLoadResult Open(string json, StationSource source, string id) {
+            Action<string> markLoad = StationLoadProbe.Begin(id, document != null);
             StationReadResult read;
             try {
-                read = StationDocumentReader.Read(json, source);
+                read = StationDocumentReader.Read(json, source, markLoad);
             } catch (StationRejectedException rejection) {
                 return StationLoadResult.Rejected(rejection.Rejection, revision);
             }
-            return Install(read, string.IsNullOrEmpty(id) ? read.Document.Source.Hash : id);
+            return Install(read, string.IsNullOrEmpty(id) ? read.Document.Source.Hash : id, markLoad: markLoad);
+        }
+
+        static void RequestWebGlSweep() {
+#if UNITY_WEBGL && !UNITY_EDITOR
+            GC.Collect();
+#endif
+        }
+
+        static int LowMemoryReplaceThreshold() {
+            if (LowMemoryReplaceRecordThresholdOverride.HasValue) return LowMemoryReplaceRecordThresholdOverride.Value;
+#if UNITY_WEBGL && !UNITY_EDITOR
+            return 50000;
+#else
+            return int.MaxValue;
+#endif
+        }
+
+        bool IsLargeStation(StationDocument doc) {
+            if (doc == null) return false;
+            int threshold = LowMemoryReplaceThreshold();
+            return threshold <= 0 || (doc.CellCount + doc.ModuleCount) >= threshold;
+        }
+
+        void RestoreReleasedWorld() {
+            if (disposed || world != null || document == null || index == null) return;
+            var restored = new StationWorldView(parent, "Station " + (string.IsNullOrEmpty(sourceId) ? document.Name : sourceId), renderers, Assets);
+            restored.Build(document, index);
+            restored.Activate();
+            world = restored;
+            WorldRestored?.Invoke(world);
+        }
+
+        /// <summary>
+        /// Frame-yielded station open for WebGL: yields frames between teardown, parse/repair,
+        /// inactive world build, and commit so Boehm GC can sweep transient multi-hundred-MiB
+        /// staging buffers on an empty stack while preserving atomic candidate install and rollback.
+        /// </summary>
+        public IEnumerator OpenYielded(string json, StationSource source, string id, Action<StationLoadResult> onComplete) {
+            if (disposed) {
+                onComplete?.Invoke(StationLoadResult.Rejected(new StationRejection("disposed", StationRecordKind.Document,
+                    "station", "", "Station load coordinator is disposed."), revision));
+                yield break;
+            }
+            if (document != null) {
+                RequestWebGlSweep();
+                yield return null;
+            }
+
+            Action<string> markLoad = StationLoadProbe.Begin(id, document != null);
+            bool releasedPreviousVisual = false;
+            // On 32-bit Wasm (4 GiB hard ceiling), replacing a huge station (e.g. Tianhe Park, ~152k
+            // records) with another multi-MiB document cannot fit two full visual worlds plus a ~770 MiB
+            // parse DOM simultaneously. Release only the visual world first while keeping the committed
+            // document+index intact so any parse/render/sim refusal restores cleanly via RestoreReleasedWorld().
+            if (world != null && IsLargeStation(document) &&
+                ((json != null && json.Length >= 4_000_000) || LowMemoryReplaceRecordThresholdOverride.HasValue)) {
+                markLoad?.Invoke("yield.release-previous-before-read");
+                BeforePreviousDispose?.Invoke(world);
+                world.Dispose();
+                world = null;
+                releasedPreviousVisual = true;
+                yield return null;
+                if (disposed) yield break;
+                RequestWebGlSweep();
+                yield return null;
+                if (disposed) yield break;
+                markLoad?.Invoke("yield.release-previous-before-read.resumed");
+            }
+
+            StationReadResult read = null;
+            StationRejection readRejection = null;
+            try {
+                read = StationDocumentReader.Read(json, source, markLoad);
+            } catch (StationRejectedException rejection) {
+                readRejection = rejection.Rejection;
+            }
+            json = null;
+            if (readRejection != null) {
+                if (releasedPreviousVisual) RestoreReleasedWorld();
+                onComplete?.Invoke(StationLoadResult.Rejected(readRejection, revision));
+                yield break;
+            }
+            markLoad?.Invoke("yield.after-read");
+            RequestWebGlSweep();
+            yield return null;
+            if (disposed) yield break;
+            markLoad?.Invoke("yield.after-read.resumed");
+
+            if (!releasedPreviousVisual && world != null && (IsLargeStation(document) || IsLargeStation(read.Document))) {
+                markLoad?.Invoke("yield.release-previous-before-build");
+                BeforePreviousDispose?.Invoke(world);
+                world.Dispose();
+                world = null;
+                releasedPreviousVisual = true;
+                yield return null;
+                if (disposed) yield break;
+                RequestWebGlSweep();
+                yield return null;
+                if (disposed) yield break;
+                markLoad?.Invoke("yield.release-previous-before-build.resumed");
+            }
+
+            string resolvedId = string.IsNullOrEmpty(id) ? read.Document.Source.Hash : id;
+            var candidate = new StationWorldView(parent, "Station " + (string.IsNullOrEmpty(resolvedId) ? read.Document.Name : resolvedId), renderers, Assets);
+            StationRejection buildRejection = null;
+            try {
+                candidate.Build(read.Document, read.Index, markLoad);
+            } catch (StationViewBuildException error) {
+                candidate.Dispose();
+                buildRejection = new StationRejection("render-failed", StationRecordKind.Document, "renderer", error.Role, error.Message);
+            } catch (Exception error) {
+                candidate.Dispose();
+                buildRejection = new StationRejection("render-failed", StationRecordKind.Document, "renderer", "", error.Message);
+            }
+            if (buildRejection != null) {
+                read = null;
+                candidate = null;
+                if (releasedPreviousVisual) RestoreReleasedWorld();
+                onComplete?.Invoke(StationLoadResult.Rejected(buildRejection, revision));
+                yield break;
+            }
+            markLoad?.Invoke("yield.after-build");
+            RequestWebGlSweep();
+            yield return null;
+            if (disposed) {
+                candidate.Dispose();
+                yield break;
+            }
+            markLoad?.Invoke("yield.after-build.resumed");
+
+            IStationSimulationHost stageTarget = simulation;
+            StationRejection simRejection = null;
+            try {
+                if (stageTarget != null) {
+                    markLoad?.Invoke("simulation.stage.begin");
+                    stageTarget.StageInstall(read.Document, read.Index, isEdit: false, editKind: null);
+                    markLoad?.Invoke("simulation.stage.end");
+                    stageTarget.CommitInstall();
+                }
+            } catch (Exception error) {
+                Abort(candidate, stageTarget);
+                simRejection = new StationRejection("simulation-failed", StationRecordKind.Document, "simulation", "", error.Message);
+            }
+            if (simRejection != null) {
+                read = null;
+                candidate = null;
+                if (releasedPreviousVisual) RestoreReleasedWorld();
+                onComplete?.Invoke(StationLoadResult.Rejected(simRejection, revision));
+                yield break;
+            }
+
+            var previous = world;
+            previousCommittedRead = null;
+            previousCommittedRevision = revision;
+            var nextRevision = revision + 1;
+            world = candidate;
+            markLoad?.Invoke("activate.begin");
+            world.Activate();
+            markLoad?.Invoke("activate.end");
+            if (previous != null) {
+                BeforePreviousDispose?.Invoke(previous);
+                previous.Dispose();
+                previous = null;
+                markLoad?.Invoke("previous.dispose-requested");
+            }
+
+            document = read.Document;
+            index = read.Index;
+            committedRead = read;
+            revision = nextRevision;
+            string materializedHash = read.Document.PeekMaterializedHash();
+            sourceId = !string.IsNullOrEmpty(resolvedId) ? resolvedId : (!string.IsNullOrEmpty(materializedHash) ? materializedHash : sourceId);
+            if (!string.IsNullOrEmpty(materializedHash)) {
+                sourceHash = materializedHash;
+                sourceHashRevision = revision;
+            } else {
+                sourceHash = "";
+            }
+            cameraBounds = ComputeCameraBounds(read.Index);
+
+            var info = new StationCommitInfo {
+                Document = document, Index = index, Revision = revision, SourceId = sourceId,
+                SourceHash = PeekSourceHash() ?? "", IsEdit = false, EditKind = null,
+                CameraBounds = cameraBounds, LocalView = null,
+                View = world.Summary(), Diagnostics = Merge(read.Diagnostics, world.Unresolved),
+            };
+            Committed?.Invoke(info);
+            if (markLoad != null) markLoad("committed revision=" + revision);
+            var result = new StationLoadResult {
+                Accepted = true, Revision = revision, Document = document, Index = index,
+                CameraBounds = cameraBounds, View = info.View, Diagnostics = info.Diagnostics,
+            };
+            read = null;
+            candidate = null;
+            info = null;
+            markLoad?.Invoke("yield.before-reply");
+            // Yield one frame first so deferred Destroy(previous.Root) and OnDestroy() hooks run,
+            // then sweep managed garbage on the next frame before streaming the commit reply.
+            yield return null;
+            if (disposed) yield break;
+            RequestWebGlSweep();
+            yield return null;
+            if (disposed) yield break;
+            markLoad?.Invoke("yield.before-reply.resumed");
+            onComplete?.Invoke(result);
         }
 
         public StationLoadResult OpenFile(string path, string id) {
@@ -254,7 +473,7 @@ namespace Metro.App {
             return Open(envelope.ToString(Newtonsoft.Json.Formatting.None), StationSource.None, "new");
         }
 
-        StationLoadResult Install(StationReadResult read, string id, bool isEdit = false) {
+        StationLoadResult Install(StationReadResult read, string id, bool isEdit = false, Action<string> markLoad = null) {
             if (disposed) throw new ObjectDisposedException(nameof(StationLoadCoordinator));
             // Classify the edit **before** any world work starts (plan 29 §3): the answer is
             // what a retained-dirty-chunk install and a skipped simulation projection read, and
@@ -285,13 +504,15 @@ namespace Metro.App {
             var candidate = retained ? world : new StationWorldView(parent, "Station " + (string.IsNullOrEmpty(id) ? read.Document.Name : id), renderers, Assets);
             IStationSimulationHost stageTarget = simulation;
             try {
-                if (!retained) candidate.Build(read.Document, read.Index);
+                if (!retained) candidate.Build(read.Document, read.Index, markLoad);
                 if (stageTarget != null) {
+                    markLoad?.Invoke("simulation.stage.begin");
                     if (isLocalChild && stageTarget is IStationLocalSimulationHost localSim) {
                         localSim.StageLocalInstall(read.Document, read.Index, committedRead, read, editKind);
                     } else {
                         stageTarget.StageInstall(read.Document, read.Index, isEdit && document != null, editKind);
                     }
+                    markLoad?.Invoke("simulation.stage.end");
                 }
             } catch (StationViewBuildException error) {
                 AbortLocal(candidate, stageTarget, localView);
@@ -312,7 +533,7 @@ namespace Metro.App {
             }
 
             var previous = world;
-            previousCommittedRead = committedRead;
+            previousCommittedRead = isEdit ? committedRead : null;
             previousCommittedRevision = revision;
             var nextRevision = revision + 1;
             world = candidate;
@@ -321,9 +542,12 @@ namespace Metro.App {
                 localCommit = world.CommitLocalWorld(localView);
                 StationScenePicker.ApplyLocalCommit(world, localCommit, read.LocalDelta);
             } else {
+                markLoad?.Invoke("activate.begin");
                 world.Activate();
+                markLoad?.Invoke("activate.end");
                 BeforePreviousDispose?.Invoke(previous);
                 previous?.Dispose();
+                markLoad?.Invoke("previous.dispose-requested");
             }
             document = read.Document;
             index = read.Index;
@@ -346,6 +570,7 @@ namespace Metro.App {
                 View = world.Summary(), Diagnostics = Merge(read.Diagnostics, world.Unresolved),
             };
             Committed?.Invoke(info);
+            if (markLoad != null) markLoad("committed revision=" + revision);
             return new StationLoadResult {
                 Accepted = true, Revision = revision, Document = document, Index = index,
                 CameraBounds = cameraBounds, View = info.View, Diagnostics = info.Diagnostics,

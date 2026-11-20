@@ -1507,4 +1507,48 @@ public class StationServiceFrameTests {
         Assert.AreEqual((int)item["summary"]["leftBehind"], session.Services.LeftBehind, "left behind");
         Assert.AreEqual(0, runs[runs.Count - 1].Onboard, "the saturated consist leaves with its riders");
     }
+
+    [Test]
+    public void TianheParkPeakRushSimulationAndRouteProfile() {
+        string tianhePath = Path.Combine(Application.dataPath, "StationDesigner/Demos/tianhe.metro.json");
+        if (!File.Exists(tianhePath)) Assert.Ignore("tianhe.metro.json not exported");
+        var read = Metro.Persistence.StationDocumentReader.ReadFile(tianhePath);
+        Assert.IsNotNull(read?.Document, "tianhe document failed to read");
+        var session = new StationSimulationSession(StationSessionProjection.Setup(read.Document, read.Index, "tianhe-stage6"));
+        session.SetPlaying(true);
+        session.Services.ResetRouteMetrics();
+
+        const int ticks = 180;
+        var tickMs = new double[ticks];
+        int peakCrowd = 0;
+        var totalSw = System.Diagnostics.Stopwatch.StartNew();
+        for (int i = 0; i < ticks; i++) {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            session.Advance(1.0);
+            sw.Stop();
+            tickMs[i] = sw.Elapsed.TotalMilliseconds;
+            int active = session.Services.PassengerCount;
+            if (active > peakCrowd) peakCrowd = active;
+        }
+        totalSw.Stop();
+
+        var sorted = (double[])tickMs.Clone();
+        Array.Sort(sorted);
+        double avg = totalSw.Elapsed.TotalMilliseconds / ticks;
+        double p50 = sorted[ticks / 2];
+        double p95 = sorted[(int)(ticks * 0.95)];
+        double max = sorted[ticks - 1];
+
+        var snap = session.Snapshot();
+        double posChecksum = 0;
+        int finalCrowd = snap.Passengers != null ? snap.Passengers.Length : 0;
+        if (snap.Passengers != null) {
+            for (int i = 0; i < snap.Passengers.Length; i++) {
+                var p = snap.Passengers[i];
+                posChecksum += p.X + p.Y + p.Z;
+            }
+        }
+        Debug.Log($"[Stage6Tianhe] ticks={ticks} totalMs={totalSw.Elapsed.TotalMilliseconds:F1} avgMs={avg:F2} p50Ms={p50:F2} p95Ms={p95:F2} maxMs={max:F2} peakCrowd={peakCrowd} finalCrowd={finalCrowd} spawned={session.Services.Spawned} boarded={session.Services.Boarded} alighted={session.Services.Alighted} exited={session.Services.Exited} stuck={session.Services.Stuck} routeCalls={session.Services.RouteCalls} cacheHits={session.Services.RouteCacheHits} avoidCalls={session.Services.RouteAvoidCalls} astarQueries={session.Services.PlannerQueries} expanded={session.Services.PlannerExpandedNodes} skippedStale={session.Services.PlannerSkippedStalePops} posChecksum={posChecksum:F4}");
+        Assert.Greater(session.Services.Spawned, 0, "Tianhe peak rush must spawn passengers");
+    }
 }
