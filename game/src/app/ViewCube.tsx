@@ -1,4 +1,5 @@
 import { Slider } from './Slider.tsx'
+import { beginPointerDrag } from './pointerDrag.ts'
 import { CollapseButton } from './windows/shared/CollapseButton.tsx'
 import { translate, t } from '../sim/i18n.ts'
 import type { MessageKey } from '../sim/i18n.ts'
@@ -282,11 +283,11 @@ export function ViewCube({ sceneRef, adapter }: {
   const [view, setView] = useState<CubeViewState>(DEFAULT_CUBE_VIEW)
   const [fovDraft, setFovDraft] = useState<number | null>(null)
   const [fovDragging, setFovDragging] = useState(false)
-  const fovDragCleanup = useRef<(() => void) | null>(null)
   const cameraFov = Math.round(view.fov)
   const fovDeg = fovDraft ?? cameraFov
   const [hover, setHover] = useState<string | null>(null)
-  const press = useRef<{ x: number; y: number; moved: boolean; action: string | null } | null>(null)
+  const orbitCleanup = useRef<(() => void) | null>(null)
+  const panCleanup = useRef<(() => void) | null>(null)
   // One adapter for this widget: the explicit one wins; the Three path is the
   // compatibility adapter so `Viewport.tsx` and the legacy Zoo entry keep their props.
   const fallback = useMemo(() => (sceneRef ? createThreeViewCubeAdapter(sceneRef) : null), [sceneRef])
@@ -314,7 +315,10 @@ export function ViewCube({ sceneRef, adapter }: {
     return () => window.clearTimeout(timeout)
   }, [cameraFov, fovDraft, fovDragging])
 
-  useEffect(() => () => fovDragCleanup.current?.(), [cube])
+  useEffect(() => () => {
+    orbitCleanup.current?.()
+    panCleanup.current?.()
+  }, [cube])
 
   // Track the rendered camera through the adapter. The adapter owns the cadence
   // (Three polls the camera on `requestAnimationFrame`, Unity listens to bridge
@@ -338,7 +342,11 @@ export function ViewCube({ sceneRef, adapter }: {
 
   // Hold cleanup: a release, cancel, focus loss or unmount must all stop the climb.
   useEffect(() => {
-    const release = (): void => { press.current = null; stopHeld() }
+    const release = (): void => {
+      orbitCleanup.current?.()
+      panCleanup.current?.()
+      stopHeld()
+    }
     window.addEventListener('blur', release)
     return () => { window.removeEventListener('blur', release); stopHeld() }
   }, [stopHeld])
@@ -376,37 +384,28 @@ export function ViewCube({ sceneRef, adapter }: {
   }
 
   const onDown = (e: React.PointerEvent<SVGSVGElement>): void => {
+    if (e.button !== 0 || orbitCleanup.current) return
     const el = (e.target as Element).closest('[data-action]') as SVGElement | null
-    press.current = { x: e.clientX, y: e.clientY, moved: false, action: el?.dataset.action ?? null }
-    try {
-      e.currentTarget.setPointerCapture(e.pointerId)
-    } catch {
-      /* A capture we cannot take still leaves the click/drag working. */
-    }
-  }
-
-  const onMove = (e: React.PointerEvent<SVGSVGElement>): void => {
-    const p = press.current
-    if (!p) return
-    const dx = e.clientX - p.x
-    const dy = e.clientY - p.y
-    if (!p.moved && Math.hypot(dx, dy) < 4) return
-    p.moved = true
-    p.x = e.clientX
-    p.y = e.clientY
-    setHover(null)
-    cube?.orbit(dx, dy)
-  }
-
-  const onUp = (e: React.PointerEvent<SVGSVGElement>): void => {
-    const p = press.current
-    press.current = null
-    try {
-      if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId)
-    } catch {
-      /* already released */
-    }
-    if (p && !p.moved && p.action) apply(p.action)
+    const state = { x: e.clientX, y: e.clientY, moved: false, action: el?.dataset.action ?? null }
+    const stop = beginPointerDrag(e, {
+      capture: e.currentTarget,
+      updateOnUp: false,
+      onMove: (clientX, clientY) => {
+        const dx = clientX - state.x
+        const dy = clientY - state.y
+        if (!state.moved && Math.hypot(dx, dy) < 4) return
+        state.moved = true
+        state.x = clientX
+        state.y = clientY
+        setHover(null)
+        cube?.orbit(dx, dy)
+      },
+      onEnd: (completed) => {
+        orbitCleanup.current = null
+        if (completed && !state.moved && state.action) apply(state.action)
+      },
+    })
+    if (stop) orbitCleanup.current = stop
   }
 
   const hoverOn = (id: string): void => setHover(id)
@@ -473,12 +472,19 @@ export function ViewCube({ sceneRef, adapter }: {
   }
 
   const panDown = (e: React.PointerEvent<HTMLButtonElement>, dir: -1 | 1): void => {
-    try {
-      e.currentTarget.setPointerCapture(e.pointerId)
-    } catch {
-      /* A capture we cannot take still leaves the hold working inside the button. */
-    }
+    if (e.button !== 0) return
+    panCleanup.current?.()
     holdPan(dir)
+    const stop = beginPointerDrag(e, {
+      capture: e.currentTarget,
+      updateOnUp: false,
+      onMove: () => {},
+      onEnd: () => {
+        panCleanup.current = null
+        holdPan(0)
+      },
+    })
+    if (stop) panCleanup.current = stop
   }
 
   /**
@@ -497,55 +503,6 @@ export function ViewCube({ sceneRef, adapter }: {
     cube?.setFov(deg)
   }
 
-  const beginFovDrag = (event: React.PointerEvent<HTMLInputElement>): void => {
-    if (event.button !== 0 || fovDragCleanup.current) return
-    event.preventDefault()
-    const input = event.currentTarget
-    input.blur()
-    const { pointerId } = event
-    const listeners = new AbortController()
-    let lastDegree = fovDeg
-    const update = (clientX: number): void => {
-      const track = input.getBoundingClientRect()
-      // The 10px thumb travels between the inset ends of the track.
-      const inset = 5 * track.width / Math.max(1, input.offsetWidth)
-      const fraction = Math.max(0, Math.min(1, (clientX - track.left - inset) / Math.max(1, track.width - 2 * inset)))
-      const degree = Math.round(FOV_MIN_DEG + fraction * (FOV_MAX_DEG - FOV_MIN_DEG))
-      if (degree === lastDegree) return
-      lastDegree = degree
-      setFov(degree)
-    }
-    const finish = (): void => {
-      listeners.abort()
-      fovDragCleanup.current = null
-      setFovDragging(false)
-    }
-    fovDragCleanup.current = finish
-    // CDP moves can target another element even after setPointerCapture.
-    // Listen at window scope for the lifetime of this specific press.
-    const options = { capture: true, signal: listeners.signal }
-    window.addEventListener('pointermove', (move) => {
-      if (move.pointerId !== pointerId) return
-      if (move.buttons & 1) {
-        move.stopPropagation()
-        update(move.clientX)
-      } else finish()
-    }, options)
-    window.addEventListener('pointerup', (up) => {
-      if (up.pointerId !== pointerId || up.button !== 0) return
-      up.stopPropagation()
-      update(up.clientX)
-      finish()
-    }, options)
-    window.addEventListener('pointercancel', (cancel) => {
-      if (cancel.pointerId === pointerId) finish()
-    }, options)
-    window.addEventListener('blur', finish, { signal: listeners.signal })
-    input.setPointerCapture(pointerId)
-    setFovDragging(true)
-    update(event.clientX)
-  }
-
   return (
     <div className={`viewNavShell${open ? '' : ' closed'}`}>
       <CollapseButton open={open} onToggle={() => { holdPan(0); setOpen((value) => !value) }} controls="viewNavigation" label={t('view_cube')} direction="right" />
@@ -556,9 +513,6 @@ export function ViewCube({ sceneRef, adapter }: {
           <svg
             viewBox={`${-VIEW} ${-VIEW} ${VIEW * 2} ${VIEW * 2}`}
             onPointerDown={onDown}
-            onPointerMove={onMove}
-            onPointerUp={onUp}
-            onPointerCancel={onUp}
             onPointerLeave={() => setHover(null)}
           >
             <defs>
@@ -720,7 +674,8 @@ export function ViewCube({ sceneRef, adapter }: {
             value={fovDeg}
             aria-label={t('field_of_view')}
             onChange={(e) => setFov(Number(e.target.value))}
-            onPointerDown={beginFovDrag}
+            onDragStart={() => setFovDragging(true)}
+            onDragEnd={() => setFovDragging(false)}
           />
           <span className="viewFovVal">
             <span aria-hidden="true">{t('fov_label')} {translate(FOV_MAX_DEG)}°</span>
@@ -747,11 +702,13 @@ function DepthRail(): React.ReactElement {
   const setLevelBase = useStore((s) => s.setLevelBase)
   const trackRef = useRef<HTMLDivElement>(null)
   const railRef = useRef<HTMLDivElement>(null)
-  const dragging = useRef(false)
+  const dragCleanup = useRef<(() => void) | null>(null)
   const [baseOpen, setBaseOpen] = useState(false)
   const [heightEditing, setHeightEditing] = useState(false)
   const [heightDraft, setHeightDraft] = useState('')
   const heightInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => () => dragCleanup.current?.(), [])
 
   useEffect(() => {
     if (!baseOpen) return
@@ -806,27 +763,19 @@ function DepthRail(): React.ReactElement {
         className="depthTrack"
         ref={trackRef}
         onPointerDown={(e) => {
-          dragging.current = true
-          try {
-            e.currentTarget.setPointerCapture(e.pointerId)
-          } catch {
-            /* ignore */
-          }
+          if (e.button !== 0 || dragCleanup.current) return
+          const target = e.target as Element | null
+          if (target?.closest('.depthChipInput')) return
+          const onChip = Boolean(target?.closest('.depthChip'))
+          const stop = beginPointerDrag(e, {
+            capture: e.currentTarget,
+            preventDefault: !onChip,
+            onMove: (_x, clientY) => pick(clientY),
+            onEnd: () => { dragCleanup.current = null },
+          })
+          if (!stop) return
+          dragCleanup.current = stop
           pick(e.clientY)
-        }}
-        onPointerMove={(e) => {
-          if (dragging.current) pick(e.clientY)
-        }}
-        onPointerUp={(e) => {
-          dragging.current = false
-          try {
-            if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId)
-          } catch {
-            /* ignore */
-          }
-        }}
-        onPointerCancel={() => {
-          dragging.current = false
         }}
       >
         <div className="depthLine" />

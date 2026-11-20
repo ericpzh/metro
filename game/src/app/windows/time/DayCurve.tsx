@@ -22,9 +22,10 @@ import { useLanguage } from '../../i18n.ts'
 // The plot is a 480 × 128 viewBox scaled **uniformly** to the panel's width, so the tick labels
 // scale with it instead of stretching, and every stroke carries
 // `vector-effect: non-scaling-stroke` so a line stays a line at any width.
-import { useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { DAY_TYPE_LABELS, clockTextOf } from '../../../sim/clock.ts'
 import { demandSeries, hourOfDay, type DemandInput } from '../../../sim/demand.ts'
+import { beginPointerDrag } from '../../pointerDrag.ts'
 
 /** The drawn box, in viewBox units. */
 const W = 480
@@ -97,7 +98,11 @@ export function DayCurve({
 }): React.ReactElement {
   useLanguage()
   const svgRef = useRef<SVGSVGElement>(null)
-  const held = useRef<CurveBoundary | null>(null)
+  const dragCleanup = useRef<(() => void) | null>(null)
+  const callbacks = useRef({ onDrag, onDragEnd })
+  callbacks.current = { onDrag, onDragEnd }
+
+  useEffect(() => () => dragCleanup.current?.(), [])
 
   // **One line: the day the station is running.** The samples and their SVG points are memoized on
   // the *day* — the panel around this re-renders on every worker frame while the sim runs, and 97
@@ -137,26 +142,17 @@ export function DayCurve({
   }
 
   const begin = (e: React.PointerEvent<SVGRectElement>, b: CurveBoundary): void => {
-    e.preventDefault()
-    held.current = b
-    // Capture on the **svg**, not the grip: the pointer leaves a 10-unit-wide box immediately,
-    // and without capture the drag would stop the moment it did.
-    svgRef.current?.setPointerCapture(e.pointerId)
-  }
-
-  const move = (e: React.PointerEvent<SVGSVGElement>): void => {
-    if (!held.current) return
-    onDrag(held.current, hourAt(e.clientX))
-  }
-
-  const end = (e: React.PointerEvent<SVGSVGElement>): void => {
-    if (!held.current) return
-    held.current = null
-    const svg = svgRef.current
-    // A second finger's own pointerup must not throw: capture is only ever held for the pointer
-    // the drag started with.
-    if (svg?.hasPointerCapture(e.pointerId)) svg.releasePointerCapture(e.pointerId)
-    onDragEnd()
+    if (e.button !== 0 || dragCleanup.current) return
+    const stop = beginPointerDrag(e, {
+      capture: svgRef.current,
+      onMove: (clientX) => callbacks.current.onDrag(b, hourAt(clientX)),
+      onEnd: () => {
+        dragCleanup.current = null
+        callbacks.current.onDragEnd()
+      },
+    })
+    if (!stop) return
+    dragCleanup.current = stop
   }
 
   /**
@@ -180,9 +176,6 @@ export function DayCurve({
       // hides its own children from a screen reader. A labelled group keeps them reachable.
       role="group"
       aria-label={t('24_hour_demand_curve_value_now_value_about_value_people_h', translate(DAY_TYPE_LABELS[workday ? 'workday' : 'offday']), Math.round(drawn.values[at] * 100), nowCount)}
-      onPointerMove={move}
-      onPointerUp={end}
-      onPointerCancel={end}
     >
       {/* Shut, open, then the two peaks — the same three bands the 信息栏's clock card draws
           across its own day bar, from the same station document. Off-days run no peaks,

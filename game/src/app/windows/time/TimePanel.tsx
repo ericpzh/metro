@@ -31,7 +31,7 @@ const videoDemandPreview = (): boolean =>
 // **A gesture is a draft until it is let go.** A drag writes local state — so the curve redraws
 // under the hand — and the document is committed on release. Committing per pointer move would
 // push an undo frame and a worker rebuild for every pixel of a drag.
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../../store.ts'
 import {
   DAY_TYPE_LABELS,
@@ -84,7 +84,7 @@ function Knob({
         value={value}
         aria-label={translate(label)}
         onChange={(e) => onDraft(Number(e.target.value))}
-        onPointerUp={onCommit}
+        onDragEnd={() => onCommit()}
         onKeyUp={onCommit}
         onBlur={onCommit}
       />
@@ -111,8 +111,18 @@ export function TimePanel(): React.ReactElement | null {
   const setPeakWindow = useStore((s) => s.setPeakWindow)
   const setDemandKnobs = useStore((s) => s.setDemandKnobs)
   const seekToDate = useStore((s) => s.seekToDate)
-  const [knobDraft, setKnobDraft] = useState<DemandKnobs | null>(null)
-  const [spanDraft, setSpanDraft] = useState<{ service: TimeSpan; peaks: PeakWindows } | null>(null)
+  const [knobDraft, setKnobDraftState] = useState<DemandKnobs | null>(null)
+  const knobDraftRef = useRef<DemandKnobs | null>(null)
+  const setKnobDraft = (next: DemandKnobs | null): void => {
+    knobDraftRef.current = next
+    setKnobDraftState(next)
+  }
+  const [spanDraft, setSpanDraftState] = useState<{ service: TimeSpan; peaks: PeakWindows } | null>(null)
+  const spanDraftRef = useRef<{ service: TimeSpan; peaks: PeakWindows } | null>(null)
+  const setSpanDraft = (next: { service: TimeSpan; peaks: PeakWindows } | null): void => {
+    spanDraftRef.current = next
+    setSpanDraftState(next)
+  }
   // The calendar view's own month, opened on 第 1 天's: the picker's subject is which date day 0
   // is, so that is the month the player wants to look at. It stays where they put it afterwards.
   // The calendar view's own month, opened on the day the station is standing on — the cell the
@@ -175,7 +185,8 @@ export function TimePanel(): React.ReactElement | null {
    * inverted band and the commit's own repair has nothing left to do.
    */
   const dragBoundary = (b: CurveBoundary, hours: number): void => {
-    setSpanDraft(spanWith(spans, b, hours))
+    const base = spanDraftRef.current ?? { service: stationService, peaks: stationPeaks }
+    setSpanDraft(spanWith(base, b, hours))
   }
 
   /**
@@ -187,7 +198,7 @@ export function TimePanel(): React.ReactElement | null {
    * a move *and* a release in one event, and state written in that event is not in this closure
    * yet.
    */
-  const commitSpans = (draft: { service: TimeSpan; peaks: PeakWindows } | null = spanDraft): void => {
+  const commitSpans = (draft: { service: TimeSpan; peaks: PeakWindows } | null = spanDraftRef.current): void => {
     if (draft === null) return
     // The demo recorder can hold the chart as a preview while the crowd keeps
     // running: the line moves, the population curve does not rebuild the world.
@@ -206,9 +217,10 @@ export function TimePanel(): React.ReactElement | null {
   }
 
   const commitKnobs = (): void => {
-    if (knobDraft === null) return
+    const draft = knobDraftRef.current
+    if (draft === null) return
     if (videoDemandPreview()) return
-    setDemandKnobs(shown, knobDraft)
+    setDemandKnobs(shown, draft)
     setKnobDraft(null)
   }
 
@@ -266,7 +278,7 @@ export function TimePanel(): React.ReactElement | null {
                 value={knobs.amPeak}
                 min={0}
                 max={2.5}
-                onDraft={(v) => setKnobDraft({ ...knobs, amPeak: v })}
+                onDraft={(v) => setKnobDraft({ ...(knobDraftRef.current ?? stationDemand[shown]), amPeak: v })}
                 onCommit={commitKnobs}
               />
               <Knob
@@ -275,7 +287,7 @@ export function TimePanel(): React.ReactElement | null {
                 value={knobs.pmPeak}
                 min={0}
                 max={2.5}
-                onDraft={(v) => setKnobDraft({ ...knobs, pmPeak: v })}
+                onDraft={(v) => setKnobDraft({ ...(knobDraftRef.current ?? stationDemand[shown]), pmPeak: v })}
                 onCommit={commitKnobs}
               />
               <Knob
@@ -284,7 +296,7 @@ export function TimePanel(): React.ReactElement | null {
                 value={knobs.sharpness}
                 min={0.4}
                 max={2}
-                onDraft={(v) => setKnobDraft({ ...knobs, sharpness: v })}
+                onDraft={(v) => setKnobDraft({ ...(knobDraftRef.current ?? stationDemand[shown]), sharpness: v })}
                 onCommit={commitKnobs}
               />
             </div>

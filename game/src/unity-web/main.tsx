@@ -38,6 +38,7 @@ import type { StationSnapshot } from './stationBridge.ts'
 import { applyStationDelta, seedStationCellIndex } from './stationDelta.ts'
 import { commitSignBoardsToHost, unityHostOwnsStation } from './signCommitAdapter.ts'
 import { registerStationHostCommit } from '../app/stationHostBridge.ts'
+import { beginPointerDrag } from '../app/pointerDrag.ts'
 import '../styles.css'
 import './unity-ui.css'
 
@@ -366,7 +367,7 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
   // turns their changes into `view.set` commands (level is sent above, and
   // `UnityExplodedView` owns `exploded.open` / `exploded.close`).
   const detachView = attachViewStateBridge(cameraPort, { forwardExploded: false })
-  let eyePointer: number | null = null
+  let stopEyeDrag: (() => void) | null = null
   let acknowledgedEye: number | null = null
   const detachEyeState = stationBridge.subscribe(() => {
     const state = useStore.getState()
@@ -376,7 +377,10 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
     } else if (state.followAgentId !== null && acknowledgedEye === state.followAgentId && view?.followPassenger === -1) {
       state.endPassengerView()
     }
-    if (useStore.getState().followAgentId === null) acknowledgedEye = null
+    if (useStore.getState().followAgentId === null) {
+      acknowledgedEye = null
+      stopEyeDrag?.()
+    }
   })
   const exitEye = (event: KeyboardEvent): void => {
     if (event.key !== 'Escape' || useStore.getState().followAgentId === null) return
@@ -385,21 +389,29 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
     useStore.getState().endPassengerView()
   }
   const beginEyeDrag = (event: PointerEvent): void => {
-    if (event.button !== 0 || useStore.getState().followAgentId === null) return
-    eyePointer = event.pointerId
-    canvas.setPointerCapture(event.pointerId)
-  }
-  const moveEyeDrag = (event: PointerEvent): void => {
-    if (eyePointer !== event.pointerId || useStore.getState().followAgentId === null) return
-    cameraPort.send({ type: 'camera.orbit', payload: { dx: event.movementX, dy: event.movementY } })
-  }
-  const endEyeDrag = (event: PointerEvent): void => {
-    if (eyePointer === event.pointerId) eyePointer = null
+    if (event.button !== 0 || stopEyeDrag || useStore.getState().followAgentId === null) return
+    let lastX = event.clientX
+    let lastY = event.clientY
+    stopEyeDrag = beginPointerDrag(event, {
+      capture: canvas,
+      updateOnUp: false,
+      onMove: (clientX, clientY) => {
+        if (useStore.getState().followAgentId === null) {
+          stopEyeDrag?.()
+          return
+        }
+        const dx = clientX - lastX
+        const dy = clientY - lastY
+        lastX = clientX
+        lastY = clientY
+        if (dx === 0 && dy === 0) return
+        cameraPort.send({ type: 'camera.orbit', payload: { dx, dy } })
+      },
+      onEnd: () => { stopEyeDrag = null },
+    })
   }
   window.addEventListener('keydown', exitEye, true)
   canvas.addEventListener('pointerdown', beginEyeDrag)
-  canvas.addEventListener('pointermove', moveEyeDrag)
-  canvas.addEventListener('lostpointercapture', endEyeDrag)
 
   // The session clock is C#'s; the store mirrors it so the time panels print the
   // player's time and the controls send `sim.*` instead of a worker message.
@@ -627,10 +639,9 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
     detachKeyboard()
     detachView()
     detachEyeState()
+    stopEyeDrag?.()
     window.removeEventListener('keydown', exitEye, true)
     canvas.removeEventListener('pointerdown', beginEyeDrag)
-    canvas.removeEventListener('pointermove', moveEyeDrag)
-    canvas.removeEventListener('lostpointercapture', endEyeDrag)
     cameraAdapter.dispose()
     cameraPort.dispose()
     root.unmount()

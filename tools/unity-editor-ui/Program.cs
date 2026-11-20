@@ -1296,6 +1296,15 @@ internal sealed class OffscreenWebViewHost : NativeWindow, IDisposable {
         return coreWebView.CallDevToolsProtocolMethodAsync("Input.dispatchMouseEvent", json);
     }
 
+    private static string ResolveCdpMouseButton(string cdpType, string button, int buttons) {
+        if (cdpType == "mouseMoved" && (string.IsNullOrEmpty(button) || button == "none") && buttons != 0) {
+            if ((buttons & 1) != 0) return "left";
+            if ((buttons & 2) != 0) return "right";
+            if ((buttons & 4) != 0) return "middle";
+        }
+        return string.IsNullOrEmpty(button) ? "none" : button;
+    }
+
     private string BuildCdpMouseJson(
         string cdpType,
         double rawX,
@@ -1309,11 +1318,12 @@ internal sealed class OffscreenWebViewHost : NativeWindow, IDisposable {
         double scale = Math.Max(0.25, rasterScale);
         double cssX = Math.Round(rawX / scale, 2);
         double cssY = Math.Round(rawY / scale, 2);
+        string cdpButton = ResolveCdpMouseButton(cdpType, button, buttons);
         return JsonSerializer.Serialize(new {
             type = cdpType,
             x = cssX,
             y = cssY,
-            button,
+            button = cdpButton,
             buttons,
             modifiers,
             clickCount,

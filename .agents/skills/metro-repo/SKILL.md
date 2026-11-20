@@ -333,11 +333,14 @@ See
 [settings and presentation edits](references/performance.md#settings-and-presentation-edits)
 for first-use browser timings and current coverage limits.
 
-Range controls share `app/Slider.tsx` and the compact square tile treatment in
-`styles.css`; use it for game sliders instead of browser-default rounded controls.
-Keep the track thin and the handle compact. After pointer release, cancellation or
+Range controls share `app/Slider.tsx` (`app/pointerDrag.ts` `beginPointerDrag` /
+`sliderValueForPointer`) and the compact square tile treatment in `styles.css`;
+use it for game sliders instead of browser-default rounded controls. Keep the
+track thin and the handle compact. After pointer release, cancellation or
 capture loss, blur the slider so WASD immediately resumes camera movement rather
 than stepping its value. Preserve each control's existing draft/commit callbacks.
+`AppShell.tsx` also mounts `attachScrollbarDragFallback` from `app/pointerDrag.ts`
+as a passive fallback for native scrollbars when a CDP host omits the held button.
 
 The top-bar Settings dropdown is part of the same tile system. Keep master, effects,
 ambience and music volume as four bilingual sliders in a two-column grid; master

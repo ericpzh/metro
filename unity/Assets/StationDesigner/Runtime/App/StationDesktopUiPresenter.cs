@@ -603,10 +603,20 @@ namespace Metro.App {
             return pos.x >= 0f && pos.x < sw && pos.y >= 0f && pos.y < sh;
         }
 
+        static string HeldButtonName(int buttons) {
+            if ((buttons & 1) != 0) return "left";
+            if ((buttons & 2) != 0) return "right";
+            if ((buttons & 4) != 0) return "middle";
+            return "none";
+        }
+
         void ForwardMouseMove(Vector2 pos, double rx, double ry, int buttons, int mods) {
             if ((pos - lastMousePos).sqrMagnitude < 0.25f) return;
             lastMousePos = pos;
-            SendMouse("move", rx, ry, "none", buttons, mods, 0, 0, 0);
+            // CDP Input.dispatchMouseEvent needs the active held button on mouseMoved so
+            // Blink keeps native scrollbar, range slider and setPointerCapture drags alive
+            // (DOM pointermove still reports button === -1 and buttons === mask).
+            SendMouse("move", rx, ry, HeldButtonName(buttons), buttons, mods, 0, 0, 0);
         }
 
         void ForwardMouseInput() {

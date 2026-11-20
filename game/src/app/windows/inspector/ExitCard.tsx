@@ -85,6 +85,7 @@ export function ExitCard({ mod }: { mod: Extract<Module, { type: 'exit' }> }): R
         value={mod.cfg.inRate}
         aria-label={`${t('entering')} ${translate(mod.cfg.inRate)} ${t('people_h')}`}
         onFocus={pick}
+        onDragStart={pick}
         onChange={(e) => patch({ inRate: Number(e.target.value) })}
       />
     </div>

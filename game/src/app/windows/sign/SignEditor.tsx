@@ -697,6 +697,10 @@ export function SignEditor(): React.ReactElement | null {
   useEffect(() => {
     if (!open) return
     const onMove = (e: PointerEvent): void => {
+      if ((armed.current || drag.current) && e.pointerType === 'mouse' && (e.buttons & 1) === 0) {
+        onCancel()
+        return
+      }
       // One evaluation per frame: a fast pointer delivers several moves between
       // two paints, and the intermediate places are bins the drag skipped over —
       // the row only has to show where the pointer is now.
@@ -745,13 +749,15 @@ export function SignEditor(): React.ReactElement | null {
       armed.current = null
       if (drag.current) endDrag(false)
     }
-    window.addEventListener('pointermove', onMove)
-    window.addEventListener('pointerup', onUp)
-    window.addEventListener('pointercancel', onCancel)
+    window.addEventListener('pointermove', onMove, true)
+    window.addEventListener('pointerup', onUp, true)
+    window.addEventListener('pointercancel', onCancel, true)
+    window.addEventListener('blur', onCancel)
     return () => {
-      window.removeEventListener('pointermove', onMove)
-      window.removeEventListener('pointerup', onUp)
-      window.removeEventListener('pointercancel', onCancel)
+      window.removeEventListener('pointermove', onMove, true)
+      window.removeEventListener('pointerup', onUp, true)
+      window.removeEventListener('pointercancel', onCancel, true)
+      window.removeEventListener('blur', onCancel)
       // A session torn down mid-drag must not redraw behind the next one.
       if (previewTimer.current !== null) {
         window.clearTimeout(previewTimer.current)

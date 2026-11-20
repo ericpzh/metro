@@ -20,6 +20,7 @@ import { Tutorial } from './tutorial/Tutorial.tsx'
 import { ExplodedView } from './ExplodedView.tsx'
 import { StationHostProvider, type StationHost } from './StationHost.tsx'
 import { hostOwnsVerb } from '../stationHostBridge.ts'
+import { attachScrollbarDragFallback } from '../pointerDrag.ts'
 
 export function App({ viewport, files, zooStatus, host }: { viewport?: React.ReactNode; files?: { save: () => void; open: (text: string) => void }; zooStatus?: { queued: number; boarded: number }; host?: StationHost } = {}): React.ReactElement {
   useLanguage()
@@ -28,6 +29,8 @@ export function App({ viewport, files, zooStatus, host }: { viewport?: React.Rea
   const revealTutorial = useCallback(() => { setLeftOpen(true); setRightOpen(true) }, [])
   const notice = useStore((s) => s.notice)
   const save = files?.save ?? host?.save
+
+  useEffect(() => attachScrollbarDragFallback(), [])
 
   useEffect(() => {
     if (!notice) return

@@ -88,7 +88,7 @@ test('the slider is wired: the widget writes degrees and reads them back', () =>
   assert.match(cube, /onChange=\{\(e\) => setFov\(Number\(e\.target\.value\)\)\}/, 'the slider writes the camera')
   assert.match(cube, /cube\?\.setFov\(deg\)/, 'through the viewport adapter')
   assert.match(three, /sceneRef\.current\?\.setFov\(degrees\)/, 'in degrees')
-  assert.match(cube, /const deg = Math\.round\(state\.fov\)/, 'and the rendered camera is what it reads back')
+  assert.match(cube, /const cameraFov = Math\.round\(view\.fov\)/, 'and the rendered camera is what it reads back')
   assert.match(cube, /min=\{FOV_MIN_DEG\}/, 'the track’s ends are the camera’s own constants')
   assert.match(cube, /max=\{FOV_MAX_DEG\}/, 'both of them')
   const orchestrator = src('render/scene/SceneRenderer.ts')
