@@ -32,6 +32,8 @@ import {
   ZONE_LINES_BLOCK,
 } from './constants.ts'
 import { floorDecorCells } from './floorDecor.ts'
+import { counterCells } from './counters.ts'
+import { shelfCells } from './shelves.ts'
 import { hangerPostCells } from './hangers.ts'
 import { floorSpeed } from './finishes.ts'
 import { escalatorRun, escalatorBalustradeWidth, escalatorWidthOf } from './escalators.ts'
@@ -306,7 +308,11 @@ export function buildGraph(data: StationData, zoneBarriers = ZONE_LINES_BLOCK): 
   // plugs into divides the floor into areas the crowd can only cross at a gate.
   const fenceCells = new Set<string>()
   for (const m of data.modules) {
-    if (m.type === 'tvm' || m.type === 'vending' || m.type === 'shelf') fenceCells.add(cellKey(m.x, m.y, m.z))
+    if (m.type === 'tvm' || m.type === 'vending') fenceCells.add(cellKey(m.x, m.y, m.z))
+    if (m.type === 'checkout' || m.type === 'shelf') {
+      const footprint = m.type === 'checkout' ? counterCells(m) : shelfCells(m)
+      for (const [x, y, z] of footprint) fenceCells.add(cellKey(x, y, z))
+    }
     if (m.type === 'road') {
       for (let x = m.x; x < m.x + m.w; x++) for (let y = m.y; y < m.y + m.d; y++) fenceCells.add(cellKey(x, y, m.z))
     }

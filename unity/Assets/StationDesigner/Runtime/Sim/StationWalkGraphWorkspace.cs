@@ -1860,8 +1860,12 @@ namespace Metro.Sim {
                 case "psd-end":
                 case "tvm":
                 case "vending":
-                case "shelf":
                     obstacles = new List<long>(1) { Pack3(module.X, module.Y, module.Z) };
+                    break;
+                case "checkout":
+                case "shelf":
+                    obstacles = new List<long>();
+                    StationWalkGraphBuilder.ShopFixtureBlockedCells(module, (x, y, z) => obstacles.Add(Pack3(x, y, z)));
                     break;
                 case "road": {
                     int w = Math.Max(1, module.Width), d = Math.Max(1, module.Depth);

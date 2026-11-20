@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using Metro.App;
+using Metro.Build;
 using Metro.Sim;
 using NUnit.Framework;
 using UnityEngine;
@@ -104,6 +106,54 @@ public class StationRoutePlannerTests {
     static StationWalkGraph Build() => StationWalkGraphBuilder.Build(DocumentOf(Instance().document));
 
     // ------------------------------------------------------------------- tests
+
+    [TestCase("checkout", "cafe", 4, 4)]
+    [TestCase("checkout", "", 1, 1)]
+    [TestCase("shelf", "cafe-backbar-4", 1, 4)]
+    [TestCase("shelf", "books", 1, 2)]
+    public void ShopFixturesBlockTheirFullFootprintOnLoadAndDuringEdits(
+        string type, string variant, int savedWidth, int length) {
+        const int z = -5;
+        var options = new StationWalkGraphOptions { IncludeGround = false };
+        var empty = new StationSessionDocument();
+        for (int x = 0; x < 10; x++)
+            for (int y = 0; y < 8; y++)
+                empty.Cells.Add(new StationCellFact { X = x, Y = y, Z = z, Solid = true, Speed = 1 });
+
+        var config = new ModuleConfig(new Dictionary<string, string> { ["variant"] = variant });
+        StationModuleRecord Record(int x, int y, int rot) => new StationModuleRecord(
+            "fixture", type, x, y, z, rot, savedWidth, 1, 1, false, null, null, null, "",
+            new ModuleFacts { Config = config });
+        var placed = Record(4, 2, 1);
+        var moved = Record(8, 6, 2);
+        StationSessionDocument With(StationModuleFact fact) => new StationSessionDocument {
+            Cells = empty.Cells, Modules = new List<StationModuleFact> { fact },
+        };
+        void Check(StationWalkGraph graph, bool blocksPlaced, bool blocksMoved) {
+            for (int i = 0; i < length; i++) {
+                Assert.AreEqual(!blocksPlaced, graph.NodeIndex.ContainsKey(StationWalkGraph.CellKey(4, 2 + i, z)));
+                Assert.AreEqual(!blocksMoved, graph.NodeIndex.ContainsKey(StationWalkGraph.CellKey(8 - i, 6, z)));
+            }
+            Assert.IsTrue(graph.NodeIndex.ContainsKey(StationWalkGraph.CellKey(4, 2 + length, z)));
+        }
+
+        var add = new StationSessionDelta();
+        add.ChangedModules.Add(StationSessionProjection.ModuleFact(placed));
+        var after = With(add.ChangedModules[0]);
+        Check(StationWalkGraphBuilder.Build(after, options), true, false);
+        Check(StationWalkGraphWorkspace.Build(after, options).Graph, true, false);
+
+        var staged = StationWalkGraphWorkspace.Build(empty, options).StageCellDelta(after, add);
+        Check(staged.Graph, true, false);
+        var move = new StationSessionDelta();
+        move.ChangedModules.Add(StationSessionProjection.ModuleFact(moved));
+        staged = staged.Workspace.StageCellDelta(With(move.ChangedModules[0]), move);
+        Check(staged.Graph, false, true);
+        var remove = new StationSessionDelta();
+        remove.RemovedModules.Add(moved.Id);
+        Check(staged.Workspace.StageCellDelta(empty, remove).Graph, false, false);
+        Assert.IsFalse(StationEditClassifier.IsSimInertDecorModule(placed));
+    }
 
     [Test]
     public void DocumentBuildsTheSameNodesAsTheTypeScriptGraph() {

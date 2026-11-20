@@ -4,8 +4,8 @@
 //
 // `buildGraph` (sim/station.ts) only reads gates, booths, pillars, hanger posts,
 // stair blocks, AC/cabinet bodies, fences, lifts, exits, machines, benches,
-// shops, ramps, platform edges and tracks. Everything else here draws without
-// walking: floor stickers, wall panels, hanging fittings, wayfinding furniture
+// shops, counters, shelves, ramps, platform edges and tracks. Everything else
+// here draws without walking: floor stickers, wall panels, hanging fittings, wayfinding furniture
 // and street props, a 树木 included — planting is not structure, so the crowd
 // walks through its tile rather than around a trunk the graph can only express
 // by deleting the whole cell. TVM/vending/bench cabinets stay out — machines are
@@ -17,7 +17,7 @@ import type { Module, StationData } from './types.ts'
 const INERT_TYPES: ReadonlySet<Module['type']> = new Set([
   'urinal', 'tactile', 'floor-mark', 'billboard', 'glass', 'calligraphy', 'linemap',
   'sign', 'tv', 'monitor', 'clock', 'cctv', 'light', 'vent', 'traffic-light', 'rail-signal',
-  'guidepost', 'busstop', 'desk', 'checkout', 'bin',
+  'guidepost', 'busstop', 'desk', 'bin',
   'extinguisher', 'sidewalk', 'lawn', 'tree',
 ])
 

@@ -934,6 +934,10 @@ namespace Metro.App {
                 HasEndpoints = module.HasFrom && module.HasTo,
                 RunLength = 0,
             };
+            if ((fact.Type == "checkout" || fact.Type == "shelf") &&
+                StationFootprints.TryFootprint(module, out var footprint, out _)) {
+                fact.Width = footprint.Length;
+            }
             if (module.HasFrom) {
                 fact.FromX = (int)Math.Round(module.From.Value.X);
                 fact.FromY = (int)Math.Round(module.From.Value.Y);
@@ -1276,7 +1280,7 @@ namespace Metro.App {
         static readonly HashSet<string> InertModuleTypes = new HashSet<string>(StringComparer.Ordinal) {
             "urinal", "tactile", "floor-mark", "billboard", "glass", "calligraphy", "linemap",
             "sign", "tv", "monitor", "clock", "cctv", "light", "vent", "traffic-light", "rail-signal",
-            "guidepost", "busstop", "desk", "checkout", "bin",
+            "guidepost", "busstop", "desk", "bin",
             "extinguisher", "sidewalk", "lawn", "tree",
         };
 

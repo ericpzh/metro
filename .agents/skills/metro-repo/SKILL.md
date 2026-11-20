@@ -34,6 +34,11 @@ fences, belong to `metro-game`; their deterministic regressions belong to
 placement, `MeshTopology.Lines` net handling and C# EditMode regressions route
 to `metro-unity`. Keep generated menu thumbnails aligned with catalogue changes.
 
+Shop counters (`checkout`) and shelves block every tile in their rotated
+placement footprint. Keep the web and Unity walk graphs aligned on station
+load and on committed placement, move, rotation, and removal. The regressions
+live in `walking-space.test.mjs` and `StationRoutePlannerTests`.
+
 Wall decor and sign previews route to `metro-game`, with regressions in
 `metro-game-test`: short wall signs centre in the pointed block, other panels
 snap their bottom edge to its course, and the sign editor uses production-sized

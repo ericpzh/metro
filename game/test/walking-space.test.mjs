@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { buildGraph } from '../src/sim/station.ts'
+import { buildGraph, PathFinder } from '../src/sim/station.ts'
+import { isSimInertDecorEdit } from '../src/sim/decorInert.ts'
 import { clearWalkSegment, walkingLaneNode, platformWaitingNodes } from '../src/sim/walkingSpace.ts'
 import { World } from '../src/sim/world.ts'
 import { scenarioStation } from './support/scenario-station.ts'
@@ -13,6 +14,32 @@ function corridor(width = 9) {
   return { name: 'walking width', seed: 1, cells, modules: [], lines: [] }
 }
 function route(g) { return Int32Array.from({ length: 46 }, (_, x) => g.nodeIndex.get(`${x},0,4`)) }
+
+test('walkers detour around the full rotated footprint of shop fixtures', () => {
+  const before = corridor()
+  const fixtures = [
+    { type: 'checkout', w: 4, cfg: { variant: 'cafe' }, length: 4 },
+    { type: 'checkout', cfg: {}, length: 1 },
+    { type: 'shelf', cfg: { variant: 'cafe-backbar-4' }, length: 4 },
+    { type: 'shelf', cfg: { variant: 'books' }, length: 2 },
+  ]
+  for (const { length, ...fixture } of fixtures) {
+    const module = { ...fixture, id: 'fixture', x: 20, y: 2, z: 4, rot: 1 }
+    const after = { ...before, modules: [module] }
+    const g = buildGraph(after)
+    for (let i = 0; i < length; i++) assert.equal(g.nodeIndex.has(`20,${2 + i},4`), false)
+    assert.equal(g.nodeIndex.has('20,1,4'), true)
+    assert.equal(g.nodeIndex.has(`20,${2 + length},4`), true)
+    const y = 1.5 + length
+    assert.equal(clearWalkSegment(g, 19.5, y, 21.5, y, 5), false)
+    const path = new PathFinder(g).search(g.nodeIndex.get(`19,${Math.floor(y)},4`),
+      g.nodeIndex.get(`21,${Math.floor(y)},4`), { stepFree: false, luggage: false })
+    assert.ok(path?.some(node => g.nodeY[node] !== y), 'the route uses the open aisle')
+    assert.equal(isSimInertDecorEdit(before, after), false)
+    assert.equal(isSimInertDecorEdit(after, { ...after, modules: [{ ...module, rot: 2 }] }), false)
+    assert.equal(isSimInertDecorEdit(after, before), false)
+  }
+})
 
 test('Tanwei edge floor contains unqueued walkers under sustained crowd pressure', () => {
   const w = new World(referenceStation('tanwei')), g = w.graph

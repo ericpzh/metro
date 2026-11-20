@@ -301,8 +301,12 @@ namespace Metro.Sim {
                         break;
                     case "tvm":
                     case "vending":
-                    case "shelf":
                         fenceCells.Add(key);
+                        break;
+                    case "checkout":
+                    case "shelf":
+                        ShopFixtureBlockedCells(module, (x, y, z) =>
+                            fenceCells.Add(StationWalkGraph.CellKey(x, y, z)));
                         break;
                     case "road":
                         for (int x = module.X; x < module.X + Math.Max(1, module.Width); x++)
@@ -695,6 +699,14 @@ namespace Metro.Sim {
             double half = (widthBlocks - 1) * 0.5 / length;
             shiftX = (highY - lowY) * half;
             shiftY = -(highX - lowX) * half;
+        }
+
+        internal static void ShopFixtureBlockedCells(StationModuleFact module, Action<int, int, int> addCell) {
+            // The document projection supplies the placement footprint's run length.
+            int length = module.Width >= 1 && module.Width <= 4 ? module.Width : 1;
+            StationServiceCadence.RotateLocal(module.Rot, 1, 0, out double dx, out double dy);
+            for (int i = 0; i < length; i++)
+                addCell(module.X + i * (int)dx, module.Y + i * (int)dy, module.Z);
         }
 
         /// <summary>
