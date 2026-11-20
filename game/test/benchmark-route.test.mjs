@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
+import { benchmarkLanguagePath, initialLanguageForRoute, isBenchmarkPath, LANGUAGE_STORAGE_KEY } from '../src/app/languageRoute.ts'
 
 const source = await readFile(new URL('../src/app/benchmark/BenchmarkRoute.tsx', import.meta.url), 'utf8')
 const styles = await readFile(new URL('../src/app/benchmark/benchmark.css', import.meta.url), 'utf8')
@@ -29,4 +30,43 @@ test('the result header action keeps its label on one line and the free-text tit
     'the station name and long hardware line are what may shrink')
   assert.match(header, /button \{ flex: 0 0 auto; white-space: nowrap; \}/,
     '???? keeps its four characters on one line instead of breaking after ???')
+})
+
+test('benchmark external routes ignore saved game language overrides while regular game routes keep them', () => {
+  const savedBothFlipped = {
+    getItem: (key) => key === `${LANGUAGE_STORAGE_KEY}.zh-CN` ? 'en' : key === `${LANGUAGE_STORAGE_KEY}.en` ? 'zh-CN' : null,
+  }
+  assert.equal(isBenchmarkPath('/game/benchmark'), true)
+  assert.equal(isBenchmarkPath('/game/benchmark/en'), true)
+  assert.equal(isBenchmarkPath('/game/benchmark/en/'), true)
+  assert.equal(isBenchmarkPath('/game/en/benchmark'), true)
+  assert.equal(isBenchmarkPath('/game/'), false)
+
+  assert.deepEqual(initialLanguageForRoute('/game/benchmark', savedBothFlipped), { language: 'zh-CN', storageKey: null })
+  assert.deepEqual(initialLanguageForRoute('/game/benchmark/en', savedBothFlipped), { language: 'en', storageKey: null })
+  assert.deepEqual(initialLanguageForRoute('/game/en/benchmark', savedBothFlipped), { language: 'en', storageKey: null })
+  assert.deepEqual(initialLanguageForRoute('/benchmark', savedBothFlipped), { language: 'zh-CN', storageKey: null })
+  assert.deepEqual(initialLanguageForRoute('/benchmark/en', savedBothFlipped), { language: 'en', storageKey: null })
+
+  assert.deepEqual(initialLanguageForRoute('/game/', savedBothFlipped), { language: 'en', storageKey: `${LANGUAGE_STORAGE_KEY}.zh-CN` })
+  assert.deepEqual(initialLanguageForRoute('/game/en/', savedBothFlipped), { language: 'zh-CN', storageKey: `${LANGUAGE_STORAGE_KEY}.en` })
+  assert.deepEqual(initialLanguageForRoute('/game/', null), { language: 'zh-CN', storageKey: `${LANGUAGE_STORAGE_KEY}.zh-CN` })
+  assert.deepEqual(initialLanguageForRoute('/game/en/', null), { language: 'en', storageKey: `${LANGUAGE_STORAGE_KEY}.en` })
+})
+
+test('benchmark language toggle switches in place, keeps URL synced, and computes target paths cleanly', () => {
+  assert.equal(benchmarkLanguagePath('/game/benchmark', 'en'), '/game/benchmark/en')
+  assert.equal(benchmarkLanguagePath('/game/benchmark/', 'en'), '/game/benchmark/en')
+  assert.equal(benchmarkLanguagePath('/game/benchmark/en', 'zh-CN'), '/game/benchmark')
+  assert.equal(benchmarkLanguagePath('/game/benchmark/en/', 'zh-CN'), '/game/benchmark')
+  assert.equal(benchmarkLanguagePath('/game/en/benchmark', 'zh-CN'), '/game/benchmark')
+  assert.equal(benchmarkLanguagePath('/game/en/benchmark', 'en'), '/game/benchmark/en')
+  assert.equal(benchmarkLanguagePath('/benchmark', 'en'), '/benchmark/en')
+  assert.equal(benchmarkLanguagePath('/benchmark/en', 'zh-CN'), '/benchmark')
+
+  assert.match(source, /setLanguage\(nextLanguage\)/, 'clicking the toggle directly switches the active language')
+  assert.match(source, /window\.history\.replaceState\(null, '', `\$\{languagePath\}\$\{location\.search\}\$\{location\.hash\}`\)/,
+    'toggling updates the URL in place so reloads preserve the chosen language')
+  assert.match(source, /<a href=\{languagePath\} onClick=\{toggleLanguage\}>\{copy\.language\}<\/a>/,
+    'the locale link handles in-place toggling while keeping its href for new-tab navigation')
 })

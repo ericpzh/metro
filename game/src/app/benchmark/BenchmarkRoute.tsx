@@ -1,10 +1,12 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type MouseEvent } from 'react'
 import * as THREE from 'three'
 import type { UpscalingMode } from '../../render/upscaling.ts'
+import type { Language } from '../../sim/i18n.ts'
 import { App } from '../App.tsx'
 import { useStore } from '../store.ts'
 import { benchmarkRoutingDiagnostic, prepareBenchmarkWorker } from '../store/slices/SimSlice.ts'
-import { useLanguage } from '../i18n.ts'
+import { setLanguage, useLanguage } from '../i18n.ts'
+import { benchmarkLanguagePath } from '../languageRoute.ts'
 import { EXAMPLE_STATION_IDS, type ExampleStationId } from '../../data/reference-station.ts'
 import { summarizeFrameIntervals } from './benchmarkStats.ts'
 import { BENCHMARK_COPY, benchmarkCopy } from './benchmarkCopy.ts'
@@ -374,13 +376,18 @@ export function BenchmarkRoute(): React.ReactElement {
     setPhase('setup')
   }
 
-  const cleanPath = location.pathname.replace(/\/+$/, '')
-  const basePath = cleanPath.endsWith('/en') ? cleanPath.slice(0, -3) : cleanPath
-  const languagePath = language === 'en' ? basePath : `${basePath}/en`
+  const nextLanguage: Language = language === 'en' ? 'zh-CN' : 'en'
+  const languagePath = benchmarkLanguagePath(location.pathname, nextLanguage)
+  const toggleLanguage = (event: MouseEvent<HTMLAnchorElement>): void => {
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return
+    event.preventDefault()
+    setLanguage(nextLanguage)
+    window.history.replaceState(null, '', `${languagePath}${location.search}${location.hash}`)
+  }
 
   return <>
     {appMounted && (phase === 'preparing' || phase === 'running') && <App />}
-    {phase !== 'preparing' && phase !== 'running' && <nav className="benchmarkLocale"><a href={languagePath}>{copy.language}</a></nav>}
+    {phase !== 'preparing' && phase !== 'running' && <nav className="benchmarkLocale"><a href={languagePath} onClick={toggleLanguage}>{copy.language}</a></nav>}
     {phase === 'setup' && <main className="benchmarkPage"><section className="benchmarkSetup">
       <div className="benchmarkEyebrow">{copy.eyebrow}</div>
       <h1>{copy.title}</h1>
