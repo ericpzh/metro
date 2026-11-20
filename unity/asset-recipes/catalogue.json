@@ -8343,7 +8343,7 @@
         "min": [
           -0.440000057220459,
           -0.4875000001862645,
-          -3.5762786898541066e-09
+          -3.5762786898541066e-9
         ],
         "max": [
           2.440000057220459,
@@ -8977,7 +8977,7 @@
         "min": [
           -0.4749999940395355,
           -0.48750000018626455,
-          1.341104505225843e-09
+          1.341104505225843e-9
         ],
         "max": [
           2.4749999940395355,
@@ -9480,6 +9480,1188 @@
         ],
         "facade": "local -y",
         "basis": "source Z-up tree wrapped in a group rotated -90 degrees about X (glTF Y-up); Unity wrapper applies the 180-degree Y correction so gameplay channels read (x, z, y)"
+      }
+    },
+    {
+      "id": "station.checkout.standard.2m",
+      "catalogueId": "checkout-2m",
+      "family": "concourse fixtures",
+      "category": "Reusable station pieces",
+      "sourcePaths": [
+        "game/src/render/models/pieces/CheckoutModel.ts",
+        "game/src/render/models/PieceBuilder.ts",
+        "game/src/build/model/Equipment.ts",
+        "game/src/sim/counters.ts"
+      ],
+      "owner": "Station Designer game",
+      "provenance": "Repository procedural 收银台 checkout geometry, palette and canvas POS/label artwork",
+      "licenseRecord": "Repository-authored procedural geometry and canvas artwork; no third-party assets",
+      "classification": "procedural",
+      "variants": [
+        "cfg.variant = \"checkout\", w = 2"
+      ],
+      "anchors": {
+        "AxisX": [
+          1,
+          0,
+          0
+        ],
+        "Front": [
+          0,
+          1,
+          0
+        ],
+        "Up": [
+          0,
+          0,
+          1
+        ],
+        "Approach": [
+          0,
+          -1,
+          0
+        ]
+      },
+      "expected": {
+        "units": "metres",
+        "min": [
+          -0.49,
+          -0.498,
+          0
+        ],
+        "max": [
+          1.49,
+          0.38,
+          1.39265
+        ]
+      },
+      "triangles": 762,
+      "materials": [
+        "darkSteel",
+        "desktopScreen",
+        "green",
+        "psu",
+        "rubber",
+        "shelfGoods_41a85d",
+        "shelfGoods_58b9ce",
+        "shelfGoods_d85145",
+        "shelfGoods_f6cd41",
+        "steel",
+        "white"
+      ],
+      "alphaMaterials": [],
+      "textures": 2,
+      "lod": "full-detail source meshes; renderer LOD metadata stripped at export",
+      "validationScene": "Assets/StationDesigner/Generated/Review/Concourse.unity",
+      "promoted": {
+        "model": "Assets/StationDesigner/Generated/Models/checkout-2m.glb",
+        "prefab": "Assets/StationDesigner/Generated/Prefabs/Checkout2m.prefab"
+      },
+      "dependency": "com.unity.cloud.gltfast@6.19.0",
+      "exportCommand": "node tools/unity-assets/export-concourse.mjs .preview/unity/concourse-proof/export",
+      "proofCommand": "./tools/unity-assets/prove-model.ps1 -Family concourse -SkipWeb -SkipPromote",
+      "parameters": {
+        "variant": "checkout",
+        "counterWidthMetres": 1,
+        "counterLengthMetres": 2,
+        "heightMetres": 1.42,
+        "placementOffset": [
+          0.5,
+          0.5,
+          1
+        ],
+        "facade": "local -y",
+        "basis": "source Z-up tree wrapped in a group rotated -90 degrees about X (glTF Y-up); Unity wrapper applies the 180-degree Y correction so gameplay channels read (x, z, y)",
+        "instanceExpansion": "16 instances baked into 4 per-colour materials",
+        "stockMaterials": [
+          "shelfGoods_41a85d",
+          "shelfGoods_58b9ce",
+          "shelfGoods_d85145",
+          "shelfGoods_f6cd41"
+        ],
+        "cells": 2
+      }
+    },
+    {
+      "id": "station.checkout.standard.3m",
+      "catalogueId": "checkout-3m",
+      "family": "concourse fixtures",
+      "category": "Reusable station pieces",
+      "sourcePaths": [
+        "game/src/render/models/pieces/CheckoutModel.ts",
+        "game/src/render/models/PieceBuilder.ts",
+        "game/src/build/model/Equipment.ts",
+        "game/src/sim/counters.ts"
+      ],
+      "owner": "Station Designer game",
+      "provenance": "Repository procedural 收银台 checkout geometry, palette and canvas POS/label artwork",
+      "licenseRecord": "Repository-authored procedural geometry and canvas artwork; no third-party assets",
+      "classification": "procedural",
+      "variants": [
+        "cfg.variant = \"checkout\", w = 3"
+      ],
+      "anchors": {
+        "AxisX": [
+          1,
+          0,
+          0
+        ],
+        "Front": [
+          0,
+          1,
+          0
+        ],
+        "Up": [
+          0,
+          0,
+          1
+        ],
+        "Approach": [
+          0,
+          -1,
+          0
+        ]
+      },
+      "expected": {
+        "units": "metres",
+        "min": [
+          -0.49,
+          -0.498,
+          0
+        ],
+        "max": [
+          2.49,
+          0.38,
+          1.39265
+        ]
+      },
+      "triangles": 762,
+      "materials": [
+        "darkSteel",
+        "desktopScreen",
+        "green",
+        "psu",
+        "rubber",
+        "shelfGoods_41a85d",
+        "shelfGoods_58b9ce",
+        "shelfGoods_d85145",
+        "shelfGoods_f6cd41",
+        "steel",
+        "white"
+      ],
+      "alphaMaterials": [],
+      "textures": 2,
+      "lod": "full-detail source meshes; renderer LOD metadata stripped at export",
+      "validationScene": "Assets/StationDesigner/Generated/Review/Concourse.unity",
+      "promoted": {
+        "model": "Assets/StationDesigner/Generated/Models/checkout-3m.glb",
+        "prefab": "Assets/StationDesigner/Generated/Prefabs/Checkout3m.prefab"
+      },
+      "dependency": "com.unity.cloud.gltfast@6.19.0",
+      "exportCommand": "node tools/unity-assets/export-concourse.mjs .preview/unity/concourse-proof/export",
+      "proofCommand": "./tools/unity-assets/prove-model.ps1 -Family concourse -SkipWeb -SkipPromote",
+      "parameters": {
+        "variant": "checkout",
+        "counterWidthMetres": 1,
+        "counterLengthMetres": 3,
+        "heightMetres": 1.42,
+        "placementOffset": [
+          0.5,
+          0.5,
+          1
+        ],
+        "facade": "local -y",
+        "basis": "source Z-up tree wrapped in a group rotated -90 degrees about X (glTF Y-up); Unity wrapper applies the 180-degree Y correction so gameplay channels read (x, z, y)",
+        "instanceExpansion": "16 instances baked into 4 per-colour materials",
+        "stockMaterials": [
+          "shelfGoods_41a85d",
+          "shelfGoods_58b9ce",
+          "shelfGoods_d85145",
+          "shelfGoods_f6cd41"
+        ],
+        "cells": 3
+      }
+    },
+    {
+      "id": "station.checkout.standard.4m",
+      "catalogueId": "checkout-4m",
+      "family": "concourse fixtures",
+      "category": "Reusable station pieces",
+      "sourcePaths": [
+        "game/src/render/models/pieces/CheckoutModel.ts",
+        "game/src/render/models/PieceBuilder.ts",
+        "game/src/build/model/Equipment.ts",
+        "game/src/sim/counters.ts"
+      ],
+      "owner": "Station Designer game",
+      "provenance": "Repository procedural 收银台 checkout geometry, palette and canvas POS/label artwork",
+      "licenseRecord": "Repository-authored procedural geometry and canvas artwork; no third-party assets",
+      "classification": "procedural",
+      "variants": [
+        "cfg.variant = \"checkout\", w = 4"
+      ],
+      "anchors": {
+        "AxisX": [
+          1,
+          0,
+          0
+        ],
+        "Front": [
+          0,
+          1,
+          0
+        ],
+        "Up": [
+          0,
+          0,
+          1
+        ],
+        "Approach": [
+          0,
+          -1,
+          0
+        ]
+      },
+      "expected": {
+        "units": "metres",
+        "min": [
+          -0.49,
+          -0.498,
+          0
+        ],
+        "max": [
+          3.49,
+          0.38,
+          1.39265
+        ]
+      },
+      "triangles": 762,
+      "materials": [
+        "darkSteel",
+        "desktopScreen",
+        "green",
+        "psu",
+        "rubber",
+        "shelfGoods_41a85d",
+        "shelfGoods_58b9ce",
+        "shelfGoods_d85145",
+        "shelfGoods_f6cd41",
+        "steel",
+        "white"
+      ],
+      "alphaMaterials": [],
+      "textures": 2,
+      "lod": "full-detail source meshes; renderer LOD metadata stripped at export",
+      "validationScene": "Assets/StationDesigner/Generated/Review/Concourse.unity",
+      "promoted": {
+        "model": "Assets/StationDesigner/Generated/Models/checkout-4m.glb",
+        "prefab": "Assets/StationDesigner/Generated/Prefabs/Checkout4m.prefab"
+      },
+      "dependency": "com.unity.cloud.gltfast@6.19.0",
+      "exportCommand": "node tools/unity-assets/export-concourse.mjs .preview/unity/concourse-proof/export",
+      "proofCommand": "./tools/unity-assets/prove-model.ps1 -Family concourse -SkipWeb -SkipPromote",
+      "parameters": {
+        "variant": "checkout",
+        "counterWidthMetres": 1,
+        "counterLengthMetres": 4,
+        "heightMetres": 1.42,
+        "placementOffset": [
+          0.5,
+          0.5,
+          1
+        ],
+        "facade": "local -y",
+        "basis": "source Z-up tree wrapped in a group rotated -90 degrees about X (glTF Y-up); Unity wrapper applies the 180-degree Y correction so gameplay channels read (x, z, y)",
+        "instanceExpansion": "16 instances baked into 4 per-colour materials",
+        "stockMaterials": [
+          "shelfGoods_41a85d",
+          "shelfGoods_58b9ce",
+          "shelfGoods_d85145",
+          "shelfGoods_f6cd41"
+        ],
+        "cells": 4
+      }
+    },
+    {
+      "id": "station.checkout.cafe.2m",
+      "catalogueId": "checkout-cafe-2m",
+      "family": "concourse fixtures",
+      "category": "Reusable station pieces",
+      "sourcePaths": [
+        "game/src/render/models/pieces/ShopCounter.ts",
+        "game/src/render/models/pieces/ShopStock.ts",
+        "game/src/render/models/PieceBuilder.ts",
+        "game/src/build/model/Equipment.ts",
+        "game/src/sim/counters.ts"
+      ],
+      "owner": "Station Designer game",
+      "provenance": "Repository procedural 咖啡台 cafe counter geometry, palette and canvas POS artwork",
+      "licenseRecord": "Repository-authored procedural geometry and canvas artwork; no third-party assets",
+      "classification": "procedural",
+      "variants": [
+        "cfg.variant = \"cafe\", w = 2"
+      ],
+      "anchors": {
+        "AxisX": [
+          1,
+          0,
+          0
+        ],
+        "Front": [
+          0,
+          1,
+          0
+        ],
+        "Up": [
+          0,
+          0,
+          1
+        ],
+        "Approach": [
+          0,
+          -1,
+          0
+        ]
+      },
+      "expected": {
+        "units": "metres",
+        "min": [
+          -0.495,
+          -0.43,
+          0
+        ],
+        "max": [
+          1.495,
+          0.43,
+          1.5
+        ]
+      },
+      "triangles": 1396,
+      "materials": [
+        "blue",
+        "darkSteel",
+        "desktopScreen",
+        "rubber",
+        "shelfGoods_563c2b",
+        "shelfGoods_e4d9bb",
+        "shelfGoods_f2eee1",
+        "steel",
+        "tintedGlass",
+        "white",
+        "wood",
+        "woodDark",
+        "woodLight"
+      ],
+      "alphaMaterials": [
+        "tintedGlass"
+      ],
+      "textures": 2,
+      "lod": "full-detail source meshes; renderer LOD metadata stripped at export",
+      "validationScene": "Assets/StationDesigner/Generated/Review/Concourse.unity",
+      "promoted": {
+        "model": "Assets/StationDesigner/Generated/Models/checkout-cafe-2m.glb",
+        "prefab": "Assets/StationDesigner/Generated/Prefabs/CheckoutCafe2m.prefab"
+      },
+      "dependency": "com.unity.cloud.gltfast@6.19.0",
+      "exportCommand": "node tools/unity-assets/export-concourse.mjs .preview/unity/concourse-proof/export",
+      "proofCommand": "./tools/unity-assets/prove-model.ps1 -Family concourse -SkipWeb -SkipPromote",
+      "parameters": {
+        "variant": "cafe",
+        "counterWidthMetres": 1,
+        "counterLengthMetres": 2,
+        "heightMetres": 1.5,
+        "placementOffset": [
+          0.5,
+          0.5,
+          1
+        ],
+        "facade": "local -y",
+        "basis": "source Z-up tree wrapped in a group rotated -90 degrees about X (glTF Y-up); Unity wrapper applies the 180-degree Y correction so gameplay channels read (x, z, y)",
+        "instanceExpansion": "11 instances baked into 3 per-colour materials",
+        "stockMaterials": [
+          "shelfGoods_563c2b",
+          "shelfGoods_e4d9bb",
+          "shelfGoods_f2eee1"
+        ],
+        "cells": 2
+      }
+    },
+    {
+      "id": "station.checkout.cafe.3m",
+      "catalogueId": "checkout-cafe-3m",
+      "family": "concourse fixtures",
+      "category": "Reusable station pieces",
+      "sourcePaths": [
+        "game/src/render/models/pieces/ShopCounter.ts",
+        "game/src/render/models/pieces/ShopStock.ts",
+        "game/src/render/models/PieceBuilder.ts",
+        "game/src/build/model/Equipment.ts",
+        "game/src/sim/counters.ts"
+      ],
+      "owner": "Station Designer game",
+      "provenance": "Repository procedural 咖啡台 cafe counter geometry, palette and canvas POS artwork",
+      "licenseRecord": "Repository-authored procedural geometry and canvas artwork; no third-party assets",
+      "classification": "procedural",
+      "variants": [
+        "cfg.variant = \"cafe\", w = 3"
+      ],
+      "anchors": {
+        "AxisX": [
+          1,
+          0,
+          0
+        ],
+        "Front": [
+          0,
+          1,
+          0
+        ],
+        "Up": [
+          0,
+          0,
+          1
+        ],
+        "Approach": [
+          0,
+          -1,
+          0
+        ]
+      },
+      "expected": {
+        "units": "metres",
+        "min": [
+          -0.495,
+          -0.43,
+          0
+        ],
+        "max": [
+          2.495,
+          0.43,
+          1.5
+        ]
+      },
+      "triangles": 1684,
+      "materials": [
+        "blue",
+        "darkSteel",
+        "desktopScreen",
+        "rubber",
+        "shelfGoods_563c2b",
+        "shelfGoods_e4d9bb",
+        "shelfGoods_f2eee1",
+        "steel",
+        "tintedGlass",
+        "white",
+        "wood",
+        "woodDark",
+        "woodLight"
+      ],
+      "alphaMaterials": [
+        "tintedGlass"
+      ],
+      "textures": 2,
+      "lod": "full-detail source meshes; renderer LOD metadata stripped at export",
+      "validationScene": "Assets/StationDesigner/Generated/Review/Concourse.unity",
+      "promoted": {
+        "model": "Assets/StationDesigner/Generated/Models/checkout-cafe-3m.glb",
+        "prefab": "Assets/StationDesigner/Generated/Prefabs/CheckoutCafe3m.prefab"
+      },
+      "dependency": "com.unity.cloud.gltfast@6.19.0",
+      "exportCommand": "node tools/unity-assets/export-concourse.mjs .preview/unity/concourse-proof/export",
+      "proofCommand": "./tools/unity-assets/prove-model.ps1 -Family concourse -SkipWeb -SkipPromote",
+      "parameters": {
+        "variant": "cafe",
+        "counterWidthMetres": 1,
+        "counterLengthMetres": 3,
+        "heightMetres": 1.5,
+        "placementOffset": [
+          0.5,
+          0.5,
+          1
+        ],
+        "facade": "local -y",
+        "basis": "source Z-up tree wrapped in a group rotated -90 degrees about X (glTF Y-up); Unity wrapper applies the 180-degree Y correction so gameplay channels read (x, z, y)",
+        "instanceExpansion": "11 instances baked into 3 per-colour materials",
+        "stockMaterials": [
+          "shelfGoods_563c2b",
+          "shelfGoods_e4d9bb",
+          "shelfGoods_f2eee1"
+        ],
+        "cells": 3
+      }
+    },
+    {
+      "id": "station.checkout.cafe.4m",
+      "catalogueId": "checkout-cafe-4m",
+      "family": "concourse fixtures",
+      "category": "Reusable station pieces",
+      "sourcePaths": [
+        "game/src/render/models/pieces/ShopCounter.ts",
+        "game/src/render/models/pieces/ShopStock.ts",
+        "game/src/render/models/PieceBuilder.ts",
+        "game/src/build/model/Equipment.ts",
+        "game/src/sim/counters.ts"
+      ],
+      "owner": "Station Designer game",
+      "provenance": "Repository procedural 咖啡台 cafe counter geometry, palette and canvas POS artwork",
+      "licenseRecord": "Repository-authored procedural geometry and canvas artwork; no third-party assets",
+      "classification": "procedural",
+      "variants": [
+        "cfg.variant = \"cafe\", w = 4"
+      ],
+      "anchors": {
+        "AxisX": [
+          1,
+          0,
+          0
+        ],
+        "Front": [
+          0,
+          1,
+          0
+        ],
+        "Up": [
+          0,
+          0,
+          1
+        ],
+        "Approach": [
+          0,
+          -1,
+          0
+        ]
+      },
+      "expected": {
+        "units": "metres",
+        "min": [
+          -0.495,
+          -0.43,
+          0
+        ],
+        "max": [
+          3.495,
+          0.43,
+          1.5
+        ]
+      },
+      "triangles": 1972,
+      "materials": [
+        "blue",
+        "darkSteel",
+        "desktopScreen",
+        "rubber",
+        "shelfGoods_563c2b",
+        "shelfGoods_e4d9bb",
+        "shelfGoods_f2eee1",
+        "steel",
+        "tintedGlass",
+        "white",
+        "wood",
+        "woodDark",
+        "woodLight"
+      ],
+      "alphaMaterials": [
+        "tintedGlass"
+      ],
+      "textures": 2,
+      "lod": "full-detail source meshes; renderer LOD metadata stripped at export",
+      "validationScene": "Assets/StationDesigner/Generated/Review/Concourse.unity",
+      "promoted": {
+        "model": "Assets/StationDesigner/Generated/Models/checkout-cafe-4m.glb",
+        "prefab": "Assets/StationDesigner/Generated/Prefabs/CheckoutCafe4m.prefab"
+      },
+      "dependency": "com.unity.cloud.gltfast@6.19.0",
+      "exportCommand": "node tools/unity-assets/export-concourse.mjs .preview/unity/concourse-proof/export",
+      "proofCommand": "./tools/unity-assets/prove-model.ps1 -Family concourse -SkipWeb -SkipPromote",
+      "parameters": {
+        "variant": "cafe",
+        "counterWidthMetres": 1,
+        "counterLengthMetres": 4,
+        "heightMetres": 1.5,
+        "placementOffset": [
+          0.5,
+          0.5,
+          1
+        ],
+        "facade": "local -y",
+        "basis": "source Z-up tree wrapped in a group rotated -90 degrees about X (glTF Y-up); Unity wrapper applies the 180-degree Y correction so gameplay channels read (x, z, y)",
+        "instanceExpansion": "11 instances baked into 3 per-colour materials",
+        "stockMaterials": [
+          "shelfGoods_563c2b",
+          "shelfGoods_e4d9bb",
+          "shelfGoods_f2eee1"
+        ],
+        "cells": 4
+      }
+    },
+    {
+      "id": "station.checkout.cafe-pastry.2m",
+      "catalogueId": "checkout-cafe-pastry-2m",
+      "family": "concourse fixtures",
+      "category": "Reusable station pieces",
+      "sourcePaths": [
+        "game/src/render/models/pieces/ShopCounter.ts",
+        "game/src/render/models/pieces/ShopStock.ts",
+        "game/src/render/models/PieceBuilder.ts",
+        "game/src/build/model/Equipment.ts",
+        "game/src/sim/counters.ts"
+      ],
+      "owner": "Station Designer game",
+      "provenance": "Repository procedural 咖啡台 pastry counter geometry, palette and canvas POS artwork",
+      "licenseRecord": "Repository-authored procedural geometry and canvas artwork; no third-party assets",
+      "classification": "procedural",
+      "variants": [
+        "cfg.variant = \"cafe-pastry\", w = 2"
+      ],
+      "anchors": {
+        "AxisX": [
+          1,
+          0,
+          0
+        ],
+        "Front": [
+          0,
+          1,
+          0
+        ],
+        "Up": [
+          0,
+          0,
+          1
+        ],
+        "Approach": [
+          0,
+          -1,
+          0
+        ]
+      },
+      "expected": {
+        "units": "metres",
+        "min": [
+          -0.495,
+          -0.43,
+          0
+        ],
+        "max": [
+          1.495,
+          0.43,
+          1.5
+        ]
+      },
+      "triangles": 4044,
+      "materials": [
+        "darkSteel",
+        "desktopScreen",
+        "glass",
+        "shelfGoods_88503c",
+        "shelfGoods_e3ae67",
+        "steel",
+        "white",
+        "wood",
+        "woodDark",
+        "woodLight"
+      ],
+      "alphaMaterials": [
+        "glass"
+      ],
+      "textures": 2,
+      "lod": "full-detail source meshes; renderer LOD metadata stripped at export",
+      "validationScene": "Assets/StationDesigner/Generated/Review/Concourse.unity",
+      "promoted": {
+        "model": "Assets/StationDesigner/Generated/Models/checkout-cafe-pastry-2m.glb",
+        "prefab": "Assets/StationDesigner/Generated/Prefabs/CheckoutCafePastry2m.prefab"
+      },
+      "dependency": "com.unity.cloud.gltfast@6.19.0",
+      "exportCommand": "node tools/unity-assets/export-concourse.mjs .preview/unity/concourse-proof/export",
+      "proofCommand": "./tools/unity-assets/prove-model.ps1 -Family concourse -SkipWeb -SkipPromote",
+      "parameters": {
+        "variant": "cafe-pastry",
+        "counterWidthMetres": 1,
+        "counterLengthMetres": 2,
+        "heightMetres": 1.5,
+        "placementOffset": [
+          0.5,
+          0.5,
+          1
+        ],
+        "facade": "local -y",
+        "basis": "source Z-up tree wrapped in a group rotated -90 degrees about X (glTF Y-up); Unity wrapper applies the 180-degree Y correction so gameplay channels read (x, z, y)",
+        "instanceExpansion": "32 instances baked into 2 per-colour materials",
+        "stockMaterials": [
+          "shelfGoods_88503c",
+          "shelfGoods_e3ae67"
+        ],
+        "cells": 2
+      }
+    },
+    {
+      "id": "station.checkout.cafe-pastry.3m",
+      "catalogueId": "checkout-cafe-pastry-3m",
+      "family": "concourse fixtures",
+      "category": "Reusable station pieces",
+      "sourcePaths": [
+        "game/src/render/models/pieces/ShopCounter.ts",
+        "game/src/render/models/pieces/ShopStock.ts",
+        "game/src/render/models/PieceBuilder.ts",
+        "game/src/build/model/Equipment.ts",
+        "game/src/sim/counters.ts"
+      ],
+      "owner": "Station Designer game",
+      "provenance": "Repository procedural 咖啡台 pastry counter geometry, palette and canvas POS artwork",
+      "licenseRecord": "Repository-authored procedural geometry and canvas artwork; no third-party assets",
+      "classification": "procedural",
+      "variants": [
+        "cfg.variant = \"cafe-pastry\", w = 3"
+      ],
+      "anchors": {
+        "AxisX": [
+          1,
+          0,
+          0
+        ],
+        "Front": [
+          0,
+          1,
+          0
+        ],
+        "Up": [
+          0,
+          0,
+          1
+        ],
+        "Approach": [
+          0,
+          -1,
+          0
+        ]
+      },
+      "expected": {
+        "units": "metres",
+        "min": [
+          -0.495,
+          -0.43,
+          0
+        ],
+        "max": [
+          2.495,
+          0.43,
+          1.5
+        ]
+      },
+      "triangles": 6332,
+      "materials": [
+        "darkSteel",
+        "desktopScreen",
+        "glass",
+        "shelfGoods_88503c",
+        "shelfGoods_e3ae67",
+        "steel",
+        "white",
+        "wood",
+        "woodDark",
+        "woodLight"
+      ],
+      "alphaMaterials": [
+        "glass"
+      ],
+      "textures": 2,
+      "lod": "full-detail source meshes; renderer LOD metadata stripped at export",
+      "validationScene": "Assets/StationDesigner/Generated/Review/Concourse.unity",
+      "promoted": {
+        "model": "Assets/StationDesigner/Generated/Models/checkout-cafe-pastry-3m.glb",
+        "prefab": "Assets/StationDesigner/Generated/Prefabs/CheckoutCafePastry3m.prefab"
+      },
+      "dependency": "com.unity.cloud.gltfast@6.19.0",
+      "exportCommand": "node tools/unity-assets/export-concourse.mjs .preview/unity/concourse-proof/export",
+      "proofCommand": "./tools/unity-assets/prove-model.ps1 -Family concourse -SkipWeb -SkipPromote",
+      "parameters": {
+        "variant": "cafe-pastry",
+        "counterWidthMetres": 1,
+        "counterLengthMetres": 3,
+        "heightMetres": 1.5,
+        "placementOffset": [
+          0.5,
+          0.5,
+          1
+        ],
+        "facade": "local -y",
+        "basis": "source Z-up tree wrapped in a group rotated -90 degrees about X (glTF Y-up); Unity wrapper applies the 180-degree Y correction so gameplay channels read (x, z, y)",
+        "instanceExpansion": "52 instances baked into 2 per-colour materials",
+        "stockMaterials": [
+          "shelfGoods_88503c",
+          "shelfGoods_e3ae67"
+        ],
+        "cells": 3
+      }
+    },
+    {
+      "id": "station.checkout.cafe-pastry.4m",
+      "catalogueId": "checkout-cafe-pastry-4m",
+      "family": "concourse fixtures",
+      "category": "Reusable station pieces",
+      "sourcePaths": [
+        "game/src/render/models/pieces/ShopCounter.ts",
+        "game/src/render/models/pieces/ShopStock.ts",
+        "game/src/render/models/PieceBuilder.ts",
+        "game/src/build/model/Equipment.ts",
+        "game/src/sim/counters.ts"
+      ],
+      "owner": "Station Designer game",
+      "provenance": "Repository procedural 咖啡台 pastry counter geometry, palette and canvas POS artwork",
+      "licenseRecord": "Repository-authored procedural geometry and canvas artwork; no third-party assets",
+      "classification": "procedural",
+      "variants": [
+        "cfg.variant = \"cafe-pastry\", w = 4"
+      ],
+      "anchors": {
+        "AxisX": [
+          1,
+          0,
+          0
+        ],
+        "Front": [
+          0,
+          1,
+          0
+        ],
+        "Up": [
+          0,
+          0,
+          1
+        ],
+        "Approach": [
+          0,
+          -1,
+          0
+        ]
+      },
+      "expected": {
+        "units": "metres",
+        "min": [
+          -0.495,
+          -0.43,
+          0
+        ],
+        "max": [
+          3.495,
+          0.43,
+          1.5
+        ]
+      },
+      "triangles": 8620,
+      "materials": [
+        "darkSteel",
+        "desktopScreen",
+        "glass",
+        "shelfGoods_88503c",
+        "shelfGoods_e3ae67",
+        "steel",
+        "white",
+        "wood",
+        "woodDark",
+        "woodLight"
+      ],
+      "alphaMaterials": [
+        "glass"
+      ],
+      "textures": 2,
+      "lod": "full-detail source meshes; renderer LOD metadata stripped at export",
+      "validationScene": "Assets/StationDesigner/Generated/Review/Concourse.unity",
+      "promoted": {
+        "model": "Assets/StationDesigner/Generated/Models/checkout-cafe-pastry-4m.glb",
+        "prefab": "Assets/StationDesigner/Generated/Prefabs/CheckoutCafePastry4m.prefab"
+      },
+      "dependency": "com.unity.cloud.gltfast@6.19.0",
+      "exportCommand": "node tools/unity-assets/export-concourse.mjs .preview/unity/concourse-proof/export",
+      "proofCommand": "./tools/unity-assets/prove-model.ps1 -Family concourse -SkipWeb -SkipPromote",
+      "parameters": {
+        "variant": "cafe-pastry",
+        "counterWidthMetres": 1,
+        "counterLengthMetres": 4,
+        "heightMetres": 1.5,
+        "placementOffset": [
+          0.5,
+          0.5,
+          1
+        ],
+        "facade": "local -y",
+        "basis": "source Z-up tree wrapped in a group rotated -90 degrees about X (glTF Y-up); Unity wrapper applies the 180-degree Y correction so gameplay channels read (x, z, y)",
+        "instanceExpansion": "72 instances baked into 2 per-colour materials",
+        "stockMaterials": [
+          "shelfGoods_88503c",
+          "shelfGoods_e3ae67"
+        ],
+        "cells": 4
+      }
+    },
+    {
+      "id": "station.checkout.generic.2m",
+      "catalogueId": "checkout-generic-2m",
+      "family": "concourse fixtures",
+      "category": "Reusable station pieces",
+      "sourcePaths": [
+        "game/src/render/models/pieces/ShopCounter.ts",
+        "game/src/render/models/pieces/ShopStock.ts",
+        "game/src/render/models/PieceBuilder.ts",
+        "game/src/build/model/Equipment.ts",
+        "game/src/sim/counters.ts"
+      ],
+      "owner": "Station Designer game",
+      "provenance": "Repository procedural store counter geometry, palette and canvas POS artwork",
+      "licenseRecord": "Repository-authored procedural geometry and canvas artwork; no third-party assets",
+      "classification": "procedural",
+      "variants": [
+        "cfg.variant = \"generic\", w = 2"
+      ],
+      "anchors": {
+        "AxisX": [
+          1,
+          0,
+          0
+        ],
+        "Front": [
+          0,
+          1,
+          0
+        ],
+        "Up": [
+          0,
+          0,
+          1
+        ],
+        "Approach": [
+          0,
+          -1,
+          0
+        ]
+      },
+      "expected": {
+        "units": "metres",
+        "min": [
+          -0.495,
+          -0.43,
+          0
+        ],
+        "max": [
+          1.495,
+          0.43,
+          1.4
+        ]
+      },
+      "triangles": 256,
+      "materials": [
+        "darkSteel",
+        "desktopScreen",
+        "rubber",
+        "steel",
+        "white"
+      ],
+      "alphaMaterials": [],
+      "textures": 2,
+      "lod": "full-detail source meshes; renderer LOD metadata stripped at export",
+      "validationScene": "Assets/StationDesigner/Generated/Review/Concourse.unity",
+      "promoted": {
+        "model": "Assets/StationDesigner/Generated/Models/checkout-generic-2m.glb",
+        "prefab": "Assets/StationDesigner/Generated/Prefabs/CheckoutGeneric2m.prefab"
+      },
+      "dependency": "com.unity.cloud.gltfast@6.19.0",
+      "exportCommand": "node tools/unity-assets/export-concourse.mjs .preview/unity/concourse-proof/export",
+      "proofCommand": "./tools/unity-assets/prove-model.ps1 -Family concourse -SkipWeb -SkipPromote",
+      "parameters": {
+        "variant": "generic",
+        "counterWidthMetres": 1,
+        "counterLengthMetres": 2,
+        "heightMetres": 1.4,
+        "placementOffset": [
+          0.5,
+          0.5,
+          1
+        ],
+        "facade": "local -y",
+        "basis": "source Z-up tree wrapped in a group rotated -90 degrees about X (glTF Y-up); Unity wrapper applies the 180-degree Y correction so gameplay channels read (x, z, y)",
+        "cells": 2,
+        "instanceExpansion": "0 instances baked into 0 per-colour materials",
+        "stockMaterials": []
+      }
+    },
+    {
+      "id": "station.checkout.generic.3m",
+      "catalogueId": "checkout-generic-3m",
+      "family": "concourse fixtures",
+      "category": "Reusable station pieces",
+      "sourcePaths": [
+        "game/src/render/models/pieces/ShopCounter.ts",
+        "game/src/render/models/pieces/ShopStock.ts",
+        "game/src/render/models/PieceBuilder.ts",
+        "game/src/build/model/Equipment.ts",
+        "game/src/sim/counters.ts"
+      ],
+      "owner": "Station Designer game",
+      "provenance": "Repository procedural store counter geometry, palette and canvas POS artwork",
+      "licenseRecord": "Repository-authored procedural geometry and canvas artwork; no third-party assets",
+      "classification": "procedural",
+      "variants": [
+        "cfg.variant = \"generic\", w = 3"
+      ],
+      "anchors": {
+        "AxisX": [
+          1,
+          0,
+          0
+        ],
+        "Front": [
+          0,
+          1,
+          0
+        ],
+        "Up": [
+          0,
+          0,
+          1
+        ],
+        "Approach": [
+          0,
+          -1,
+          0
+        ]
+      },
+      "expected": {
+        "units": "metres",
+        "min": [
+          -0.495,
+          -0.43,
+          0
+        ],
+        "max": [
+          2.495,
+          0.43,
+          1.4
+        ]
+      },
+      "triangles": 304,
+      "materials": [
+        "darkSteel",
+        "desktopScreen",
+        "rubber",
+        "steel",
+        "white"
+      ],
+      "alphaMaterials": [],
+      "textures": 2,
+      "lod": "full-detail source meshes; renderer LOD metadata stripped at export",
+      "validationScene": "Assets/StationDesigner/Generated/Review/Concourse.unity",
+      "promoted": {
+        "model": "Assets/StationDesigner/Generated/Models/checkout-generic-3m.glb",
+        "prefab": "Assets/StationDesigner/Generated/Prefabs/CheckoutGeneric3m.prefab"
+      },
+      "dependency": "com.unity.cloud.gltfast@6.19.0",
+      "exportCommand": "node tools/unity-assets/export-concourse.mjs .preview/unity/concourse-proof/export",
+      "proofCommand": "./tools/unity-assets/prove-model.ps1 -Family concourse -SkipWeb -SkipPromote",
+      "parameters": {
+        "variant": "generic",
+        "counterWidthMetres": 1,
+        "counterLengthMetres": 3,
+        "heightMetres": 1.4,
+        "placementOffset": [
+          0.5,
+          0.5,
+          1
+        ],
+        "facade": "local -y",
+        "basis": "source Z-up tree wrapped in a group rotated -90 degrees about X (glTF Y-up); Unity wrapper applies the 180-degree Y correction so gameplay channels read (x, z, y)",
+        "cells": 3,
+        "instanceExpansion": "0 instances baked into 0 per-colour materials",
+        "stockMaterials": []
+      }
+    },
+    {
+      "id": "station.checkout.generic.4m",
+      "catalogueId": "checkout-generic-4m",
+      "family": "concourse fixtures",
+      "category": "Reusable station pieces",
+      "sourcePaths": [
+        "game/src/render/models/pieces/ShopCounter.ts",
+        "game/src/render/models/pieces/ShopStock.ts",
+        "game/src/render/models/PieceBuilder.ts",
+        "game/src/build/model/Equipment.ts",
+        "game/src/sim/counters.ts"
+      ],
+      "owner": "Station Designer game",
+      "provenance": "Repository procedural store counter geometry, palette and canvas POS artwork",
+      "licenseRecord": "Repository-authored procedural geometry and canvas artwork; no third-party assets",
+      "classification": "procedural",
+      "variants": [
+        "cfg.variant = \"generic\", w = 4"
+      ],
+      "anchors": {
+        "AxisX": [
+          1,
+          0,
+          0
+        ],
+        "Front": [
+          0,
+          1,
+          0
+        ],
+        "Up": [
+          0,
+          0,
+          1
+        ],
+        "Approach": [
+          0,
+          -1,
+          0
+        ]
+      },
+      "expected": {
+        "units": "metres",
+        "min": [
+          -0.495,
+          -0.43,
+          0
+        ],
+        "max": [
+          3.495,
+          0.43,
+          1.4
+        ]
+      },
+      "triangles": 352,
+      "materials": [
+        "darkSteel",
+        "desktopScreen",
+        "rubber",
+        "steel",
+        "white"
+      ],
+      "alphaMaterials": [],
+      "textures": 2,
+      "lod": "full-detail source meshes; renderer LOD metadata stripped at export",
+      "validationScene": "Assets/StationDesigner/Generated/Review/Concourse.unity",
+      "promoted": {
+        "model": "Assets/StationDesigner/Generated/Models/checkout-generic-4m.glb",
+        "prefab": "Assets/StationDesigner/Generated/Prefabs/CheckoutGeneric4m.prefab"
+      },
+      "dependency": "com.unity.cloud.gltfast@6.19.0",
+      "exportCommand": "node tools/unity-assets/export-concourse.mjs .preview/unity/concourse-proof/export",
+      "proofCommand": "./tools/unity-assets/prove-model.ps1 -Family concourse -SkipWeb -SkipPromote",
+      "parameters": {
+        "variant": "generic",
+        "counterWidthMetres": 1,
+        "counterLengthMetres": 4,
+        "heightMetres": 1.4,
+        "placementOffset": [
+          0.5,
+          0.5,
+          1
+        ],
+        "facade": "local -y",
+        "basis": "source Z-up tree wrapped in a group rotated -90 degrees about X (glTF Y-up); Unity wrapper applies the 180-degree Y correction so gameplay channels read (x, z, y)",
+        "cells": 4,
+        "instanceExpansion": "0 instances baked into 0 per-colour materials",
+        "stockMaterials": []
       }
     },
     {
@@ -11005,7 +12187,7 @@
         "variant": "long",
         "storeyHeightMetres": 5,
         "placementOffset": [
-          -2.5,
+          0.5,
           0.5,
           1
         ],
@@ -11100,7 +12282,7 @@
         "variant": "short",
         "storeyHeightMetres": 5,
         "placementOffset": [
-          -0.5,
+          0.5,
           0.5,
           1
         ],

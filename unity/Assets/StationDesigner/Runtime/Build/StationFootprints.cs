@@ -551,10 +551,11 @@ namespace Metro.Build {
             return cells.ToArray();
         }
 
+        public static int CounterLength(int width) => width >= 1 && width <= 4 ? width : 1;
+
         static StationPoint[] CheckoutCells(StationModuleRecord m) {
             // `counterCells` reads the module's own saved run length, not a cfg field.
-            int length = m.Width;
-            if (length < 1 || length > 4) length = 1;
+            int length = CounterLength(m.Width);
             var cells = new List<StationPoint>(length);
             for (int i = 0; i < length; i++) {
                 RotateLocal(m.Rotation, i, 0, out var dx, out var dy);

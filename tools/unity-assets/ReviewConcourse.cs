@@ -10,21 +10,21 @@ using UnityEngine.Rendering;
 namespace Metro.AssetExample
 {
     /// <summary>
-    /// Import the ten concourse GLBs exported by export-concourse.mjs (four
-    /// checkouts, WC basin and urinal, three 灭火器 cabinets and the city 导向柱),
-    /// wrap each in a prefab, verify digest/bounds/materials/textures/alpha queues/
-    /// basis anchors/facings, and save one review scene with all ten in a row.
+    /// Import and verify the concourse GLBs exported by export-concourse.mjs,
+    /// including the four lengths of each checkout. The review scene shows the
+    /// ten palette pieces.
     /// </summary>
     public static class ReviewConcourse
     {
         private const string Folder = "Assets/ConcourseProof";
         private const string Scene = Folder + "/Concourse.unity";
-        private const int ExpectedCount = 10;
+        private const int PaletteCount = 10;
+        private const int CheckoutRunCount = 12;
         /// <summary>Row pitch: the widest piece is the 1.5 m glass cabinet.</summary>
         private const float RowSpacing = 2.4f;
 
         private static readonly float[] RowX =
-            Enumerable.Range(0, ExpectedCount).Select(i => (i - (ExpectedCount - 1) / 2f) * RowSpacing).ToArray();
+            Enumerable.Range(0, PaletteCount).Select(i => (i - (PaletteCount - 1) / 2f) * RowSpacing).ToArray();
 
         [Serializable]
         private class Manifest
@@ -81,13 +81,13 @@ namespace Metro.AssetExample
             var manifest = JsonUtility.FromJson<Manifest>(
                 File.ReadAllText(Path.Combine(evidence, "export", "manifest.json")));
             Require(manifest?.assets != null, "The concourse manifest has no assets");
-            Require(manifest.assets.Length == ExpectedCount,
-                $"Expected {ExpectedCount} concourse models, got {manifest.assets.Length}");
+            Require(manifest.assets.Length == PaletteCount + CheckoutRunCount,
+                $"Expected {PaletteCount + CheckoutRunCount} concourse models, got {manifest.assets.Length}");
             Require(manifest.family == "concourse", $"Unexpected manifest family {manifest.family}");
 
             var parameters = manifest.parameters;
             Require(parameters != null, "The concourse manifest has no family parameters");
-            Require(parameters.models == ExpectedCount, $"Unexpected model count {parameters.models}");
+            Require(parameters.models == manifest.assets.Length, $"Unexpected model count {parameters.models}");
             Require(parameters.family == "concourse", $"Unexpected parameter family {parameters.family}");
             Require(Mathf.Approximately(parameters.counterWidthMetres, 1f), "Unexpected checkout counter width");
             Require(Mathf.Approximately(parameters.counterLengthMetres, 1f), "Unexpected checkout counter length");
@@ -100,8 +100,8 @@ namespace Metro.AssetExample
             CheckSpec(parameters, "compact", 0.5f, 0.35f, 0.5f, 1);
             CheckSpec(parameters, "glass", 1.5f, 0.5f, 2f, 2);
 
-            Require(manifest.assets.Count(asset => asset.id.StartsWith("station.checkout.")) == 4,
-                "Expected four checkout variants");
+            Require(manifest.assets.Count(asset => asset.id.StartsWith("station.checkout.")) == 16,
+                "Expected four checkout styles in four lengths");
             Require(manifest.assets.Count(asset => asset.id.StartsWith("station.extinguisher.")) == 3,
                 "Expected three extinguisher variants");
 
@@ -207,7 +207,7 @@ namespace Metro.AssetExample
             // deterministically above and referenced by GUID, so keep the first
             // generated scene and only create it when it is missing.
             if (!File.Exists(Scene))
-                BuildReviewScene(manifest.assets);
+                BuildReviewScene(manifest.assets.Take(PaletteCount).ToArray());
 
             Debug.Log($"CONCOURSE_IMPORT_OK {manifest.assets.Length} models {string.Join(" ", summary)} " +
                 $"row={RowX[0]}..{RowX[RowX.Length - 1]}");
@@ -328,8 +328,8 @@ namespace Metro.AssetExample
             if (asset.paletteId.StartsWith("checkout"))
             {
                 Require(Mathf.Approximately(parameters.counterWidthMetres, 1f) &&
-                    Mathf.Approximately(parameters.counterLengthMetres, 1f),
-                    $"{asset.paletteId}: unexpected counter width {parameters.counterWidthMetres}");
+                    parameters.counterLengthMetres >= 1f && parameters.counterLengthMetres <= 4f,
+                    $"{asset.id}: unexpected counter dimensions");
             }
             if (asset.paletteId.StartsWith("extinguisher"))
             {
@@ -353,6 +353,8 @@ namespace Metro.AssetExample
         private static void CheckSize(Asset asset)
         {
             Vector3 size = BasisSize(asset.size);
+            if (asset.paletteId.StartsWith("checkout"))
+                size.x -= asset.parameters.counterLengthMetres - 1f;
             switch (asset.paletteId)
             {
                 case "checkout":

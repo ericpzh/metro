@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "generatedBy": "tools/unity-assets/build-runtime-views.mjs",
   "counts": {
-    "prefab": 123,
+    "prefab": 135,
     "live": 66,
     "generated": 15
   },
@@ -316,7 +316,7 @@
       "status": "DONE",
       "recipeId": "station.busstop.long",
       "offset": [
-        -2.5,
+        0.5,
         0.5,
         1
       ],
@@ -330,7 +330,7 @@
       "status": "DONE",
       "recipeId": "station.busstop.short",
       "offset": [
-        -0.5,
+        0.5,
         0.5,
         1
       ],
@@ -570,6 +570,48 @@
       ]
     },
     {
+      "key": "checkout-2m",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/Checkout2m.prefab",
+      "palette": false,
+      "status": "DONE",
+      "recipeId": "station.checkout.standard.2m",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ],
+      "cells": 2
+    },
+    {
+      "key": "checkout-3m",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/Checkout3m.prefab",
+      "palette": false,
+      "status": "DONE",
+      "recipeId": "station.checkout.standard.3m",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ],
+      "cells": 3
+    },
+    {
+      "key": "checkout-4m",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/Checkout4m.prefab",
+      "palette": false,
+      "status": "DONE",
+      "recipeId": "station.checkout.standard.4m",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ],
+      "cells": 4
+    },
+    {
       "key": "checkout-cafe",
       "kind": "prefab",
       "prefab": "Assets/StationDesigner/Generated/Prefabs/CheckoutCafe.prefab",
@@ -581,6 +623,48 @@
         0.5,
         1
       ]
+    },
+    {
+      "key": "checkout-cafe-2m",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CheckoutCafe2m.prefab",
+      "palette": false,
+      "status": "DONE",
+      "recipeId": "station.checkout.cafe.2m",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ],
+      "cells": 2
+    },
+    {
+      "key": "checkout-cafe-3m",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CheckoutCafe3m.prefab",
+      "palette": false,
+      "status": "DONE",
+      "recipeId": "station.checkout.cafe.3m",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ],
+      "cells": 3
+    },
+    {
+      "key": "checkout-cafe-4m",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CheckoutCafe4m.prefab",
+      "palette": false,
+      "status": "DONE",
+      "recipeId": "station.checkout.cafe.4m",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ],
+      "cells": 4
     },
     {
       "key": "checkout-cafe-pastry",
@@ -596,6 +680,48 @@
       ]
     },
     {
+      "key": "checkout-cafe-pastry-2m",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CheckoutCafePastry2m.prefab",
+      "palette": false,
+      "status": "DONE",
+      "recipeId": "station.checkout.cafe-pastry.2m",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ],
+      "cells": 2
+    },
+    {
+      "key": "checkout-cafe-pastry-3m",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CheckoutCafePastry3m.prefab",
+      "palette": false,
+      "status": "DONE",
+      "recipeId": "station.checkout.cafe-pastry.3m",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ],
+      "cells": 3
+    },
+    {
+      "key": "checkout-cafe-pastry-4m",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CheckoutCafePastry4m.prefab",
+      "palette": false,
+      "status": "DONE",
+      "recipeId": "station.checkout.cafe-pastry.4m",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ],
+      "cells": 4
+    },
+    {
       "key": "checkout-generic",
       "kind": "prefab",
       "prefab": "Assets/StationDesigner/Generated/Prefabs/CheckoutGeneric.prefab",
@@ -607,6 +733,48 @@
         0.5,
         1
       ]
+    },
+    {
+      "key": "checkout-generic-2m",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CheckoutGeneric2m.prefab",
+      "palette": false,
+      "status": "DONE",
+      "recipeId": "station.checkout.generic.2m",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ],
+      "cells": 2
+    },
+    {
+      "key": "checkout-generic-3m",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CheckoutGeneric3m.prefab",
+      "palette": false,
+      "status": "DONE",
+      "recipeId": "station.checkout.generic.3m",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ],
+      "cells": 3
+    },
+    {
+      "key": "checkout-generic-4m",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CheckoutGeneric4m.prefab",
+      "palette": false,
+      "status": "DONE",
+      "recipeId": "station.checkout.generic.4m",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ],
+      "cells": 4
     },
     {
       "key": "city:beijing:doorway-entrance",

@@ -277,10 +277,22 @@ undo/redo equivalent to a full rebuild in `StationPlan32EquivalenceAndRollbackTe
 
 `ModulePlacement.Resolve` is the shared furniture ghost/body placement: rotate the
 rotation-zero catalogue inset around the cell centre, add a run translation only
-when the source did not bake it (shelves and extinguisher cabinets already did),
+when the source did not bake it (shelves, extinguisher cabinets, counters and bus
+shelters already did),
 and apply `EdgeDecorGlassShare`'s 0.15 m curtain clearance once. Keep the 312 source
 cases in `edge-placement-oracle.json` current with
 `node tools/unity-parity/record-edge-placement.mjs --check`.
+
+For saved decor variants, trace the document through `ModuleViews.Resolve`,
+the runtime catalogue and the owning renderer. The palette inventory checks
+asset mappings, while `ModuleViewResolverTests` loads saved records and checks
+the rendered dimensions and anchors. Counters select artwork by style and
+`counterLength(w)` for all four lengths. Export longer counters through
+`export-concourse.mjs` to preserve the scale and layout of their equipment.
+Register the length-specific prefabs as non-palette views and regenerate the
+runtime catalogue after updating the mapping. The street renderer owns both
+bus shelter sizes, whose saved coordinates start at the first cell. Ceiling
+lights with an omitted variant use the circular fixture.
 
 Hover, persistent selection and temporary ghosts have separate ownership in
 `StationPlacementPreview`; source meshes stay outside the pick registry. Erase

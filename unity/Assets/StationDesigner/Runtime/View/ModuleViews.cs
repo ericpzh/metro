@@ -142,7 +142,10 @@ namespace Metro.View {
                 }
                 case "checkout": {
                     var variant = cfg.Text("variant");
-                    return First(variant.Length > 0 ? "checkout-" + variant : "", "checkout");
+                    var style = variant == "cafe" || variant == "cafe-pastry" || variant == "generic"
+                        ? "checkout-" + variant : "checkout";
+                    var length = StationFootprints.CounterLength(module.Width);
+                    return Key(length == 1 ? style : $"{style}-{length}m");
                 }
                 case "exit": {
                     var style = cfg.Text("style");
@@ -167,10 +170,7 @@ namespace Metro.View {
                     var variant = cfg.Text("variant");
                     return First(variant.Length > 0 ? "floor-mark-" + variant : "", "floor-mark-boarding");
                 }
-                case "light": {
-                    var variant = cfg.Text("variant");
-                    return First(variant.Length > 0 ? "light-" + variant : "", "light-rectangular");
-                }
+                case "light": return Key(cfg.Text("variant") == "rectangular" ? "light-rectangular" : "light-circular");
                 // Saved pillars range over 3–11 m heights; the palette prefab is one 5 m section.
                 case "pillar": return new ModuleVisual(PillarRun, ModuleViewKind.Generated, "");
                 case "roof": {
@@ -186,7 +186,10 @@ namespace Metro.View {
                     var variant = cfg.Text("variant");
                     return First(variant.Length > 0 ? "court-" + variant : "", "court-pickleball");
                 }
-                case "busstop": return Key(module.Width >= 8 ? "busstop-long" : "busstop-short");
+                case "busstop": {
+                    var variant = cfg.Text("variant");
+                    return Key(variant == "long" || (variant.Length == 0 && module.Width >= 8) ? "busstop-long" : "busstop-short");
+                }
                 case "cubicle": return Key(string.Equals(cfg.Text("variant"), "toilet", StringComparison.Ordinal) ? "cubicle-toilet" : "cubicle");
                 case "psd-end": return Key(string.Equals(cfg.Text("variant"), "cover", StringComparison.Ordinal) ? "psd-end-cover" : "psd-end");
                 case "stair": {

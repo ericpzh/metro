@@ -4,6 +4,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { COUNTER_LENGTHS, COUNTER_VARIANTS, counterPaletteId } from '../../game/src/sim/counters.ts'
 
 const root = dirname(dirname(dirname(fileURLToPath(import.meta.url))))
 const mappingPath = join(root, 'unity/asset-recipes/runtime-views.json')
@@ -68,5 +69,28 @@ test('non-palette supplemental variants and city pieces are mapped', () => {
   assert.equal(mapping.city.guangzhou['exit-canopy'], 'city:guangzhou:exit-canopy')
   for (const city of Object.keys(mapping.city)) {
     assert.ok(byKey.has(mapping.city[city]['exit-canopy']), `${city} exit canopy is not mapped`)
+  }
+})
+
+test('each longer counter has a prefab and source export for its saved length', () => {
+  const catalogue = JSON.parse(readFileSync(join(root, 'unity/asset-recipes/catalogue.json'), 'utf8'))
+  const recipes = new Map(catalogue.families.map(record => [record.catalogueId, record]))
+  const views = new Map(mapping.views.map(entry => [entry.key, entry]))
+  const prefabs = new Set()
+  for (const variant of COUNTER_VARIANTS) {
+    for (const length of COUNTER_LENGTHS) {
+      const base = counterPaletteId(variant)
+      const key = length === 1 ? base : `${base}-${length}m`
+      const recipe = recipes.get(key)
+      const view = views.get(key)
+      assert.equal(recipe.parameters.counterLengthMetres, length, key)
+      assert.equal(view.prefab, recipe.promoted.prefab, key)
+      assert.equal(view.palette, length === 1, key)
+      assert.deepEqual(view.offset, [0.5, 0.5, 1], key)
+      assert.ok(!prefabs.has(view.prefab), key)
+      prefabs.add(view.prefab)
+      const model = join(root, 'unity', recipe.promoted.model)
+      assert.ok(existsSync(model) && existsSync(model + '.meta'), key)
+    }
   }
 })

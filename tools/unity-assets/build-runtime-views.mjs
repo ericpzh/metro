@@ -17,6 +17,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { COUNTER_LENGTHS, COUNTER_VARIANTS, counterPaletteId } from '../../game/src/sim/counters.ts'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const root = resolve(here, '../..')
@@ -184,6 +185,15 @@ export async function build() {
   for (const id of SUPPLEMENTAL) {
     const row = rowPrefab(id)
     add({ key: id, kind: 'prefab', prefab: row.prefab, palette: false, status: row.status })
+  }
+  // Counter styles share one palette tile per style and have dedicated meshes at 2–4 m.
+  for (const variant of COUNTER_VARIANTS) {
+    for (const length of COUNTER_LENGTHS.slice(1)) {
+      const key = `${counterPaletteId(variant)}-${length}m`
+      const recipe = catalogue.families.find(record => record.catalogueId === key)
+      if (!recipe?.promoted?.prefab) throw Error('missing counter run prefab recipe: ' + key)
+      add({ key, kind: 'prefab', prefab: recipe.promoted.prefab, palette: false, status: 'DONE' })
+    }
   }
   add({ key: 'platform-edge', kind: 'generated', generator: 'psd-run', palette: false, status: rows.get('platform-edge')?.status ?? 'PARTIAL',
     note: GENERATED['hanger-roof'] ? 'screen door assembly from the saved run and the 6-car L door centres' : '',

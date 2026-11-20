@@ -64,9 +64,9 @@ namespace Metro.View {
         /// like every offset here; callers add it before the one world conversion.
         /// </summary>
         public static Vector3 RunCentre(ModuleFacts module) {
-            // ShelfModel and ExtinguisherModel bake the run displacement into their children;
-            // BenchModel keeps the body centred and moves the group instead.
-            if (module == null || module.Type == "court" || module.Type == "shelf" || module.Type == "extinguisher") return Vector3.zero;
+            // These models already place their geometry relative to the first cell.
+            if (module == null || module.Type == "court" || module.Type == "shelf" || module.Type == "extinguisher" ||
+                module.Type == "checkout" || module.Type == "busstop") return Vector3.zero;
             float halfWidth = Mathf.Max(0, module.Width - 1) * 0.5f;
             float halfDepth = Mathf.Max(0, module.Depth - 1) * 0.5f;
             if (halfWidth <= 0f && halfDepth <= 0f) return Vector3.zero;

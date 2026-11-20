@@ -381,6 +381,11 @@ for (const spec of MODELS) {
   // the cell floor instead. Export from a stable local origin and record the
   // offset once.
   const placementOffset = root.position.toArray()
+  // A shelter's saved coordinates already include the palette's centre-to-origin shift.
+  if (spec.type === 'busstop') {
+    placementOffset[0] -= mod.x
+    placementOffset[1] -= mod.y
+  }
   root.position.set(0, 0, 0)
   root.rotation.set(0, 0, 0)
   root.updateMatrixWorld(true)

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { COUNTER_LENGTHS, COUNTER_VARIANTS, counterPaletteId } from '../../game/src/sim/counters.ts'
 
 // Guard for unity/plan/renderer-source-audit.md. It is deliberately a source
 // contract: everything it asserts is either parsed from the two plan files or
@@ -118,6 +119,11 @@ const dispatchBuilders = [...dispatchSource.matchAll(/new ([A-Za-z]+)\(ctx\)/g)]
 const uniqueBuilders = new Set(dispatchBuilders)
 
 const catalogueIds = catalogue.families.map((record) => record.catalogueId)
+// Counter runs have no palette checklist rows. Their manifests and runtime view
+// mappings are checked separately against the source length/style matrix.
+const counterRuns = new Set(COUNTER_VARIANTS.flatMap(variant =>
+  COUNTER_LENGTHS.slice(1).map(length => `${counterPaletteId(variant)}-${length}m`)))
+const auditedCatalogueIds = catalogueIds.filter(id => !counterRuns.has(id))
 const uniqueCatalogueIds = new Set(catalogueIds)
 const duplicateCatalogueKeys = [...uniqueCatalogueIds].filter(
   (id) => catalogueIds.filter((candidate) => candidate === id).length > 1,
@@ -160,7 +166,7 @@ const proposedSection = getSection(audit, '## Adopted checklist rows')
 const proposedRows = tableRows(proposedSection).filter((cells) => /^`[a-z][a-z0-9-]+`$/.test(cells[0]))
 
 test('catalogue recipes resolve to the checklist or a documented sample alias', { skip: planSkip }, () => {
-  const missing = [...uniqueCatalogueIds].filter((id) => !checklistIds.has(id))
+  const missing = [...new Set(auditedCatalogueIds)].filter((id) => !checklistIds.has(id))
   assert.deepEqual(missing, ['bench'], 'only the bench family sample key may be absent from the checklist')
   for (const id of missing) {
     assert.ok(SAMPLE_EXPORT_ALLOWLIST.has(id), `${id} is not in the sample/alias allowlist`)
@@ -253,12 +259,12 @@ test('sample-only recipes are documented as generators', { skip: planSkip }, () 
 test('reported counts match the plan files and the inventory', { skip: planSkip }, () => {
   assert.equal(reportedCount(audit, 'Dispatch cases in `models.ts`'), dispatchCases.length)
   assert.equal(reportedCount(audit, 'Unique dispatch builders'), uniqueBuilders.size)
-  assert.equal(reportedCount(audit, 'Catalogue records'), catalogue.families.length)
-  assert.equal(reportedCount(audit, 'Unique catalogue keys'), uniqueCatalogueIds.size)
+  assert.equal(reportedCount(audit, 'Catalogue records'), auditedCatalogueIds.length)
+  assert.equal(reportedCount(audit, 'Unique catalogue keys'), new Set(auditedCatalogueIds).size)
   assert.equal(reportedCount(audit, 'Duplicate catalogue keys'), duplicateCatalogueKeys.length)
   assert.equal(
     reportedCount(audit, 'Catalogue keys absent from checklist'),
-    [...uniqueCatalogueIds].filter((id) => !checklistIds.has(id)).length,
+    [...new Set(auditedCatalogueIds)].filter((id) => !checklistIds.has(id)).length,
   )
   assert.equal(reportedCount(audit, 'Catalogue recipes with no dispatch builder'), 0)
   assert.equal(reportedCount(audit, 'Dispatch cases with no catalogue recipe'), NO_RECIPE_CASES.size)

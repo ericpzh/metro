@@ -93,7 +93,7 @@ import { MODULE_OPTIONS } from '../../game/src/app/store/catalog.ts'
 import { createModule, footprintCellsOf } from '../../game/src/build/model/Equipment.ts'
 import { benchSpec } from '../../game/src/sim/benches.ts'
 import { billboardSpec } from '../../game/src/sim/billboards.ts'
-import { counterLength, counterVariant } from '../../game/src/sim/counters.ts'
+import { counterLength, counterPaletteId, counterVariant } from '../../game/src/sim/counters.ts'
 import { doorSpec } from '../../game/src/sim/doors.ts'
 import { extinguisherVariant } from '../../game/src/sim/extinguishers.ts'
 import { gateDoorOf } from '../../game/src/sim/gates.ts'
@@ -386,7 +386,7 @@ const FINGERPRINTS = {
   busstop: (mod) => ({ variant: mod.cfg?.variant === 'long' ? 'long' : 'short' }),
   calligraphy: (mod) => ({ style: mod.cfg?.style ?? 'kai', axis: mod.cfg?.axis ?? 'h' }),
   cctv: (mod) => ({ variant: mod.cfg?.variant ?? (mod.cfg?.mount === 'post' ? 'post' : 'bullet') }),
-  checkout: (mod) => ({ variant: counterVariant(mod.cfg?.variant) }),
+  checkout: (mod) => ({ variant: counterVariant(mod.cfg?.variant), length: counterLength(mod.w) }),
   clock: (mod) => ({ variant: mod.cfg?.variant === 'digital' ? 'digital' : 'analogue' }),
   court: (mod) => ({ variant: mod.cfg?.variant ?? 'pickleball' }),
   cubicle: (mod) => ({ variant: mod.cfg?.variant === 'toilet' ? 'toilet' : 'standard' }),
@@ -522,8 +522,6 @@ function normalizeCfg(mod, context) {
       return { ...fingerprint, finish: cfg.finish ?? null }
     case 'roof':
       return { ...fingerprint, finish: cfg.finish ?? null, plateSnap: cfg.plateSnap ?? null }
-    case 'checkout':
-      return { ...fingerprint, length: counterLength(mod.w) }
     case 'booth':
       return { ...fingerprint, w: mod.w ?? null, h: mod.h ?? null, front: cfg.front ?? 0 }
     case 'shop':
@@ -721,10 +719,14 @@ function resolveVisual(mod, context = {}) {
       }
       return generatedResult('generated:track')
     }
+    case 'checkout': {
+      const { variant, length } = fingerprint
+      const style = counterPaletteId(variant)
+      return prefabResult(length > 1 ? `${style}-${length}m` : style)
+    }
     case 'tactile':
     case 'floor-mark':
     case 'shelf':
-    case 'checkout':
     case 'cubicle':
     case 'light': {
       const key = palette()

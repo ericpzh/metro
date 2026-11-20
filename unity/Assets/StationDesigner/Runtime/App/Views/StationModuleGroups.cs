@@ -38,7 +38,7 @@ namespace Metro.App.Views {
 
         /// <summary>Types drawn by `StationStreetModuleRenderer` (prefabs + the track run).</summary>
         static readonly HashSet<string> street = new HashSet<string>(StringComparer.Ordinal) {
-            "exit", "guidepost", "vent", "rail-signal", "track",
+            "exit", "guidepost", "vent", "rail-signal", "track", "busstop",
         };
 
         /// <summary>Types drawn by `StationEquipmentModuleRenderer` (one prefab instance each).</summary>

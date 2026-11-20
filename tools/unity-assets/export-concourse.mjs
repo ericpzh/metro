@@ -1,4 +1,4 @@
-// Export the concourse family: the four convenience-store checkouts, the WC
+// Export the concourse family: four checkout styles in lengths from 1 to 4 m, the WC
 // wash basin and urinal, the three 灭火器 cabinets and the city 导向柱 guidepost.
 //
 // Every asset is the game's own `buildModule` output for one placed module at a
@@ -74,7 +74,7 @@ const { mergeGeometries } = await import(pathToFileURL(gameRequire.resolve('thre
 const { createModelMaterials } = await import('../../game/src/render/models/PieceBuilder.ts')
 const { createModule } = await import('../../game/src/build/model/Equipment.ts')
 const { buildModule } = await import('../../game/src/render/models.ts')
-const { counterLength, counterSpec, counterVariant } = await import('../../game/src/sim/counters.ts')
+const { COUNTER_LENGTHS, counterLength, counterSpec, counterVariant } = await import('../../game/src/sim/counters.ts')
 const { extinguisherSpec, extinguisherVariant } = await import('../../game/src/sim/extinguishers.ts')
 
 /** The ten family models, in review-row order. */
@@ -91,7 +91,9 @@ const MODELS = [
   // The triangular column prints its plates on the two long faces and the rear
   // face; the nose (local -y) is its leading edge, so Approach records the front.
   { paletteId: 'guidepost', prefab: 'Guidepost', id: 'station.guidepost.standard', facade: 'local -y', approach: [0, -1, 0], source: 'game/src/render/models/pieces/StreetDecorModel.ts' },
-].map(spec => ({ ...spec, file: `${spec.paletteId}.glb` }))
+]
+const RUNS = MODELS.filter(spec => spec.width === 1).flatMap(spec =>
+  COUNTER_LENGTHS.slice(1).map(width => ({ ...spec, width, prefab: `${spec.prefab}${width}m`, id: `${spec.id}.${width}m` })))
 
 /** The measured size each recipe must reproduce, in metres (source X, Y, Z). */
 const EXPECTED = {
@@ -282,7 +284,10 @@ const out = resolve(process.argv[2] ?? '.preview/unity/concourse-proof/export')
 await mkdir(out, { recursive: true })
 
 const assets = []
-for (const spec of MODELS) {
+for (const spec of [...MODELS, ...RUNS]) {
+  const extension = (spec.width ?? 1) - 1
+  const key = extension ? `${spec.paletteId}-${spec.width}m` : spec.paletteId
+  const file = `${key}.glb`
   const mod = createModule(spec.paletteId, 0, 0, 0, `proof-${spec.paletteId}`, 0, spec.width)
   assert.ok(mod, `${spec.paletteId}: createModule returned null`)
   assert.ok(['checkout', 'sink', 'urinal', 'extinguisher', 'guidepost'].includes(mod.type),
@@ -311,8 +316,9 @@ for (const spec of MODELS) {
   const size = bounds.getSize(new THREE.Vector3())
   const want = EXPECTED[spec.paletteId]
   ;['x', 'y', 'z'].forEach((axis, index) => {
-    assert.ok(Math.abs(size[axis] - want.size[index]) <= want.tolerance,
-      `${spec.paletteId}: ${axis} size ${size[axis].toFixed(3)} m is outside ${want.size[index]} ± ${want.tolerance} m`)
+    const expected = want.size[index] + (axis === 'x' ? extension : 0)
+    assert.ok(Math.abs(size[axis] - expected) <= want.tolerance,
+      `${key}: ${axis} size ${size[axis].toFixed(3)} m is outside ${expected} ± ${want.tolerance} m`)
   })
 
   // Basis anchors, shared with bench/bin/cctv/glass/shelf. `Front` is the
@@ -330,7 +336,7 @@ for (const spec of MODELS) {
   const parameters = { variant: null, counterWidthMetres: 0, counterLengthMetres: 0, widthMetres: 0, depthMetres: 0, heightMetres: 0, cells: 0, plateTextures: 0, cityStyle: '', facade: spec.facade }
   if (mod.type === 'checkout') {
     parameters.variant = counterVariant(mod.cfg.variant)
-    parameters.counterWidthMetres = spec.width
+    parameters.counterWidthMetres = 1
     parameters.counterLengthMetres = counterLength(mod.w)
     parameters.heightMetres = counterSpec(mod.cfg.variant).height
   } else if (mod.type === 'extinguisher') {
@@ -364,24 +370,24 @@ for (const spec of MODELS) {
     gltfRoot.add(anchor)
   }
   const bytes = new Uint8Array(await new GLTFExporter().parseAsync(gltfRoot, { binary: true }))
-  const report = await validator.validateBytes(bytes, { uri: spec.file })
-  const reportName = spec.file.replace(/\.glb$/, '.validation.json')
+  const report = await validator.validateBytes(bytes, { uri: file })
+  const reportName = file.replace(/\.glb$/, '.validation.json')
   await writeFile(join(out, reportName), JSON.stringify(report, null, 2) + '\n')
   assert.equal(
     report.issues.numErrors + report.issues.numWarnings,
     0,
-    `${spec.file}: ${report.issues.numErrors} errors, ${report.issues.numWarnings} warnings. See ${reportName}`,
+    `${file}: ${report.issues.numErrors} errors, ${report.issues.numWarnings} warnings. See ${reportName}`,
   )
 
   const manifest = {
     schemaVersion: 1,
     id: spec.id,
-    catalogueId: spec.paletteId,
+    catalogueId: key,
     paletteId: spec.paletteId,
     family: 'concourse',
     variant: parameters.variant,
     prefab: spec.prefab,
-    file: spec.file,
+    file,
     sha256: createHash('sha256').update(bytes).digest('hex'),
     source: spec.source,
     provenance: 'Repository procedural station-concourse geometry, palette and canvas labels',
@@ -404,8 +410,8 @@ for (const spec of MODELS) {
     parameters,
     validation: { errors: report.issues.numErrors, warnings: report.issues.numWarnings },
   }
-  await writeFile(join(out, spec.file), bytes)
-  await writeFile(join(out, spec.file.replace(/\.glb$/, '.manifest.json')), JSON.stringify(manifest, null, 2) + '\n')
+  await writeFile(join(out, file), bytes)
+  await writeFile(join(out, file.replace(/\.glb$/, '.manifest.json')), JSON.stringify(manifest, null, 2) + '\n')
   assets.push(manifest)
   console.log(
     `${spec.id}: ${stats.triangles} triangles, ${stats.meshes} meshes, ${stats.materials.length} materials ` +
@@ -416,7 +422,6 @@ for (const spec of MODELS) {
 
 const guidepost = assets.find(asset => asset.paletteId === 'guidepost')
 assert.equal(guidepost.textures, 7, 'the guidepost must carry its seven canvas plates')
-assert.equal(assets.filter(asset => asset.parameters.counterWidthMetres === 1).length, 4, 'expected four 1 m counters')
 
 const summary = {
   schemaVersion: 1,
@@ -437,7 +442,7 @@ const summary = {
     'game/src/sim/extinguishers.ts',
   ],
   parameters: {
-    models: MODELS.length,
+    models: assets.length,
     family: 'concourse',
     rot: 0,
     stationData: 'empty station document: { cells: [], modules: [], lines: [], name: "Station", nameEn: "Station" }, so every piece takes its standalone placement offset',

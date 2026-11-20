@@ -1,6 +1,13 @@
+using System.Linq;
+using Metro.App;
+using Metro.App.Views;
 using Metro.Build;
+using Metro.EditModeTests;
+using Metro.Persistence;
 using Metro.View;
+using Newtonsoft.Json.Linq;
 using NUnit.Framework;
+using UnityEditor;
 using UnityEngine;
 
 /// <summary>
@@ -144,9 +151,65 @@ public class ModuleViewResolverTests {
         Assert.AreEqual("tactile-warning", Key(Module("tactile", ("variant", "warning"))));
         Assert.AreEqual("floor-mark-boarding", Key(Module("floor-mark", ("variant", "boarding"))));
         Assert.AreEqual("light-circular", Key(Module("light", ("variant", "circular"))));
+        Assert.AreEqual("light-rectangular", Key(Module("light", ("variant", "rectangular"))));
+        Assert.AreEqual("light-circular", Key(Module("light")));
         // Saved pillar heights vary; the 5 m palette section cannot represent them.
         Assert.AreEqual("pillar-run", Key(Module("pillar", ("variant", "thick"), ("height", "4"))));
         Assert.AreEqual("pillar-run", Key(Module("pillar", ("variant", "slim"), ("height", "9"))));
+    }
+
+    [Test]
+    public void SavedCountersAndBusSheltersDrawTheirWholeRunFromTheFirstCell() {
+        var catalogue = AssetDatabase.LoadAssetAtPath<RuntimeCatalogue>(RuntimeCatalogue.AssetPath);
+        Assert.IsNotNull(catalogue);
+        var save = JObject.Parse(StationCellFixture.Save);
+        var modules = new JArray();
+        save["static"]["modules"] = modules;
+        void Add(string type, string variant, int length, int depth, int rotation) {
+            modules.Add(new JObject {
+                ["id"] = "decor-" + modules.Count, ["type"] = type,
+                ["x"] = modules.Count * 12, ["y"] = 10, ["z"] = 0, ["rot"] = rotation,
+                ["w"] = length, ["d"] = depth, ["cfg"] = new JObject { ["variant"] = variant },
+            });
+        }
+        foreach (var style in new[] { "checkout", "generic", "cafe", "cafe-pastry" }) {
+            for (int length = 1; length <= 4; length++) Add("checkout", style, length, 1, length - 1);
+        }
+        Add("checkout", "legacy-unknown", 9, 1, 0);
+        Add("busstop", "short", 4, 2, 0);
+        Add("busstop", "long", 8, 2, 1);
+
+        var read = StationDocumentReader.Read(save.ToString(), new StationSource("decor-variants", ""));
+        var root = new GameObject("saved decor");
+        try {
+            using var world = new StationWorldView(root.transform, "decor-variants",
+                new IStationViewRenderer[] { new StationEquipmentModuleRenderer(), new StationStreetModuleRenderer() },
+                new StationViewAssets { Catalogue = catalogue, Shader = Shader.Find("Universal Render Pipeline/Lit") });
+            world.Build(read.Document, read.Index);
+            Assert.IsEmpty(world.Unresolved);
+
+            foreach (var module in read.Document.Modules) {
+                var record = world.Records.Single(r => r.ModuleId == module.Id);
+                Assert.IsNotNull(record.View, module.Id);
+                var view = record.View.transform;
+                Assert.AreEqual(new Vector3(module.X + .5f, 1, module.Y + .5f), view.position, module.Id);
+                var renderers = view.GetComponentsInChildren<MeshRenderer>();
+                Assert.IsNotEmpty(renderers, module.Id);
+                var bounds = renderers[0].bounds;
+                foreach (var renderer in renderers) bounds.Encapsulate(renderer.bounds);
+                var axis = view.right;
+                var length = module.Type == "checkout" ? StationFootprints.CounterLength(module.Width) : module.Width;
+                Assert.AreEqual(length, Mathf.Abs(Vector3.Dot(bounds.size, axis)), .3f, module.Id + " rendered length");
+                Assert.AreEqual((length - 1) / 2f, Vector3.Dot(bounds.center - view.position, axis), .08f,
+                    module.Id + " rendered centre");
+                if (module.Config.Text("variant") == "cafe") {
+                    var nodes = view.GetComponentsInChildren<Transform>();
+                    Assert.AreEqual(length > 1, nodes.Any(n => n.name == "coffee-grinder-base"), module.Id);
+                }
+            }
+        } finally {
+            Object.DestroyImmediate(root);
+        }
     }
 
     [Test] public void ConfigFactsReadLegacyAndMissingValues() {

@@ -1227,7 +1227,6 @@ namespace Metro.Build {
         }
 
         /// <summary>`counterLength`: only 1–4 cells are offered, anything else is one.</summary>
-        static string CounterLength(int width) => width >= 1 && width <= 4 ? width.ToString(CultureInfo.InvariantCulture) : "1";
 
         public static string FamilyOf(StationModuleRecord module) {
             if (module == null) return null;
@@ -1254,7 +1253,8 @@ namespace Metro.Build {
             }
             if (!Sweepable.Contains(module.Type)) return null;
             switch (module.Type) {
-                case "checkout": return "checkout:" + CounterVariant(cfg.Text("variant")) + ":" + CounterLength(module.Width);
+                case "checkout": return "checkout:" + CounterVariant(cfg.Text("variant")) + ":" +
+                    StationFootprints.CounterLength(module.Width).ToString(CultureInfo.InvariantCulture);
                 // A catalogue shelf's own table is long and not restated here, so only the
                 // absent/legacy value is normalized; a named variant stays exactly as it is.
                 case "shelf": return "shelf:" + Default(cfg.Text("variant"), "dark-tall");
