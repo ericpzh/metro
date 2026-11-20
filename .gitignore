@@ -5,6 +5,7 @@ web/node_modules/
 # Build output
 dist/
 game/dist-unity-ui/
+unity/dist-web/
 web/dist/
 
 # Generated: the concept sheets are copied from art/ at build time

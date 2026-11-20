@@ -12,6 +12,8 @@
     "preview:unity": "node tools/unity-web/serve-latest-pack.mjs",
     "start:unity": "node tools/unity-web/start-unity.mjs",
     "build:unity": "node tools/unity-web/start-unity.mjs --build-only",
+    "stage:unity": "node tools/unity-web/stage-deploy.mjs",
+    "deploy:unity": "npm run build:unity -- --scene StationGameLocal && npm run stage:unity && wrangler deploy -c unity/wrangler.jsonc",
     "test:unity": "node --test \"unity/tests/*.test.mjs\"",
     "dev:all": "node tools/dev-services.mjs",
     "setup:all": "npm run setup && npm run setup:game && npm run setup:model",

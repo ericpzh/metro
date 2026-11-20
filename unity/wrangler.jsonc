@@ -1,0 +1,27 @@
+{
+  // Station Designer — Unity 6 URP WebGL player and benchmark.
+  //
+  // Served at https://stationdesigner.com/game/unity/ (English: /game/unity/en/,
+  // Benchmark: /game/unity/benchmark and /game/unity/benchmark/en).
+  // These routes are more specific than `metro-game`'s `stationdesigner.com/game/*`,
+  // so Cloudflare hands `/game/unity` and `/game/unity/*` to this Worker while
+  // keeping the Three.js game untouched.
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "metro-unity",
+  "compatibility_date": "2026-10-01",
+
+  "routes": [
+    { "pattern": "stationdesigner.com/game/unity", "zone_name": "stationdesigner.com" },
+    { "pattern": "stationdesigner.com/game/unity/*", "zone_name": "stationdesigner.com" }
+  ],
+
+  "main": "../tools/unity-web/local-worker.mjs",
+
+  "assets": {
+    "directory": "./dist-web",
+    "binding": "ASSETS",
+    "run_worker_first": true
+  },
+
+  "vars": { "ASSET_PREFIX": "/game/unity" }
+}

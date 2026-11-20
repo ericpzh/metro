@@ -12,6 +12,7 @@ import { ViewCube } from '../app/ViewCube.tsx'
 import type { ViewCubeAdapter } from '../app/ViewCubeAdapter.ts'
 import { useStore } from '../app/store.ts'
 import { initLanguage } from '../app/i18n.ts'
+import { isBenchmarkPath } from '../app/languageRoute.ts'
 import { msg } from '../sim/i18n.ts'
 import { measurePosition, measureText, wantsMeasure, type CellsPayload } from './pointerMeasure.ts'
 import { showGameLoading } from '../app/gameLoading.ts'
@@ -25,6 +26,7 @@ import { attachCanvasToolPointer } from './pointerInput.ts'
 import { createToolAdapter, rightClaimedByTool } from './toolAdapter.ts'
 import { noticeKey, noticeText, type BuildOutcome } from './editNotices.ts'
 import { UnityExplodedView } from './UnityExplodedView.tsx'
+import { UnityBenchmarkRoute } from './UnityBenchmarkRoute.tsx'
 import { paletteIdForModule } from '../app/tools/PickTool.ts'
 import { createSignFacePort } from './signFaceProvider.ts'
 import { createPsdHeaderPort } from './psdHeaderProvider.ts'
@@ -53,7 +55,11 @@ function UnityViewport({ canvas, adapter }: { canvas: HTMLCanvasElement; adapter
     if (!stage) return
     canvas.className = 'viewport'
     stage.appendChild(canvas)
-    return () => { canvas.remove() }
+    return () => {
+      const containerFallback = document.getElementById('unity-fullscreen-container')
+      if (containerFallback) containerFallback.insertBefore(canvas, containerFallback.firstChild)
+      else canvas.remove()
+    }
   }, [canvas])
   return <div className="unityViewport" ref={container}><ViewCube adapter={adapter} /></div>
 }
@@ -190,9 +196,10 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
     activeShell = null
     try { previous.unmount() } catch { /* the old tree may already be detaching */ }
   }
+  const isBenchmark = isBenchmarkPath(location.pathname)
   initLanguage()
-  initUiTheme()
-  const unmountAudio = mountUnityAudio()
+  if (!isBenchmark) initUiTheme()
+  const unmountAudio = isBenchmark ? () => {} : mountUnityAudio()
   // C# answers through one WebGL bridge call that dispatches this event with the
   // reply JSON; the transport stays outside the reducer so it can be tested.
   // Sign artwork requests travel on the same event and are answered here, so a
@@ -215,6 +222,14 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
   }
   window.addEventListener('metro:station-state', onState)
   const host: StationHost = {
+    modelDetail: async profile => {
+      const result = profile === undefined
+        ? await stationBridge.request('graphics.get')
+        : await stationBridge.request('graphics.set', { profile })
+      const applied = result.profile
+      if (applied === 'high' || applied === 'balanced' || applied === 'low') return applied
+      throw new Error('Invalid model detail reply')
+    },
     newStation: () => { stationBridge.send('station.new') },
     openDemo: id => {
       runWithGameLoading(
@@ -542,14 +557,15 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
 
   // Ask the host for its station once the player registers: a demo route names
   // the document to open, and any other path resumes whatever the host commits.
-  const demo = demoStationForPath(location.pathname)
+  const demo = isBenchmark ? null : demoStationForPath(location.pathname)
   queueMicrotask(() => {
     if (demo) stationBridge.send('station.openDemo', { id: demo })
     else stationBridge.send('station.resync')
   })
 
   const root = createRoot(element)
-  root.render(<UnityApp canvas={canvas} host={host} adapter={cameraAdapter} />)
+  const unityApp = <UnityApp canvas={canvas} host={host} adapter={cameraAdapter} />
+  root.render(isBenchmark ? <UnityBenchmarkRoute canvas={canvas} app={unityApp} /> : unityApp)
   // The committed snapshot is the player's public state; a browser check reads it
   // instead of scraping the DOM, and can drive the station through the same port
   // the UI uses (`verify-station-game.mjs`).

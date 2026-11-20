@@ -61,7 +61,7 @@ export default defineConfig({
   base: './', publicDir: false, plugins: [unityHostStubs(), react()],
   define: { 'process.env.NODE_ENV': JSON.stringify('production') },
   build: {
-    outDir: 'dist-unity-ui', emptyOutDir: true, manifest: true,
+    outDir: 'dist-unity-ui', emptyOutDir: true, manifest: true, cssCodeSplit: false,
     assetsInlineLimit: 0, target: 'es2022',
     rolldownOptions: {
       // Two shells share the same UI once `zooUi.tsx` is split out: the station

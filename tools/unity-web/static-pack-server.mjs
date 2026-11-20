@@ -77,45 +77,54 @@ export function createStaticServer(packDir, requestedPort = 0, host = '127.0.0.1
     if (pathname === '/en' || pathname === '/en/') return redirect('/game/en/')
     if (pathname === '/game' || pathname === '/game/index.html') return redirect('/game/')
     if (pathname === '/game/en' || pathname === '/game/en/index.html') return redirect('/game/en/')
+    if (pathname === '/game/unity' || pathname === '/game/unity/index.html') return redirect('/game/unity/')
+    if (pathname === '/game/unity/en' || pathname === '/game/unity/en/index.html') return redirect('/game/unity/en/')
 
-    const segments = pathname.split('/').filter(Boolean)
-    if (segments[0] === 'game' && segments[1] !== '_unity') {
-      if (segments.length === 2 && segments[1] !== 'en' && pathname.endsWith('/')) return redirect('/game/' + segments[1])
-      if (segments.length === 3 && segments[1] === 'en' && pathname.endsWith('/')) return redirect('/game/en/' + segments[2])
-      const english = segments[1] === 'en'
-      const html = indexHtml.replace('<html lang="en-us">', `<html lang="${english ? 'en' : 'zh-CN'}">`)
+    const prefix = pathname.startsWith('/game/unity/') ? '/game/unity'
+      : pathname.startsWith('/game/') ? '/game'
+      : null
+    if (prefix) {
+      const rest = pathname.slice(prefix.length)
+      if (rest.startsWith('/_unity/')) {
+        const assetPath = rest.slice('/_unity'.length)
+        if (!assetPath || assetPath === '/') { res.writeHead(404); res.end('Not found'); return }
+        const relative = assetPath.slice(1)
+        const direct = safeJoin(pack, relative)
+        if (direct && sendFile(res, direct, method)) return
+        const split = manifest?.splitFiles?.[relative]
+        if (!split || !Array.isArray(split.parts) || split.parts.length === 0 || !Number.isInteger(split.bytes)) {
+          res.writeHead(404); res.end('Not found'); return
+        }
+        res.writeHead(200, {
+          'content-type': relative.endsWith('.wasm') ? 'application/wasm' : 'application/octet-stream',
+          'content-encoding': 'identity',
+          'content-length': String(split.bytes),
+          'cache-control': 'no-store',
+        })
+        if (method === 'HEAD') { res.end(); return }
+        let index = 0
+        const next = () => {
+          if (index >= split.parts.length) { res.end(); return }
+          const part = safeJoin(pack, split.parts[index++])
+          if (!part) { res.destroy(); return }
+          const stream = createReadStream(part)
+          stream.on('end', next)
+          stream.on('error', () => res.destroy())
+          stream.pipe(res, { end: false })
+        }
+        next()
+        return
+      }
+      const segments = rest.split('/').filter(Boolean)
+      if (segments.length === 1 && segments[0] !== 'en' && rest.endsWith('/')) return redirect(`${prefix}/${segments[0]}`)
+      if (segments.length === 2 && (segments[0] === 'en' || (segments[0] === 'benchmark' && segments[1] === 'en')) && rest.endsWith('/')) {
+        return redirect(`${prefix}/${segments[0]}/${segments[1]}`)
+      }
+      const english = segments[0] === 'en' || (segments[0] === 'benchmark' && segments[1] === 'en')
+      let html = indexHtml.replace('<html lang="en-us">', `<html lang="${english ? 'en' : 'zh-CN'}">`)
+      if (prefix !== '/game') html = html.replaceAll('/game/_unity', `${prefix}/_unity`)
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' })
       res.end(method === 'HEAD' ? undefined : html)
-      return
-    }
-    if (pathname.startsWith('/game/_unity/')) {
-      const assetPath = pathname.slice('/game/_unity'.length)
-      if (!assetPath || assetPath === '/') { res.writeHead(404); res.end('Not found'); return }
-      const relative = assetPath.slice(1)
-      const direct = safeJoin(pack, relative)
-      if (direct && sendFile(res, direct, method)) return
-      const split = manifest?.splitFiles?.[relative]
-      if (!split || !Array.isArray(split.parts) || split.parts.length === 0 || !Number.isInteger(split.bytes)) {
-        res.writeHead(404); res.end('Not found'); return
-      }
-      res.writeHead(200, {
-        'content-type': relative.endsWith('.wasm') ? 'application/wasm' : 'application/octet-stream',
-        'content-encoding': 'identity',
-        'content-length': String(split.bytes),
-        'cache-control': 'no-store',
-      })
-      if (method === 'HEAD') { res.end(); return }
-      let index = 0
-      const next = () => {
-        if (index >= split.parts.length) { res.end(); return }
-        const part = safeJoin(pack, split.parts[index++])
-        if (!part) { res.destroy(); return }
-        const stream = createReadStream(part)
-        stream.on('end', next)
-        stream.on('error', () => res.destroy())
-        stream.pipe(res, { end: false })
-      }
-      next()
       return
     }
     res.writeHead(404)

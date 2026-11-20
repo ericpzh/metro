@@ -68,17 +68,23 @@ const LOADING_SHELL = `<div id="game-loading" role="status" aria-live="polite">
 <script>
   (() => {
     const path = location.pathname.replace(/\\/+$/, '');
+    const isBenchmark = path.endsWith('/benchmark') || path.endsWith('/benchmark/en');
     let theme, language;
     const route = path.split('/').includes('en') || document.documentElement.lang === 'en' ? 'en' : 'zh-CN';
-    try { theme = localStorage.getItem('metro-game.ui-theme'); language = localStorage.getItem('metro-game.language.' + route); } catch {}
-    document.documentElement.dataset.uiTheme = theme === 'studio' || theme === 'site' ? theme : 'blueprint';
-    const resolvedLanguage = language === 'en' || language === 'zh-CN' ? language : route;
+    try { theme = localStorage.getItem('metro-game.ui-theme'); if (!isBenchmark) language = localStorage.getItem('metro-game.language.' + route); } catch {}
+    if (!isBenchmark) document.documentElement.dataset.uiTheme = theme === 'studio' || theme === 'site' ? theme : 'blueprint';
+    const resolvedLanguage = !isBenchmark && (language === 'en' || language === 'zh-CN') ? language : route;
     document.documentElement.lang = resolvedLanguage;
     if (resolvedLanguage === 'en') {
       document.getElementById('loading-title').textContent = 'Preparing your station';
       document.getElementById('loading-detail').textContent = 'Loading the game and building your station. This may take a moment.';
     }
+    if (isBenchmark) {
+      const el = document.getElementById('game-loading');
+      if (el) el.hidden = true;
+    }
     window.__metroUnityProgress = (progress) => {
+      if (typeof progress === 'number' && Number.isFinite(progress)) window.__metroUnityDownloadProgress = progress;
       const el = document.getElementById('game-loading');
       if (!el || el.hidden || el.dataset.failed === 'true') return;
       if (typeof progress === 'number' && progress > 0 && progress < 0.9) {
@@ -90,6 +96,8 @@ const LOADING_SHELL = `<div id="game-loading" role="status" aria-live="polite">
     };
     window.__metroUnityFail = (error) => {
       console.error(error);
+      window.__metroUnityLoadError = error instanceof Error ? error.message : String(error);
+      if (isBenchmark) return;
       const el = document.getElementById('game-loading');
       const detail = document.getElementById('loading-detail');
       if (el) { el.hidden = false; delete el.dataset.determinate; el.dataset.failed = 'true'; }

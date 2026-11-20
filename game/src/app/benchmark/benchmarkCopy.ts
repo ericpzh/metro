@@ -4,6 +4,11 @@ export const BENCHMARK_COPY = {
   en: {
     backend: 'Routing backend', wasmSearches: 'WASM searches', wasmError: 'WebAssembly did not complete searches during the benchmark.',
     eyebrow: 'STATION DESIGNER · PERFORMANCE', title: 'Browser benchmark',
+    unityEyebrow: 'STATION DESIGNER · UNITY PERFORMANCE', unityTitle: 'Unity WebGL benchmark',
+    unityBooting: 'Loading the Unity WebGL engine…', engine: 'Engine', unityEngine: 'Unity WebGL (URP)',
+    unityError: 'The Unity WebGL engine did not finish loading.',
+    unityResourceNote: 'RAM is the browser-reported JavaScript heap, not total system or WebAssembly memory. CPU renderer submission and WebGL GPU timer queries are not exposed separately by the Unity WebGL runtime, so those lines are omitted.',
+    unityIntervalInfo: 'FPS uses browser animation-frame intervals while the Unity WebGL player runs. The 1% low is the inverse of the mean interval among the slowest 1% of samples. Browser hardware details are limited to values the browser exposes.',
     intro: 'Measure the first 30 seconds of simulation playback in this browser. The game runs at 16× speed.',
     station: 'Demo station', zoo: 'Zoo', tanwei: 'Tanwei', tianhe: 'Tianhe Park', graphics: 'Graphics detail', low: 'Low LOD', high: 'High LOD',
     fsr: 'FSR settings', fsrOff: 'Off', fsrUltra: 'Ultra', fsrQuality: 'Quality', fsrBalanced: 'Balanced', fsrPerformance: 'Performance',
@@ -29,6 +34,11 @@ export const BENCHMARK_COPY = {
   zh: {
     backend: '寻路后端', wasmSearches: 'WASM 搜索次数', wasmError: 'WebAssembly 未在基准测试期间完成寻路。',
     eyebrow: '车站设计师 · 性能测试', title: '浏览器性能测试',
+    unityEyebrow: '车站设计师 · UNITY 性能测试', unityTitle: 'Unity WebGL 性能测试',
+    unityBooting: '正在载入 Unity WebGL 引擎…', engine: '引擎', unityEngine: 'Unity WebGL（URP）',
+    unityError: 'Unity WebGL 引擎没有加载完成。',
+    unityResourceNote: '内存是浏览器报告的 JavaScript 堆，不代表系统总内存或 WebAssembly 堆内存。Unity WebGL 引擎不单独暴露渲染提交 CPU 时间与 WebGL GPU 计时查询，因此这两条曲线留空。',
+    unityIntervalInfo: '帧率按 Unity WebGL 运行期间浏览器动画帧间隔计算；1% 低帧率取最慢的 1% 样本，用它们的平均帧间隔换算。硬件信息只能显示浏览器愿意提供的那部分。',
     intro: '在这个浏览器里跑一遍游戏，记录模拟开始后前 30 秒的帧率。游戏会以 16 倍速运行。',
     station: '示例车站', zoo: '动物园站', tanwei: '坦尾站', tianhe: '天河公园站', graphics: '画面细节', low: '低画质', high: '高画质',
     fsr: 'FSR 设置', fsrOff: '关闭', fsrUltra: '超高', fsrQuality: '质量', fsrBalanced: '平衡', fsrPerformance: '性能',

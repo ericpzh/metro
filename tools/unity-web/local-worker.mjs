@@ -59,34 +59,22 @@ export default {
       return new Response('Method not allowed', { status: 405, headers: { allow: 'GET, HEAD' } })
     }
     const url = new URL(request.url)
-    if (url.pathname === '/') return redirect(url, '/game/')
-    if (url.pathname === '/en' || url.pathname === '/en/') return redirect(url, '/game/en/')
-    if (url.pathname === '/game' || url.pathname === '/game/index.html') return redirect(url, '/game/')
-    if (url.pathname === '/game/en' || url.pathname === '/game/en/index.html') return redirect(url, '/game/en/')
+    const prefix = (env?.ASSET_PREFIX ?? '/game').replace(/\/+$/, '')
+    const cacheControl = prefix === '/game' ? 'no-store' : 'no-cache'
 
-    const segments = url.pathname.split('/').filter(Boolean)
-    if (segments[0] === 'game' && segments[1] !== '_unity') {
-      if (segments.length === 2 && segments[1] !== 'en' && url.pathname.endsWith('/')) {
-        return redirect(url, `/game/${segments[1]}`)
-      }
-      if (segments.length === 3 && segments[1] === 'en' && url.pathname.endsWith('/')) {
-        return redirect(url, `/game/en/${segments[2]}`)
-      }
-      // The player page: `/game/` and `/game/en/`, plus the demo deep links
-      // `/game/zoo` and `/game/en/tanwei` that the shell reads and then rewrites to
-      // the plain path after the commit (`11 A6`). Assets under `/game/_unity/` are
-      // not pages.
-      const english = segments[1] === 'en'
-      const response = await env.ASSETS.fetch(new Request(new URL('/', url)))
-      let html = await response.text()
-      html = html.replace('<html lang="en-us">', `<html lang="${english ? 'en' : 'zh-CN'}">`)
-      return new Response(request.method === 'HEAD' ? null : html, {
-        status: response.status,
-        headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' },
-      })
-    }
-    if (url.pathname.startsWith('/game/_unity/')) {
-      const assetPath = url.pathname.slice('/game/_unity'.length)
+    if (url.pathname === '/') return redirect(url, `${prefix}/`)
+    if (url.pathname === '/en' || url.pathname === '/en/') return redirect(url, `${prefix}/en/`)
+    if (prefix && (url.pathname === '/benchmark' || url.pathname === '/benchmark/')) return redirect(url, `${prefix}/benchmark`)
+    if (prefix && (url.pathname === '/benchmark/en' || url.pathname === '/benchmark/en/')) return redirect(url, `${prefix}/benchmark/en`)
+    if (url.pathname === prefix || url.pathname === `${prefix}/index.html`) return redirect(url, `${prefix}/`)
+    if (url.pathname === `${prefix}/en` || url.pathname === `${prefix}/en/index.html`) return redirect(url, `${prefix}/en/`)
+
+    const underPrefix = prefix === '' || url.pathname.startsWith(`${prefix}/`)
+    if (!underPrefix) return new Response('Not found', { status: 404 })
+
+    const rest = url.pathname.slice(prefix.length)
+    if (rest.startsWith('/_unity/')) {
+      const assetPath = rest.slice('/_unity'.length)
       if (!assetPath || assetPath === '/') return new Response('Not found', { status: 404 })
       const assetUrl = new URL(url)
       assetUrl.pathname = assetPath
@@ -106,13 +94,33 @@ export default {
         'content-type': assetPath.endsWith('.wasm') ? 'application/wasm' : 'application/octet-stream',
         'content-encoding': 'identity',
         'content-length': String(split.bytes),
-        'cache-control': 'no-store',
+        'cache-control': cacheControl,
       }
       if (request.method === 'HEAD') return new Response(null, { headers, encodeBody: 'manual' })
       const firstPart = await env.ASSETS.fetch(new Request(new URL('/' + split.parts[0], url), { headers: { 'accept-encoding': 'identity' } }))
       if (!firstPart.ok || !firstPart.body) return new Response('Missing smoke asset', { status: 502 })
       return new Response(streamSplitAsset(url, env, relPath, split, firstPart), { headers, encodeBody: 'manual' })
     }
-    return new Response('Not found', { status: 404 })
+
+    const segments = rest.split('/').filter(Boolean)
+    if (segments.length === 1 && segments[0] !== 'en' && rest.endsWith('/')) {
+      return redirect(url, `${prefix}/${segments[0]}`)
+    }
+    if (segments.length === 2 && (segments[0] === 'en' || (segments[0] === 'benchmark' && segments[1] === 'en')) && rest.endsWith('/')) {
+      return redirect(url, `${prefix}/${segments[0]}/${segments[1]}`)
+    }
+    // The player page: `/game/` (or `/game/unity/`), `/en/`, demo deep links
+    // (`/zoo`, `/en/tanwei`), and the benchmark routes (`/benchmark`, `/benchmark/en`).
+    const english = segments[0] === 'en' || (segments[0] === 'benchmark' && segments[1] === 'en')
+    const response = await env.ASSETS.fetch(new Request(new URL('/', url)))
+    let html = await response.text()
+    html = html.replace('<html lang="en-us">', `<html lang="${english ? 'en' : 'zh-CN'}">`)
+    if (prefix !== '/game') {
+      html = html.replaceAll('/game/_unity', `${prefix}/_unity`)
+    }
+    return new Response(request.method === 'HEAD' ? null : html, {
+      status: response.status,
+      headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': cacheControl },
+    })
   },
 }
