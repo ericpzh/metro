@@ -13,6 +13,13 @@
 
 import type { SignBoards } from '../sim/sign.ts'
 
+/** Exit inspector settings that can be committed directly through a player host. */
+export interface ExitPatch {
+  name?: string
+  inRate?: number
+  open?: boolean
+}
+
 /** What the app needs from a host that owns the committed document. */
 export interface StationHostCommitPort {
   /** True once the host has committed a station in this page. */
@@ -23,6 +30,8 @@ export interface StationHostCommitPort {
    * what the shell adopts). False means "keep the TypeScript commit path".
    */
   commitSignBoards(moduleId: string, boards: SignBoards): boolean
+  /** Send an exit card's name / inRate / open change to the host. */
+  commitExit?(moduleId: string, patch: ExitPatch): boolean
   /**
    * The document verbs the host owns while it holds the station (plan 27 §4). Each
    * returns true when the host took the intent, so the app's own store path must not

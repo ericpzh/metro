@@ -298,6 +298,33 @@ namespace Metro.App {
         }
 
         /// <summary>
+        /// Patch one exit module's <c>name</c>, <c>inRate</c> and/or <c>open</c> settings through
+        /// the local edit path (falling back to complete-envelope JSON if needed) so the live
+        /// entrance slider and open switch take effect immediately and participate in undo/redo.
+        /// </summary>
+        public static bool TryApplyExitSettings(StationGameHost host, string moduleId,
+            bool hasName, string name, bool hasInRate, double inRate, bool hasOpen, bool open,
+            string commandId, out StationLoadResult result, out string code) {
+            result = null;
+            code = null;
+            if (host == null || !host.IsLoaded) { code = "no-session"; return false; }
+            if (IsDuplicate(host, commandId, out code)) return false;
+            var beforeRead = host.Coordinator.CommittedRead;
+            var local = host.TryApplyLocalExitSettings(moduleId, hasName, name, hasInRate, inRate,
+                hasOpen, open, host.CurrentSourceId, out var localCode);
+            if (local != null) {
+                return FinishLocalEdit(host, local, beforeRead, "exit", commandId, out result, out code);
+            }
+            StationEditTrace.NoteDocumentFallback(localCode);
+            var saved = host.SaveDocument();
+            if (string.IsNullOrEmpty(saved)) { code = "no-document"; return false; }
+            var next = StationModuleEdits.ApplyExit(saved, moduleId, hasName, name, hasInRate, inRate,
+                hasOpen, open, out code);
+            if (next == null) return false;
+            return TryApplyPatch(host, next, "exit", commandId, out result, out code);
+        }
+
+        /// <summary>
         /// Apply one **cell** patch and install it: the same transaction, the same history and
         /// the same revision rule as a module edit. The planner names the writes; the committed
         /// envelope is patched locally when whitelisted or via <see cref="Metro.Persistence.StationCellEdits"/>.

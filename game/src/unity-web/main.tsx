@@ -559,6 +559,10 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
   registerStationHostCommit({
     ownsStation: () => unityHostOwnsStation(),
     commitSignBoards: (moduleId, boards) => commitSignBoardsToHost(moduleId, boards),
+    commitExit: (moduleId, patch) => {
+      stationBridge.send('edit.exit', { moduleId, ...patch })
+      return true
+    },
     undo: () => { stationBridge.send('edit.undo', {}); return true },
     redo: () => { stationBridge.send('edit.redo', {}); return true },
     deleteSelection: () => {

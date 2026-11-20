@@ -541,6 +541,22 @@ namespace Metro.App {
             return result;
         }
 
+        /// <summary>Try the local edit path for patching one exit module's demand/open/name settings.</summary>
+        public StationLoadResult TryApplyLocalExitSettings(string moduleId, bool hasName, string name,
+            bool hasInRate, double inRate, bool hasOpen, bool open, string sourceId, out string code) {
+            code = null;
+            if (!IsLoaded) { code = "no-session"; return null; }
+            StationLoadResult result;
+            editingDocument = true;
+            try {
+                result = coordinator.TryInstallLocalExitSettings(moduleId, hasName, name, hasInRate, inRate,
+                    hasOpen, open, string.IsNullOrEmpty(sourceId) ? CurrentSourceId : sourceId, out code);
+            } finally {
+                editingDocument = false;
+            }
+            return result;
+        }
+
         /// <summary>
         /// The edit transaction a feature handler calls: hand it the complete normalized
         /// v1 document text. It installs through the same atomic transaction as an open,

@@ -1194,8 +1194,21 @@ namespace Metro.Sim {
                 var module = serverModules[i];
                 switch (module.Type) {
                     case "exit": {
-                        if (TryGetNode(module.X, module.Y, module.Z, out int node)) {
-                            graph.Exits.Add(new StationExitFact { Id = module.Id, Name = module.Name, Node = node });
+                        int node = -1;
+                        if (module.HeadHouse) {
+                            StationWalkGraphBuilder.ExitDoorCell(module, out int dx, out int dy, out int dz);
+                            if (TryGetNode(dx, dy, dz, out int doorNode)) node = doorNode;
+                        }
+                        if (node < 0 && TryGetNode(module.X, module.Y, module.Z, out int baseNode)) node = baseNode;
+                        if (node >= 0) {
+                            graph.Exits.Add(new StationExitFact {
+                                Id = module.Id,
+                                Name = module.Name,
+                                Node = node,
+                                Closed = module.ExitClosed,
+                                HasInRate = module.HasExitInRate,
+                                InRate = module.ExitInRate,
+                            });
                         }
                         break;
                     }

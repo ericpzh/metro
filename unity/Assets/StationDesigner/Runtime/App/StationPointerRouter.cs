@@ -1716,6 +1716,29 @@ namespace Metro.App {
                     StationEditHost.Ensure().Preview?.Select(module);
                     return true;
                 }
+                case "edit.exit": {
+                    string id = String(payload, "moduleId");
+                    if (id.Length == 0) { rejectCode = "bad-payload"; rejectReason = "edit.exit needs payload.moduleId."; return false; }
+                    if (!host.IsLoaded) { rejectCode = "no-session"; return false; }
+                    bool hasName = payload["name"] != null && payload["name"].Type == JTokenType.String;
+                    string name = hasName ? (string)payload["name"] : "";
+                    bool hasInRate = payload["inRate"] != null &&
+                        (payload["inRate"].Type == JTokenType.Integer || payload["inRate"].Type == JTokenType.Float);
+                    double inRate = hasInRate ? (double)payload["inRate"] : 0;
+                    bool hasOpen = payload["open"] != null && payload["open"].Type == JTokenType.Boolean;
+                    bool open = hasOpen && (bool)payload["open"];
+                    if (!hasName && !hasInRate && !hasOpen) {
+                        rejectCode = "bad-payload";
+                        rejectReason = "edit.exit needs at least one of name, inRate, or open.";
+                        return false;
+                    }
+                    if (!StationEditSession.TryApplyExitSettings(host, id, hasName, name, hasInRate, inRate,
+                        hasOpen, open, command.Id, out _, out rejectCode)) {
+                        rejectReason = rejectCode;
+                        return false;
+                    }
+                    return true;
+                }
                 case "edit.cancel":
                     // Escape is the keyboard half of the chord cancel (plan 29 §2): the same one
                     // cancellation drops every active tool gesture, the carried piece, both ghost

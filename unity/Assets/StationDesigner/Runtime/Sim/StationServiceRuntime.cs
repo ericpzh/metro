@@ -1050,7 +1050,35 @@ namespace Metro.Sim {
 
         internal void ApplyCosmeticDocument(StationSessionDocument next) {
             document = next ?? new StationSessionDocument();
+            SyncExitFacts(document);
             Invalidate();
+        }
+
+        void SyncExitFacts(StationSessionDocument next) {
+            if (next == null || (exits.Count == 0 && (graph == null || graph.Exits.Count == 0))) return;
+            var byId = new Dictionary<string, StationModuleFact>(StringComparer.Ordinal);
+            for (int i = 0; i < next.Modules.Count; i++) {
+                var m = next.Modules[i];
+                if (m.Type == "exit" && !string.IsNullOrEmpty(m.Id)) byId[m.Id] = m;
+            }
+            for (int i = 0; i < exits.Count; i++) {
+                var exit = exits[i];
+                if (exit == null || !byId.TryGetValue(exit.Id, out var m)) continue;
+                exit.Name = m.Name ?? "";
+                exit.Closed = m.ExitClosed;
+                exit.HasInRate = m.HasExitInRate;
+                exit.InRate = m.ExitInRate;
+            }
+            if (graph != null) {
+                for (int i = 0; i < graph.Exits.Count; i++) {
+                    var exit = graph.Exits[i];
+                    if (exit == null || !byId.TryGetValue(exit.Id, out var m)) continue;
+                    exit.Name = m.Name ?? "";
+                    exit.Closed = m.ExitClosed;
+                    exit.HasInRate = m.HasExitInRate;
+                    exit.InRate = m.ExitInRate;
+                }
+            }
         }
 
         void ReconcileTrainWatches() {
@@ -1732,10 +1760,13 @@ namespace Metro.Sim {
         int ResolveExitNode(string exitId) {
             if (!string.IsNullOrEmpty(exitId)) {
                 for (int i = 0; i < exits.Count; i++) {
-                    if (string.Equals(exits[i].Id, exitId, StringComparison.Ordinal) && exits[i].Node >= 0) {
+                    if (string.Equals(exits[i].Id, exitId, StringComparison.Ordinal) && !exits[i].Closed && exits[i].Node >= 0) {
                         return exits[i].Node;
                     }
                 }
+            }
+            for (int i = 0; i < exits.Count; i++) {
+                if (!exits[i].Closed && exits[i].Node >= 0) return exits[i].Node;
             }
             if (exits.Count > 0) return exits[0].Node;
             return graph != null && graph.NodeCount > 0 ? 0 : -1;
@@ -2133,15 +2164,20 @@ namespace Metro.Sim {
         // --------------------------------------------------------------- spawning
 
         void StepSpawn(bool serviceOpen, double demandRate) {
-            if (!options.Spawn || !serviceOpen || exitNodes.Count == 0 || planner == null) return;
+            if (!options.Spawn || !serviceOpen || exits.Count == 0 || planner == null) return;
             if (passengers.Count >= options.MaxPassengers) { CapHit++; return; }
-            double rate = options.ExitInRatePerHour * (demandRate > 0 ? demandRate : 0);
-            if (rate <= 0) return;
-            for (int e = 0; e < exitNodes.Count; e++) {
+            double curve = demandRate > 0 ? demandRate : 0;
+            if (curve <= 0) return;
+            for (int e = 0; e < exits.Count; e++) {
+                var exit = exits[e];
+                if (exit == null || exit.Closed || exit.Node < 0) continue;
+                double inRate = exit.HasInRate ? exit.InRate : options.ExitInRatePerHour;
+                double rate = inRate * curve;
+                if (rate <= 0) continue;
                 int count = rng.PoissonHour(rate, Dt);
                 for (int k = 0; k < count; k++) {
                     if (passengers.Count >= options.MaxPassengers) { CapHit++; return; }
-                    SpawnFromEntrance(exitNodes[e]);
+                    SpawnFromEntrance(exit.Node);
                 }
             }
         }
@@ -2173,23 +2209,60 @@ namespace Metro.Sim {
             passenger.IdentityFactor = 0.9 + IdentityUnit(passenger.Id, 0x85a308d3u) * 0.2;
             passenger.Speed = WalkSpeed * passenger.IdentityFactor;
             passenger.WalkPhase = IdentityUnit(passenger.Id, 0x9e3779b9u);
-            ServiceRoute route = board
-                ? PlanDoorRoute(entrance, lineId, needs)
-                : PlanRoute(entrance, destinationExit, needs, allowReusableCache: true);
+            ServiceRoute route = null;
+            if (board) {
+                if (HasDoorsForLine(lineId)) {
+                    route = PlanDoorRoute(entrance, lineId, needs);
+                } else {
+                    // Matches web `World.ensureLegNode`: when a line has no platform doors yet,
+                    // turn the boarding leg into an open exit trip instead of failing the spawn.
+                    board = false;
+                    passenger.Boards = false;
+                    passenger.TargetLineId = "";
+                    destinationExit = PickExit(out destExitId);
+                    passenger.DestExit = destinationExit;
+                    passenger.DestExitId = destExitId;
+                    route = destinationExit >= 0
+                        ? PlanRoute(entrance, destinationExit, needs, allowReusableCache: true)
+                        : null;
+                }
+            } else {
+                route = destinationExit >= 0
+                    ? PlanRoute(entrance, destinationExit, needs, allowReusableCache: true)
+                    : null;
+            }
             if (route == null) { nextPassengerId--; Stuck++; return; }
             passengers.Add(passenger);
             Spawned++;
             BeginRoute(passenger, route);
         }
 
+        bool HasDoorsForLine(string lineId) {
+            for (int i = 0; i < doors.Count; i++) {
+                if (doors[i].LineId == lineId) return true;
+            }
+            return false;
+        }
+
         int PickExit(out string exitId) {
             exitId = "";
-            if (exitNodes.Count == 0) return -1;
-            int at = (int)Math.Floor(rng.Next() * exitNodes.Count);
+            int openCount = 0;
+            for (int i = 0; i < exits.Count; i++) {
+                if (exits[i] != null && !exits[i].Closed && exits[i].Node >= 0) openCount++;
+            }
+            if (openCount == 0) return -1;
+            int at = (int)Math.Floor(rng.Next() * openCount);
             if (at < 0) at = 0;
-            if (at >= exitNodes.Count) at = exitNodes.Count - 1;
-            if (at < exits.Count && exits[at] != null) exitId = exits[at].Id ?? "";
-            return exitNodes[at];
+            if (at >= openCount) at = openCount - 1;
+            for (int i = 0; i < exits.Count; i++) {
+                var exit = exits[i];
+                if (exit == null || exit.Closed || exit.Node < 0) continue;
+                if (at-- == 0) {
+                    exitId = exit.Id ?? "";
+                    return exit.Node;
+                }
+            }
+            return -1;
         }
 
         // --------------------------------------------------------------- routing
@@ -2349,10 +2422,21 @@ namespace Metro.Sim {
                 scores.Insert(at, score);
             }
             int tried = 0;
+            HashSet<string> triedPlatforms = null;
             for (int i = 0; i < candidates.Count && tried < 4; i++, tried++) {
                 if (doors.Count == 0) break;
                 var route = PlanRoute(from, candidates[i].Node, needs, allowReusableCache: true);
                 if (route != null) return route;
+                triedPlatforms ??= new HashSet<string>(StringComparer.Ordinal);
+                triedPlatforms.Add(candidates[i].PlatformId ?? "");
+            }
+            if (triedPlatforms != null) {
+                for (int i = tried; i < candidates.Count; i++) {
+                    string pid = candidates[i].PlatformId ?? "";
+                    if (!triedPlatforms.Add(pid)) continue;
+                    var route = PlanRoute(from, candidates[i].Node, needs, allowReusableCache: true);
+                    if (route != null) return route;
+                }
             }
             return null;
         }

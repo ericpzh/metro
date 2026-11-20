@@ -65,6 +65,38 @@ namespace Metro.Persistence {
             return BuildResult(committed, rootHeader, savedAt, committed.Document.CellPages, modulePages, delta, sourceId, out code);
         }
 
+        /// <summary>Patch one exit module's settings (<c>name</c>, <c>inRate</c>, <c>open</c>) in place.</summary>
+        public static StationReadResult TryApplyExitSettings(StationReadResult committed, string moduleId,
+            bool hasName, string name, bool hasInRate, double inRate, bool hasOpen, bool open,
+            string sourceId, out string code) {
+            using var editSample = StationEditTrace.Measure("StationEdit.TryApplyExitSettings");
+            code = null;
+            if (committed?.Document == null || committed.Index == null) { code = "no-document"; return null; }
+            if (string.IsNullOrEmpty(moduleId)) { code = "bad-payload"; return null; }
+            if (!TryCloneRootHeader(committed, out var rootHeader, out var savedAt, out code)) return null;
+            if (!committed.Index.TryGetModulePage(moduleId, out var existing, out int pageId) || existing == null ||
+                !string.Equals(existing.Type, "exit", StringComparison.Ordinal)) {
+                code = "not-found";
+                return null;
+            }
+            var json = JObject.Parse(existing.RawJson);
+            StationModuleEdits.ApplyExitSettings(json, hasName, name, hasInRate, inRate, hasOpen, open);
+            if (!TryBuildProjectedModule(json, committed.Document.City, out var built, out code)) return null;
+
+            var builder = committed.Document.ModulePages.ToBuilder();
+            if (!builder.ReplaceInPage(pageId, m => string.Equals(m.Id, moduleId, StringComparison.Ordinal), built)) {
+                code = "local-module-mismatch";
+                return null;
+            }
+            var delta = new StationIndexDelta();
+            delta.ChangedModules.Add(built);
+            delta.ModulePageIds[built.Id] = pageId;
+            StationEditTrace.AddScanned(1);
+            StationEditTrace.AddCloned(builder.ClonedRecordCount + 1);
+            var modulePages = builder.Build(committed.Document.ModulePages);
+            return BuildResult(committed, rootHeader, savedAt, committed.Document.CellPages, modulePages, delta, sourceId, out code);
+        }
+
         // ------------------------------------------------------------- history restore
 
         /// <summary>

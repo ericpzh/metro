@@ -161,5 +161,39 @@ namespace Metro.Persistence {
                 cfg["position"] = Scalar(position);
             }
         }
+
+        /// <summary>Patch an exit module's demand/open/name settings in place.</summary>
+        internal static void ApplyExitSettings(JObject record, bool hasName, string name,
+            bool hasInRate, double inRate, bool hasOpen, bool open) {
+            var cfg = record["cfg"] as JObject;
+            if (cfg == null) { cfg = new JObject(); record["cfg"] = cfg; }
+            if (hasName) cfg["name"] = name ?? "";
+            if (hasInRate && !double.IsNaN(inRate) && !double.IsInfinity(inRate)) {
+                double clamped = Math.Max(0, Math.Round(inRate));
+                cfg["inRate"] = clamped;
+            }
+            if (hasOpen) cfg["open"] = open;
+        }
+
+        /// <summary>Patch one exit module's settings inside a complete v1 save envelope.</summary>
+        public static string ApplyExit(string savedJson, string moduleId, bool hasName, string name,
+            bool hasInRate, double inRate, bool hasOpen, bool open, out string code) {
+            code = null;
+            if (string.IsNullOrEmpty(savedJson)) { code = "no-document"; return null; }
+            if (string.IsNullOrEmpty(moduleId)) { code = "bad-payload"; return null; }
+            JObject envelope;
+            try { envelope = JObject.Parse(savedJson); } catch (JsonException) { code = "parse-failed"; return null; }
+            if (!(envelope["static"] is JObject stat) || !(stat["modules"] is JArray modules)) {
+                code = "bad-document";
+                return null;
+            }
+            var existing = Find(modules, moduleId);
+            if (existing == null || !string.Equals((string)existing["type"], "exit", StringComparison.Ordinal)) {
+                code = "not-found";
+                return null;
+            }
+            ApplyExitSettings(existing, hasName, name, hasInRate, inRate, hasOpen, open);
+            return envelope.ToString(Formatting.None);
+        }
     }
 }

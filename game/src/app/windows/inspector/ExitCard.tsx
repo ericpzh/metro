@@ -5,6 +5,7 @@ import { useLanguage } from '../../i18n.ts'
 // (plan.md R3). The card is the RHS half of the selection link with the 3D view.
 import { useEffect, useRef, useState } from 'react'
 import { useStore, moduleLabel } from '../../store.ts'
+import { stationHostCommit } from '../../stationHostBridge.ts'
 import type { Module } from '../../../sim/types.ts'
 
 /**
@@ -19,8 +20,23 @@ export function ExitCard({ mod }: { mod: Extract<Module, { type: 'exit' }> }): R
   const selected = useStore((s) => s.selected)
   const select = useStore((s) => s.select)
   const [name, setName] = useState(mod.cfg.name)
+  const [rate, setRate] = useState(mod.cfg.inRate)
+  const dragging = useRef(false)
+  const pendingRate = useRef<number | null>(null)
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => setName(mod.cfg.name), [mod.id, mod.cfg.name])
+  useEffect(() => {
+    if (dragging.current) return
+    if (pendingRate.current !== null) {
+      if (mod.cfg.inRate === pendingRate.current) pendingRate.current = null
+      else return
+    }
+    setRate(mod.cfg.inRate)
+  }, [mod.id, mod.cfg.inRate])
+  useEffect(() => {
+    pendingRate.current = null
+    setRate(mod.cfg.inRate)
+  }, [mod.id])
 
   const isSelected = selected?.kind === 'module' && selected.key === mod.id
   useEffect(() => {
@@ -28,6 +44,13 @@ export function ExitCard({ mod }: { mod: Extract<Module, { type: 'exit' }> }): R
   }, [isSelected])
 
   const patch = (p: Partial<{ name: string; inRate: number; open: boolean }>): void => {
+    if (p.inRate !== undefined) {
+      pendingRate.current = p.inRate
+      setRate(p.inRate)
+    }
+    const host = stationHostCommit()
+    if (host?.ownsStation() && host.commitExit?.(mod.id, p)) return
+    pendingRate.current = null
     const station = useStore.getState().station
     const modules = station.modules.map((m) => (m.id === mod.id && m.type === 'exit' ? { ...m, cfg: { ...m.cfg, ...p } } : m))
     commit({ ...station, modules })
@@ -74,18 +97,27 @@ export function ExitCard({ mod }: { mod: Extract<Module, { type: 'exit' }> }): R
           <span className="exitSwitchThumb" />
         </button>
       </div>
-      <span className="exitRateReadout" title={`${t('entering')} ${translate(mod.cfg.inRate)} ${t('people_h')}`}>
-        {t('exit_rate_compact', translate(mod.cfg.inRate))}
+      <span className="exitRateReadout" title={`${t('entering')} ${translate(rate)} ${t('people_h')}`}>
+        {t('exit_rate_compact', translate(rate))}
       </span>
       <Slider
         className="exitRateSlider"
         min={0}
         max={6000}
         step={10}
-        value={mod.cfg.inRate}
-        aria-label={`${t('entering')} ${translate(mod.cfg.inRate)} ${t('people_h')}`}
+        value={rate}
+        aria-label={`${t('entering')} ${translate(rate)} ${t('people_h')}`}
         onFocus={pick}
+        onPointerDown={() => {
+          dragging.current = true
+        }}
         onDragStart={pick}
+        onDragEnd={() => {
+          dragging.current = false
+          if (pendingRate.current !== null && mod.cfg.inRate === pendingRate.current) {
+            pendingRate.current = null
+          }
+        }}
         onChange={(e) => patch({ inRate: Number(e.target.value) })}
       />
     </div>

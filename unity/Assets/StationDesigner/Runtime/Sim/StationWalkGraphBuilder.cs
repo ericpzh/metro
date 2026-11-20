@@ -71,6 +71,9 @@ namespace Metro.Sim {
     public sealed class StationExitFact {
         public string Id = "", Name = "";
         public int Node = -1;
+        public bool Closed;
+        public bool HasInRate;
+        public double InRate;
     }
 
     /// <summary>One built walk graph. Arrays are indexed by node id; edges are per-node lists in insertion order.</summary>
@@ -475,8 +478,25 @@ namespace Metro.Sim {
             foreach (var module in document.Modules) {
                 switch (module.Type) {
                     case "exit": {
-                        int node = NodeAt(graph, module.X, module.Y, module.Z);
-                        if (node >= 0) graph.Exits.Add(new StationExitFact { Id = module.Id, Name = module.Name, Node = node });
+                        // A head-house's node is its street opening (`exitDoorCell`), not the cell
+                        // under the canopy — so the crowd walks out through the doorway even when
+                        // the stairwell cell at (module.X, module.Y, module.Z) is carved open.
+                        int node = -1;
+                        if (module.HeadHouse) {
+                            ExitDoorCell(module, out int dx, out int dy, out int dz);
+                            node = NodeAt(graph, dx, dy, dz);
+                        }
+                        if (node < 0) node = NodeAt(graph, module.X, module.Y, module.Z);
+                        if (node >= 0) {
+                            graph.Exits.Add(new StationExitFact {
+                                Id = module.Id,
+                                Name = module.Name,
+                                Node = node,
+                                Closed = module.ExitClosed,
+                                HasInRate = module.HasExitInRate,
+                                InRate = module.ExitInRate,
+                            });
+                        }
                         break;
                     }
                     case "gate": {
@@ -598,6 +618,30 @@ namespace Metro.Sim {
 
         static int NodeAt(StationWalkGraph graph, int x, int y, int z) =>
             graph.NodeIndex.TryGetValue(StationWalkGraph.CellKey(x, y, z), out int node) ? node : -1;
+
+        /// <summary>
+        /// Port of <c>exitDoorCell</c> (<c>game/src/sim/exits.ts</c>): the street-opening
+        /// cell a head-house admits and discharges the crowd through. Uses JS-compatible
+        /// half-up rounding (<c>Math.Floor(centre + 0.5)</c>) so even bay counts pick the
+        /// exact same middle cell as the web simulation.
+        /// </summary>
+        internal static void ExitDoorCell(StationModuleFact module, out int x, out int y, out int z) {
+            int bays = module.ExitBays == 1 || module.ExitBays == 3 || module.ExitBays == 4 ? module.ExitBays : 2;
+            double centre = (bays - 1) * 0.5;
+            int lx = (int)Math.Floor(centre + 0.5);
+            int ly = module.ExitStyle == "doorway" || module.ExitStyle == "virtual" ? 0 : 2;
+            int rot = ((module.Rot % 4) + 4) % 4;
+            int dx, dy;
+            switch (rot) {
+                case 1: dx = -ly; dy = lx; break;
+                case 2: dx = -lx; dy = -ly; break;
+                case 3: dx = ly; dy = -lx; break;
+                default: dx = lx; dy = ly; break;
+            }
+            x = module.X + dx;
+            y = module.Y + dy;
+            z = module.Z;
+        }
 
         static int AddServer(StationWalkGraph graph, StationServerFact server) {
             server.Id = graph.Servers.Count;

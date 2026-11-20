@@ -406,6 +406,26 @@ namespace Metro.App {
             return true;
         }
 
+        static bool IsExitSpawnSettingsOnly(StationIndex previousIndex, StationIndexDelta delta) {
+            if (previousIndex == null || delta == null) return false;
+            if (delta.RemovedCells.Count > 0 || delta.ChangedCells.Count > 0 ||
+                delta.RemovedModules.Count > 0 || delta.ChangedModules.Count == 0) {
+                return false;
+            }
+            for (int i = 0; i < delta.ChangedModules.Count; i++) {
+                var nextMod = delta.ChangedModules[i];
+                if (nextMod == null || !string.Equals(nextMod.Type, "exit", StringComparison.Ordinal)) return false;
+                if (!previousIndex.TryGetModule(nextMod.Id, out var prevMod) || prevMod == null ||
+                    !string.Equals(prevMod.Type, "exit", StringComparison.Ordinal)) {
+                    return false;
+                }
+                if (!StationEditClassifier.SameExitExceptSettings(prevMod.RawJson, nextMod.RawJson, allowName: false)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
         public LocalWorldStage StageLocalWorld(StationDocument next, StationIndex nextIndex, StationIndexDelta delta) {
             using var editSample = StationEditProfiling.Measure("StationEdit.StageLocalWorld");
             if (!IsBuilt || IsDisposed || delta == null || document == null || index == null || next == null || nextIndex == null) {
@@ -440,6 +460,11 @@ namespace Metro.App {
             stage.Root.transform.SetParent(Root, false);
             stage.Root.SetActive(false);
             stage.Context = new StationLocalDeltaContext(this, document, index, next, nextIndex, delta, stage.Root.transform);
+
+            if (IsExitSpawnSettingsOnly(index, delta)) {
+                stage.Context.TouchedModuleIds.Clear();
+                return stage;
+            }
 
             try {
                 for (int i = 0; i < renderers.Count; i++) {

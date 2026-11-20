@@ -94,6 +94,16 @@ namespace Metro.Sim {
         public string Name;
         /// <summary>An exit draws glass walls; a bare portal (<c>cfg.headHouse === false</c>) does not.</summary>
         public bool HeadHouse;
+        /// <summary>An exit's authored style (<c>cfg.style</c>: doorway / virtual / empty for head-house).</summary>
+        public string ExitStyle;
+        /// <summary>An exit's bay count (<c>cfg.bays</c>: 1–4; 0 defaults to 2).</summary>
+        public int ExitBays;
+        /// <summary>True when an exit is explicitly closed (<c>cfg.open === false</c>).</summary>
+        public bool ExitClosed;
+        /// <summary>True when an exit carries an authored inflow rate (<c>cfg.inRate</c>).</summary>
+        public bool HasExitInRate;
+        /// <summary>An exit's authored inflow rate in pax/hour (<c>cfg.inRate</c>).</summary>
+        public double ExitInRate;
         /// <summary>A platform edge's own direction label (<c>cfg.dir</c>).</summary>
         public string Dir;
         /// <summary>A platform edge's side (<c>cfg.side</c>: left/right).</summary>

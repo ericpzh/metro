@@ -1551,4 +1551,161 @@ public class StationServiceFrameTests {
         Debug.Log($"[Stage6Tianhe] ticks={ticks} totalMs={totalSw.Elapsed.TotalMilliseconds:F1} avgMs={avg:F2} p50Ms={p50:F2} p95Ms={p95:F2} maxMs={max:F2} peakCrowd={peakCrowd} finalCrowd={finalCrowd} spawned={session.Services.Spawned} boarded={session.Services.Boarded} alighted={session.Services.Alighted} exited={session.Services.Exited} stuck={session.Services.Stuck} routeCalls={session.Services.RouteCalls} cacheHits={session.Services.RouteCacheHits} avoidCalls={session.Services.RouteAvoidCalls} astarQueries={session.Services.PlannerQueries} expanded={session.Services.PlannerExpandedNodes} skippedStale={session.Services.PlannerSkippedStalePops} posChecksum={posChecksum:F4}");
         Assert.Greater(session.Services.Spawned, 0, "Tianhe peak rush must spawn passengers");
     }
+
+    [Test]
+    public void HeadHouseExitsResolveDoorCellAndSpawnStreetPassengers() {
+        // Head-house at (0, 0, 0) rot=3 bays=2 has its anchor cell carved as air (stairwell hole),
+        // matching real saves (Zoo/Tanwei/Tianhe). Its street doorway is at exitDoorCell = (2, -1, 0).
+        var doc = new StationSessionDocument();
+        for (int x = -2; x <= 8; x++)
+            for (int y = -3; y <= 3; y++)
+                doc.Cells.Add(new StationCellFact { X = x, Y = y, Z = 0, Solid = !(x == 0 && y == 0), Zone = 1, Speed = 1 });
+        doc.Modules.Add(new StationModuleFact {
+            Id = "exit-headhouse", Type = "exit", X = 0, Y = 0, Z = 0, Rot = 3,
+            Name = "A", HeadHouse = true, ExitBays = 2, HasExitInRate = true, ExitInRate = 7200,
+        });
+        doc.Modules.Add(new StationModuleFact {
+            Id = "exit-other", Type = "exit", X = 7, Y = 0, Z = 0, Rot = 0,
+            Name = "B", HeadHouse = false, HasExitInRate = true, ExitInRate = 0,
+        });
+
+        var opts = new StationWalkGraphOptions { IncludeGround = false };
+        var built = StationWalkGraphBuilder.Build(doc, opts);
+        var workspace = StationWalkGraphBuilder.BuildWorkspace(doc, opts).Graph;
+
+        Assert.AreEqual(2, built.Exits.Count, "builder must resolve head-house exit even when anchor cell is air");
+        Assert.AreEqual(2, workspace.Exits.Count, "workspace must agree with builder on head-house exit count");
+        Assert.AreEqual(2.5, built.NodeX[built.Exits[0].Node], 1e-6, "door cell x matches web exitDoorCell");
+        Assert.AreEqual(-0.5, built.NodeY[built.Exits[0].Node], 1e-6, "door cell y matches web exitDoorCell");
+        Assert.AreEqual(built.Exits[0].Node, workspace.Exits[0].Node, "builder and workspace agree on exit node");
+
+        var session = Session(doc, services: new StationServiceOptions { ExitInRatePerHour = 0 });
+        Run(session, 20);
+        Assert.Greater(session.Services.Spawned, 0, "head-house exit must spawn street passengers using its own inRate");
+    }
+
+    [Test]
+    public void ExitOpenAndInRateControlStreetSpawning() {
+        var doc = new StationSessionDocument();
+        for (int x = 0; x <= 6; x++)
+            doc.Cells.Add(new StationCellFact { X = x, Y = 0, Z = 0, Solid = true, Zone = 1, Speed = 1 });
+        doc.Modules.Add(new StationModuleFact {
+            Id = "closed-exit", Type = "exit", X = 0, Y = 0, Z = 0,
+            HeadHouse = false, ExitClosed = true, HasExitInRate = true, ExitInRate = 36000,
+        });
+        doc.Modules.Add(new StationModuleFact {
+            Id = "zero-rate-exit", Type = "exit", X = 6, Y = 0, Z = 0,
+            HeadHouse = false, ExitClosed = false, HasExitInRate = true, ExitInRate = 0,
+        });
+
+        var session = Session(doc, services: new StationServiceOptions { ExitInRatePerHour = 36000 });
+        Run(session, 30);
+        Assert.AreEqual(0, session.Services.Spawned, "closed exits and zero-inRate exits must not spawn passengers");
+    }
+
+    [Test]
+    public void ZooHeadHouseExitsResolveDoorCellsAndSpawnFromStreet() {
+        string zooPath = Path.Combine(Application.dataPath, "StationDesigner/Demos/zoo.metro.json");
+        if (!File.Exists(zooPath)) Assert.Ignore("zoo.metro.json not exported");
+        var read = Metro.Persistence.StationDocumentReader.ReadFile(zooPath);
+        Assert.IsNotNull(read?.Document, "zoo document failed to read");
+        var projected = StationSessionProjection.Document(read.Document, read.Index);
+
+        var built = StationWalkGraphBuilder.Build(projected);
+        var workspace = StationWalkGraphBuilder.BuildWorkspace(projected).Graph;
+        Assert.AreEqual(2, built.Exits.Count, "Zoo must resolve both street head-house exits");
+        Assert.AreEqual(2, workspace.Exits.Count, "Zoo workspace must resolve both street head-house exits");
+        Assert.AreEqual(91.5, built.NodeX[built.Exits[0].Node], 1e-6);
+        Assert.AreEqual(15.5, built.NodeY[built.Exits[0].Node], 1e-6);
+        Assert.AreEqual(65.5, built.NodeX[built.Exits[1].Node], 1e-6);
+        Assert.AreEqual(15.5, built.NodeY[built.Exits[1].Node], 1e-6);
+
+        var session = new StationSimulationSession(StationSessionProjection.Setup(read.Document, read.Index, "zoo-exit-spawn"));
+        session.SetPlaying(true);
+        // Step 60 seconds from 06:30 boot: check street spawns, stuck count, and live ground-level passengers.
+        int maxGroundAlive = 0;
+        for (int i = 1; i <= 60; i++) {
+            session.Advance(1.0);
+            var frames = session.PassengerFrames();
+            int groundAlive = 0;
+            for (int f = 0; f < frames.Length; f++) {
+                if (Math.Abs(frames[f].Z - 1.0) < 0.5) groundAlive++;
+            }
+            if (groundAlive > maxGroundAlive) maxGroundAlive = groundAlive;
+            if (i == 5 || i == 10 || i == 20 || i == 30 || i == 60) {
+                Debug.Log($"[ZooExitDiag] t={i} simTime={session.Clock.SimTime} demand={session.Clock.DemandRate(session.Clock.SimTime, true):F4} spawned={session.Services.Spawned} alighted={session.Services.Alighted} boarded={session.Services.Boarded} exited={session.Services.Exited} stuck={session.Services.Stuck} alive={frames.Length} groundAlive={groundAlive}");
+            }
+        }
+        Assert.Greater(session.Services.Spawned, 0, "Zoo street entrances must spawn passengers");
+        Assert.Greater(session.Services.Spawned, session.Services.Alighted, "street spawns must occur independently of train alighting");
+        Assert.Greater(maxGroundAlive, 0, "Zoo street entrances must produce visible ground-level passengers walking from entrances");
+    }
+
+    [Test]
+    public void EditExitCommandUpdatesLiveInRateAndOpenWithoutRebuildingWorldAndSpawnsAtGroundLevel() {
+        string zooPath = Path.Combine(Application.dataPath, "StationDesigner/Demos/zoo.metro.json");
+        if (!File.Exists(zooPath)) Assert.Ignore("zoo.metro.json not exported");
+        StationEditSession.Reset();
+        var go = new GameObject("ExitSliderHostTest");
+        try {
+            var host = go.AddComponent<StationGameHost>();
+            host.frameCameraOnCommit = false;
+            typeof(StationGameHost).GetMethod("Awake", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic).Invoke(host, null);
+            host.Router.Register(new StationEditCommandHandler());
+            var open = host.OpenDocument(File.ReadAllText(zooPath), "demo:zoo");
+            Assert.IsTrue(open.Accepted, open.ToString());
+            StationEditHost.Ensure().Bind(host);
+            var initialWorld = host.Coordinator.World;
+            var simHost = (StationSimulationHost)host.Simulation;
+            var session = simHost.Session;
+            Assert.IsNotNull(session);
+            var initialGraph = session.WalkGraph;
+
+            // Drag entrance sliders to 6000 pax/hr via the real bridge command.
+            int rev0 = host.CurrentRevision;
+            host.BrowserCommand("{\"schemaVersion\":2,\"id\":\"c-exit-1\",\"sessionId\":\"test-s\",\"type\":\"edit.exit\",\"payload\":{\"moduleId\":\"exit-uncovered-2-258\",\"inRate\":6000}}");
+            host.BrowserCommand("{\"schemaVersion\":2,\"id\":\"c-exit-2\",\"sessionId\":\"test-s\",\"type\":\"edit.exit\",\"payload\":{\"moduleId\":\"exit-uncovered-2-398\",\"inRate\":6000}}");
+            Assert.AreEqual(rev0 + 2, host.CurrentRevision, "each edit.exit commits a revision");
+            Assert.AreSame(initialWorld, host.Coordinator.World, "inRate slider change must retain the world without rebuilding meshes");
+            Assert.AreSame(initialGraph, session.WalkGraph, "inRate slider change must retain the walk graph");
+            Assert.AreEqual(6000, host.Index.GetModule("exit-uncovered-2-258").Config.Number("inRate", -1), 1e-6);
+            Assert.AreEqual(6000, host.Index.GetModule("exit-uncovered-2-398").Config.Number("inRate", -1), 1e-6);
+
+            // Start simulation at 06:30 boot: high entrance rate must visibly spawn pops at ground level right away.
+            session.SetPlaying(true);
+            int maxGroundNearExits = 0;
+            int spawnedAt15s = 0;
+            for (int t = 1; t <= 30; t++) {
+                session.Advance(1.0);
+                if (t == 15) spawnedAt15s = session.Services.Spawned - session.Services.Alighted;
+                var frames = session.PassengerFrames();
+                int groundNearExits = 0;
+                for (int f = 0; f < frames.Length; f++) {
+                    if (Math.Abs(frames[f].Z - 1.0) < 0.5) groundNearExits++;
+                }
+                if (groundNearExits > maxGroundNearExits) maxGroundNearExits = groundNearExits;
+            }
+            Assert.GreaterOrEqual(spawnedAt15s, 4, "6000 pax/hr entrance sliders must spawn multiple ground passengers within 15s of simulation start");
+            Assert.GreaterOrEqual(maxGroundNearExits, 4, "multiple live passengers must be walking at ground level around entrances");
+
+            // Closing one exit and setting the other's inRate to 0 immediately halts all new street spawns.
+            host.BrowserCommand("{\"schemaVersion\":2,\"id\":\"c-exit-3\",\"sessionId\":\"test-s\",\"type\":\"edit.exit\",\"payload\":{\"moduleId\":\"exit-uncovered-2-258\",\"open\":false}}");
+            host.BrowserCommand("{\"schemaVersion\":2,\"id\":\"c-exit-4\",\"sessionId\":\"test-s\",\"type\":\"edit.exit\",\"payload\":{\"moduleId\":\"exit-uncovered-2-398\",\"inRate\":0}}");
+            Assert.AreSame(initialWorld, host.Coordinator.World, "open/inRate edits retain world");
+            int streetBefore = session.Services.Spawned - session.Services.Alighted;
+            for (int t = 0; t < 20; t++) session.Advance(1.0);
+            int streetAfter = session.Services.Spawned - session.Services.Alighted;
+            Assert.AreEqual(streetBefore, streetAfter, "closed + 0 inRate exits must stop spawning new street passengers immediately");
+
+            // Undo restores inRate=6000 on exit B and resumes street spawning.
+            host.BrowserCommand("{\"schemaVersion\":2,\"id\":\"c-exit-5\",\"sessionId\":\"test-s\",\"type\":\"edit.undo\",\"payload\":{}}");
+            Assert.AreEqual(6000, host.Index.GetModule("exit-uncovered-2-398").Config.Number("inRate", -1), 1e-6);
+            int streetAfterUndoStart = session.Services.Spawned - session.Services.Alighted;
+            for (int t = 0; t < 20; t++) session.Advance(1.0);
+            Assert.Greater(session.Services.Spawned - session.Services.Alighted, streetAfterUndoStart, "undo must restore live spawning");
+        } finally {
+            UnityEngine.Object.DestroyImmediate(go);
+            StationEditSession.Reset();
+        }
+    }
 }

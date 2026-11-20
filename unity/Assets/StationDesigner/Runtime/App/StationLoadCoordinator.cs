@@ -674,6 +674,17 @@ namespace Metro.App {
             return InstallLocalEdit(read, sourceId);
         }
 
+        /// <summary>Try the local path for patching one exit module's demand/open/name settings.</summary>
+        public StationLoadResult TryInstallLocalExitSettings(string moduleId, bool hasName, string name,
+            bool hasInRate, double inRate, bool hasOpen, bool open, string sourceId, out string code) {
+            code = null;
+            if (disposed || document == null || committedRead == null) { code = "no-document"; return null; }
+            var read = StationLocalEdit.TryApplyExitSettings(committedRead, moduleId, hasName, name, hasInRate, inRate,
+                hasOpen, open, sourceId, out code);
+            if (read == null) return null;
+            return InstallLocalEdit(read, sourceId);
+        }
+
         public void Tick(double realSeconds) => simulation?.Tick(realSeconds);
 
         public void Dispose() {
@@ -905,6 +916,11 @@ namespace Metro.App {
                 LineId = cfg.Text("line"),
                 Name = cfg.Text("name"),
                 HeadHouse = module.Type == "exit" && (!cfg.Has("headHouse") || cfg.Bool("headHouse")),
+                ExitStyle = module.Type == "exit" ? cfg.Text("style") : "",
+                ExitBays = module.Type == "exit" ? (int)Math.Round(cfg.Number("bays", 2)) : 0,
+                ExitClosed = module.Type == "exit" && cfg.Has("open") && !cfg.Bool("open"),
+                HasExitInRate = module.Type == "exit" && cfg.Has("inRate"),
+                ExitInRate = module.Type == "exit" ? cfg.Number("inRate", 900) : 0,
                 Dir = cfg.Text("dir"),
                 Side = cfg.Text("side"),
                 Variant = cfg.Text("variant"),
@@ -1299,6 +1315,12 @@ namespace Metro.App {
                 var module = delta.ChangedModules[i];
                 var old = before.Index.GetModule(module.Id);
                 StationEditTrace.AddScanned(1);
+                if (old != null &&
+                    string.Equals(old.Type, "exit", StringComparison.Ordinal) &&
+                    string.Equals(module.Type, "exit", StringComparison.Ordinal) &&
+                    SameExitExceptSettings(old.RawJson, module.RawJson)) {
+                    continue;
+                }
                 if (!IsSimInertDecorModule(module) || (old != null && !IsSimInertDecorModule(old))) return StationDocumentEditKind.Structural;
             }
             if (delta.RemovedCells.Count > 0) return StationDocumentEditKind.Structural;
@@ -1533,19 +1555,25 @@ namespace Metro.App {
                     !string.Equals(mb.Type, "exit", StringComparison.Ordinal)) {
                     return false;
                 }
-                if (!SameExitExceptName(ma.RawJson, mb.RawJson)) return false;
+                if (!SameExitExceptSettings(ma.RawJson, mb.RawJson)) return false;
             }
             return true;
         }
 
-        static bool SameExitExceptName(string beforeRaw, string afterRaw) {
+        internal static bool SameExitExceptSettings(string beforeRaw, string afterRaw, bool allowName = true) {
             try {
                 var a = JObject.Parse(beforeRaw);
                 var b = JObject.Parse(afterRaw);
                 var cfgA = a["cfg"] as JObject != null ? (JObject)a["cfg"].DeepClone() : new JObject();
                 var cfgB = b["cfg"] as JObject != null ? (JObject)b["cfg"].DeepClone() : new JObject();
-                cfgA.Remove("name");
-                cfgB.Remove("name");
+                if (allowName) {
+                    cfgA.Remove("name");
+                    cfgB.Remove("name");
+                }
+                cfgA.Remove("inRate");
+                cfgB.Remove("inRate");
+                cfgA.Remove("open");
+                cfgB.Remove("open");
                 var rootA = (JObject)a.DeepClone();
                 var rootB = (JObject)b.DeepClone();
                 rootA["cfg"] = cfgA;
