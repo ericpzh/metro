@@ -97,7 +97,7 @@ export function createStaticServer(packDir, requestedPort = 0, host = '127.0.0.1
         }
         res.writeHead(200, {
           'content-type': relative.endsWith('.wasm') ? 'application/wasm' : 'application/octet-stream',
-          'content-encoding': 'identity',
+          'content-encoding': split.encoding === 'br' || split.encoding === 'gzip' ? split.encoding : 'identity',
           'content-length': String(split.bytes),
           'cache-control': 'no-store',
         })

@@ -5,10 +5,26 @@ function redirect(url, pathname) {
 }
 
 function streamSplitAsset(url, env, relPath, split, firstPart) {
+  if (typeof FixedLengthStream === 'function') {
+    const fixed = new FixedLengthStream(split.bytes)
+    ;(async () => {
+      try {
+        await firstPart.body.pipeTo(fixed.writable, { preventClose: split.parts.length > 1 })
+        for (let i = 1; i < split.parts.length; i++) {
+          const next = await env.ASSETS.fetch(new Request(new URL('/' + split.parts[i], url), { headers: { 'accept-encoding': 'identity' } }))
+          if (!next.ok || !next.body) throw new Error(`Missing split asset part: ${split.parts[i]}`)
+          await next.body.pipeTo(fixed.writable, { preventClose: i < split.parts.length - 1 })
+        }
+      } catch (error) {
+        try { await fixed.writable.abort(error) } catch {}
+      }
+    })()
+    return fixed.readable
+  }
   let index = 0
   let reader = firstPart.body.getReader()
   let transferred = 0
-  const source = new ReadableStream({
+  return new ReadableStream({
     async pull(controller) {
       while (true) {
         const chunk = await reader.read()
@@ -45,12 +61,6 @@ function streamSplitAsset(url, env, relPath, split, firstPart) {
       } catch {}
     },
   })
-  if (typeof FixedLengthStream === 'function') {
-    const fixed = new FixedLengthStream(split.bytes)
-    source.pipeTo(fixed.writable).catch(() => {})
-    return fixed.readable
-  }
-  return source
 }
 
 export default {
@@ -90,12 +100,14 @@ export default {
       if (!Array.isArray(split.parts) || split.parts.length === 0 || !Number.isInteger(split.bytes) || split.bytes < 0) {
         return new Response('Invalid split asset metadata', { status: 502 })
       }
+      const encoding = split.encoding === 'br' || split.encoding === 'gzip' ? split.encoding : 'identity'
       const headers = {
         'content-type': assetPath.endsWith('.wasm') ? 'application/wasm' : 'application/octet-stream',
-        'content-encoding': 'identity',
+        'content-encoding': encoding,
         'content-length': String(split.bytes),
         'cache-control': cacheControl,
       }
+      if (encoding !== 'identity') headers.vary = 'Accept-Encoding'
       if (request.method === 'HEAD') return new Response(null, { headers, encodeBody: 'manual' })
       const firstPart = await env.ASSETS.fetch(new Request(new URL('/' + split.parts[0], url), { headers: { 'accept-encoding': 'identity' } }))
       if (!firstPart.ok || !firstPart.body) return new Response('Missing smoke asset', { status: 502 })

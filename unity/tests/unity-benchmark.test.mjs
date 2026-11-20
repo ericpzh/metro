@@ -1,8 +1,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+import { brotliDecompressSync } from 'node:zlib'
 import localWorker from '../../tools/unity-web/local-worker.mjs'
 import { attachUnityUI } from '../../tools/unity-web/unity-ui-pack.mjs'
 import { stageUnityDeploy, validatePublicPack } from '../../tools/unity-web/stage-deploy.mjs'
@@ -15,8 +16,9 @@ function createUnityMockEnv(assetPrefix = '/game/unity') {
   const manifest = {
     splitFiles: {
       'Build/web-Release.wasm': {
-        parts: ['Build/web-Release.wasm.part0', 'Build/web-Release.wasm.part1'],
+        parts: ['Build/web-Release.wasm.brpart0', 'Build/web-Release.wasm.brpart1'],
         bytes: 6,
+        encoding: 'br',
       },
     },
   }
@@ -28,8 +30,8 @@ function createUnityMockEnv(assetPrefix = '/game/unity') {
         if (pathname === '/') return new Response(html, { status: 200, headers: { 'content-type': 'text/html' } })
         if (pathname === '/UI/assets/app.css') return new Response('body{}', { status: 200, headers: { 'content-type': 'text/css' } })
         if (pathname === '/manifest.json') return Response.json(manifest)
-        if (pathname === '/Build/web-Release.wasm.part0') return new Response(new Uint8Array([0x00, 0x61, 0x73, 0x6d]), { status: 200 })
-        if (pathname === '/Build/web-Release.wasm.part1') return new Response(new Uint8Array([0x01, 0x00]), { status: 200 })
+        if (pathname === '/Build/web-Release.wasm.brpart0') return new Response(new Uint8Array([0x00, 0x61, 0x73, 0x6d]), { status: 200 })
+        if (pathname === '/Build/web-Release.wasm.brpart1') return new Response(new Uint8Array([0x01, 0x00]), { status: 200 })
         return new Response('Not found', { status: 404 })
       },
     },
@@ -72,6 +74,8 @@ test('Worker routes /game/unity and /game/unity/benchmark[/en], rewrites asset b
   const splitWasm = await localWorker.fetch(new Request('https://stationdesigner.com/game/unity/_unity/Build/web-Release.wasm'), env)
   assert.equal(splitWasm.status, 200)
   assert.equal(splitWasm.headers.get('content-type'), 'application/wasm')
+  assert.equal(splitWasm.headers.get('content-encoding'), 'br')
+  assert.equal(splitWasm.headers.get('vary'), 'Accept-Encoding')
   assert.equal(splitWasm.headers.get('content-length'), '6')
   assert.deepEqual([...new Uint8Array(await splitWasm.arrayBuffer())], [0x00, 0x61, 0x73, 0x6d, 0x01, 0x00])
 
@@ -122,13 +126,25 @@ test('UnityBenchmarkRoute and wrangler config wire the Unity WebGL benchmark cle
   assert.match(html, /window\.__metroUnityLoadError =/)
 })
 
-test('stage-deploy refuses local-only soft-human packs and stages public StationGameLocal packs', () => {
+test('stage-deploy refuses local-only soft-human packs, stages public packs, and Brotli-compresses split bundles', () => {
   const sandbox = mkdtempSync(join(tmpdir(), 'metro-unity-stage-'))
   try {
     const publicPack = join(sandbox, 'public-pack')
-    mkdirSync(publicPack, { recursive: true })
+    mkdirSync(join(publicPack, 'Build'), { recursive: true })
+    const rawData = Buffer.from('metro-station-data-'.repeat(4000))
+    writeFileSync(join(publicPack, 'Build/web-Release.data.part0'), rawData.subarray(0, 30000))
+    writeFileSync(join(publicPack, 'Build/web-Release.data.part1'), rawData.subarray(30000))
     writeFileSync(join(publicPack, 'index.html'), '<html></html>')
-    writeFileSync(join(publicPack, 'manifest.json'), JSON.stringify({ sourceSha: 'a'.repeat(40), files: [] }))
+    writeFileSync(join(publicPack, 'manifest.json'), JSON.stringify({
+      sourceSha: 'a'.repeat(40),
+      splitFiles: {
+        'Build/web-Release.data': {
+          parts: ['Build/web-Release.data.part0', 'Build/web-Release.data.part1'],
+          bytes: rawData.length,
+        },
+      },
+      files: [],
+    }))
     writeFileSync(join(publicPack, 'provenance.json'), JSON.stringify({ Scene: 'Assets/StationDesigner/Scenes/StationGameLocal.unity', Head: 'a'.repeat(40) }))
 
     const validated = validatePublicPack(publicPack)
@@ -138,6 +154,14 @@ test('stage-deploy refuses local-only soft-human packs and stages public Station
     const staged = stageUnityDeploy(sandbox, publicPack, stagedOut)
     assert.equal(staged.outDir, stagedOut)
     assert.equal(readFileSync(join(stagedOut, 'index.html'), 'utf8'), '<html></html>')
+    assert.equal(existsSync(join(stagedOut, 'Build/web-Release.data.part0')), false, 'raw uncompressed part removed')
+    const stagedManifest = JSON.parse(readFileSync(join(stagedOut, 'manifest.json'), 'utf8'))
+    const brEntry = stagedManifest.splitFiles['Build/web-Release.data']
+    assert.equal(brEntry.encoding, 'br')
+    assert.ok(brEntry.bytes < rawData.length, 'Brotli shrinks data payload')
+    const reassembled = Buffer.concat(brEntry.parts.map(p => readFileSync(join(stagedOut, p))))
+    assert.equal(reassembled.length, brEntry.bytes)
+    assert.equal(brotliDecompressSync(reassembled).equals(rawData), true, 'Brotli parts decompress losslessly')
 
     const localOnlyPack = join(sandbox, 'local-only-pack')
     mkdirSync(localOnlyPack, { recursive: true })
