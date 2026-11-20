@@ -10,6 +10,7 @@ const knownTypes = new Map([
   ['.html','text/html; charset=utf-8'], ['.css','text/css'],
   ['.png','image/png'], ['.jpg','image/jpeg'], ['.jpeg','image/jpeg'],
   ['.svg','image/svg+xml'], ['.ico','image/x-icon'], ['.txt','text/plain; charset=utf-8'],
+  ['.mp3','audio/mpeg'], ['.wav','audio/wav'],
   ['.webp','image/webp'], ['.ttf','font/ttf'], ['.woff2','font/woff2'],
 ])
 

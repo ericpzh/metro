@@ -1,6 +1,8 @@
 export interface AudioVolumes { master: number; effects: number; ambient: number; music: number }
 /** Preserve the deployed /game prefix while keeping language/demo routes out of asset paths. */
 export function audioAssetBase(pathname:string):string {
+  const unityBase = (globalThis as {metroUnityAudioBase?: string}).metroUnityAudioBase
+  if (unityBase) return unityBase
   const segments=pathname.split('/').filter(Boolean)
   if(['lab','zoo','tanwei','tianhe'].includes(segments.at(-1)??''))segments.pop()
   if(segments.at(-1)==='en')segments.pop()

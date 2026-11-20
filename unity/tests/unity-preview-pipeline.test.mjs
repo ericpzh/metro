@@ -7,6 +7,7 @@ import { join, resolve } from 'node:path'
 import vm from 'node:vm'
 import localWorker from '../../tools/unity-web/local-worker.mjs'
 import { attachUnityUI, buildUnityUI } from '../../tools/unity-web/unity-ui-pack.mjs'
+import { resourceType } from '../../tools/unity-web/release-contract.mjs'
 import {
   MUTABLE_BUILD_INPUTS,
   parseUnityStartArgs,
@@ -326,7 +327,20 @@ test('Unity UI bundle excludes Three.js crowd/map payloads and replaces default 
   const paths = [...ui.files.keys()]
   assert.ok(!paths.some(path => /passenger-.*\.bin$/.test(path)), 'Three.js passenger binary chunks leaked into Unity UI')
   assert.ok(!paths.some(path => /beijing-map|chengdu-map|shanghai-map/.test(path)), 'Three.js city line maps leaked into Unity UI')
+  const audioRoot = join(repo, 'game/public/audio')
+  const audioFiles = readdirSync(audioRoot, { recursive: true, withFileTypes: true })
+    .filter(entry => entry.isFile())
+    .map(entry => resolve(entry.parentPath, entry.name))
+  assert.equal(paths.filter(path => path.startsWith('UI/audio/')).length, audioFiles.length)
+  for (const file of audioFiles) {
+    const path = 'UI/audio/' + file.slice(audioRoot.length + 1).replaceAll('\\', '/')
+    assert.ok(ui.files.get(path)?.equals(readFileSync(file)), `Unity audio missing or changed: ${path}`)
+    assert.ok(ui.files.get(path).byteLength < 25 * 1024 * 1024, `Audio exceeds release file limit: ${path}`)
+    if (path.endsWith('.mp3')) assert.equal(resourceType(path).contentType, 'audio/mpeg')
+    if (path.endsWith('.wav')) assert.equal(resourceType(path).contentType, 'audio/wav')
+  }
   for (const [path, bytes] of ui.files) {
+    if (path.startsWith('UI/audio/')) continue
     assert.ok(bytes.byteLength < 10 * 1024 * 1024, `Unity UI asset unexpectedly large (${bytes.byteLength} bytes): ${path}`)
   }
 
@@ -358,6 +372,8 @@ test('Unity UI bundle excludes Three.js crowd/map payloads and replaces default 
   </body>
 </html>`
   const attached = attachUnityUI(template, ui, '/game/_unity')
+  assert.match(attached, /metroUnityAudioBase = '\/game\/_unity\/UI\/audio\/'/)
+  assert.match(attached, /ui\.stationBridge\.register\(instance\)/)
   assert.match(attached, /<title>车站设计师 · Station Designer<\/title>/)
   assert.match(attached, /id="game-loading"/)
   assert.match(attached, /<div class="loading-brand">Station Designer<\/div>/)

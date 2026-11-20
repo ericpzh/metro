@@ -6,6 +6,52 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
 namespace Metro.App {
+    readonly struct StationEditAudioOutcome {
+        readonly string command;
+        readonly string tool;
+        readonly bool secondary;
+        readonly bool carried;
+        readonly string selectionKind;
+        readonly string selectionKey;
+        readonly JObject pick;
+        readonly JObject paintPick;
+        readonly JObject notice;
+
+        public StationEditAudioOutcome(string type, JObject payload) {
+            command = type;
+            tool = StationToolSelection.Active;
+            secondary = type == "pointer.rightTap" ||
+                (payload["button"]?.Type == JTokenType.Integer && (int)payload["button"] == 2);
+            carried = StationEditSession.HasCarried;
+            selectionKind = StationEditSession.SelectionKind;
+            selectionKey = StationEditSession.SelectionKey;
+            pick = StationEditSession.Picked;
+            paintPick = StationEditSession.PaintPick;
+            notice = StationEditSession.Notice;
+        }
+
+        public string Cue(bool accepted, bool committed, string rejectCode) {
+            bool pointer = command == "pointer.down" || command == "pointer.up" || command == "pointer.rightTap";
+            bool move = command == "edit.move.start" || command == "edit.move.confirm";
+            bool delete = command == "edit.delete";
+            if (!pointer && !move && !delete && command != "edit.select") return null;
+
+            if (accepted && committed) {
+                if (command == "edit.move.confirm" || (pointer && carried && tool == "move")) return "move";
+                return delete || secondary || tool == "delete" ? "delete" : "place";
+            }
+            if (accepted && !carried && StationEditSession.HasCarried) return "pick";
+            if (accepted && (pick != StationEditSession.Picked &&
+                    !string.IsNullOrEmpty((string)StationEditSession.Picked?["moduleId"]) ||
+                paintPick != StationEditSession.PaintPick && StationEditSession.PaintPick != null)) return "pick";
+            if (accepted && !string.IsNullOrEmpty(StationEditSession.SelectionKey) &&
+                (selectionKind != StationEditSession.SelectionKind || selectionKey != StationEditSession.SelectionKey)) return "select";
+            if (pointer && notice != StationEditSession.Notice &&
+                (string)StationEditSession.Notice?["kind"] == "blocked" && tool != "pick" && tool != "select") return "refused";
+            return !accepted && (move || delete) && !string.IsNullOrEmpty(rejectCode) ? "refused" : null;
+        }
+    }
+
     /// <summary>One decoded v2 command.</summary>
     public sealed class StationCommand {
         public int SchemaVersion;
@@ -414,6 +460,7 @@ namespace Metro.App {
                         // ack fields back into it. Passing an empty object (as an earlier version
                         // did) made every feature handler see no input and reject with bad-payload.
                         JObject payload = command.Payload != null ? (JObject)command.Payload.DeepClone() : new JObject();
+                        var audio = new StationEditAudioOutcome(command.Type, payload);
                         bool handled;
                         try {
                             handled = handler.TryHandle(command, payload, out rejectCode, out rejectReason);
@@ -421,6 +468,8 @@ namespace Metro.App {
                             trace?.Dispose();
                             throw;
                         }
+                        string cue = audio.Cue(handled, host.CurrentRevision != revisionBefore, rejectCode);
+                        if (cue != null) host.PublishAudio(new JObject { ["cue"] = cue });
                         if (handled) {
                             if (host.CurrentRevision != revisionBefore) {
                                 trace?.Commit(host.CurrentRevision);

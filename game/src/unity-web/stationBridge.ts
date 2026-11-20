@@ -20,7 +20,7 @@ export interface Envelope {
   payload?: unknown
 }
 
-export type ReplyKind = 'ack' | 'reject' | 'state' | 'commit' | 'camera'
+export type ReplyKind = 'ack' | 'reject' | 'state' | 'commit' | 'camera' | 'audio'
 
 export interface Reply {
   schemaVersion?: number
@@ -151,6 +151,7 @@ const listeners = new Set<() => void>()
  * React subscriber sixty times a second. Its one consumer is `createStationCameraPort`.
  */
 const cameraPoseListeners = new Set<(camera: Record<string, unknown>, sequence: number) => void>()
+const audioListeners = new Set<(payload: Record<string, unknown>) => void>()
 const pending = new Map<string, { type: string; at: number }>()
 const pendingRequests = new Map<string, PendingRequest>()
 const retiredRequestIds = new Set<string>()
@@ -335,6 +336,12 @@ function deliver(text: string): void {
   let reply: Reply
   try { reply = JSON.parse(text) as Reply } catch { return }
   if (!reply || typeof reply !== 'object') return
+  if (reply.kind === 'audio') {
+    if (reply.sessionId === snapshot.sessionId && reply.payload) {
+      for (const listener of audioListeners) listener(reply.payload)
+    }
+    return
+  }
 
   // A frame-cadence camera pose (plan 29 §5): session-fenced, outside the reducer, and
   // delivered to the camera port only. Nothing here changes the revision or the state map.
@@ -405,6 +412,10 @@ function deliver(text: string): void {
 }
 
 export const stationBridge = {
+  onAudio(listener: (payload: Record<string, unknown>) => void): () => void {
+    audioListeners.add(listener)
+    return () => { audioListeners.delete(listener) }
+  },
   capabilities: { tools: [] as readonly string[], speeds: [1, 4, 16, 64] as readonly number[] },
   subscribe(listener: () => void): () => void { listeners.add(listener); return () => { listeners.delete(listener) } },
   getSnapshot(): StationSnapshot { return snapshot },

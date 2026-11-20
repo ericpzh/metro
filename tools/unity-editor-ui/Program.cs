@@ -1751,6 +1751,7 @@ internal sealed class OffscreenWebViewHost : NativeWindow, IDisposable {
       window.addEventListener('scroll', notifyDirty, true);
 
       window.metroUnityUiBase = '{{assetBase}}/';
+      window.metroUnityAudioBase = '/audio/';
       const ui = await import('{{assetBase}}/{{entryFile}}');
       const host = document.createElement('div');
       host.id = 'metro-unity-ui';

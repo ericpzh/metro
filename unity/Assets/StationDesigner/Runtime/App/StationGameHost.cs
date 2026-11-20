@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Runtime.InteropServices;
+using Metro.App.Views;
 using Metro.Build;
 using Metro.Persistence;
 using Metro.Sim;
@@ -395,6 +396,87 @@ namespace Metro.App {
                     ["camera"] = camera,
                     ["sequence"] = sequence,
                 },
+            };
+            Publish(reply.ToString(Formatting.None));
+        }
+
+        double nextAudioFrame;
+
+        void LateUpdate() {
+            if (!IsLoaded || openInFlight || clientSessionId.Length == 0) return;
+            var session = (Simulation as StationSimulationHost)?.Session;
+            var exploded = StationExplodedView.ActiveStandalone;
+            var camera = exploded?.ViewerCamera ?? StationEditScene.EditCamera(this);
+            if (session == null || camera == null) return;
+
+            double now = Time.unscaledTimeAsDouble;
+            if (now < nextAudioFrame) return;
+            nextAudioFrame = now + (session.Playing && session.Speed > 1 ? 1.0 / 30 : .1);
+
+            var position = StationCoordinates.WorldToDocument(camera.transform.position);
+            var right = StationCoordinates.WorldToDocumentDirection(camera.transform.right);
+            var trayPassengers = exploded?.Builder?.PresentedPassengers;
+            var passengers = exploded == null ? session.PassengerFrames() : null;
+            int count = trayPassengers?.Count ?? passengers?.Length ?? 0;
+            int stride = Mathf.Max(1, Mathf.CeilToInt(count / 256f));
+            var samples = new JArray();
+            var sources = new JArray();
+            for (int i = 0; i < count; i += stride) {
+                if (trayPassengers != null) {
+                    var passenger = trayPassengers[i];
+                    samples.Add(passenger.X);
+                    samples.Add(passenger.Y);
+                    samples.Add(passenger.Z);
+                } else {
+                    var passenger = passengers[i];
+                    if (!passenger.Visible) continue;
+                    samples.Add(passenger.X);
+                    samples.Add(passenger.Y);
+                    samples.Add(passenger.Z);
+                }
+            }
+            var trains = exploded != null ? exploded.Builder?.PresentedConsists : TrainConsistRenderer.Current?.Consists;
+            Vector3 nearest = default;
+            float best = float.PositiveInfinity;
+            if (session.Playing && trains != null) {
+                foreach (var train in trains) {
+                    if (train.Phase == TrainPhase.None || train.Root == null || !train.Root.activeInHierarchy) continue;
+                    var point = StationCoordinates.WorldToDocument(train.Root.transform.position);
+                    float distance = (point - position).sqrMagnitude;
+                    if (distance < best) { nearest = point; best = distance; }
+                }
+            }
+            if (best < float.PositiveInfinity) sources.Add(AudioSourcePayload("train", nearest, .65));
+            var vehicles = exploded == null ? StationRoadRenderer.Current?.Vehicles?.Poses : null;
+            best = float.PositiveInfinity;
+            if (vehicles != null) {
+                for (int i = 0; i < Mathf.Min(64, vehicles.Count); i++) {
+                    var vehicle = vehicles[i];
+                    var point = new Vector3((float)vehicle.X, (float)vehicle.Y, (float)vehicle.Z);
+                    float distance = (point - position).sqrMagnitude;
+                    if (distance < best) { nearest = point; best = distance; }
+                }
+            }
+            if (best < float.PositiveInfinity) sources.Add(AudioSourcePayload("traffic", nearest, .4));
+            PublishAudio(new JObject {
+                ["position"] = AudioPoint(position), ["right"] = AudioPoint(right),
+                ["sources"] = sources, ["passengers"] = samples,
+                ["sampleWeight"] = stride, ["speed"] = session.Speed,
+            });
+        }
+
+        static JArray AudioPoint(Vector3 point) => new JArray(point.x, point.y, point.z);
+
+        static JObject AudioSourcePayload(string kind, Vector3 position, double level) =>
+            new JObject { ["kind"] = kind, ["position"] = AudioPoint(position), ["level"] = level };
+
+        internal void PublishAudio(JObject payload) {
+            if (clientSessionId.Length == 0) return;
+            var reply = new JObject {
+                ["schemaVersion"] = StationCommandRouter.SchemaVersion,
+                ["kind"] = "audio",
+                ["sessionId"] = clientSessionId,
+                ["payload"] = payload,
             };
             Publish(reply.ToString(Formatting.None));
         }

@@ -21,6 +21,7 @@ namespace Metro.App {
     public sealed class StationExplodedView : MonoBehaviour, IStationFrameSink, IStationActiveDuringExplodedView {
         /// <summary>True while any standalone exploded viewer owns presentation.</summary>
         public static bool IsStandaloneActive => activeStandalone != null && activeStandalone.IsOpen;
+        internal static StationExplodedView ActiveStandalone => IsStandaloneActive ? activeStandalone : null;
         static StationExplodedView activeStandalone;
         /// <summary>Three standalone exploded-view dark void (<c>#192532</c> in <c>explodedView.ts</c>).</summary>
         public static readonly Color DefaultVoidColor = new Color(0x19 / 255f, 0x25 / 255f, 0x32 / 255f, 1f);

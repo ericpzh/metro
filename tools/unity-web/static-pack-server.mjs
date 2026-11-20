@@ -21,6 +21,8 @@ const MIME = {
   '.mjs': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
+  '.mp3': 'audio/mpeg',
+  '.wav': 'audio/wav',
   '.wasm': 'application/wasm',
   '.data': 'application/octet-stream',
   '.png': 'image/png',

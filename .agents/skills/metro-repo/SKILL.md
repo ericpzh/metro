@@ -479,6 +479,7 @@ first and warmed interactions in the
 | Anything under `game/src` — the sim, the renderer, the builder, the app shell, the save format | `metro-game` |
 | Adding, running or fixing tests under `game/test` | `metro-game-test` |
 | Anything under `unity/`, `game/src/unity-web/`, `tools/unity-web/`, `tools/unity-editor-ui/`, `tools/unity-parity/` or `tools/unity-assets/` — the Unity 6 URP port, shared WebGL/WebView2 bridge, parity oracles and asset conversion | [metro-unity](../metro-unity/SKILL.md) ([assets](../metro-unity/references/assets.md)) |
+| Unity game audio playback, scene and edit events, and packaging the shared web recordings | [metro-unity game audio](../metro-unity/SKILL.md#game-audio) |
 | `web/` (the concept-art site), `art/` (the sheets), and the art/card renderers in `tools/` | `metro-web` |
 | `model/` characters, bag variants, walking exports, passenger activity previews and the approved game passenger atlas | `metro-model` |
 

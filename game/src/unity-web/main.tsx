@@ -39,6 +39,7 @@ import { applyStationDelta, seedStationCellIndex } from './stationDelta.ts'
 import { commitSignBoardsToHost, unityHostOwnsStation } from './signCommitAdapter.ts'
 import { registerStationHostCommit } from '../app/stationHostBridge.ts'
 import { beginPointerDrag } from '../app/pointerDrag.ts'
+import { mountUnityAudio } from './unityAudio.ts'
 import '../styles.css'
 import './unity-ui.css'
 
@@ -191,6 +192,7 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
   }
   initLanguage()
   initUiTheme()
+  const unmountAudio = mountUnityAudio()
   // C# answers through one WebGL bridge call that dispatches this event with the
   // reply JSON; the transport stays outside the reducer so it can be tested.
   // Sign artwork requests travel on the same event and are answered here, so a
@@ -617,6 +619,7 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
     if (activeShell !== null && activeShell.unmount === unmount) activeShell = null
     registerStationHostCommit(null)
     stopAdopting()
+    unmountAudio()
     unsubscribeRejects()
     toolAdapter.dispose()
     unsubscribeLevel()

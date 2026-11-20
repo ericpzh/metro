@@ -21,14 +21,16 @@ export function buildUnityUI(root, entryPath = 'src/unity-web/main.tsx') {
     else throw Error('Unexpected Unity UI output')
   } }
   walk(dist)
-  const thumbs = join(game, 'public/module-thumbnails')
-  function addThumbnails(dir) { for (const item of readdirSync(dir, { withFileTypes: true })) {
+  function addPublicAssets(root, dir, prefix) { for (const item of readdirSync(dir, { withFileTypes: true })) {
     const path = join(dir, item.name)
-    if (item.isDirectory()) addThumbnails(path)
-    else if (item.isFile()) files.set('UI/module-thumbnails/' + relative(thumbs, path).replaceAll('\\', '/'), readFileSync(path))
-    else throw Error('Unexpected thumbnail entry')
+    if (item.isDirectory()) addPublicAssets(root, path, prefix)
+    else if (item.isFile()) files.set(prefix + relative(root, path).replaceAll('\\', '/'), readFileSync(path))
+    else throw Error(`Unexpected entry in ${root}`)
   } }
-  addThumbnails(thumbs)
+  for (const folder of ['module-thumbnails', 'audio']) {
+    const path = join(game, 'public', folder)
+    addPublicAssets(path, path, `UI/${folder}/`)
+  }
   if (!files.has('UI/' + entry) || !files.has('UI/' + css)) throw Error('Unity UI manifest references missing assets')
   return { files, entry: 'UI/' + entry, css: 'UI/' + css }
 }
@@ -98,7 +100,7 @@ const LOADING_SHELL = `<div id="game-loading" role="status" aria-live="polite">
   })();
 </script>`
 
-export function attachUnityUI(html, ui, assetBase, bridge = 'zooBridge') {
+export function attachUnityUI(html, ui, assetBase, bridge = 'stationBridge') {
   if (!html.includes('}).then((unityInstance) => {')) throw Error('Unexpected Unity initialization')
   html = html.replace(/<title>[^<]*<\/title>/, '<title>车站设计师 · Station Designer</title>')
   const colorScheme = html.includes('name="color-scheme"') ? '' : '<meta name="color-scheme" content="light dark">\n'
@@ -112,7 +114,7 @@ export function attachUnityUI(html, ui, assetBase, bridge = 'zooBridge') {
     /\.catch\(\(message\)\s*=>\s*\{\s*alert\(message\);\s*\}\)/,
     '.catch((message) => { window.__metroUnityFail?.(message); })',
   )
-  const setup = `<script type="module">\nwindow.metroUnityUiBase = '${assetBase}/UI/';\ntry {\n  const ui = await import('${assetBase}/${ui.entry}');\n  const host = document.createElement('div'); host.id = 'metro-unity-ui'; document.body.appendChild(host);\n  const unmount = ui.mountUnityUI(host, document.querySelector('#unity-canvas'));\n  window.metroUnityUIReady = instance => ui.${bridge}.register(instance);\n  if (window.metroUnityInstance) window.metroUnityUIReady(window.metroUnityInstance);\n  window.addEventListener('pagehide', () => { unmount(); delete window.metroUnityUIReady; delete window.metroUnityInstance; }, { once: true });\n} catch (error) { window.__metroUnityFail?.(error); }\n</script>\n`
+  const setup = `<script type="module">\nwindow.metroUnityUiBase = '${assetBase}/UI/';\nwindow.metroUnityAudioBase = '${assetBase}/UI/audio/';\ntry {\n  const ui = await import('${assetBase}/${ui.entry}');\n  const host = document.createElement('div'); host.id = 'metro-unity-ui'; document.body.appendChild(host);\n  const unmount = ui.mountUnityUI(host, document.querySelector('#unity-canvas'));\n  window.metroUnityUIReady = instance => ui.${bridge}.register(instance);\n  if (window.metroUnityInstance) window.metroUnityUIReady(window.metroUnityInstance);\n  window.addEventListener('pagehide', () => { unmount(); delete window.metroUnityUIReady; delete window.metroUnityInstance; }, { once: true });\n} catch (error) { window.__metroUnityFail?.(error); }\n</script>\n`
   html = html.replace('</body>', setup + '</body>')
   return html.replace('}).then((unityInstance) => {', `}).then((unityInstance) => {\n                window.metroUnityInstance = unityInstance; window.metroUnityUIReady?.(unityInstance);`)
 }

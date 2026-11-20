@@ -387,6 +387,12 @@ namespace Metro.App.Views {
         public PassengerCrowdView CrowdView => crowdView;
         public int ConsistCount => consistBindings.Count;
 
+        internal IEnumerable<TrainConsistView> PresentedConsists {
+            get {
+                foreach (var binding in consistBindings) yield return binding.View;
+            }
+        }
+
         public int CountActiveLiftCabins(string sourceLiftId = null) {
             int active = 0;
             for (int i = 0; i < liftBindings.Count; i++) {

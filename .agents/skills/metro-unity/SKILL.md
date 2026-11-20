@@ -116,6 +116,31 @@ node tools/unity-web/verify-station-game.mjs .preview/unity/verify-run --packed 
     `StationLoadCoordinator`), so audit string literals, not only comments.
 - **Gitignored Unity paths (`.gitignore`):** `unity/` is tracked directly, while `/unity/plan/`, Editor/IDE state (`Library/`, `Temp/`, `Obj/`, `Logs/`, `UserSettings/`, `.utmp/`, `*.csproj` except `!tools/unity-editor-ui/MetroEditorWebView.csproj`, `*.slnx`), build folders (`Build/`, `Builds/`, except `!/unity/Assets/StationDesigner/Runtime/Build/`), and build/local-profile outputs (`Assets/StationDesigner/Demos/`, `Generated/{RuntimeCatalogue,TrainCatalogue}.asset`, `Scenes/StationGameLocalWeb*.unity`, `Generated/Passengers/passenger-catalogue*.asset`) are gitignored. `start-unity.mjs` (`npm start unity` / `npm run build:unity`) regenerates `Demos/` and the runtime catalogues automatically in `.preview/unity/dev-workspace/project` (and on loopback `127.0.0.1` without an explicit `--scene`, runs `StationLocalProfile.PrepareLocalWebBuild` when `Generated/Passengers/passenger-library.manifest.json` exists locally), `PassengerCatalogueBuilder` (`[InitializeOnLoadMethod]`) auto-builds `passenger-catalogue.asset` on Editor load, and `build-runtime-views.mjs` / `audit-runtime-models.mjs` / `renderer-audit.test.mjs` fall back cleanly when `unity/plan/` is absent. On a fresh clone before running EditMode tests directly on `unity/`, run `node tools/unity-parity/export-station-documents.mjs`, `node tools/unity-assets/ensure-meta.mjs`, and `Metro/Station Game/Generate Scene` (`bootstrap -Scene StationGameLocal`).
 
+## Game audio
+
+The Unity shell mounts the shared `gameAudio` and `gameMusic` players through
+`game/src/unity-web/unityAudio.ts`. Editor and Windows use the in-canvas
+WebView2 host. WebGL uses the browser shell. Both use the same recordings,
+volume controls, music pause preference and playback policies as the web game.
+Keep `game/public/audio/` as the source for the six edit cues, three ambience
+beds, eight music tracks and their attribution. Desktop serves the staged
+`public/audio/` at `/audio/`. WebGL packs `UI/audio/` with the UI and sets
+`metroUnityAudioBase` to its packaged URL.
+
+`StationCommandRouter` derives cues from existing edit outcomes without another
+scene pick. `StationGameHost` sends bounded, camera-relative ambience inputs
+from live passengers, trains and rendered road vehicles. The exploded view
+uses the positions of its presented passengers and trains. Keep both messages
+on the session-scoped `audio` channel outside the station snapshot reducer.
+Hover, cancellations, no-ops and parked trains stay silent.
+
+Run `npm run test:unity` for session fencing and packaged audio byte and
+MIME checks, and `node --test game/test/audio.test.mjs game/test/music.test.mjs`
+for shared playback. In live Editor or WebGL checks, click the game once and
+verify music, an accepted edit cue and ambience around active simulation
+sources. A browser check with simulated bridge replies verifies shell playback
+and asset loading. A live run verifies that the Unity host emits those replies.
+
 ## Assembly and dependency rules
 
 Enforced by `.asmdef` files and pinned by `unity/tests/runtime-layering.test.mjs`:

@@ -67,6 +67,30 @@ test('commands sent before register wait for the player and flush exactly once',
 
 /* ------------------------------------------------------- plan 29 §5 camera cadence */
 
+test('Unity audio cues and ambience reach only the current session without altering the station snapshot', () => {
+  const received = []
+  const stop = stationBridge.onAudio(payload => received.push(payload))
+  try {
+    stationBridge.register({ SendMessage() {} })
+    const snapshot = stationBridge.getSnapshot()
+    const deliver = (sessionId, payload) => stationBridge.receive(JSON.stringify({
+      schemaVersion: SCHEMA_VERSION, kind: 'audio', sessionId, payload,
+    }))
+    const frame = { position: [0, 0, 0], right: [1, 0, 0], sources: [], speed: 1 }
+    deliver('old-session', { cue: 'delete' })
+    deliver(snapshot.sessionId, { cue: 'place' })
+    deliver(snapshot.sessionId, frame)
+    assert.deepEqual(received, [{ cue: 'place' }, frame])
+    assert.equal(stationBridge.getSnapshot(), snapshot)
+    stop()
+    deliver(snapshot.sessionId, { cue: 'pick' })
+    assert.equal(received.length, 2)
+  } finally {
+    stop()
+    stationBridge.unregister()
+  }
+})
+
 const cubeCamera = (x, sequence) => ({
   right: [1, 0, 0], up: [0, 0, 1], back: [0, -1, x], fov: 45, ortho: false, level: 0, sequence,
 })
