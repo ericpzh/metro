@@ -341,6 +341,11 @@ ordinary samples (`zoo`, `tanwei`, max `84.70 ms`; `tianhe` remains gated by the
 `4096 MiB` Wasm32 cold-open ceiling) pass `< 100 ms` with `0` misses and `0`
 fallbacks; see “Current block commit stages” in the repo performance reference.
 
+## Windows upscaling
+
+- Standalone uses `unity/Assets/Settings/PC_RPAsset.asset` with URP's built-in FidelityFX Super Resolution 1.0 (`m_UpscalingFilter: 3`) and `m_RenderScale: 0.8`. Change these under **Quality** on the PC URP asset. No package import is required.
+- Unity WebGL selects `Mobile_RPAsset.asset` through `QualitySettings.asset`. The Three.js browser game owns its FSR shaders separately in `game/src/render/shaders/`.
+
 ## Model detail and mesh LODs
 
 - `StationGraphicsSettings` owns the High, Balanced, and Low preference through `graphics.get` and `graphics.set`. The localized Settings menu reads the applied profile from Unity. Configure defaults and thresholds under **Project Settings → Station Designer → Graphics**. Preference changes stay outside the station document and undo history.
