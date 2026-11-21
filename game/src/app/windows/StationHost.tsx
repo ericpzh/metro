@@ -1,5 +1,6 @@
 import { createContext, useContext } from 'react'
 import type { ExampleStationId } from '../../data/reference-station.ts'
+import type { UpscalingMode } from '../../render/upscaling.ts'
 
 export type ModelDetailProfile = 'high' | 'balanced' | 'low'
 
@@ -16,6 +17,7 @@ export interface StationHost {
   openSave(text: string): void
   save(): void
   modelDetail?(profile?: ModelDetailProfile): Promise<ModelDetailProfile>
+  upscaling?(mode?: UpscalingMode): Promise<UpscalingMode>
   /** An edit the host does not implement yet: shown, not attempted. */
   unsupported?(feature: string): void
 }

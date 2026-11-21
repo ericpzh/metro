@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type MouseEvent, type ReactElement } from 'react'
 import type { ExampleStationId } from '../data/reference-station.ts'
+import type { UpscalingMode } from '../render/upscaling.ts'
 import type { Language } from '../sim/i18n.ts'
 import type { ModelDetailProfile } from '../app/windows/StationHost.tsx'
 import { useStore } from '../app/store.ts'
@@ -20,6 +21,8 @@ interface Result {
   station: string
   stationId: ExampleStationId
   modelDetail: ModelDetailProfile
+  upscalingMode: UpscalingMode
+  upscalingBackend: string
   ticks: number
   activeLevel: number
   view: View
@@ -39,10 +42,13 @@ interface Result {
 
 const UNITY_STATIONS: readonly ExampleStationId[] = ['zoo', 'tanwei', 'tianhe']
 const MODEL_DETAIL_PROFILES: readonly ModelDetailProfile[] = ['low', 'balanced', 'high']
+const FSR_MODES: readonly UpscalingMode[] = ['ultra', 'quality', 'balanced', 'performance', 'native']
 const DURATION_MS = 30_000
 const SPEED = 16
 const isModelDetailProfile = (value: unknown): value is ModelDetailProfile =>
   value === 'low' || value === 'balanced' || value === 'high'
+const isUpscalingMode = (value: unknown): value is UpscalingMode =>
+  value === 'native' || value === 'ultra' || value === 'quality' || value === 'balanced' || value === 'performance'
 const LOCKED_GAME_EVENTS = [
   'click', 'dblclick', 'auxclick', 'contextmenu', 'pointerdown', 'pointerup', 'pointermove',
   'pointercancel', 'mousedown', 'mouseup', 'mousemove', 'wheel', 'touchstart', 'touchmove',
@@ -183,10 +189,18 @@ export function UnityBenchmarkRoute({
   const copy = benchmarkCopy(language)
   const [stationId, setStationId] = useState<ExampleStationId>('tianhe')
   const [modelDetail, setModelDetail] = useState<ModelDetailProfile>('low')
+  const [upscalingMode, setUpscalingMode] = useState<UpscalingMode>('native')
   const detailLabels: Record<ModelDetailProfile, string> = {
     low: copy.detailLow,
     balanced: copy.detailBalanced,
     high: copy.detailHigh,
+  }
+  const fsrLabels: Record<UpscalingMode, string> = {
+    native: copy.fsrOff,
+    ultra: copy.fsrUltra,
+    quality: copy.fsrQuality,
+    balanced: copy.fsrBalanced,
+    performance: copy.fsrPerformance,
   }
   const [view, setView] = useState<View>('regular')
   const [phase, setPhase] = useState<Phase>('setup')
@@ -230,6 +244,7 @@ export function UnityBenchmarkRoute({
   const begin = async (): Promise<void> => {
     const loaderHost = window as UnityLoaderWindow
     let savedDetail: ModelDetailProfile | null = null
+    let savedUpscaling: UpscalingMode | null = null
     setError('')
     setResult(null)
     setRemaining(30)
@@ -258,12 +273,19 @@ export function UnityBenchmarkRoute({
       stationBridge.send('sim.play', { playing: false })
       stationBridge.send('sim.speed', { speed: SPEED })
 
-      // Apply the benchmark's selected LOD profile before opening the station, and restore
-      // the player's saved PlayerPrefs profile when this run finishes.
-      const currentDetail = await stationBridge.request<{ profile?: unknown }>('graphics.get', {})
-      if (isModelDetailProfile(currentDetail.profile)) savedDetail = currentDetail.profile
-      const appliedDetail = await stationBridge.request<{ profile?: unknown }>('graphics.set', { profile: modelDetail })
-      if (appliedDetail.profile !== modelDetail) throw new Error(copy.detailError)
+      // Apply the benchmark's selected LOD and FSR modes before opening the station, and
+      // restore the player's saved PlayerPrefs settings when this run finishes.
+      const currentGraphics = await stationBridge.request<{ profile?: unknown; upscaling?: unknown }>('graphics.get', {})
+      if (isModelDetailProfile(currentGraphics.profile)) savedDetail = currentGraphics.profile
+      if (isUpscalingMode(currentGraphics.upscaling)) savedUpscaling = currentGraphics.upscaling
+      const appliedGraphics = await stationBridge.request<{ profile?: unknown; upscaling?: unknown; upscalingBackend?: unknown }>('graphics.set', {
+        profile: modelDetail,
+        upscaling: upscalingMode,
+      })
+      if (appliedGraphics.profile !== modelDetail || appliedGraphics.upscaling !== upscalingMode) {
+        throw new Error(copy.detailError)
+      }
+      const upscalingBackend = typeof appliedGraphics.upscalingBackend === 'string' ? appliedGraphics.upscalingBackend : 'off'
 
       const prevRevision = stationBridge.getSnapshot().revision
       const prevRejectCount = stationBridge.getSnapshot().rejects.length
@@ -409,6 +431,8 @@ export function UnityBenchmarkRoute({
         station: current.station.name,
         stationId,
         modelDetail,
+        upscalingMode,
+        upscalingBackend,
         activeLevel: current.activeZ,
         view,
         frames,
@@ -431,8 +455,11 @@ export function UnityBenchmarkRoute({
       setError(cause instanceof Error ? cause.message : String(cause))
       setPhase('error')
     } finally {
-      if (savedDetail && savedDetail !== modelDetail) {
-        stationBridge.send('graphics.set', { profile: savedDetail })
+      const restore: Record<string, string> = {}
+      if (savedDetail && savedDetail !== modelDetail) restore.profile = savedDetail
+      if (savedUpscaling && savedUpscaling !== upscalingMode) restore.upscaling = savedUpscaling
+      if (restore.profile || restore.upscaling) {
+        stationBridge.send('graphics.set', restore)
       }
     }
   }
@@ -466,6 +493,13 @@ export function UnityBenchmarkRoute({
           <button key={profile} type="button" aria-pressed={modelDetail === profile} onClick={() => setModelDetail(profile)}>{detailLabels[profile]}</button>
         ))}
       </div></fieldset>
+      <fieldset><legend>{copy.fsr}</legend>
+        <div className="benchmarkChoices benchmarkFsrModes" role="group" aria-label={copy.fsr}>
+          {FSR_MODES.map(mode => (
+            <button key={mode} type="button" aria-pressed={upscalingMode === mode} onClick={() => setUpscalingMode(mode)}>{fsrLabels[mode]}</button>
+          ))}
+        </div>
+      </fieldset>
       <fieldset><legend>{copy.view}</legend><div className="benchmarkChoices">
         <button type="button" aria-pressed={view === 'regular'} onClick={() => setView('regular')}>{copy.normal}</button>
         <button type="button" aria-pressed={view === 'explode'} onClick={() => setView('explode')}>{copy.explode}</button>
@@ -484,19 +518,19 @@ export function UnityBenchmarkRoute({
         <div className="benchmarkLoadingMeta"><span>{loadingProgress}%</span><span>{copy.controlsLocked}</span></div>
       </div>
     </section>}
-    {phase === 'running' && <aside ref={hudRef} popover={view === 'explode' ? 'manual' : undefined} className="benchmarkHud"><div><b>{copy.running}</b><span>{`${remaining}${copy.seconds} · ${copy[stationId]} · ${detailLabels[modelDetail]} · ${view === 'explode' ? copy.explode : copy.normal} · ${copy.controlsLocked}`}</span></div></aside>}
+    {phase === 'running' && <aside ref={hudRef} popover={view === 'explode' ? 'manual' : undefined} className="benchmarkHud"><div><b>{copy.running}</b><span>{`${remaining}${copy.seconds} · ${copy[stationId]} · ${detailLabels[modelDetail]} · ${copy.fsr}: ${fsrLabels[upscalingMode]} · ${view === 'explode' ? copy.explode : copy.normal} · ${copy.controlsLocked}`}</span></div></aside>}
     {(phase === 'error' || phase === 'result') && <main className="benchmarkPage benchmarkResultsPage">
       {phase === 'error' ? <section className="benchmarkSetup"><h1>{copy.couldNotFinish}</h1><p role="alert">{error}</p><button type="button" className="benchmarkStart" onClick={retry}>{copy.back}</button></section> : result && <article className="benchmarkResult">
-        <header className="benchmarkResultHeader"><div><div className="benchmarkEyebrow">{copy.first30}</div><h1>{stationLabel(result.stationId, language)}</h1><p>{copy.unityEngine} · {detailLabels[result.modelDetail]} · 16× · {browserLabel(result.browser)} / {result.gpu}</p></div><button type="button" onClick={retry}>{copy.again}</button></header>
+        <header className="benchmarkResultHeader"><div><div className="benchmarkEyebrow">{copy.first30}</div><h1>{stationLabel(result.stationId, language)}</h1><p>{copy.unityEngine} · {detailLabels[result.modelDetail]} · {copy.fsr}: {fsrLabels[result.upscalingMode]} · 16× · {browserLabel(result.browser)} / {result.gpu}</p></div><button type="button" onClick={retry}>{copy.again}</button></header>
         <div className="benchmarkMetricRow"><div><span>{copy.average}</span><strong>{result.stats.averageFps.toFixed(2)}</strong></div><div><span>{copy.low1}</span><strong>{result.stats.onePercentLowFps.toFixed(2)}</strong></div><div><span>{copy.worst}</span><strong>{result.stats.worstFrameMs.toFixed(0)} <small>ms</small></strong></div><div><span>{copy.view}</span><strong>{result.view === 'explode' ? copy.explode : copy.normal}</strong></div></div>
         <BenchmarkChart result={result} copy={copy}/>
         <section className="benchmarkResourceSection"><h2>{copy.resourceUsage}</h2><ResourceChart result={result} copy={copy}/></section>
         <section className="benchmarkHardware"><h2>{copy.hardware}</h2><dl>
-          <div><dt>{copy.engine}</dt><dd>{copy.unityEngine}</dd></div><div><dt>{copy.browser}</dt><dd>{result.browser}</dd></div>
+          <div><dt>{copy.engine}</dt><dd>{copy.unityEngine}{result.upscalingBackend !== 'off' ? ` · ${result.upscalingBackend}` : ''}</dd></div><div><dt>{copy.browser}</dt><dd>{result.browser}</dd></div>
           <div><dt>{copy.gpu}</dt><dd>{result.gpu}</dd></div><div><dt>{copy.cores}</dt><dd>{result.cpuCores ?? copy.unavailable}</dd></div>
           <div><dt>{copy.memory}</dt><dd>{result.memoryGb ? `${result.memoryGb} GB` : copy.unavailable}</dd></div><div><dt>{copy.viewport}</dt><dd>{result.viewport} {copy.dpr} {result.pixelRatio.toFixed(2)}</dd></div>
           <div><dt>{copy.geometry}</dt><dd>{result.cells.toLocaleString()} {copy.cells} · {result.modules.toLocaleString()} {copy.modules}</dd></div>
-          <div><dt>{copy.run}</dt><dd>{stationLabel(result.stationId, language)} · {detailLabels[result.modelDetail]} · {result.view === 'explode' ? copy.explode : copy.normal} · {copy.level} {result.activeLevel} m · {result.view === 'regular' ? `${copy.zoom} · ` : ''}16× · 30{copy.secShort} · {result.ticks.toLocaleString()} {copy.tick}</dd></div>
+          <div><dt>{copy.run}</dt><dd>{stationLabel(result.stationId, language)} · {detailLabels[result.modelDetail]} · {copy.fsr}: {fsrLabels[result.upscalingMode]} · {result.view === 'explode' ? copy.explode : copy.normal} · {copy.level} {result.activeLevel} m · {result.view === 'regular' ? `${copy.zoom} · ` : ''}16× · 30{copy.secShort} · {result.ticks.toLocaleString()} {copy.tick}</dd></div>
           <div><dt>{copy.samples}</dt><dd>{Math.max(0, result.frames.length - 1).toLocaleString()} {copy.intervals} · {result.arrivals.length} {copy.arrivals}</dd></div>
         </dl><p>{copy.unityIntervalInfo}</p></section>
       </article>}

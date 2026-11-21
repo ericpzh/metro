@@ -230,6 +230,14 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
       if (applied === 'high' || applied === 'balanced' || applied === 'low') return applied
       throw new Error('Invalid model detail reply')
     },
+    upscaling: async mode => {
+      const result = mode === undefined
+        ? await stationBridge.request('graphics.get')
+        : await stationBridge.request('graphics.set', { upscaling: mode })
+      const applied = result.upscaling
+      if (applied === 'native' || applied === 'ultra' || applied === 'quality' || applied === 'balanced' || applied === 'performance') return applied
+      throw new Error('Invalid upscaling reply')
+    },
     newStation: () => { stationBridge.send('station.new') },
     openDemo: id => {
       runWithGameLoading(

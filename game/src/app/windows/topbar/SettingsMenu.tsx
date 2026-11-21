@@ -14,6 +14,7 @@ import { getLanguage, setLanguage, useLanguage } from '../../i18n.ts'
 import { t } from '../../../sim/i18n.ts'
 import { useStore } from '../../store.ts'
 import { reportIssueHrefFor } from '../../reportIssueRoute.ts'
+import type { UpscalingMode } from '../../../render/upscaling.ts'
 import { useStationHost, type ModelDetailProfile, type StationHost } from '../StationHost.tsx'
 
 const upscalingModes = ['native', 'ultra', 'quality', 'balanced', 'performance'] as const
@@ -101,10 +102,93 @@ function ModelDetailSetting({ readOrSet }: { readOrSet: NonNullable<StationHost[
   </button>
 }
 
+function UpscalingSetting({ readOrSet }: { readOrSet: NonNullable<StationHost['upscaling']> }): React.ReactElement {
+  const [mode, setMode] = useState<UpscalingMode>()
+  const [requested, setRequested] = useState<UpscalingMode>()
+  const [failed, setFailed] = useState(false)
+  const applied = useRef<UpscalingMode | undefined>(undefined)
+  const latest = useRef<UpscalingMode | undefined>(undefined)
+  const queued = useRef<UpscalingMode | undefined>(undefined)
+  const sending = useRef(false)
+  const language = useLanguage()
+  const chinese = language === 'zh-CN'
+  useEffect(() => {
+    let active = true
+    void readOrSet().then(value => {
+      if (!active) return
+      applied.current = value
+      if (latest.current === undefined) latest.current = value
+      setMode(value)
+    }, () => { if (active) setFailed(true) })
+    return () => { active = false }
+  }, [readOrSet])
+
+  async function change(value: UpscalingMode): Promise<void> {
+    queued.current = value
+    setRequested(value)
+    setFailed(false)
+    if (sending.current) return
+    sending.current = true
+    try {
+      while (queued.current !== undefined) {
+        const next = queued.current
+        queued.current = undefined
+        try {
+          const result = await readOrSet(next)
+          applied.current = result
+          if (queued.current === undefined) latest.current = result
+          setMode(result)
+          setFailed(false)
+        } catch {
+          if (queued.current === undefined) latest.current = applied.current
+          setFailed(true)
+        }
+      }
+    } finally {
+      sending.current = false
+      setRequested(undefined)
+    }
+  }
+
+  function cycle(): void {
+    const base = latest.current ?? requested ?? mode
+    const next = base
+      ? upscalingModes[(upscalingModes.indexOf(base) + 1) % upscalingModes.length]
+      : upscalingModes[0]
+    latest.current = next
+    void change(next)
+  }
+
+  const current = requested ?? mode
+  const label = t('upscaling')
+  const modeLabel = current === undefined ? '…'
+    : current === 'native' ? t('share_stats_off')
+    : t(`upscaling_${current}`)
+  const statusLabel = failed ? (chinese ? '不可用' : 'Unavailable') : modeLabel
+
+  return <button
+    type="button"
+    className={`settingsToggle ${current !== undefined && current !== 'native' ? 'on' : ''}`}
+    data-setting="upscaling"
+    data-mode={current ?? ''}
+    aria-busy={requested !== undefined}
+    aria-label={current ? `${label}: ${modeLabel}` : label}
+    title={failed ? (chinese ? '无法应用设置' : 'Setting unavailable') : label}
+    disabled={mode === undefined && !failed && requested === undefined}
+    onClick={cycle}
+  >
+    <PiGraphicsCard aria-hidden="true"/>
+    <span>{label}</span>
+    <strong>{statusLabel}</strong>
+  </button>
+}
+
 export function SettingsMenu(): React.ReactElement {
   const volumes = useSyncExternalStore(subscribeAudioVolumes, getAudioVolumes)
   const language = useLanguage()
-  const modelDetail = useStationHost()?.modelDetail
+  const stationHost = useStationHost()
+  const modelDetail = stationHost?.modelDetail
+  const hostUpscaling = stationHost?.upscaling
   const [menuOpen, setMenuOpen] = useState(false)
   const theme = useSyncExternalStore(subscribeUiTheme, getUiTheme)
   const quality = useStore(s => s.graphicsQuality)
@@ -148,9 +232,9 @@ export function SettingsMenu(): React.ReactElement {
       </div>
       <div className="settingsToggleGrid">
         {modelDetail ? menuOpen && <ModelDetailSetting readOrSet={modelDetail}/> : <button type="button" className={`settingsToggle ${quality === 'high' ? 'on' : ''}`} onClick={() => setQuality(quality === 'high' ? 'low' : 'high')} aria-label={`${t('graphics_quality')}: ${t(quality === 'high' ? 'graphics_high' : 'graphics_low')}`}><PiHighDefinition aria-hidden="true"/><span>{t('graphics_quality')}</span><strong>{t(quality === 'high' ? 'graphics_high_short' : 'graphics_low_short')}</strong></button>}
-        <button type="button" className={`settingsToggle ${upscalingMode !== 'native' ? 'on' : ''}`} onClick={() => setUpscalingMode(upscalingModes[(upscalingModes.indexOf(upscalingMode)+1)%upscalingModes.length])} aria-label={`${t('upscaling')}: ${upscalingMode === 'native' ? t('share_stats_off') : t(`upscaling_${upscalingMode}`)}`} title={t('upscaling')}>
+        {hostUpscaling ? menuOpen && <UpscalingSetting readOrSet={hostUpscaling}/> : <button type="button" className={`settingsToggle ${upscalingMode !== 'native' ? 'on' : ''}`} onClick={() => setUpscalingMode(upscalingModes[(upscalingModes.indexOf(upscalingMode)+1)%upscalingModes.length])} aria-label={`${t('upscaling')}: ${upscalingMode === 'native' ? t('share_stats_off') : t(`upscaling_${upscalingMode}`)}`} title={t('upscaling')}>
           <PiGraphicsCard aria-hidden="true"/><span>{t('upscaling')}</span><strong>{upscalingMode === 'native' ? t('share_stats_off') : t(`upscaling_${upscalingMode}`)}</strong>
-        </button>
+        </button>}
         <button type="button" className={`settingsToggle ${edgeScrolling ? 'on' : ''}`} aria-pressed={edgeScrolling} onClick={() => setEdgeScrolling(!edgeScrolling)}><CgScrollV aria-hidden="true"/><span>{t('edge_scrolling')}</span><strong>{t(edgeScrolling ? 'share_stats_on' : 'share_stats_off')}</strong></button>
         <div className="settingsStatsTile">
           <button type="button" className={`settingsToggle ${shareStats ? 'on' : ''}`} aria-pressed={shareStats} aria-describedby={statsNoteId} onClick={() => setShareStats(!shareStats)}><TbWorldUpload aria-hidden="true"/><span>{t('share_stats')}</span><strong>{t(shareStats ? 'share_stats_on' : 'share_stats_off')}</strong></button>
