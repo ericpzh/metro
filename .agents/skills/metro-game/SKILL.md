@@ -2628,6 +2628,23 @@ returns one side per junction per street — the side traffic arrives along and 
 it only leaves by — so a one-way street keeps its zebra on both sides and a stem that
 only feeds traffic out gets one at its mouth. Stop lines and signal poles stay on
 arrivals, and a width-merge node gets neither.
+
+At a signalized crossing, each axis uses the highest lane count among roads with
+legal incoming movements. A one-lane road gets 8 simulated seconds of green,
+plus 4 seconds per additional lane. The two axes alternate with 3 seconds of
+amber and 5 seconds of all-red between greens. An axis with no incoming movement
+gets no phase. A sole active axis stays green, with reservations still controlling entry.
+
+Tune vehicle generation with the phase plan. `roadTraffic.ts` meters each entry
+lane against the most restrictive crossing it can feed, using the length of the
+longest connector, bus clearance, the green share, and the number of feeding
+lanes. Initial spacing on approaches uses the same capacity estimate to avoid
+startup queues. Use the mixed-width T and crossroads in `road-network.test.mjs`
+to verify that queues drain each cycle while vehicles keep crossing. Mirror
+timing and metering in Unity's `StationRoadLayout` / `StationRoadTraffic`, then
+regenerate `road-oracle.json` with `node tools/unity-parity/record-station-roads.mjs`
+and run `StationRoadTests`.
+
 The separate `traffic-light` decor tile belongs in 站外装饰 beside 道路. Keep placement,
 3.5 m pole bounds, picker/move/save and palette identity aligned; preserve dynamic
 lens references when batching. Tests live in `road-network` and `rail-families`;

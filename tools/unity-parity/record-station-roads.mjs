@@ -204,7 +204,7 @@ const fixtures = [
     description: 'One-way horizontal and two-way vertical roads crossing; rotated quarter turns and a controlled junction.',
     modules: [crossX, crossY],
     probes: [[0, 0, 0, 3], [19, 0, 0, 3], [20, 2, 0, 3], [40.4, 0.4, 0, 3], [20, -20, 0, 3]],
-    trafficSeed: 4242, trafficTimes: [0, 3.2, 9.9],
+    trafficSeed: 4242, trafficTimes: [0, 3.2, 9.9, 52.4, 97.3],
   },
   {
     name: 'overpass',

@@ -49,6 +49,7 @@ public class StationRoadTests {
         public string id;
         public double x0, y0, x1, y1, z;
         public bool uncontrolled;
+        public int verticalGreen, horizontalGreen;
     }
     [Serializable] public sealed class EdgeDto {
         public string road;
@@ -803,6 +804,8 @@ public class StationRoadTests {
             Near(a.Y1, e.y1, $"{label} junction {i} y1");
             Near(a.Z, e.z, $"{label} junction {i} z");
             Assert.AreEqual(e.uncontrolled, a.Uncontrolled, $"{label} junction {i} uncontrolled");
+            Assert.AreEqual(e.verticalGreen, a.VerticalGreen, $"{label} junction {i} vertical green");
+            Assert.AreEqual(e.horizontalGreen, a.HorizontalGreen, $"{label} junction {i} horizontal green");
         }
         Assert.AreEqual(expected.network.edges.Length, network.Edges.Count, label + " edges");
         for (int i = 0; i < network.Edges.Count; i++) {

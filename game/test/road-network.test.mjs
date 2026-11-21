@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import * as THREE from 'three'
 import {getRoadNetwork,roadEdgePoint,roadSignal,roadLaneSign,roadEdgeMovements,roadJunctionSides} from '../src/sim/roadNetwork.ts'
 import {roadLaneMovements,roadDriverLaneOrder} from '../src/sim/roadLaneMovements.ts'
-import {roadLayout,roadPoint} from '../src/sim/roads.ts'
+import {roadHash,roadLayout,roadPoint} from '../src/sim/roads.ts'
 import {roadArrowMarking} from '../src/render/models/pieces/RoadArrowMarking.ts'
 import {RoadTraffic} from '../src/sim/roadTraffic.ts'
 import {ROAD_TRAFFIC_CAPACITY,ROAD_FOLLOW_GAP} from '../src/sim/constants.ts'
@@ -59,13 +59,43 @@ test('topology cache does no work on repeated reads; parallel seams and duplicat
   assert.equal(getRoadNetwork(modules),n,'immutable document caches retain their own live topology')
 })
 
-test('signals never release conflicting axes, retain amber and all-red clearance',()=>{
-  const j=getRoadNetwork([a,b]).junctions[0],seen=new Set()
-  for(let time=0;time<80;time+=.1) {
-    const x=roadSignal(j,true,time),y=roadSignal(j,false,time)
-    assert.ok(x==='red'||y==='red');seen.add(x);seen.add(y)
+test('signals give a four-lane road 20 seconds and a one-lane road the 8-second minimum',()=>{
+  const j=getRoadNetwork([{...a,w:12},{...b,d:3,cfg:{direction:'one-way'}}]).junctions[0]
+  const offset=roadHash(j.id)%28
+  for(const start of [-44,0,44]) {
+    const phases=[...Array(44)].map((_,local)=>{
+      const time=start+local-offset
+      return [roadSignal(j,true,time),roadSignal(j,false,time)]
+    })
+    assert.deepEqual(phases,[
+      ...Array(20).fill(['green','red']),...Array(3).fill(['amber','red']),...Array(5).fill(['red','red']),
+      ...Array(8).fill(['red','green']),...Array(3).fill(['red','amber']),...Array(5).fill(['red','red']),
+    ])
   }
-  assert.deepEqual(seen,new Set(['red','amber','green']))
+})
+
+test('metered arrivals let every green clear its queue at a mixed-width T and crossroads',()=>{
+  const main={...a,y:-140,d:280,w:12,cfg:{direction:'one-way'}}
+  for(const side of [{...b,x:-100,w:106},{...b,x:-100,w:210}]) {
+    const network=getRoadNetwork([main,side]), junction=network.junctions[0]
+    const traffic=new RoadTraffic(network,42)
+    const approaches=new Set(network.edges.filter(e=>e.junction<0&&e.next.some(i=>network.edges[i].junction>=0)))
+    let crossings=0
+    traffic.advance(0)
+    for(let tick=1;tick<=12000;tick++) {
+      const time=tick/10
+      traffic.advance(time)
+      const stopped=traffic.cars.filter(c=>approaches.has(network.edges[c.edge])&&c.edge===c.previousEdge&&c.distance===c.previousDistance)
+      assert.ok(stopped.length<=7,'only a short queue forms while the crossing works through arrivals')
+      for(const axis of [true,false]) {
+        if(roadSignal(junction,axis,time)==='amber'&&roadSignal(junction,axis,(tick-1)/10)==='green') {
+          assert.ok(stopped.every(c=>network.edges[c.edge].axis!==axis),`queue left at the end of green at ${time}s`)
+        }
+      }
+      crossings+=traffic.cars.filter(c=>network.edges[c.edge].junction>=0&&c.edge!==c.previousEdge).length
+    }
+    assert.ok(crossings>100,'traffic keeps flowing through the junction')
+  }
 })
 
 test('seeded network traffic turns, queues without overlap, reserves each junction and stays bounded',()=>{
@@ -212,7 +242,11 @@ test('a junction crosses every arm it meets, one-way or two-way, while stop line
   // traffic leaves the junction northward, so no lane of it ever arrives.
   const oneWay=[{id:'main',type:'road',z:0,x:0,y:0,w:40,d:6,rot:1,cfg:{direction:'one-way'}},
     {id:'stem',type:'road',z:0,x:17,y:-40,w:6,d:43,rot:2,cfg:{direction:'one-way'}}]
-  const arms=roadJunctionSides(getRoadNetwork(oneWay))
+  const oneWayNetwork=getRoadNetwork(oneWay), arms=roadJunctionSides(oneWayNetwork)
+  for(const time of [0,15,30,45]) {
+    assert.equal(roadSignal(oneWayNetwork.junctions[0],false,time),'green')
+    assert.equal(roadSignal(oneWayNetwork.junctions[0],true,time),'red')
+  }
   assert.deepEqual(arms.map(s=>[s.road,s.axis,s.out]).sort(),[['main',false,-1],['main',false,1],['stem',true,-1]]
     .sort(),'a T junction has one crossing per side: both sides of the through street and the stem mouth')
   const main=crosswalksOf(oneWay,'main'),stem=crosswalksOf(oneWay,'stem')

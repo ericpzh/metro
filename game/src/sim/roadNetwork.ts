@@ -7,7 +7,10 @@ import { getRoadDocument } from './roadDocument.ts'
 import { registerDocumentCache } from './documentCaches.ts'
 
 export type Point = [number, number]
-export interface RoadJunction { x0: number; y0: number; x1: number; y1: number; z: number; id: string; uncontrolled?:boolean }
+export interface RoadJunction {
+  x0: number; y0: number; x1: number; y1: number; z: number; id: string; uncontrolled?: boolean
+  verticalGreen: number; horizontalGreen: number
+}
 export interface RoadEdge {
   road: Road; lane: number; sign: number; axis: boolean; start: Point; end: Point
   length: number; next: number[]; junction: number; control?: Point
@@ -23,11 +26,18 @@ export function roadLaneSign(r: Road, lane: number): number {
   return (r.rot??0)>=2?-1:1
 }
 export function roadSignal(j: RoadJunction, axis: boolean, time: number): 'red' | 'amber' | 'green' {
-  if(j.uncontrolled)return 'green'
-  const half = ROAD_SIGNAL_GREEN + ROAD_SIGNAL_AMBER + ROAD_SIGNAL_CLEAR
-  const phase = ((time + roadHash(j.id) % half) % (half * 2) + half * 2) % (half * 2)
-  const local = phase - (axis ? 0 : half)
-  return local >= 0 && local < ROAD_SIGNAL_GREEN ? 'green' : local >= ROAD_SIGNAL_GREEN && local < ROAD_SIGNAL_GREEN + ROAD_SIGNAL_AMBER ? 'amber' : 'red'
+  if (j.uncontrolled) return 'green'
+  const green = axis ? j.verticalGreen : j.horizontalGreen
+  if (green === 0) return 'red'
+  if (j.verticalGreen === 0 || j.horizontalGreen === 0) return 'green'
+  const changeover = ROAD_SIGNAL_AMBER + ROAD_SIGNAL_CLEAR
+  const verticalPhase = j.verticalGreen + changeover
+  const cycle = verticalPhase + j.horizontalGreen + changeover
+  const phase = ((time + roadHash(j.id) % verticalPhase) % cycle + cycle) % cycle
+  const local = phase - (axis ? 0 : verticalPhase)
+  if (local < 0) return 'red'
+  if (local < green) return 'green'
+  return local < green + ROAD_SIGNAL_AMBER ? 'amber' : 'red'
 }
 const near = (a: Point, b: Point) => Math.hypot(a[0] - b[0], a[1] - b[1]) < .01
 export function getRoadNetwork(modules: readonly Module[]): RoadNetwork {
@@ -58,7 +68,7 @@ export function getRoadNetwork(modules: readonly Module[]): RoadNetwork {
     const layouts=connected.map(roadLayout)
     if(!layouts.every(l=>l.acrossX===layouts[0].acrossX)||layouts.every(l=>l.width===layouts[0].width))continue
     const half=Math.max(...layouts.map(l=>l.width))/2
-    junctions.push({x0:node.x-half,y0:node.y-half,x1:node.x+half,y1:node.y+half,z:node.z,id:`road-merge:${node.id}`,uncontrolled:true})
+    junctions.push({x0:node.x-half,y0:node.y-half,x1:node.x+half,y1:node.y+half,z:node.z,id:`road-merge:${node.id}`,uncontrolled:true,verticalGreen:0,horizontalGreen:0})
   }
   for (let a = 0; a < roads.length; a++) for (let b = a + 1; b < roads.length; b++) {
     const r = roads[a], s = roads[b]
@@ -68,7 +78,7 @@ export function getRoadNetwork(modules: readonly Module[]): RoadNetwork {
       // A T stroke may stop at the receiving road's centre. Its junction still
       // spans that road's full carriageway, so both legal turns remain reachable.
       const vertical=roadLayout(r).acrossX?r:s,horizontal=vertical===r?s:r
-      const j={x0:vertical.x,y0:horizontal.y,x1:vertical.x+vertical.w,y1:horizontal.y+horizontal.d,z:r.z,id:''}
+      const j={x0:vertical.x,y0:horizontal.y,x1:vertical.x+vertical.w,y1:horizontal.y+horizontal.d,z:r.z,id:'',verticalGreen:0,horizontalGreen:0}
       j.id=`${j.z}:${j.x0}:${j.y0}:${j.x1}:${j.y1}`;junctions.push(j)
     }
   }
@@ -114,7 +124,7 @@ export function getRoadNetwork(modules: readonly Module[]): RoadNetwork {
     const e=edges[i]
     e.next=(starts.get(key(e.end,e.road.z))??[]).filter(n=>n!==i && edges[n].axis===e.axis && edges[n].sign===e.sign)
   }
-  junctions.forEach((_,j)=> {
+  junctions.forEach((junction,j)=> {
     for(const i of incoming[j]) {
       const a=edges[i],destinations=new Map<RoadTurn,number[]>()
       const laneOrder=roadDriverLaneOrder(a.axis,a.sign)
@@ -128,6 +138,12 @@ export function getRoadNetwork(modules: readonly Module[]): RoadNetwork {
       }
       const index=approach.indexOf(i)
       const permitted=roadLaneMovements(index,approach.length,[...destinations.keys()])
+      if (!junction.uncontrolled && permitted.length > 0) {
+        // The two-lane baseline is 12 s, with 4 s per lane above or below it.
+        const green = ROAD_SIGNAL_GREEN + (roadLayout(a.road).lanes - 2) * 4
+        const key = a.axis ? 'verticalGreen' : 'horizontalGreen'
+        junction[key] = Math.max(junction[key], green)
+      }
       for(const turn of permitted) {
         const list=destinations.get(turn)!
         list.sort((l,r)=>(edges[l].lane-edges[r].lane)*roadDriverLaneOrder(edges[l].axis,edges[l].sign))

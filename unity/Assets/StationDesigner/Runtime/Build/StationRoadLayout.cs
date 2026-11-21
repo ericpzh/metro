@@ -27,6 +27,7 @@ namespace Metro.Build {
         public double X0, Y0, X1, Y1, Z;
         public string Id = "";
         public bool Uncontrolled;
+        public int VerticalGreen, HorizontalGreen;
 
         public override string ToString() => $"{Id} [{X0},{Y0}..{X1},{Y1}] z{Z}";
     }
@@ -89,9 +90,6 @@ namespace Metro.Build {
         public const double LaneWidthConstant = 3;
         public const double CrosswalkDepth = 2;
         public const double NodeSnapRadius = 3;
-        public const double SignalGreen = 12;
-        public const double SignalAmber = 3;
-        public const double SignalClear = 5;
 
         /* ------------------------------------------------------------- roads.ts */
 
@@ -229,7 +227,8 @@ namespace Metro.Build {
         }
 
         public static RoadSignalPhase Signal(RoadJunction junction, bool axis, double time) =>
-            (RoadSignalPhase)(int)RoadTrafficSignals.Phase(junction.Uncontrolled, junction.Id, axis, time);
+            (RoadSignalPhase)(int)RoadTrafficSignals.Phase(junction.Uncontrolled, junction.Id,
+                junction.VerticalGreen, junction.HorizontalGreen, axis, time);
 
         public static RoadNetwork Network(IEnumerable<StationRoadRecord> modules) =>
             Network(StationRoadDocument.Read(modules));
@@ -391,6 +390,7 @@ namespace Metro.Build {
                 }
             }
             for (int j = 0; j < junctions.Count; j++) {
+                var junction = junctions[j];
                 foreach (int i in incoming[j]) {
                     var a = network.Edges[i];
                     var destinations = new List<(RoadTurn Turn, List<int> Edges)>();
@@ -409,6 +409,11 @@ namespace Metro.Build {
                     }
                     int index = approach.IndexOf(i);
                     var permitted = LaneMovements(index, approach.Count, destinations.Select(d => d.Turn).ToList());
+                    if (!junction.Uncontrolled && permitted.Count > 0) {
+                        int green = RoadTrafficSignals.GreenForLanes(Layout(a.Road).Lanes);
+                        if (a.Axis) junction.VerticalGreen = Math.Max(junction.VerticalGreen, green);
+                        else junction.HorizontalGreen = Math.Max(junction.HorizontalGreen, green);
+                    }
                     foreach (var turn in permitted) {
                         var list = destinations.First(d => d.Turn == turn).Edges;
                         list = list.OrderBy(n => (network.Edges[n].Lane - a.Lane) * DriverLaneOrder(network.Edges[n].Axis, network.Edges[n].Sign)).ToList();
@@ -560,6 +565,7 @@ namespace Metro.Build {
             foreach (var j in network.Junctions) {
                 traffic.Junctions.Add(new RoadTrafficJunction {
                     Id = j.Id, Uncontrolled = j.Uncontrolled, X0 = j.X0, Y0 = j.Y0, X1 = j.X1, Y1 = j.Y1, Z = j.Z,
+                    VerticalGreen = j.VerticalGreen, HorizontalGreen = j.HorizontalGreen,
                 });
             }
             traffic.Entries.AddRange(network.Entries);

@@ -33,6 +33,7 @@ namespace Metro.Sim {
         public string Id = "";
         public bool Uncontrolled;
         public double X0, Y0, X1, Y1, Z;
+        public int VerticalGreen, HorizontalGreen;
     }
 
     public sealed class RoadTrafficNetwork {
@@ -47,10 +48,12 @@ namespace Metro.Sim {
     /// bit (see the oracle hash rows).
     /// </summary>
     public static class RoadTrafficSignals {
-        public const double GreenSeconds = 12;
-        public const double AmberSeconds = 3;
-        public const double ClearSeconds = 5;
-        public const double HalfCycle = GreenSeconds + AmberSeconds + ClearSeconds;
+        public const int GreenSeconds = 12;
+        public const int AmberSeconds = 3;
+        public const int ClearSeconds = 5;
+
+        // Match the web game's two-lane baseline and per-lane adjustment.
+        public static int GreenForLanes(int lanes) => GreenSeconds + (lanes - 2) * 4;
 
         public static uint Hash(string text) {
             unchecked {
@@ -63,17 +66,21 @@ namespace Metro.Sim {
             }
         }
 
-        public static RoadTrafficSignalPhase Phase(bool uncontrolled, string junctionId, bool axis, double time) {
+        public static RoadTrafficSignalPhase Phase(bool uncontrolled, string junctionId,
+            int verticalGreen, int horizontalGreen, bool axis, double time) {
             if (uncontrolled) return RoadTrafficSignalPhase.Green;
-            double cycle = HalfCycle * 2;
-            double phase = Mod((time + (double)(Hash(junctionId) % (uint)HalfCycle)) % cycle + cycle, cycle);
-            double local = phase - (axis ? 0 : HalfCycle);
-            if (local >= 0 && local < GreenSeconds) return RoadTrafficSignalPhase.Green;
-            if (local >= GreenSeconds && local < GreenSeconds + AmberSeconds) return RoadTrafficSignalPhase.Amber;
-            return RoadTrafficSignalPhase.Red;
+            int green = axis ? verticalGreen : horizontalGreen;
+            if (green == 0) return RoadTrafficSignalPhase.Red;
+            if (verticalGreen == 0 || horizontalGreen == 0) return RoadTrafficSignalPhase.Green;
+            const int changeover = AmberSeconds + ClearSeconds;
+            int verticalPhase = verticalGreen + changeover;
+            int cycle = verticalPhase + horizontalGreen + changeover;
+            double phase = ((time + Hash(junctionId) % (uint)verticalPhase) % cycle + cycle) % cycle;
+            double local = phase - (axis ? 0 : verticalPhase);
+            if (local < 0) return RoadTrafficSignalPhase.Red;
+            if (local < green) return RoadTrafficSignalPhase.Green;
+            return local < green + AmberSeconds ? RoadTrafficSignalPhase.Amber : RoadTrafficSignalPhase.Red;
         }
-
-        static double Mod(double a, double b) => a - b * Math.Floor(a / b);
 
         public static string Number(double value) => value.ToString("R", CultureInfo.InvariantCulture);
         public static string Number(int value) => value.ToString(CultureInfo.InvariantCulture);
@@ -124,10 +131,13 @@ namespace Metro.Sim {
         public const int Capacity = 192;
         public const double FollowGap = 2;
         public const double CrosswalkDepth = 2;
+        const double BusLength = 10;
 
         readonly List<RoadTrafficCar> cars = new List<RoadTrafficCar>();
         readonly Dictionary<int, int> locks = new Dictionary<int, int>();
         readonly List<RoadTrafficCar>[] buckets;
+        readonly (long Period, long Offset)[] spawnSchedule;
+        readonly double[] seedSpacing;
         int serial;
         long tick;
 
@@ -136,7 +146,73 @@ namespace Metro.Sim {
             Seed = seed;
             buckets = new List<RoadTrafficCar>[network.Edges.Count];
             for (int i = 0; i < buckets.Length; i++) buckets[i] = new List<RoadTrafficCar>();
+            (spawnSchedule, seedSpacing) = TrafficSchedule(network);
             Time = double.NaN;
+        }
+
+        static ((long Period, long Offset)[] Spawns, double[] SeedSpacing) TrafficSchedule(RoadTrafficNetwork network) {
+            var feeders = new int[network.Junctions.Count * 2];
+            var longest = new double[feeders.Length];
+            var routes = new List<HashSet<int>>();
+            int ApproachIndex(RoadTrafficEdge edge) =>
+                edge.Junction * 2 + (edge.Axis && !network.Junctions[edge.Junction].Uncontrolled ? 1 : 0);
+            foreach (int entry in network.Entries) {
+                var reachable = new HashSet<int>();
+                var visited = new HashSet<int>();
+                var pending = new Stack<int>();
+                pending.Push(entry);
+                while (pending.Count > 0) {
+                    int index = pending.Pop();
+                    if (!visited.Add(index)) continue;
+                    var edge = network.Edges[index];
+                    if (edge.Junction >= 0) {
+                        int approach = ApproachIndex(edge);
+                        reachable.Add(approach);
+                        longest[approach] = Math.Max(longest[approach], edge.Length);
+                    }
+                    foreach (int next in edge.Next) pending.Push(next);
+                }
+                foreach (int approach in reachable) feeders[approach]++;
+                routes.Add(reachable);
+            }
+
+            var periods = new long[feeders.Length];
+            for (int i = 0; i < periods.Length; i++) {
+                var junction = network.Junctions[i / 2];
+                // One reservation serves the crossing from the stop line until the rear clears.
+                double headway = (longest[i] + BusLength + CrosswalkDepth + 1.5 + FollowGap) / Speed + 2 * Step;
+                int green = i % 2 == 1 ? junction.VerticalGreen : junction.HorizontalGreen;
+                bool continuous = junction.Uncontrolled || junction.VerticalGreen == 0 || junction.HorizontalGreen == 0;
+                int cycle = junction.VerticalGreen + junction.HorizontalGreen + 2 * (RoadTrafficSignals.AmberSeconds + RoadTrafficSignals.ClearSeconds);
+                double secondsPerVehicle = continuous ? headway : cycle / Math.Max(1, Math.Floor(green / headway));
+                periods[i] = (long)Math.Ceiling(1.25 * feeders[i] * secondsPerVehicle / Step);
+            }
+
+            long defaultPeriod = (long)Math.Round(Spacing / (Speed * Step) / Density);
+            var groups = new Dictionary<long, List<int>>();
+            for (int index = 0; index < routes.Count; index++) {
+                long period = defaultPeriod;
+                foreach (int approach in routes[index]) period = Math.Max(period, periods[approach]);
+                if (!groups.TryGetValue(period, out var group)) groups.Add(period, group = new List<int>());
+                group.Add(index);
+            }
+            var schedule = new (long Period, long Offset)[routes.Count];
+            foreach (var pair in groups) {
+                long period = pair.Key;
+                var group = pair.Value;
+                long stagger = Math.Max(1, period / group.Count);
+                for (int order = 0; order < group.Count; order++) schedule[group[order]] = (period, order * stagger % period);
+            }
+            var seedSpacing = new double[network.Edges.Count];
+            for (int i = 0; i < network.Edges.Count; i++) {
+                long period = defaultPeriod;
+                foreach (int next in network.Edges[i].Next) {
+                    var connector = network.Edges[next];
+                    if (connector.Junction >= 0) period = Math.Max(period, periods[ApproachIndex(connector)]);
+                }
+                seedSpacing[i] = Spacing * period / defaultPeriod;
+            }
+            return (schedule, seedSpacing);
         }
 
         public RoadTrafficNetwork Network { get; }
@@ -155,7 +231,7 @@ namespace Metro.Sim {
             var kind = roll == 0 ? RoadVehicleKind.Bus : roll <= 6 ? RoadVehicleKind.Scooter : RoadVehicleKind.Car;
             return new RoadTrafficCar {
                 Id = id, Edge = edge, Distance = distance, PreviousEdge = edge, PreviousDistance = distance,
-                Kind = kind, Size = kind == RoadVehicleKind.Bus ? 10 : kind == RoadVehicleKind.Car ? 4.2 : 1.9,
+                Kind = kind, Size = kind == RoadVehicleKind.Bus ? BusLength : kind == RoadVehicleKind.Car ? 4.2 : 1.9,
                 Held = -1,
             };
         }
@@ -199,7 +275,7 @@ namespace Metro.Sim {
                 // Stagger cars across the lanes of one road so multi-lane traffic does
                 // not line up in lockstep.
                 double laneOffset = e.Lane * 2;
-                for (double d = Spacing / 2 + laneOffset; d < e.Length - 5 && cars.Count < Capacity; d += Spacing) {
+                for (double d = Spacing / 2 + laneOffset; d < e.Length - 5 && cars.Count < Capacity; d += seedSpacing[i]) {
                     var c = MakeCar(i, d);
                     if (RoadTrafficSignals.Hash(SeedString + ":spawn:" + c.Id) % 100 < Density * 100) cars.Add(c);
                 }
@@ -248,7 +324,8 @@ namespace Metro.Sim {
                         if (j >= 0) limit -= CrosswalkDepth + 1.5;
                         var junction = j >= 0 ? Network.Junctions[j] : null;
                         bool signal = j < 0 || c.Held == j ||
-                            RoadTrafficSignals.Phase(junction.Uncontrolled, junction.Id, e.Axis, Time) == RoadTrafficSignalPhase.Green;
+                            RoadTrafficSignals.Phase(junction.Uncontrolled, junction.Id,
+                                junction.VerticalGreen, junction.HorizontalGreen, e.Axis, Time) == RoadTrafficSignalPhase.Green;
                         bool reserved = j < 0 || !locks.ContainsKey(j) || locks[j] == c.Id;
                         canLeave = room && signal && reserved;
                         if (canLeave) limit = e.Length;
@@ -297,12 +374,10 @@ namespace Metro.Sim {
             if (dead.Count > 0) cars.RemoveAll(dead.Contains);
             // Spawns occur at network boundaries only; interior road seams never
             // emit cars.
-            long period = (long)Math.Round(Spacing / (Speed * Step) / Density);
-            int entryCount = Math.Max(1, Network.Entries.Count);
-            long stagger = Math.Max(1, period / entryCount);
             for (int ei = 0; ei < Network.Entries.Count; ei++) {
                 int entry = Network.Entries[ei];
-                if (tick % period != ei * stagger % period) continue;
+                var (period, offset) = spawnSchedule[ei];
+                if (tick % period != offset) continue;
                 if (cars.Count >= Capacity) break;
                 var e = Network.Edges[entry];
                 var c = MakeCar(entry, 5);

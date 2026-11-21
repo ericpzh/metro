@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "generatedBy": "tools/unity-parity/record-station-roads.mjs",
-  "sourceSha": "6409535b6ea9aabacc72d6a0744a4eb1f9bade2f",
+  "sourceSha": "e5b262f7389af870c8dbec44e963ab57c91fab02",
   "source": {
     "save": "unity/Assets/StationDesigner/Zoo/ZooSave.json",
     "records": 2
@@ -2319,7 +2319,9 @@
           "x1": 38,
           "y1": 27,
           "z": 0,
-          "id": "0:32:15:38:27"
+          "id": "0:32:15:38:27",
+          "verticalGreen": 0,
+          "horizontalGreen": 20
         },
         {
           "x0": -26,
@@ -2327,7 +2329,9 @@
           "x1": -20,
           "y1": 27,
           "z": 0,
-          "id": "0:-26:15:-20:27"
+          "id": "0:-26:15:-20:27",
+          "verticalGreen": 0,
+          "horizontalGreen": 20
         }
       ],
       "edges": [
@@ -4313,10 +4317,10 @@
           },
           {
             "id": 9,
-            "edge": 3,
-            "distance": 30,
-            "previousEdge": 3,
-            "previousDistance": 30,
+            "edge": 4,
+            "distance": 10,
+            "previousEdge": 4,
+            "previousDistance": 10,
             "kind": "scooter",
             "size": 1.9,
             "held": -1,
@@ -4324,39 +4328,6 @@
           },
           {
             "id": 13,
-            "edge": 5,
-            "distance": 32,
-            "previousEdge": 5,
-            "previousDistance": 32,
-            "kind": "scooter",
-            "size": 1.9,
-            "held": -1,
-            "variant": "moped"
-          },
-          {
-            "id": 14,
-            "edge": 6,
-            "distance": 12,
-            "previousEdge": 6,
-            "previousDistance": 12,
-            "kind": "scooter",
-            "size": 1.9,
-            "held": -1,
-            "variant": "bicycle"
-          },
-          {
-            "id": 15,
-            "edge": 6,
-            "distance": 32,
-            "previousEdge": 6,
-            "previousDistance": 32,
-            "kind": "car",
-            "size": 4.2,
-            "held": -1,
-            "variant": "suv"
-          },
-          {
-            "id": 16,
             "edge": 7,
             "distance": 12,
             "previousEdge": 7,
@@ -4367,10 +4338,21 @@
             "variant": "moped"
           },
           {
-            "id": 20,
-            "edge": 9,
+            "id": 14,
+            "edge": 8,
+            "distance": 14,
+            "previousEdge": 8,
+            "previousDistance": 14,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": -1,
+            "variant": "bicycle"
+          },
+          {
+            "id": 15,
+            "edge": 8,
             "distance": 34,
-            "previousEdge": 9,
+            "previousEdge": 8,
             "previousDistance": 34,
             "kind": "car",
             "size": 4.2,
@@ -4378,11 +4360,33 @@
             "variant": "suv"
           },
           {
+            "id": 16,
+            "edge": 9,
+            "distance": 14,
+            "previousEdge": 9,
+            "previousDistance": 14,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": -1,
+            "variant": "moped"
+          },
+          {
+            "id": 20,
+            "edge": 12,
+            "distance": 16,
+            "previousEdge": 12,
+            "previousDistance": 16,
+            "kind": "car",
+            "size": 4.2,
+            "held": -1,
+            "variant": "suv"
+          },
+          {
             "id": 23,
-            "edge": 11,
-            "distance": 36,
-            "previousEdge": 11,
-            "previousDistance": 36,
+            "edge": 14,
+            "distance": 30,
+            "previousEdge": 14,
+            "previousDistance": 30,
             "kind": "scooter",
             "size": 1.9,
             "held": -1,
@@ -4390,10 +4394,10 @@
           },
           {
             "id": 24,
-            "edge": 12,
-            "distance": 16,
-            "previousEdge": 12,
-            "previousDistance": 16,
+            "edge": 14,
+            "distance": 50,
+            "previousEdge": 14,
+            "previousDistance": 50,
             "kind": "bus",
             "size": 10,
             "held": -1,
@@ -4401,47 +4405,14 @@
           },
           {
             "id": 25,
-            "edge": 12,
-            "distance": 36,
-            "previousEdge": 12,
-            "previousDistance": 36,
+            "edge": 15,
+            "distance": 12,
+            "previousEdge": 15,
+            "previousDistance": 12,
             "kind": "scooter",
             "size": 1.9,
             "held": -1,
             "variant": "bicycle"
-          },
-          {
-            "id": 29,
-            "edge": 14,
-            "distance": 50,
-            "previousEdge": 14,
-            "previousDistance": 50,
-            "kind": "scooter",
-            "size": 1.9,
-            "held": -1,
-            "variant": "moped"
-          },
-          {
-            "id": 31,
-            "edge": 15,
-            "distance": 32,
-            "previousEdge": 15,
-            "previousDistance": 32,
-            "kind": "scooter",
-            "size": 1.9,
-            "held": -1,
-            "variant": "bicycle"
-          },
-          {
-            "id": 32,
-            "edge": 15,
-            "distance": 52,
-            "previousEdge": 15,
-            "previousDistance": 52,
-            "kind": "car",
-            "size": 4.2,
-            "held": -1,
-            "variant": "sedan"
           }
         ],
         "poses": [
@@ -4477,46 +4448,16 @@
           },
           {
             "id": 9,
-            "edge": 3,
+            "edge": 4,
             "kind": "scooter",
             "variant": "bicycle",
-            "x": 2.0000000000000036,
+            "x": 65,
             "y": 16.5,
             "z": 1.05,
             "heading": 1.5707963267948966
           },
           {
             "id": 13,
-            "edge": 5,
-            "kind": "scooter",
-            "variant": "moped",
-            "x": -58,
-            "y": 19.5,
-            "z": 1.05,
-            "heading": 1.5707963267948966
-          },
-          {
-            "id": 14,
-            "edge": 6,
-            "kind": "scooter",
-            "variant": "bicycle",
-            "x": 20,
-            "y": 19.5,
-            "z": 1.05,
-            "heading": 1.5707963267948966
-          },
-          {
-            "id": 15,
-            "edge": 6,
-            "kind": "car",
-            "variant": "suv",
-            "x": 0,
-            "y": 19.5,
-            "z": 1.05,
-            "heading": 1.5707963267948966
-          },
-          {
-            "id": 16,
             "edge": 7,
             "kind": "scooter",
             "variant": "moped",
@@ -4526,72 +4467,72 @@
             "heading": 1.5707963267948966
           },
           {
-            "id": 20,
-            "edge": 9,
-            "kind": "car",
-            "variant": "suv",
-            "x": -2,
+            "id": 14,
+            "edge": 8,
+            "kind": "scooter",
+            "variant": "bicycle",
+            "x": -40,
             "y": 22.5,
             "z": 1.05,
             "heading": 1.5707963267948966
           },
           {
-            "id": 23,
-            "edge": 11,
-            "kind": "scooter",
-            "variant": "bicycle",
-            "x": -62,
-            "y": 25.5,
+            "id": 15,
+            "edge": 8,
+            "kind": "car",
+            "variant": "suv",
+            "x": -60,
+            "y": 22.5,
             "z": 1.05,
             "heading": 1.5707963267948966
           },
           {
-            "id": 24,
+            "id": 16,
+            "edge": 9,
+            "kind": "scooter",
+            "variant": "moped",
+            "x": 18,
+            "y": 22.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 20,
             "edge": 12,
-            "kind": "bus",
-            "variant": "bus-mosaic",
+            "kind": "car",
+            "variant": "suv",
             "x": 16,
             "y": 25.5,
             "z": 1.05,
             "heading": 1.5707963267948966
           },
           {
-            "id": 25,
-            "edge": 12,
-            "kind": "scooter",
-            "variant": "bicycle",
-            "x": -4,
-            "y": 25.5,
-            "z": 1.05,
-            "heading": 1.5707963267948966
-          },
-          {
-            "id": 29,
+            "id": 23,
             "edge": 14,
             "kind": "scooter",
-            "variant": "moped",
+            "variant": "bicycle",
+            "x": -24.5,
+            "y": -15,
+            "z": 1.05,
+            "heading": -3.141592653589793
+          },
+          {
+            "id": 24,
+            "edge": 14,
+            "kind": "bus",
+            "variant": "bus-mosaic",
             "x": -24.5,
             "y": -35,
             "z": 1.05,
             "heading": -3.141592653589793
           },
           {
-            "id": 31,
+            "id": 25,
             "edge": 15,
             "kind": "scooter",
             "variant": "bicycle",
             "x": -21.5,
-            "y": -17,
-            "z": 1.05,
-            "heading": -3.141592653589793
-          },
-          {
-            "id": 32,
-            "edge": 15,
-            "kind": "car",
-            "variant": "sedan",
-            "x": -21.5,
-            "y": -37,
+            "y": 3,
             "z": 1.05,
             "heading": -3.141592653589793
           }
@@ -4602,7 +4543,7 @@
             "uncontrolled": false,
             "axis": true,
             "time": 0,
-            "phase": "green"
+            "phase": "red"
           },
           {
             "junction": "0:-26:15:-20:27",
@@ -4616,14 +4557,14 @@
             "uncontrolled": false,
             "axis": false,
             "time": 0,
-            "phase": "red"
+            "phase": "green"
           },
           {
             "junction": "0:-26:15:-20:27",
             "uncontrolled": false,
             "axis": false,
             "time": 0,
-            "phase": "red"
+            "phase": "green"
           }
         ]
       },
@@ -4633,10 +4574,10 @@
         "cars": [
           {
             "id": 8,
-            "edge": 3,
-            "distance": 47.55,
-            "previousEdge": 3,
-            "previousDistance": 47.55,
+            "edge": 15,
+            "distance": 8.399999999999999,
+            "previousEdge": 15,
+            "previousDistance": 7.799999999999999,
             "kind": "scooter",
             "size": 1.9,
             "held": -1,
@@ -4644,306 +4585,159 @@
           },
           {
             "id": 9,
-            "edge": 2,
-            "distance": 33.60000000000004,
-            "previousEdge": 2,
-            "previousDistance": 33.000000000000036,
+            "edge": 3,
+            "distance": 17.4,
+            "previousEdge": 3,
+            "previousDistance": 16.799999999999997,
             "kind": "scooter",
             "size": 1.9,
             "held": -1,
             "variant": "bicycle"
           },
           {
-            "id": 14,
-            "edge": 5,
-            "distance": 4.800000000000001,
-            "previousEdge": 5,
-            "previousDistance": 4.200000000000001,
+            "id": 13,
+            "edge": 6,
+            "distance": 31.20000000000003,
+            "previousEdge": 6,
+            "previousDistance": 30.60000000000003,
             "kind": "scooter",
             "size": 1.9,
             "held": -1,
-            "variant": "bicycle"
-          },
-          {
-            "id": 15,
-            "edge": 5,
-            "distance": 19.200000000000003,
-            "previousEdge": 5,
-            "previousDistance": 18.6,
-            "kind": "car",
-            "size": 4.2,
-            "held": -1,
-            "variant": "suv"
+            "variant": "moped"
           },
           {
             "id": 16,
-            "edge": 7,
-            "distance": 32.55,
-            "previousEdge": 7,
-            "previousDistance": 32.55,
+            "edge": 24,
+            "distance": 0.6000000000000001,
+            "previousEdge": 24,
+            "previousDistance": 0,
             "kind": "scooter",
             "size": 1.9,
-            "held": -1,
+            "held": 1,
             "variant": "moped"
           },
           {
             "id": 20,
-            "edge": 9,
-            "distance": 48.800000000000004,
-            "previousEdge": 9,
-            "previousDistance": 48.2,
+            "edge": 11,
+            "distance": 20.400000000000006,
+            "previousEdge": 11,
+            "previousDistance": 19.800000000000004,
             "kind": "car",
             "size": 4.2,
-            "held": 1,
+            "held": -1,
             "variant": "suv"
           },
           {
-            "id": 24,
-            "edge": 12,
-            "distance": 39.599999999999994,
-            "previousEdge": 12,
-            "previousDistance": 39.599999999999994,
-            "kind": "bus",
-            "size": 10,
-            "held": -1,
-            "variant": "bus-mosaic"
-          },
-          {
-            "id": 25,
-            "edge": 12,
-            "distance": 47.55,
-            "previousEdge": 12,
-            "previousDistance": 47.55,
+            "id": 28,
+            "edge": 3,
+            "distance": 4.200000000000001,
+            "previousEdge": 3,
+            "previousDistance": 3.6000000000000005,
             "kind": "scooter",
             "size": 1.9,
             "held": -1,
             "variant": "bicycle"
           },
           {
-            "id": 33,
-            "edge": 4,
-            "distance": 31.4,
-            "previousEdge": 4,
-            "previousDistance": 31.4,
-            "kind": "car",
-            "size": 4.2,
-            "held": -1,
-            "variant": "suv"
-          },
-          {
-            "id": 34,
+            "id": 29,
             "edge": 7,
-            "distance": 28.65,
+            "distance": 34.35,
             "previousEdge": 7,
-            "previousDistance": 28.65,
+            "previousDistance": 33.75,
             "kind": "scooter",
             "size": 1.9,
-            "held": -1,
+            "held": 0,
             "variant": "moped"
           },
           {
-            "id": 35,
+            "id": 30,
             "edge": 10,
-            "distance": 31.4,
+            "distance": 10.399999999999997,
             "previousEdge": 10,
-            "previousDistance": 31.4,
-            "kind": "car",
-            "size": 4.2,
-            "held": -1,
-            "variant": "suv"
-          },
-          {
-            "id": 36,
-            "edge": 13,
-            "distance": 32.55,
-            "previousEdge": 13,
-            "previousDistance": 32.55,
-            "kind": "scooter",
-            "size": 1.9,
-            "held": -1,
-            "variant": "moped"
-          },
-          {
-            "id": 37,
-            "edge": 4,
-            "distance": 25.2,
-            "previousEdge": 4,
-            "previousDistance": 25.2,
-            "kind": "car",
-            "size": 4.2,
-            "held": -1,
-            "variant": "sedan"
-          },
-          {
-            "id": 38,
-            "edge": 7,
-            "distance": 16.999999999999996,
-            "previousEdge": 7,
-            "previousDistance": 16.399999999999995,
+            "previousDistance": 9.799999999999997,
             "kind": "scooter",
             "size": 1.9,
             "held": -1,
             "variant": "bicycle"
-          },
-          {
-            "id": 39,
-            "edge": 10,
-            "distance": 7.399999999999999,
-            "previousEdge": 10,
-            "previousDistance": 6.799999999999999,
-            "kind": "scooter",
-            "size": 1.9,
-            "held": -1,
-            "variant": "moped"
           }
         ],
         "poses": [
           {
             "id": 8,
-            "edge": 3,
+            "edge": 15,
             "kind": "scooter",
             "variant": "bicycle",
-            "x": -15.549999999999997,
-            "y": 16.5,
+            "x": -21.5,
+            "y": 7.200000000000001,
             "z": 1.05,
-            "heading": 1.5707963267948966
+            "heading": -3.141592653589793
           },
           {
             "id": 9,
-            "edge": 2,
+            "edge": 3,
             "kind": "scooter",
             "variant": "bicycle",
-            "x": -59.000000000000036,
+            "x": 15.200000000000003,
             "y": 16.5,
             "z": 1.05,
             "heading": 1.5707963267948966
           },
           {
-            "id": 14,
-            "edge": 5,
+            "id": 13,
+            "edge": 6,
             "kind": "scooter",
-            "variant": "bicycle",
-            "x": -30.200000000000003,
-            "y": 19.5,
-            "z": 1.05,
-            "heading": 1.5707963267948966
-          },
-          {
-            "id": 15,
-            "edge": 5,
-            "kind": "car",
-            "variant": "suv",
-            "x": -44.6,
+            "variant": "moped",
+            "x": 1.3999999999999702,
             "y": 19.5,
             "z": 1.05,
             "heading": 1.5707963267948966
           },
           {
             "id": 16,
-            "edge": 7,
+            "edge": 24,
             "kind": "scooter",
             "variant": "moped",
-            "x": 42.45,
-            "y": 19.5,
+            "x": -20,
+            "y": 22.5,
             "z": 1.05,
             "heading": 1.5707963267948966
           },
           {
             "id": 20,
-            "edge": 9,
+            "edge": 11,
             "kind": "car",
             "variant": "suv",
-            "x": -16.200000000000003,
-            "y": 22.5,
-            "z": 1.05,
-            "heading": 1.5707963267948966
-          },
-          {
-            "id": 24,
-            "edge": 12,
-            "kind": "bus",
-            "variant": "bus-mosaic",
-            "x": -7.599999999999994,
+            "x": -45.800000000000004,
             "y": 25.5,
             "z": 1.05,
             "heading": 1.5707963267948966
           },
           {
-            "id": 25,
-            "edge": 12,
+            "id": 28,
+            "edge": 3,
             "kind": "scooter",
             "variant": "bicycle",
-            "x": -15.549999999999997,
-            "y": 25.5,
-            "z": 1.05,
-            "heading": 1.5707963267948966
-          },
-          {
-            "id": 33,
-            "edge": 4,
-            "kind": "car",
-            "variant": "suv",
-            "x": 43.6,
+            "x": 28.4,
             "y": 16.5,
             "z": 1.05,
             "heading": 1.5707963267948966
           },
           {
-            "id": 34,
+            "id": 29,
             "edge": 7,
             "kind": "scooter",
             "variant": "moped",
-            "x": 46.35,
+            "x": 41.25,
             "y": 19.5,
             "z": 1.05,
             "heading": 1.5707963267948966
           },
           {
-            "id": 35,
+            "id": 30,
             "edge": 10,
-            "kind": "car",
-            "variant": "suv",
-            "x": 43.6,
-            "y": 22.5,
-            "z": 1.05,
-            "heading": 1.5707963267948966
-          },
-          {
-            "id": 36,
-            "edge": 13,
-            "kind": "scooter",
-            "variant": "moped",
-            "x": 42.45,
-            "y": 25.5,
-            "z": 1.05,
-            "heading": 1.5707963267948966
-          },
-          {
-            "id": 37,
-            "edge": 4,
-            "kind": "car",
-            "variant": "sedan",
-            "x": 49.800000000000004,
-            "y": 16.5,
-            "z": 1.05,
-            "heading": 1.5707963267948966
-          },
-          {
-            "id": 38,
-            "edge": 7,
             "kind": "scooter",
             "variant": "bicycle",
-            "x": 58.60000000000001,
-            "y": 19.5,
-            "z": 1.05,
-            "heading": 1.5707963267948966
-          },
-          {
-            "id": 39,
-            "edge": 10,
-            "kind": "scooter",
-            "variant": "moped",
-            "x": 68.2,
+            "x": 65.2,
             "y": 22.5,
             "z": 1.05,
             "heading": 1.5707963267948966
@@ -4969,7 +4763,7 @@
             "uncontrolled": false,
             "axis": false,
             "time": 10.4,
-            "phase": "red"
+            "phase": "green"
           },
           {
             "junction": "0:-26:15:-20:27",
@@ -4985,382 +4779,130 @@
         "trafficTime": 25.700000000000003,
         "cars": [
           {
-            "id": 8,
-            "edge": 3,
-            "distance": 47.55,
-            "previousEdge": 3,
-            "previousDistance": 47.55,
+            "id": 28,
+            "edge": 2,
+            "distance": 37.80000000000005,
+            "previousEdge": 2,
+            "previousDistance": 37.200000000000045,
             "kind": "scooter",
             "size": 1.9,
             "held": -1,
             "variant": "bicycle"
           },
           {
-            "id": 16,
-            "edge": 6,
-            "distance": 11.999999999999996,
-            "previousEdge": 6,
-            "previousDistance": 11.399999999999997,
+            "id": 29,
+            "edge": 5,
+            "distance": 24.600000000000016,
+            "previousEdge": 5,
+            "previousDistance": 24.000000000000014,
             "kind": "scooter",
             "size": 1.9,
             "held": -1,
             "variant": "moped"
+          },
+          {
+            "id": 30,
+            "edge": 8,
+            "distance": 0.6000000000000001,
+            "previousEdge": 8,
+            "previousDistance": 0,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": -1,
+            "variant": "bicycle"
+          },
+          {
+            "id": 31,
+            "edge": 12,
+            "distance": 30.60000000000003,
+            "previousEdge": 12,
+            "previousDistance": 30.00000000000003,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": -1,
+            "variant": "bicycle"
+          },
+          {
+            "id": 32,
+            "edge": 1,
+            "distance": 4.200000000000001,
+            "previousEdge": 1,
+            "previousDistance": 3.6000000000000005,
+            "kind": "car",
+            "size": 4.2,
+            "held": -1,
+            "variant": "sedan"
           },
           {
             "id": 33,
-            "edge": 3,
-            "distance": 42.5,
-            "previousEdge": 3,
-            "previousDistance": 42.5,
-            "kind": "car",
-            "size": 4.2,
-            "held": -1,
-            "variant": "suv"
-          },
-          {
-            "id": 34,
-            "edge": 18,
-            "distance": 4.800000000000001,
-            "previousEdge": 18,
-            "previousDistance": 4.200000000000001,
-            "kind": "scooter",
-            "size": 1.9,
-            "held": 0,
-            "variant": "moped"
-          },
-          {
-            "id": 35,
-            "edge": 10,
-            "distance": 31.4,
-            "previousEdge": 10,
-            "previousDistance": 31.4,
-            "kind": "car",
-            "size": 4.2,
-            "held": -1,
-            "variant": "suv"
-          },
-          {
-            "id": 36,
-            "edge": 13,
-            "distance": 32.55,
-            "previousEdge": 13,
-            "previousDistance": 32.55,
-            "kind": "scooter",
-            "size": 1.9,
-            "held": -1,
-            "variant": "moped"
-          },
-          {
-            "id": 37,
-            "edge": 3,
-            "distance": 36.3,
-            "previousEdge": 3,
-            "previousDistance": 36.00000000000004,
-            "kind": "car",
-            "size": 4.2,
-            "held": -1,
-            "variant": "sedan"
-          },
-          {
-            "id": 38,
             "edge": 7,
-            "distance": 32.55,
+            "distance": 16.399999999999995,
             "previousEdge": 7,
-            "previousDistance": 32.55,
-            "kind": "scooter",
-            "size": 1.9,
-            "held": -1,
-            "variant": "bicycle"
-          },
-          {
-            "id": 39,
-            "edge": 10,
-            "distance": 26.349999999999998,
-            "previousEdge": 10,
-            "previousDistance": 26.349999999999998,
-            "kind": "scooter",
-            "size": 1.9,
-            "held": -1,
-            "variant": "moped"
-          },
-          {
-            "id": 40,
-            "edge": 13,
-            "distance": 27.499999999999996,
-            "previousEdge": 13,
-            "previousDistance": 27.499999999999996,
+            "previousDistance": 15.799999999999994,
             "kind": "car",
             "size": 4.2,
             "held": -1,
             "variant": "suv"
-          },
-          {
-            "id": 41,
-            "edge": 1,
-            "distance": 25.200000000000017,
-            "previousEdge": 1,
-            "previousDistance": 24.600000000000016,
-            "kind": "scooter",
-            "size": 1.9,
-            "held": -1,
-            "variant": "moped"
-          },
-          {
-            "id": 42,
-            "edge": 7,
-            "distance": 27.499999999999996,
-            "previousEdge": 7,
-            "previousDistance": 27.499999999999996,
-            "kind": "car",
-            "size": 4.2,
-            "held": -1,
-            "variant": "suv"
-          },
-          {
-            "id": 43,
-            "edge": 10,
-            "distance": 22.45,
-            "previousEdge": 10,
-            "previousDistance": 22.45,
-            "kind": "scooter",
-            "size": 1.9,
-            "held": -1,
-            "variant": "moped"
-          },
-          {
-            "id": 44,
-            "edge": 13,
-            "distance": 21.299999999999997,
-            "previousEdge": 13,
-            "previousDistance": 21.299999999999997,
-            "kind": "car",
-            "size": 4.2,
-            "held": -1,
-            "variant": "sedan"
-          },
-          {
-            "id": 45,
-            "edge": 4,
-            "distance": 32.55,
-            "previousEdge": 4,
-            "previousDistance": 32.55,
-            "kind": "scooter",
-            "size": 1.9,
-            "held": -1,
-            "variant": "moped"
-          },
-          {
-            "id": 46,
-            "edge": 7,
-            "distance": 21.299999999999997,
-            "previousEdge": 7,
-            "previousDistance": 21.299999999999997,
-            "kind": "car",
-            "size": 4.2,
-            "held": -1,
-            "variant": "sedan"
-          },
-          {
-            "id": 47,
-            "edge": 10,
-            "distance": 18.55,
-            "previousEdge": 10,
-            "previousDistance": 18.2,
-            "kind": "scooter",
-            "size": 1.9,
-            "held": -1,
-            "variant": "moped"
-          },
-          {
-            "id": 48,
-            "edge": 13,
-            "distance": 9.199999999999998,
-            "previousEdge": 13,
-            "previousDistance": 8.599999999999998,
-            "kind": "scooter",
-            "size": 1.9,
-            "held": -1,
-            "variant": "moped"
           }
         ],
         "poses": [
           {
-            "id": 8,
-            "edge": 3,
+            "id": 28,
+            "edge": 2,
             "kind": "scooter",
             "variant": "bicycle",
-            "x": -15.549999999999997,
+            "x": -63.200000000000045,
             "y": 16.5,
             "z": 1.05,
             "heading": 1.5707963267948966
           },
           {
-            "id": 16,
-            "edge": 6,
+            "id": 29,
+            "edge": 5,
             "kind": "scooter",
             "variant": "moped",
-            "x": 20.6,
+            "x": -50.000000000000014,
             "y": 19.5,
             "z": 1.05,
             "heading": 1.5707963267948966
           },
           {
-            "id": 33,
-            "edge": 3,
-            "kind": "car",
-            "variant": "suv",
-            "x": -10.5,
-            "y": 16.5,
-            "z": 1.05,
-            "heading": 1.5707963267948966
-          },
-          {
-            "id": 34,
-            "edge": 18,
+            "id": 30,
+            "edge": 8,
             "kind": "scooter",
-            "variant": "moped",
-            "x": 33.8,
-            "y": 19.5,
-            "z": 1.05,
-            "heading": 1.5707963267948966
-          },
-          {
-            "id": 35,
-            "edge": 10,
-            "kind": "car",
-            "variant": "suv",
-            "x": 43.6,
+            "variant": "bicycle",
+            "x": -26,
             "y": 22.5,
             "z": 1.05,
             "heading": 1.5707963267948966
           },
           {
-            "id": 36,
-            "edge": 13,
+            "id": 31,
+            "edge": 12,
             "kind": "scooter",
-            "variant": "moped",
-            "x": 42.45,
+            "variant": "bicycle",
+            "x": 1.9999999999999751,
             "y": 25.5,
             "z": 1.05,
             "heading": 1.5707963267948966
           },
           {
-            "id": 37,
-            "edge": 3,
+            "id": 32,
+            "edge": 1,
             "kind": "car",
             "variant": "sedan",
-            "x": -4.000000000000043,
-            "y": 16.5,
-            "z": 1.05,
-            "heading": 1.5707963267948966
-          },
-          {
-            "id": 38,
-            "edge": 7,
-            "kind": "scooter",
-            "variant": "bicycle",
-            "x": 42.45,
-            "y": 19.5,
-            "z": 1.05,
-            "heading": 1.5707963267948966
-          },
-          {
-            "id": 39,
-            "edge": 10,
-            "kind": "scooter",
-            "variant": "moped",
-            "x": 48.650000000000006,
-            "y": 22.5,
-            "z": 1.05,
-            "heading": 1.5707963267948966
-          },
-          {
-            "id": 40,
-            "edge": 13,
-            "kind": "car",
-            "variant": "suv",
-            "x": 47.5,
-            "y": 25.5,
-            "z": 1.05,
-            "heading": 1.5707963267948966
-          },
-          {
-            "id": 41,
-            "edge": 1,
-            "kind": "scooter",
-            "variant": "moped",
             "x": 36.5,
-            "y": -9.600000000000016,
+            "y": 11.399999999999999,
             "z": 1.05,
             "heading": -3.141592653589793
           },
           {
-            "id": 42,
+            "id": 33,
             "edge": 7,
             "kind": "car",
             "variant": "suv",
-            "x": 47.5,
+            "x": 59.20000000000001,
             "y": 19.5,
-            "z": 1.05,
-            "heading": 1.5707963267948966
-          },
-          {
-            "id": 43,
-            "edge": 10,
-            "kind": "scooter",
-            "variant": "moped",
-            "x": 52.55,
-            "y": 22.5,
-            "z": 1.05,
-            "heading": 1.5707963267948966
-          },
-          {
-            "id": 44,
-            "edge": 13,
-            "kind": "car",
-            "variant": "sedan",
-            "x": 53.7,
-            "y": 25.5,
-            "z": 1.05,
-            "heading": 1.5707963267948966
-          },
-          {
-            "id": 45,
-            "edge": 4,
-            "kind": "scooter",
-            "variant": "moped",
-            "x": 42.45,
-            "y": 16.5,
-            "z": 1.05,
-            "heading": 1.5707963267948966
-          },
-          {
-            "id": 46,
-            "edge": 7,
-            "kind": "car",
-            "variant": "sedan",
-            "x": 53.7,
-            "y": 19.5,
-            "z": 1.05,
-            "heading": 1.5707963267948966
-          },
-          {
-            "id": 47,
-            "edge": 10,
-            "kind": "scooter",
-            "variant": "moped",
-            "x": 56.8,
-            "y": 22.5,
-            "z": 1.05,
-            "heading": 1.5707963267948966
-          },
-          {
-            "id": 48,
-            "edge": 13,
-            "kind": "scooter",
-            "variant": "moped",
-            "x": 66.4,
-            "y": 25.5,
             "z": 1.05,
             "heading": 1.5707963267948966
           }
@@ -5378,7 +4920,7 @@
             "uncontrolled": false,
             "axis": true,
             "time": 25.7,
-            "phase": "green"
+            "phase": "red"
           },
           {
             "junction": "0:32:15:38:27",
@@ -5392,7 +4934,7 @@
             "uncontrolled": false,
             "axis": false,
             "time": 25.7,
-            "phase": "red"
+            "phase": "green"
           }
         ]
       }
@@ -5438,7 +4980,9 @@
       "trafficTimes": [
         0,
         3.2,
-        9.9
+        9.9,
+        52.4,
+        97.3
       ],
       "expected": {
         "records": [
@@ -5667,7 +5211,9 @@
               "x1": 24,
               "y1": 3,
               "z": 0,
-              "id": "0:16:-3:24:3"
+              "id": "0:16:-3:24:3",
+              "verticalGreen": 12,
+              "horizontalGreen": 12
             }
           ],
           "edges": [
@@ -6726,10 +6272,10 @@
               },
               {
                 "id": 9,
-                "edge": 2,
-                "distance": 7.199999999999999,
-                "previousEdge": 2,
-                "previousDistance": 7.199999999999999,
+                "edge": 5,
+                "distance": 15.399999999999999,
+                "previousEdge": 5,
+                "previousDistance": 15.399999999999999,
                 "kind": "car",
                 "size": 4.2,
                 "held": -1,
@@ -6759,13 +6305,13 @@
               },
               {
                 "id": 9,
-                "edge": 2,
+                "edge": 5,
                 "kind": "car",
                 "variant": "sedan",
-                "x": 4.199999999999999,
-                "y": 1.5,
+                "x": 18,
+                "y": 8.600000000000001,
                 "z": 1.05,
-                "heading": -1.5707963267948966
+                "heading": -3.141592653589793
               }
             ],
             "signals": [
@@ -6813,36 +6359,14 @@
               },
               {
                 "id": 9,
-                "edge": 2,
-                "distance": 7.199999999999999,
-                "previousEdge": 2,
-                "previousDistance": 7.199999999999999,
+                "edge": 5,
+                "distance": 15.399999999999999,
+                "previousEdge": 5,
+                "previousDistance": 15.399999999999999,
                 "kind": "car",
                 "size": 4.2,
                 "held": -1,
                 "variant": "sedan"
-              },
-              {
-                "id": 10,
-                "edge": 5,
-                "distance": 16.55,
-                "previousEdge": 5,
-                "previousDistance": 16.55,
-                "kind": "scooter",
-                "size": 1.9,
-                "held": -1,
-                "variant": "moped"
-              },
-              {
-                "id": 11,
-                "edge": 6,
-                "distance": 16.55,
-                "previousEdge": 6,
-                "previousDistance": 16.55,
-                "kind": "scooter",
-                "size": 1.9,
-                "held": -1,
-                "variant": "moped"
               }
             ],
             "poses": [
@@ -6868,33 +6392,13 @@
               },
               {
                 "id": 9,
-                "edge": 2,
+                "edge": 5,
                 "kind": "car",
                 "variant": "sedan",
-                "x": 4.199999999999999,
-                "y": 1.5,
-                "z": 1.05,
-                "heading": -1.5707963267948966
-              },
-              {
-                "id": 10,
-                "edge": 5,
-                "kind": "scooter",
-                "variant": "moped",
                 "x": 18,
-                "y": 7.449999999999999,
+                "y": 8.600000000000001,
                 "z": 1.05,
                 "heading": -3.141592653589793
-              },
-              {
-                "id": 11,
-                "edge": 6,
-                "kind": "scooter",
-                "variant": "moped",
-                "x": 22,
-                "y": -7.449999999999999,
-                "z": 1.05,
-                "heading": 0
               }
             ],
             "signals": [
@@ -6910,6 +6414,138 @@
                 "uncontrolled": false,
                 "axis": false,
                 "time": 9.9,
+                "phase": "green"
+              }
+            ]
+          },
+          {
+            "time": 52.4,
+            "trafficTime": 52.400000000000006,
+            "cars": [
+              {
+                "id": 11,
+                "edge": 7,
+                "distance": 8.999999999999998,
+                "previousEdge": 7,
+                "previousDistance": 8.399999999999999,
+                "kind": "scooter",
+                "size": 1.9,
+                "held": -1,
+                "variant": "moped"
+              },
+              {
+                "id": 13,
+                "edge": 0,
+                "distance": 18.8,
+                "previousEdge": 0,
+                "previousDistance": 18.2,
+                "kind": "scooter",
+                "size": 1.9,
+                "held": 0,
+                "variant": "bicycle"
+              },
+              {
+                "id": 14,
+                "edge": 6,
+                "distance": 16.55,
+                "previousEdge": 6,
+                "previousDistance": 16.55,
+                "kind": "scooter",
+                "size": 1.9,
+                "held": -1,
+                "variant": "bicycle"
+              }
+            ],
+            "poses": [
+              {
+                "id": 11,
+                "edge": 7,
+                "kind": "scooter",
+                "variant": "moped",
+                "x": 22,
+                "y": 11.399999999999999,
+                "z": 1.05,
+                "heading": 0
+              },
+              {
+                "id": 13,
+                "edge": 0,
+                "kind": "scooter",
+                "variant": "bicycle",
+                "x": 15.2,
+                "y": -1.5,
+                "z": 1.05,
+                "heading": -1.5707963267948966
+              },
+              {
+                "id": 14,
+                "edge": 6,
+                "kind": "scooter",
+                "variant": "bicycle",
+                "x": 22,
+                "y": -7.449999999999999,
+                "z": 1.05,
+                "heading": 0
+              }
+            ],
+            "signals": [
+              {
+                "junction": "0:16:-3:24:3",
+                "uncontrolled": false,
+                "axis": true,
+                "time": 52.4,
+                "phase": "red"
+              },
+              {
+                "junction": "0:16:-3:24:3",
+                "uncontrolled": false,
+                "axis": false,
+                "time": 52.4,
+                "phase": "green"
+              }
+            ]
+          },
+          {
+            "time": 97.3,
+            "trafficTime": 97.30000000000001,
+            "cars": [
+              {
+                "id": 17,
+                "edge": 6,
+                "distance": 16.55,
+                "previousEdge": 6,
+                "previousDistance": 16.55,
+                "kind": "scooter",
+                "size": 1.9,
+                "held": -1,
+                "variant": "moped"
+              }
+            ],
+            "poses": [
+              {
+                "id": 17,
+                "edge": 6,
+                "kind": "scooter",
+                "variant": "moped",
+                "x": 22,
+                "y": -7.449999999999999,
+                "z": 1.05,
+                "heading": 0
+              }
+            ],
+            "signals": [
+              {
+                "junction": "0:16:-3:24:3",
+                "uncontrolled": false,
+                "axis": true,
+                "time": 97.3,
+                "phase": "red"
+              },
+              {
+                "junction": "0:16:-3:24:3",
+                "uncontrolled": false,
+                "axis": false,
+                "time": 97.3,
                 "phase": "green"
               }
             ]
