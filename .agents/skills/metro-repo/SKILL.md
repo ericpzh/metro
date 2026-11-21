@@ -530,9 +530,11 @@ reloads without clobbering the main game's saved language). Pin this in
 `unity/tests/unity-benchmark.test.mjs`.
 The Unity WebGL benchmark (`game/src/unity-web/UnityBenchmarkRoute.tsx`) mirrors
 the 30-second 16× demo/view presets on `/game/unity/benchmark[/en]` via
-`stationBridge` (`station.openDemo`, `view.set`, `camera.snap`, `camera.zoom`,
-`UnityExplodedView`, `sim.speed`, `sim.play`) and omits Three.js-only Low/High
-LOD and FSR toggles until Unity implements them.
+`stationBridge` (`graphics.get`/`graphics.set` for Unity's `low`/`balanced`/`high`
+model-detail LOD, restoring the player's saved `PlayerPrefs` profile afterward,
+plus `station.openDemo`, `view.set`, `camera.snap`, `camera.zoom`,
+`UnityExplodedView`, `sim.speed`, `sim.play`) and omits Three.js-only FSR toggles
+until Unity implements them.
 The benchmark's selected graphics quality is the source of truth for its run:
 apply it to the store before mounting the renderer, without calling the persistent
 graphics-quality action or changing the player's saved preference. Pin this in

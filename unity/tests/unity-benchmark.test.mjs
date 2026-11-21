@@ -99,16 +99,22 @@ test('benchmark language route helpers isolate /game/unity/benchmark from saved 
   assert.equal(benchmarkLanguagePath('/game/unity/en/benchmark', 'zh-CN'), '/game/unity/benchmark')
 })
 
-test('UnityBenchmarkRoute and wrangler config wire the Unity WebGL benchmark cleanly without LOD/FSR stubs', () => {
+test('UnityBenchmarkRoute and wrangler config wire Unity LOD and WebGL benchmark cleanly without FSR stubs', () => {
   const routeSource = readFileSync(join(repo, 'game/src/unity-web/UnityBenchmarkRoute.tsx'), 'utf8')
-  assert.match(routeSource, /stationBridge\.send\('station\.openDemo', \{ id: stationId \}\)/)
+  const applyDetail = routeSource.indexOf("stationBridge.request<{ profile?: unknown }>('graphics.set', { profile: modelDetail })")
+  const openDemo = routeSource.indexOf("stationBridge.send('station.openDemo', { id: stationId })")
+  assert.notEqual(applyDetail, -1, 'selected Unity LOD profile is sent via graphics.set')
+  assert.ok(openDemo > applyDetail, 'selected Unity LOD profile is applied before opening the demo station')
+  assert.match(routeSource, /stationBridge\.request<\{ profile\?: unknown \}>\('graphics\.get', \{\}\)/, 'reads existing PlayerPrefs LOD profile before overriding')
+  assert.match(routeSource, /if \(savedDetail && savedDetail !== modelDetail\) \{\s*stationBridge\.send\('graphics\.set', \{ profile: savedDetail \}\)/, 'restores the player saved LOD profile after the benchmark run')
+  assert.match(routeSource, /const MODEL_DETAIL_PROFILES: readonly ModelDetailProfile\[\] = \['low', 'balanced', 'high'\]/, 'exposes all three Unity model detail LOD profiles')
   assert.match(routeSource, /stationBridge\.send\('camera\.zoom', \{ factor: 2 \/ 3 \}\)/)
   assert.match(routeSource, /stationBridge\.send\('camera\.snap', \{ face: 'dir:-1,1,1', direction: \[-1, 1, 1\], projection: 'perspective' \}\)/)
   assert.match(routeSource, /stationBridge\.send\('sim\.speed', \{ speed: SPEED \}\)/)
   assert.match(routeSource, /stationBridge\.send\('sim\.play', \{ playing: true \}\)/)
   assert.match(routeSource, /setLanguage\(nextLanguage\)/)
   assert.match(routeSource, /window\.history\.replaceState\(null, '', `\$\{languagePath\}\$\{location\.search\}\$\{location\.hash\}`\)/)
-  assert.doesNotMatch(routeSource, /benchmarkFsrModes|graphicsQuality|upscalingMode/, 'unsupported Three.js LOD/FSR toggles are omitted')
+  assert.doesNotMatch(routeSource, /benchmarkFsrModes|upscalingMode/, 'unsupported Three.js FSR toggles are omitted')
 
   const wranglerText = readFileSync(join(repo, 'unity/wrangler.jsonc'), 'utf8')
   assert.match(wranglerText, /"stationdesigner\.com\/game\/unity"/)
