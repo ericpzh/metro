@@ -36,9 +36,13 @@ budget can improve tick timings while leaving riders stopped at the doors.
 Keep static region-graph reachability (`SparseTopology.canReach` /
 `StationSparseTopology.CanReach`) filtering boarding doors away from
 alighting-only Spanish-solution platforms and rejecting unreachable goals with
-zero coarse/fine expansions, never re-search a valid itinerary while awaiting
-refill, and prioritize local refills for blocked and low-buffer walkers ahead of
-speculative live-crowd tail trims in both engines.
+zero coarse/fine expansions, keep coarse routing field-free in both engines
+(shared `ReverseCoarseTree` per `(goalRegion, effNeeds)` for normal queries and
+region-level forward A* for `excludedServer >= 0` probes, with reverse distance
+fields built lazily only on `refillWalker` + same-tick cold-field warmup in
+`routeTick` / `StepSparseRouting`), never re-search a valid itinerary while
+awaiting refill, and prioritize local refills for blocked and low-buffer walkers
+ahead of speculative live-crowd tail trims in both engines.
 See the [Line 13 reproduction](references/performance.md#sparse-hierarchical-crowd-routing).
 
 Station equipment models, including shop fixtures, seating, ballfields and steel

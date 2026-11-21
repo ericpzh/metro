@@ -4628,7 +4628,9 @@ namespace Metro.Sim {
                 }
             }
 
-            sparseRouter.RunMandatoryBudget(sparseTick, sparseReferencedCoarseIds);
+            int mandatoryPopsLeft = sparseRouter.Options.MandatoryPopBudget;
+            int mandatoryScansLeft = sparseRouter.Options.MandatoryScanBudget;
+            sparseRouter.RunMandatoryBudget(sparseTick, sparseReferencedCoarseIds, ref mandatoryPopsLeft, ref mandatoryScansLeft);
 
             for (int i = 0; i < passengers.Count; i++) {
                 var p = passengers[i];
@@ -4763,6 +4765,41 @@ namespace Metro.Sim {
                         }
                     }
                     sparseTrimCursor = nextTrimCursor;
+                }
+            }
+
+            // Second quick pass of mandatory jobs if newly requested fields can finish within remaining budget,
+            // so cold-start platform waves adopt their first rolling segment on the same tick.
+            if (mandatoryPopsLeft > 0 && mandatoryScansLeft > 0 && sparseRouter.HasPendingMandatoryJobs) {
+                sparseRouter.RunMandatoryBudget(sparseTick, null, ref mandatoryPopsLeft, ref mandatoryScansLeft);
+                if (count > 0 && refillBudget > 0) {
+                    int startSecond = sparseRefillCursor % count;
+                    for (int k = 0; k < count && refillBudget > 0; k++) {
+                        int idx = (startSecond + k) % count;
+                        var p = passengers[idx];
+                        if (p.Phase != Phase.Walking || p.AwaitingRoute || p.Walker == null) continue;
+                        var w = p.Walker;
+                        if (w.Itinerary == null || w.SegmentEndsAtGoal || w.SegmentEndsAtService) continue;
+                        int[] path = p.Path;
+                        int pathIdx = p.PathIndex;
+                        int remainingEdges = path != null && path.Length > 0 ? Math.Max(0, path.Length - 1 - pathIdx) : 0;
+                        if (remainingEdges != 0) continue;
+                        int selfNode = (path != null && pathIdx >= 0 && pathIdx < path.Length)
+                            ? path[pathIdx]
+                            : NearestNode(graph, p.X, p.Y, p.Z);
+                        var res = sparseRouter.RefillWalker(p.Id, ref path, ref pathIdx, w, sparseTick, selfNode, 0);
+                        p.Path = path;
+                        p.PathIndex = pathIdx;
+                        if (p.Route != null && p.Route.Segments.Length > 0) p.Route.Segments[0] = path;
+                        if (res == StationSparseRouter.RefillResult.Ok) refillBudget--;
+                        else if (res == StationSparseRouter.RefillResult.Repair) {
+                            w.Itinerary = null;
+                            w.StepIdx = 0;
+                            w.SegmentEndsAtGoal = false;
+                            w.SegmentEndsAtService = false;
+                            w.PendingLiftId = null;
+                        }
+                    }
                 }
             }
 

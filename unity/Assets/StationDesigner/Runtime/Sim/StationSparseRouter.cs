@@ -221,20 +221,48 @@ namespace Metro.Sim {
             public bool Stale;
         }
 
-        internal sealed class CachedSuffix {
-            public StationCoarseStep[] Steps;
-            public int[] WalkPrefixMs;
-            public int RemainingCostMs;
-        }
-
         internal struct CoarseParent {
             public int FromPoint;
             public StationCoarseStep Step;
             public int WalkMs;
-            public CachedSuffix Suffix;
         }
 
         public enum CoarseJobStatus { Running = 0, Ready = 1, Failed = 2 }
+
+        internal sealed class ReverseCoarseTree {
+            public string Key;
+            public int TopologyRevision;
+            public int SnapshotId;
+            public int GoalRegionId;
+            public byte EffNeedsBits;
+            public int[] DistMs;
+            public byte[] NextKind;
+            public int[] NextId;
+            public int[] NextStepCostMs;
+        }
+
+        internal sealed class ReverseCoarseTreeJob {
+            public string Key;
+            public int TopologyRevision;
+            public StationSparseCostSnapshot Snapshot;
+            public int GoalRegionId;
+            public StationRouteNeeds Needs;
+            public byte EffNeedsBits;
+            public int[] DistMs;
+            public byte[] NextKind;
+            public int[] NextId;
+            public int[] NextStepCostMs;
+            public DeterministicMinHeap Heap;
+            public bool Initialized;
+            public int ExpandingReg = -1;
+            public int ExpandingDist;
+            public int CursorStage;
+            public int CursorIdx;
+            public int PriorityTier;
+            public int OldestTick;
+            public bool Done;
+            public ReverseCoarseTree Result;
+        }
 
         public sealed class CoarseSearchJob {
             public int Id;
@@ -248,15 +276,14 @@ namespace Metro.Sim {
             public StationRouteNeeds Needs;
             public byte NeedsBits;
             public int ExcludedServer;
+            internal string TreeKey;
             internal DeterministicMinHeap Heap;
             internal Dictionary<int, int> BestCost;
             internal Dictionary<int, CoarseParent> Parent;
-            internal int ExpandingPoint = -1;
             internal int ExpandingCost;
             internal int ExpandingRegionId = -1;
             internal int CursorStage;
             internal int CursorIdx;
-            internal string WaitingFieldKey;
             public int EnqueuedTick;
             public int PriorityTier;
             public CoarseJobStatus Status;
@@ -280,7 +307,8 @@ namespace Metro.Sim {
         readonly Dictionary<int, CoarseSearchJob> coarseJobs = new Dictionary<int, CoarseSearchJob>();
         readonly Dictionary<string, int> coarseJobByCacheKey = new Dictionary<string, int>(StringComparer.Ordinal);
         readonly Dictionary<string, StationCoarseItinerary> coarseResultCache = new Dictionary<string, StationCoarseItinerary>(StringComparer.Ordinal);
-        readonly Dictionary<string, CachedSuffix> coarseSuffixCache = new Dictionary<string, CachedSuffix>(StringComparer.Ordinal);
+        readonly Dictionary<string, ReverseCoarseTree> reverseTreeCache = new Dictionary<string, ReverseCoarseTree>(StringComparer.Ordinal);
+        readonly Dictionary<string, ReverseCoarseTreeJob> reverseTreeJobs = new Dictionary<string, ReverseCoarseTreeJob>(StringComparer.Ordinal);
         int coarseCacheSnapshotId = -1;
         int costSnapshotSeq;
         StationSparseCostSnapshot currentSnapshot;
@@ -323,7 +351,8 @@ namespace Metro.Sim {
             coarseJobs.Clear();
             coarseJobByCacheKey.Clear();
             coarseResultCache.Clear();
-            coarseSuffixCache.Clear();
+            reverseTreeCache.Clear();
+            reverseTreeJobs.Clear();
             sampleRefreshQueue.Clear();
             sampleQueuedKeys.Clear();
             currentSnapshot = null;
@@ -340,7 +369,8 @@ namespace Metro.Sim {
             coarseJobs.Clear();
             coarseJobByCacheKey.Clear();
             coarseResultCache.Clear();
-            coarseSuffixCache.Clear();
+            reverseTreeCache.Clear();
+            reverseTreeJobs.Clear();
             currentSnapshot = null;
             elapsedTicks = 0;
             lastScheduledRefreshTick = 0;
@@ -370,7 +400,8 @@ namespace Metro.Sim {
                 coarseJobs.Clear();
                 coarseJobByCacheKey.Clear();
                 coarseResultCache.Clear();
-                coarseSuffixCache.Clear();
+                reverseTreeCache.Clear();
+                reverseTreeJobs.Clear();
                 currentSnapshot = null;
                 return diff;
             }
@@ -396,7 +427,8 @@ namespace Metro.Sim {
             coarseJobs.Clear();
             coarseJobByCacheKey.Clear();
             coarseResultCache.Clear();
-            coarseSuffixCache.Clear();
+            reverseTreeCache.Clear();
+            reverseTreeJobs.Clear();
             currentSnapshot = null;
             return diff;
         }
@@ -519,7 +551,7 @@ namespace Metro.Sim {
             currentSnapshot = snap;
             if (coarseCacheSnapshotId != snap.Id) {
                 coarseResultCache.Clear();
-                coarseSuffixCache.Clear();
+                reverseTreeCache.Clear();
                 coarseCacheSnapshotId = snap.Id;
             }
             return snap;
@@ -742,12 +774,370 @@ namespace Metro.Sim {
             return true;
         }
 
-        /* --------------------------------------------- Coarse Sparse A* */
+        /* --------------------------------------------- Coarse Sparse Search */
 
-        int CoarseHeuristicMs(int node, int goalNode) {
-            double dx = Topology.NodeTx[node] - Topology.NodeTx[goalNode];
-            double dy = Topology.NodeTy[node] - Topology.NodeTy[goalNode];
-            return (int)Math.Floor(Math.Sqrt(dx * dx + dy * dy) * 500.0);
+        static int RoundHalfUp(double value) => (int)Math.Floor(value + 0.5);
+
+        static double Hypot(double dx, double dy) => Math.Sqrt(dx * dx + dy * dy);
+
+        byte EffNeedsBitsOf(StationRouteNeeds n) {
+            if (n.StepFree) return 1;
+            return (byte)(Topology.HasLifts && n.Luggage ? 2 : 0);
+        }
+
+        string GetOrEnqueueReverseTree(
+            int goalRegionId,
+            StationRouteNeeds needs,
+            StationSparseCostSnapshot snapshot,
+            int priorityTier,
+            int tick,
+            out ReverseCoarseTree readyTree) {
+            byte eff = EffNeedsBitsOf(needs);
+            string key = snapshot.TopologyRevision + "|" + snapshot.Id + "|" + goalRegionId + "|" + eff;
+            if (reverseTreeCache.TryGetValue(key, out readyTree)) return key;
+            readyTree = null;
+            if (reverseTreeJobs.TryGetValue(key, out var existing)) {
+                if (priorityTier < existing.PriorityTier) existing.PriorityTier = priorityTier;
+                if (tick < existing.OldestTick) existing.OldestTick = tick;
+                return key;
+            }
+            int rCount = Topology.Regions.Count;
+            var distMs = new int[rCount];
+            Array.Fill(distMs, StationSparsePolicy.InfMs);
+            var nextKind = new byte[rCount];
+            var nextId = new int[rCount];
+            Array.Fill(nextId, -1);
+            var nextStepCostMs = new int[rCount];
+            var job = new ReverseCoarseTreeJob {
+                Key = key,
+                TopologyRevision = snapshot.TopologyRevision,
+                Snapshot = snapshot,
+                GoalRegionId = goalRegionId,
+                Needs = needs,
+                EffNeedsBits = eff,
+                DistMs = distMs,
+                NextKind = nextKind,
+                NextId = nextId,
+                NextStepCostMs = nextStepCostMs,
+                Heap = new DeterministicMinHeap(Math.Min(256, Math.Max(32, rCount))),
+                PriorityTier = priorityTier,
+                OldestTick = tick,
+            };
+            reverseTreeJobs[key] = job;
+            return key;
+        }
+
+        bool StepReverseTreeJob(ReverseCoarseTreeJob job, ref WorkBudget budget) {
+            if (job.Done) return true;
+            if (job.TopologyRevision != Topology.TopologyRevision) {
+                job.Done = true;
+                reverseTreeJobs.Remove(job.Key);
+                return true;
+            }
+            var regions = Topology.Regions;
+            if (!job.Initialized) {
+                job.Initialized = true;
+                if ((uint)job.GoalRegionId < (uint)regions.Count) {
+                    job.DistMs[job.GoalRegionId] = 0;
+                    job.Heap.Push(job.GoalRegionId, 0, regions[job.GoalRegionId].RegionKey, 0);
+                }
+            }
+
+            var regionCrowdMs = job.Snapshot.RegionCrowdMs;
+
+            while (job.ExpandingReg >= 0 || job.Heap.Count > 0) {
+                if (job.ExpandingReg < 0) {
+                    if (budget.Pops <= 0) return false;
+                    job.Heap.Pop(out int curReg, out int curDist);
+                    budget.Pops--;
+                    statsCoarseExpansions++;
+                    if (curDist != job.DistMs[curReg]) continue;
+                    job.ExpandingReg = curReg;
+                    job.ExpandingDist = curDist;
+                    job.CursorStage = 0;
+                    job.CursorIdx = 0;
+                }
+
+                int curR = job.ExpandingReg;
+                var region = regions[curR];
+                int curCrowd = (uint)curR < (uint)regionCrowdMs.Length ? regionCrowdMs[curR] : 0;
+
+                if (job.CursorStage == 0) {
+                    var inCross = region.InCrossings;
+                    while (job.CursorIdx < inCross.Count) {
+                        if (budget.Scans <= 0) return false;
+                        var c = inCross[job.CursorIdx++];
+                        budget.Scans--;
+                        statsCoarseEdgeScans++;
+                        int fromReg = c.FromRegion;
+                        if (fromReg == curR) continue;
+                        int stepCost = c.RepCostMs + curCrowd;
+                        int edgeCost = Math.Max(1, c.RegionWalkMs + curCrowd);
+                        int nd = job.ExpandingDist + edgeCost;
+                        if (nd < job.DistMs[fromReg]) {
+                            job.DistMs[fromReg] = nd;
+                            job.NextKind[fromReg] = 1;
+                            job.NextId[fromReg] = c.Id;
+                            job.NextStepCostMs[fromReg] = stepCost;
+                            job.Heap.Push(fromReg, nd, regions[fromReg].RegionKey, nd);
+                        }
+                    }
+                    job.CursorStage = 1;
+                    job.CursorIdx = 0;
+                }
+
+                if (job.CursorStage == 1) {
+                    var inArcs = region.InExplicitArcs;
+                    while (job.CursorIdx < inArcs.Count) {
+                        if (budget.Scans <= 0) return false;
+                        var arc = inArcs[job.CursorIdx++];
+                        budget.Scans--;
+                        statsCoarseEdgeScans++;
+                        int fromReg = arc.FromRegion;
+                        if (fromReg == curR) continue;
+                        int arcCost = ExplicitArcCostMs(arc, job.Needs, job.Snapshot, -1);
+                        if (arcCost >= StationSparsePolicy.InfMs) continue;
+                        int edgeCost = Math.Max(1, arc.FromHalfWalkMs + arcCost + arc.ToHalfWalkMs);
+                        int nd = job.ExpandingDist + edgeCost;
+                        if (nd < job.DistMs[fromReg]) {
+                            job.DistMs[fromReg] = nd;
+                            job.NextKind[fromReg] = 2;
+                            job.NextId[fromReg] = arc.Id;
+                            job.NextStepCostMs[fromReg] = arcCost;
+                            job.Heap.Push(fromReg, nd, regions[fromReg].RegionKey, nd);
+                        }
+                    }
+                }
+
+                job.ExpandingReg = -1;
+            }
+
+            job.Done = true;
+            var tree = new ReverseCoarseTree {
+                Key = job.Key,
+                TopologyRevision = job.TopologyRevision,
+                SnapshotId = job.Snapshot.Id,
+                GoalRegionId = job.GoalRegionId,
+                EffNeedsBits = job.EffNeedsBits,
+                DistMs = job.DistMs,
+                NextKind = job.NextKind,
+                NextId = job.NextId,
+                NextStepCostMs = job.NextStepCostMs,
+            };
+            job.Result = tree;
+            if (coarseCacheSnapshotId == job.Snapshot.Id) {
+                reverseTreeCache[job.Key] = tree;
+            }
+            return true;
+        }
+
+        StationCoarseItinerary ExtractItineraryFromTree(
+            ReverseCoarseTree tree,
+            int startNode,
+            int goalNode,
+            StationRouteNeeds needs,
+            StationSparseCostSnapshot snap) {
+            int startReg = Topology.NodeRegion[startNode];
+            int goalReg = Topology.NodeRegion[goalNode];
+            if (startReg < 0 || goalReg < 0 || goalReg != tree.GoalRegionId) return null;
+
+            byte nb = NeedsBitsOf(needs);
+            long startKey = Topology.NodeTileKey[startNode];
+            long goalKey = Topology.NodeTileKey[goalNode];
+            var regions = Topology.Regions;
+
+            if (startReg == goalReg) {
+                int d = RoundHalfUp(
+                    Hypot(Topology.NodeTx[startNode] - Topology.NodeTx[goalNode], Topology.NodeTy[startNode] - Topology.NodeTy[goalNode]) *
+                    regions[startReg].WalkMsPerM);
+                return new StationCoarseItinerary {
+                    TopologyRevision = tree.TopologyRevision,
+                    CostSnapshotId = tree.SnapshotId,
+                    StartKey = startKey,
+                    GoalKey = goalKey,
+                    NeedsBits = nb,
+                    Steps = Array.Empty<StationCoarseStep>(),
+                    TotalCostMs = d,
+                    NextGateServer = -1,
+                    NextGateDir = 0,
+                    NextGateDistMs = StationSparsePolicy.InfMs,
+                    NextServiceServer = -1,
+                    NextServiceKind = "",
+                };
+            }
+
+            if (tree.DistMs[startReg] >= StationSparsePolicy.InfMs) return null;
+
+            var sRegion = regions[startReg];
+            var gRegion = regions[goalReg];
+            int sx = Topology.NodeTx[startNode], sy = Topology.NodeTy[startNode];
+            int gx = Topology.NodeTx[goalNode], gy = Topology.NodeTy[goalNode];
+            var regionCrowdMs = snap.RegionCrowdMs;
+
+            byte bestKind = 0;
+            int bestId = -1, bestFirstWalk = 0, bestStepCost = 0;
+            int bestTotal = StationSparsePolicy.InfMs;
+            long bestTie = long.MaxValue;
+
+            for (int i = 0; i < sRegion.Crossings.Count; i++) {
+                var c = sRegion.Crossings[i];
+                int toReg = c.ToRegion;
+                int rem = tree.DistMs[toReg];
+                if (rem >= StationSparsePolicy.InfMs) continue;
+                int firstWalk = RoundHalfUp(Hypot(sx - Topology.NodeTx[c.RepFromNode], sy - Topology.NodeTy[c.RepFromNode]) * sRegion.WalkMsPerM);
+                int crowd = (uint)toReg < (uint)regionCrowdMs.Length ? regionCrowdMs[toReg] : 0;
+                int stepCost = c.RepCostMs + crowd;
+                int afterMs = toReg == goalReg
+                    ? RoundHalfUp(Hypot(Topology.NodeTx[c.RepToNode] - gx, Topology.NodeTy[c.RepToNode] - gy) * gRegion.WalkMsPerM)
+                    : c.ToHalfWalkMs + rem;
+                int total = firstWalk + stepCost + afterMs;
+                if (total < bestTotal || (total == bestTotal && c.RepToKey < bestTie)) {
+                    bestTotal = total;
+                    bestTie = c.RepToKey;
+                    bestKind = 1;
+                    bestId = c.Id;
+                    bestFirstWalk = firstWalk;
+                    bestStepCost = stepCost;
+                }
+            }
+            for (int i = 0; i < sRegion.ExplicitArcs.Count; i++) {
+                var arc = sRegion.ExplicitArcs[i];
+                int toReg = arc.ToRegion;
+                if (toReg == startReg) continue;
+                int rem = tree.DistMs[toReg];
+                if (rem >= StationSparsePolicy.InfMs) continue;
+                int arcCost = ExplicitArcCostMs(arc, needs, snap, -1);
+                if (arcCost >= StationSparsePolicy.InfMs) continue;
+                int firstWalk = RoundHalfUp(Hypot(sx - Topology.NodeTx[arc.FromNode], sy - Topology.NodeTy[arc.FromNode]) * sRegion.WalkMsPerM);
+                int afterMs = toReg == goalReg
+                    ? RoundHalfUp(Hypot(Topology.NodeTx[arc.ToNode] - gx, Topology.NodeTy[arc.ToNode] - gy) * gRegion.WalkMsPerM)
+                    : arc.ToHalfWalkMs + rem;
+                int total = firstWalk + arcCost + afterMs;
+                if (total < bestTotal || (total == bestTotal && arc.ToKey < bestTie)) {
+                    bestTotal = total;
+                    bestTie = arc.ToKey;
+                    bestKind = 2;
+                    bestId = arc.Id;
+                    bestFirstWalk = firstWalk;
+                    bestStepCost = arcCost;
+                }
+            }
+
+            if (bestKind == 0 || bestId < 0) return null;
+
+            var steps = new List<StationCoarseStep>();
+            var walkPrefix = new List<int>();
+            var visited = new HashSet<int> { startReg };
+
+            int PushStep(byte kind, int id, int walkMs, int stepCost) {
+                if (kind == 1) {
+                    var c = Topology.Crossings[id];
+                    steps.Add(new StationCoarseStep {
+                        IsCrossing = true,
+                        CrossingId = c.Id,
+                        ArcId = -1,
+                        FromKey = c.RepFromKey,
+                        ToKey = c.RepToKey,
+                        FromRegionKey = c.FromRegionKey,
+                        ToRegionKey = c.ToRegionKey,
+                        EdgeKind = WalkEdgeKind.Walk,
+                        Server = -1,
+                        ToNodeServer = -1,
+                        GateDir = 0,
+                        CostMs = stepCost,
+                    });
+                    walkPrefix.Add(walkMs);
+                    return c.ToRegion;
+                }
+                var arc = Topology.ExplicitArcs[id];
+                steps.Add(new StationCoarseStep {
+                    IsCrossing = false,
+                    CrossingId = -1,
+                    ArcId = arc.Id,
+                    FromKey = arc.FromKey,
+                    ToKey = arc.ToKey,
+                    FromRegionKey = regions[arc.FromRegion].RegionKey,
+                    ToRegionKey = regions[arc.ToRegion].RegionKey,
+                    EdgeKind = arc.Kind,
+                    Server = arc.Server,
+                    ToNodeServer = arc.ToNodeServer,
+                    GateDir = arc.GateDir,
+                    LiftId = arc.LiftId,
+                    CostMs = stepCost,
+                });
+                walkPrefix.Add(walkMs);
+                return arc.ToRegion;
+            }
+
+            int prevNode = bestKind == 1 ? Topology.Crossings[bestId].RepToNode : Topology.ExplicitArcs[bestId].ToNode;
+            int curReg = PushStep(bestKind, bestId, bestFirstWalk, bestStepCost);
+            int totalCostMs = bestFirstWalk + bestStepCost;
+
+            while (curReg != goalReg) {
+                if (!visited.Add(curReg)) return null;
+                byte nk = tree.NextKind[curReg];
+                int nid = tree.NextId[curReg];
+                if (nk == 0 || nid < 0) return null;
+                int nextFrom = nk == 1 ? Topology.Crossings[nid].RepFromNode : Topology.ExplicitArcs[nid].FromNode;
+                int nextTo = nk == 1 ? Topology.Crossings[nid].RepToNode : Topology.ExplicitArcs[nid].ToNode;
+                int walkMs = RoundHalfUp(
+                    Hypot(Topology.NodeTx[prevNode] - Topology.NodeTx[nextFrom], Topology.NodeTy[prevNode] - Topology.NodeTy[nextFrom]) *
+                    regions[curReg].WalkMsPerM);
+                int sc = tree.NextStepCostMs[curReg];
+                curReg = PushStep(nk, nid, walkMs, sc);
+                totalCostMs += walkMs + sc;
+                prevNode = nextTo;
+            }
+
+            totalCostMs += RoundHalfUp(Hypot(Topology.NodeTx[prevNode] - gx, Topology.NodeTy[prevNode] - gy) * gRegion.WalkMsPerM);
+
+            int nextGateServer = -1, nextGateDir = 0, nextGateDistMs = StationSparsePolicy.InfMs;
+            int nextServiceServer = -1;
+            string nextServiceKind = "";
+            int accumMs = 0;
+            var servers = Topology.Graph.Servers;
+            for (int i = 0; i < steps.Count; i++) {
+                var st = steps[i];
+                accumMs += walkPrefix[i];
+                if (!st.IsCrossing) {
+                    if (nextGateServer < 0 && st.ToNodeServer >= 0 && st.ToNodeServer < servers.Count && servers[st.ToNodeServer].Kind == "gate") {
+                        nextGateServer = st.ToNodeServer;
+                        nextGateDir = st.GateDir;
+                        nextGateDistMs = accumMs;
+                    }
+                    if (nextServiceServer < 0) {
+                        if (st.Server >= 0 && st.Server < servers.Count) {
+                            nextServiceServer = st.Server;
+                            nextServiceKind = servers[st.Server].Kind;
+                        } else if (st.ToNodeServer >= 0 && st.ToNodeServer < servers.Count) {
+                            nextServiceServer = st.ToNodeServer;
+                            nextServiceKind = servers[st.ToNodeServer].Kind;
+                        }
+                    }
+                }
+                accumMs += st.CostMs;
+            }
+
+            return new StationCoarseItinerary {
+                TopologyRevision = tree.TopologyRevision,
+                CostSnapshotId = tree.SnapshotId,
+                StartKey = startKey,
+                GoalKey = goalKey,
+                NeedsBits = nb,
+                Steps = steps.ToArray(),
+                TotalCostMs = totalCostMs,
+                NextGateServer = nextGateServer,
+                NextGateDir = nextGateDir,
+                NextGateDistMs = nextGateDistMs,
+                NextServiceServer = nextServiceServer,
+                NextServiceKind = nextServiceKind,
+            };
+        }
+
+        int RegionHeuristicMs(int regId, int goalRegId) {
+            var r = Topology.Regions[regId];
+            var g = Topology.Regions[goalRegId];
+            return (int)Math.Floor(Hypot(r.CenterX - g.CenterX, r.CenterY - g.CenterY) * 500.0);
         }
 
         public CoarseJobStatus StartCoarseSearch(
@@ -776,6 +1166,74 @@ namespace Metro.Sim {
                 readyItinerary = cached;
                 return cached != null ? CoarseJobStatus.Ready : CoarseJobStatus.Failed;
             }
+
+            int startReg = Topology.NodeRegion[startNode];
+            int goalReg = Topology.NodeRegion[goalNode];
+            if (startReg < 0 || goalReg < 0) return CoarseJobStatus.Failed;
+            if (startReg == goalReg) {
+                int d = RoundHalfUp(
+                    Hypot(Topology.NodeTx[startNode] - Topology.NodeTx[goalNode], Topology.NodeTy[startNode] - Topology.NodeTy[goalNode]) *
+                    Topology.Regions[startReg].WalkMsPerM);
+                var itin = new StationCoarseItinerary {
+                    TopologyRevision = currentSnapshot.TopologyRevision,
+                    CostSnapshotId = currentSnapshot.Id,
+                    StartKey = Topology.NodeTileKey[startNode],
+                    GoalKey = Topology.NodeTileKey[goalNode],
+                    NeedsBits = nb,
+                    Steps = Array.Empty<StationCoarseStep>(),
+                    TotalCostMs = d,
+                    NextGateServer = -1,
+                    NextGateDir = 0,
+                    NextGateDistMs = StationSparsePolicy.InfMs,
+                    NextServiceServer = -1,
+                    NextServiceKind = "",
+                };
+                coarseResultCache[cacheKey] = itin;
+                readyItinerary = itin;
+                return CoarseJobStatus.Ready;
+            }
+
+            // Fast path for normal queries (excludedServer < 0): share one reverse region-graph tree per (goalRegion, effNeeds).
+            if (excludedServer < 0) {
+                string tKey = GetOrEnqueueReverseTree(goalReg, needs, currentSnapshot, priorityTier, tick, out var tree);
+                if (tree != null) {
+                    statsCoarseCacheHits++;
+                    var itin = ExtractItineraryFromTree(tree, startNode, goalNode, needs, currentSnapshot);
+                    coarseResultCache[cacheKey] = itin;
+                    readyItinerary = itin;
+                    return itin != null ? CoarseJobStatus.Ready : CoarseJobStatus.Failed;
+                }
+                if (coarseJobByCacheKey.TryGetValue(cacheKey, out int existingTreeJobId) && coarseJobs.TryGetValue(existingTreeJobId, out var existingTreeJob)) {
+                    if (priorityTier < existingTreeJob.PriorityTier) existingTreeJob.PriorityTier = priorityTier;
+                    if (tick < existingTreeJob.EnqueuedTick) existingTreeJob.EnqueuedTick = tick;
+                    jobId = existingTreeJobId;
+                    readyItinerary = existingTreeJob.Result;
+                    return existingTreeJob.Status;
+                }
+                int tid = nextCoarseId++;
+                var treeBackedJob = new CoarseSearchJob {
+                    Id = tid,
+                    CacheKey = cacheKey,
+                    TopologyRevision = Topology.TopologyRevision,
+                    Snapshot = currentSnapshot,
+                    StartNode = startNode,
+                    GoalNode = goalNode,
+                    StartKey = Topology.NodeTileKey[startNode],
+                    GoalKey = Topology.NodeTileKey[goalNode],
+                    Needs = needs,
+                    NeedsBits = nb,
+                    ExcludedServer = -1,
+                    TreeKey = tKey,
+                    EnqueuedTick = tick,
+                    PriorityTier = priorityTier,
+                    Status = CoarseJobStatus.Running,
+                };
+                coarseJobs[tid] = treeBackedJob;
+                coarseJobByCacheKey[cacheKey] = tid;
+                jobId = tid;
+                return CoarseJobStatus.Running;
+            }
+
             if (coarseJobByCacheKey.TryGetValue(cacheKey, out int existingId) && coarseJobs.TryGetValue(existingId, out var existing)) {
                 if (priorityTier < existing.PriorityTier) existing.PriorityTier = priorityTier;
                 if (tick < existing.EnqueuedTick) existing.EnqueuedTick = tick;
@@ -788,8 +1246,8 @@ namespace Metro.Sim {
             var heap = new DeterministicMinHeap(64);
             var bestCost = new Dictionary<int, int>(64);
             var parent = new Dictionary<int, CoarseParent>(64);
-            bestCost[startNode] = 0;
-            heap.Push(startNode, CoarseHeuristicMs(startNode, goalNode), Topology.NodeTileKey[startNode], 0);
+            bestCost[startReg] = 0;
+            heap.Push(startReg, RegionHeuristicMs(startReg, goalReg), Topology.Regions[startReg].RegionKey, 0);
 
             var job = new CoarseSearchJob {
                 Id = id,
@@ -803,6 +1261,7 @@ namespace Metro.Sim {
                 Needs = needs,
                 NeedsBits = nb,
                 ExcludedServer = excludedServer,
+                TreeKey = null,
                 Heap = heap,
                 BestCost = bestCost,
                 Parent = parent,
@@ -820,20 +1279,18 @@ namespace Metro.Sim {
             if (!coarseJobs.TryGetValue(jobId, out var job) || job.Status != CoarseJobStatus.Running) return job;
             var budget = new WorkBudget { Pops = maxPops, Scans = maxScans };
             while (job.Status == CoarseJobStatus.Running && budget.Pops > 0 && budget.Scans > 0) {
-                if (job.WaitingFieldKey != null && fieldJobs.TryGetValue(job.WaitingFieldKey, out var fj)) {
-                    StepFieldJob(fj, ref budget);
-                    if (!fj.Done) break;
-                }
                 int bPops = budget.Pops, bScans = budget.Scans;
-                string prevWait = job.WaitingFieldKey;
                 StepCoarseJob(job, ref budget);
                 if (job.Status != CoarseJobStatus.Running) break;
-                if (budget.Pops == bPops && budget.Scans == bScans && job.WaitingFieldKey == prevWait) break;
+                if (budget.Pops == bPops && budget.Scans == bScans) break;
             }
             if (job.Status != CoarseJobStatus.Running) {
                 coarseJobs.Remove(job.Id);
                 if (coarseJobByCacheKey.TryGetValue(job.CacheKey, out int cid) && cid == job.Id) {
                     coarseJobByCacheKey.Remove(job.CacheKey);
+                }
+                if (job.TreeKey != null && reverseTreeJobs.TryGetValue(job.TreeKey, out var tj) && tj.Done) {
+                    reverseTreeJobs.Remove(job.TreeKey);
                 }
             }
             return job;
@@ -865,77 +1322,125 @@ namespace Metro.Sim {
                 job.FailReason = "stale-topology";
                 return true;
             }
-            if (job.WaitingFieldKey != null) {
-                if (!fieldCache.ContainsKey(job.WaitingFieldKey)) {
-                    if (fieldJobs.TryGetValue(job.WaitingFieldKey, out var fj)) {
-                        if (job.PriorityTier < fj.PriorityTier) fj.PriorityTier = job.PriorityTier;
-                        if (job.EnqueuedTick < fj.OldestTick) fj.OldestTick = job.EnqueuedTick;
-                        return false;
+
+            // Shared reverse region-tree backed coarse query (O(path length) extraction once tree finishes).
+            if (job.TreeKey != null) {
+                if (!reverseTreeCache.TryGetValue(job.TreeKey, out var tree)) {
+                    if (!reverseTreeJobs.TryGetValue(job.TreeKey, out var tJob)) {
+                        int gReg = Topology.NodeRegion[job.GoalNode];
+                        string key = GetOrEnqueueReverseTree(gReg, job.Needs, job.Snapshot, job.PriorityTier, job.EnqueuedTick, out tree);
+                        if (tree == null) reverseTreeJobs.TryGetValue(key, out tJob);
+                    }
+                    if (tree == null && tJob != null) {
+                        if (job.PriorityTier < tJob.PriorityTier) tJob.PriorityTier = job.PriorityTier;
+                        if (job.EnqueuedTick < tJob.OldestTick) tJob.OldestTick = job.EnqueuedTick;
+                        if (!tJob.Done) StepReverseTreeJob(tJob, ref budget);
+                        if (tJob.Done) tree = tJob.Result;
                     }
                 }
-                job.WaitingFieldKey = null;
+                if (tree == null) return false;
+                var itin = ExtractItineraryFromTree(tree, job.StartNode, job.GoalNode, job.Needs, job.Snapshot);
+                if (itin != null) {
+                    job.Status = CoarseJobStatus.Ready;
+                    job.Result = itin;
+                    if (coarseCacheSnapshotId == job.Snapshot.Id) coarseResultCache[job.CacheKey] = itin;
+                } else {
+                    job.Status = CoarseJobStatus.Failed;
+                    job.FailReason = "sparse-exhausted";
+                    if (coarseCacheSnapshotId == job.Snapshot.Id) coarseResultCache[job.CacheKey] = null;
+                }
+                return true;
             }
 
-            int goalRegionId = Topology.NodeRegion[job.GoalNode];
-            bool canUseSuffix = coarseCacheSnapshotId == job.Snapshot.Id;
-            string suffixPrefix = canUseSuffix ? (job.Snapshot.Id + "|" + job.GoalNode + "|" + job.NeedsBits + "|" + job.ExcludedServer + "|") : "";
+            // Region-level forward A* for excludedServer probes: zero 256-node field builds and
+            // identical region-centroid cost model to ReverseCoarseTree.
+            int startReg = Topology.NodeRegion[job.StartNode];
+            int goalReg = Topology.NodeRegion[job.GoalNode];
+            if (startReg < 0 || goalReg < 0) {
+                job.Status = CoarseJobStatus.Failed;
+                job.FailReason = "sparse-exhausted";
+                return true;
+            }
+            var regions = Topology.Regions;
+            var goalRegion = regions[goalReg];
+            int sx = Topology.NodeTx[job.StartNode], sy = Topology.NodeTy[job.StartNode];
+            int gx = Topology.NodeTx[job.GoalNode], gy = Topology.NodeTy[job.GoalNode];
+            var regionCrowdMs = job.Snapshot.RegionCrowdMs;
 
-            while (job.ExpandingPoint >= 0 || job.Heap.Count > 0) {
-                if (job.ExpandingPoint < 0) {
+            while (job.ExpandingRegionId >= 0 || job.Heap.Count > 0) {
+                if (job.ExpandingRegionId < 0) {
                     if (budget.Pops <= 0) return false;
-                    job.Heap.Pop(out int point, out int cost);
+                    job.Heap.Pop(out int curReg, out int cost);
                     budget.Pops--;
                     statsCoarseExpansions++;
-                    if (!job.BestCost.TryGetValue(point, out int best) || cost != best) continue;
-                    if (point == job.GoalNode) {
+                    if (!job.BestCost.TryGetValue(curReg, out int best) || cost != best) continue;
+                    if (curReg == goalReg) {
                         var itin = ReconstructItinerary(job);
                         job.Status = CoarseJobStatus.Ready;
                         job.Result = itin;
                         if (coarseCacheSnapshotId == job.Snapshot.Id) coarseResultCache[job.CacheKey] = itin;
                         return true;
                     }
-                    if (canUseSuffix && coarseSuffixCache.TryGetValue(suffixPrefix + point, out var suffix)) {
-                        int total = cost + suffix.RemainingCostMs;
-                        if (!job.BestCost.TryGetValue(job.GoalNode, out int prevGoal) || total < prevGoal) {
-                            job.BestCost[job.GoalNode] = total;
-                            job.Parent[job.GoalNode] = new CoarseParent { FromPoint = point, Suffix = suffix };
-                            job.Heap.Push(job.GoalNode, total, job.GoalKey, total);
-                        }
-                        continue;
-                    }
-                    job.ExpandingPoint = point;
+                    job.ExpandingRegionId = curReg;
                     job.ExpandingCost = cost;
-                    job.ExpandingRegionId = Topology.NodeRegion[point];
                     job.CursorStage = 0;
                     job.CursorIdx = 0;
                 }
 
                 int regId = job.ExpandingRegionId;
-                if ((uint)regId >= (uint)Topology.Regions.Count) {
-                    job.ExpandingPoint = -1;
+                if ((uint)regId >= (uint)regions.Count) {
+                    job.ExpandingRegionId = -1;
                     continue;
                 }
-                var region = Topology.Regions[regId];
-                int pointLocal = Topology.NodeLocalIdx[job.ExpandingPoint];
+                var region = regions[regId];
 
                 if (job.CursorStage == 0) {
-                    if (regId == goalRegionId) {
+                    var crossings = region.Crossings;
+                    while (job.CursorIdx < crossings.Count) {
                         if (budget.Scans <= 0) return false;
+                        var c = crossings[job.CursorIdx++];
                         budget.Scans--;
                         statsCoarseEdgeScans++;
-                        var field = GetSingletonField(regId, job.GoalNode, job.PriorityTier, job.EnqueuedTick);
-                        if (field == null) {
-                            job.WaitingFieldKey = FieldKeyForNodes(region, new[] { job.GoalNode });
-                            return false;
+                        int toReg = c.ToRegion;
+                        if (toReg == regId) continue;
+                        int regCrowd = (uint)toReg < (uint)regionCrowdMs.Length ? regionCrowdMs[toReg] : 0;
+                        int stepCost = c.RepCostMs + regCrowd;
+                        int edgeCost;
+                        if (regId == startReg) {
+                            int firstWalk = RoundHalfUp(Hypot(sx - Topology.NodeTx[c.RepFromNode], sy - Topology.NodeTy[c.RepFromNode]) * region.WalkMsPerM);
+                            int afterMs = toReg == goalReg
+                                ? RoundHalfUp(Hypot(Topology.NodeTx[c.RepToNode] - gx, Topology.NodeTy[c.RepToNode] - gy) * goalRegion.WalkMsPerM)
+                                : c.ToHalfWalkMs;
+                            edgeCost = Math.Max(1, firstWalk + stepCost + afterMs);
+                        } else if (toReg == goalReg) {
+                            int tailWalk = RoundHalfUp(Hypot(Topology.NodeTx[c.RepToNode] - gx, Topology.NodeTy[c.RepToNode] - gy) * goalRegion.WalkMsPerM);
+                            edgeCost = Math.Max(1, c.FromHalfWalkMs + stepCost + tailWalk);
+                        } else {
+                            edgeCost = Math.Max(1, c.RegionWalkMs + regCrowd);
                         }
-                        int d = field.DistMs[pointLocal];
-                        if (d < StationSparsePolicy.InfMs) {
-                            int nc = job.ExpandingCost + d;
-                            if (!job.BestCost.TryGetValue(job.GoalNode, out int prev) || nc < prev) {
-                                job.BestCost[job.GoalNode] = nc;
-                                job.Parent[job.GoalNode] = new CoarseParent { FromPoint = job.ExpandingPoint, WalkMs = d };
-                                job.Heap.Push(job.GoalNode, nc, job.GoalKey, nc);
-                            }
+                        int total = job.ExpandingCost + edgeCost;
+                        if (!job.BestCost.TryGetValue(toReg, out int prev) || total < prev) {
+                            job.BestCost[toReg] = total;
+                            job.Parent[toReg] = new CoarseParent {
+                                FromPoint = regId,
+                                WalkMs = 0,
+                                Step = new StationCoarseStep {
+                                    IsCrossing = true,
+                                    CrossingId = c.Id,
+                                    ArcId = -1,
+                                    FromKey = c.RepFromKey,
+                                    ToKey = c.RepToKey,
+                                    FromRegionKey = c.FromRegionKey,
+                                    ToRegionKey = c.ToRegionKey,
+                                    EdgeKind = WalkEdgeKind.Walk,
+                                    Server = -1,
+                                    ToNodeServer = -1,
+                                    GateDir = 0,
+                                    CostMs = stepCost,
+                                },
+                            };
+                            int f = toReg == goalReg ? total : total + RegionHeuristicMs(toReg, goalReg);
+                            job.Heap.Push(toReg, f, regions[toReg].RegionKey, total);
                         }
                     }
                     job.CursorStage = 1;
@@ -943,81 +1448,37 @@ namespace Metro.Sim {
                 }
 
                 if (job.CursorStage == 1) {
-                    var crossings = region.Crossings;
-                    while (job.CursorIdx < crossings.Count) {
-                        if (budget.Scans <= 0) return false;
-                        var c = crossings[job.CursorIdx];
-                        var field = GetSingletonField(regId, c.RepFromNode, job.PriorityTier, job.EnqueuedTick);
-                        if (field == null) {
-                            job.WaitingFieldKey = FieldKeyForNodes(region, new[] { c.RepFromNode });
-                            return false;
-                        }
-                        budget.Scans--;
-                        statsCoarseEdgeScans++;
-                        job.CursorIdx++;
-                        int walkMs = field.DistMs[pointLocal];
-                        if (walkMs >= StationSparsePolicy.InfMs) continue;
-                        int regCrowd = (uint)c.ToRegion < (uint)job.Snapshot.RegionCrowdMs.Length ? job.Snapshot.RegionCrowdMs[c.ToRegion] : 0;
-                        int stepCost = c.RepCostMs + regCrowd;
-                        int total = job.ExpandingCost + walkMs + stepCost;
-                        if (!job.BestCost.TryGetValue(c.RepToNode, out int prev) || total < prev) {
-                            job.BestCost[c.RepToNode] = total;
-                            job.Parent[c.RepToNode] = new CoarseParent {
-                                FromPoint = job.ExpandingPoint,
-                                WalkMs = walkMs,
-                                Step = new StationCoarseStep {
-                                    IsCrossing = true,
-                                    CrossingId = c.Id,
-                                    FromKey = c.RepFromKey,
-                                    ToKey = c.RepToKey,
-                                    FromRegionKey = c.FromRegionKey,
-                                    ToRegionKey = c.ToRegionKey,
-                                    EdgeKind = WalkEdgeKind.Walk,
-                                    CostMs = stepCost,
-                                },
-                            };
-                            job.Heap.Push(c.RepToNode, total + CoarseHeuristicMs(c.RepToNode, job.GoalNode), c.RepToKey, total);
-                        }
-                    }
-                    job.CursorStage = 2;
-                    job.CursorIdx = 0;
-                }
-
-                if (job.CursorStage == 2) {
                     var arcs = region.ExplicitArcs;
                     while (job.CursorIdx < arcs.Count) {
                         if (budget.Scans <= 0) return false;
-                        var arc = arcs[job.CursorIdx];
-                        int arcCost = ExplicitArcCostMs(arc, job.Needs, job.Snapshot, job.ExcludedServer);
-                        if (arcCost >= StationSparsePolicy.InfMs) {
-                            budget.Scans--;
-                            statsCoarseEdgeScans++;
-                            job.CursorIdx++;
-                            continue;
-                        }
-                        var field = GetSingletonField(regId, arc.FromNode, job.PriorityTier, job.EnqueuedTick);
-                        if (field == null) {
-                            job.WaitingFieldKey = FieldKeyForNodes(region, new[] { arc.FromNode });
-                            return false;
-                        }
+                        var arc = arcs[job.CursorIdx++];
                         budget.Scans--;
                         statsCoarseEdgeScans++;
-                        job.CursorIdx++;
-                        int walkMs = field.DistMs[pointLocal];
-                        if (walkMs >= StationSparsePolicy.InfMs) continue;
-                        int total = job.ExpandingCost + walkMs + arcCost;
-                        if (!job.BestCost.TryGetValue(arc.ToNode, out int prev) || total < prev) {
-                            job.BestCost[arc.ToNode] = total;
-                            job.Parent[arc.ToNode] = new CoarseParent {
-                                FromPoint = job.ExpandingPoint,
-                                WalkMs = walkMs,
+                        int toReg = arc.ToRegion;
+                        if (toReg == regId) continue;
+                        int arcCost = ExplicitArcCostMs(arc, job.Needs, job.Snapshot, job.ExcludedServer);
+                        if (arcCost >= StationSparsePolicy.InfMs) continue;
+                        int firstHalf = regId == startReg
+                            ? RoundHalfUp(Hypot(sx - Topology.NodeTx[arc.FromNode], sy - Topology.NodeTy[arc.FromNode]) * region.WalkMsPerM)
+                            : arc.FromHalfWalkMs;
+                        int afterMs = toReg == goalReg
+                            ? RoundHalfUp(Hypot(Topology.NodeTx[arc.ToNode] - gx, Topology.NodeTy[arc.ToNode] - gy) * goalRegion.WalkMsPerM)
+                            : arc.ToHalfWalkMs;
+                        int edgeCost = Math.Max(1, firstHalf + arcCost + afterMs);
+                        int total = job.ExpandingCost + edgeCost;
+                        if (!job.BestCost.TryGetValue(toReg, out int prev) || total < prev) {
+                            job.BestCost[toReg] = total;
+                            job.Parent[toReg] = new CoarseParent {
+                                FromPoint = regId,
+                                WalkMs = 0,
                                 Step = new StationCoarseStep {
                                     IsCrossing = false,
+                                    CrossingId = -1,
                                     ArcId = arc.Id,
                                     FromKey = arc.FromKey,
                                     ToKey = arc.ToKey,
                                     FromRegionKey = region.RegionKey,
-                                    ToRegionKey = Topology.Regions[arc.ToRegion].RegionKey,
+                                    ToRegionKey = regions[toReg].RegionKey,
                                     EdgeKind = arc.Kind,
                                     Server = arc.Server,
                                     ToNodeServer = arc.ToNodeServer,
@@ -1026,12 +1487,13 @@ namespace Metro.Sim {
                                     CostMs = arcCost,
                                 },
                             };
-                            job.Heap.Push(arc.ToNode, total + CoarseHeuristicMs(arc.ToNode, job.GoalNode), arc.ToKey, total);
+                            int f = toReg == goalReg ? total : total + RegionHeuristicMs(toReg, goalReg);
+                            job.Heap.Push(toReg, f, regions[toReg].RegionKey, total);
                         }
                     }
                 }
 
-                job.ExpandingPoint = -1;
+                job.ExpandingRegionId = -1;
             }
 
             job.Status = CoarseJobStatus.Failed;
@@ -1041,55 +1503,37 @@ namespace Metro.Sim {
         }
 
         StationCoarseItinerary ReconstructItinerary(CoarseSearchJob job) {
+            var regions = Topology.Regions;
+            int startReg = Topology.NodeRegion[job.StartNode];
+            int goalReg = Topology.NodeRegion[job.GoalNode];
             var rev = new List<StationCoarseStep>();
-            var walkPrefix = new List<int>();
-            var chain = new List<(int Point, int GCost, int StepCountAfter)>();
-            int cur = job.GoalNode;
-            int goalTotal = job.BestCost.TryGetValue(job.GoalNode, out int gt) ? gt : StationSparsePolicy.InfMs;
-
-            CachedSuffix trailing = null;
-            if (job.Parent.TryGetValue(job.GoalNode, out var gp) && gp.Suffix != null) {
-                trailing = gp.Suffix;
-                cur = gp.FromPoint;
-            }
-            while (cur != job.StartNode && job.Parent.TryGetValue(cur, out var p)) {
-                if (p.Step != null) {
-                    chain.Add((cur, job.BestCost.TryGetValue(cur, out int cg) ? cg : 0, rev.Count));
-                    rev.Add(p.Step);
-                    walkPrefix.Add(p.WalkMs);
-                }
-                cur = p.FromPoint;
+            int curReg = goalReg;
+            while (curReg != startReg && job.Parent.TryGetValue(curReg, out var p) && p.Step != null) {
+                rev.Add(p.Step);
+                curReg = p.FromPoint;
             }
             rev.Reverse();
-            walkPrefix.Reverse();
-            int prefixLen = rev.Count;
-            if (trailing != null) {
-                rev.AddRange(trailing.Steps);
-                walkPrefix.AddRange(trailing.WalkPrefixMs);
-            }
 
             var stepsArr = rev.ToArray();
-            var walkArr = walkPrefix.ToArray();
-
-            if (coarseCacheSnapshotId == job.Snapshot.Id && goalTotal < StationSparsePolicy.InfMs) {
-                string suffixPrefix = job.Snapshot.Id + "|" + job.GoalNode + "|" + job.NeedsBits + "|" + job.ExcludedServer + "|";
-                for (int i = 0; i < chain.Count; i++) {
-                    var e = chain[i];
-                    int startIdx = prefixLen - e.StepCountAfter;
-                    int rem = goalTotal - e.GCost;
-                    if (rem >= 0 && startIdx >= 0 && startIdx <= stepsArr.Length) {
-                        int count = stepsArr.Length - startIdx;
-                        var sSteps = new StationCoarseStep[count];
-                        var sWalk = new int[count];
-                        Array.Copy(stepsArr, startIdx, sSteps, 0, count);
-                        Array.Copy(walkArr, startIdx, sWalk, 0, count);
-                        coarseSuffixCache[suffixPrefix + e.Point] = new CachedSuffix {
-                            Steps = sSteps,
-                            WalkPrefixMs = sWalk,
-                            RemainingCostMs = rem,
-                        };
-                    }
-                }
+            var walkArr = new int[stepsArr.Length];
+            int prevNode = job.StartNode;
+            int totalCostMs = 0;
+            for (int i = 0; i < stepsArr.Length; i++) {
+                var st = stepsArr[i];
+                int nextFrom = st.IsCrossing ? Topology.Crossings[st.CrossingId].RepFromNode : Topology.ExplicitArcs[st.ArcId].FromNode;
+                int nextTo = st.IsCrossing ? Topology.Crossings[st.CrossingId].RepToNode : Topology.ExplicitArcs[st.ArcId].ToNode;
+                int rId = Topology.NodeRegion[prevNode];
+                int walkMs = rId >= 0
+                    ? RoundHalfUp(Hypot(Topology.NodeTx[prevNode] - Topology.NodeTx[nextFrom], Topology.NodeTy[prevNode] - Topology.NodeTy[nextFrom]) * regions[rId].WalkMsPerM)
+                    : 0;
+                walkArr[i] = walkMs;
+                totalCostMs += walkMs + st.CostMs;
+                prevNode = nextTo;
+            }
+            if (goalReg >= 0) {
+                totalCostMs += RoundHalfUp(
+                    Hypot(Topology.NodeTx[prevNode] - Topology.NodeTx[job.GoalNode], Topology.NodeTy[prevNode] - Topology.NodeTy[job.GoalNode]) *
+                    regions[goalReg].WalkMsPerM);
             }
 
             int nextGateServer = -1, nextGateDir = 0, nextGateDistMs = StationSparsePolicy.InfMs;
@@ -1126,7 +1570,7 @@ namespace Metro.Sim {
                 GoalKey = job.GoalKey,
                 NeedsBits = job.NeedsBits,
                 Steps = stepsArr,
-                TotalCostMs = goalTotal,
+                TotalCostMs = totalCostMs,
                 NextGateServer = nextGateServer,
                 NextGateDir = nextGateDir,
                 NextGateDistMs = nextGateDistMs,
@@ -1464,23 +1908,42 @@ namespace Metro.Sim {
             ScheduleSampleRefresh();
         }
 
+        public bool HasPendingMandatoryJobs => fieldJobs.Count > 0 || reverseTreeJobs.Count > 0 || coarseJobs.Count > 0;
+
         public void RunMandatoryBudget(int tick, HashSet<int> referencedCoarseIds) {
-            // Drop orphaned coarse jobs whose passengers left/switched.
-            if (referencedCoarseIds != null && coarseJobs.Count > 0) {
-                var drop = new List<int>();
-                foreach (var kv in coarseJobs) {
-                    if (!referencedCoarseIds.Contains(kv.Key)) drop.Add(kv.Key);
-                }
-                for (int i = 0; i < drop.Count; i++) {
-                    var j = coarseJobs[drop[i]];
-                    coarseJobs.Remove(drop[i]);
-                    if (coarseJobByCacheKey.TryGetValue(j.CacheKey, out int cid) && cid == j.Id) {
-                        coarseJobByCacheKey.Remove(j.CacheKey);
+            int pops = Options.MandatoryPopBudget;
+            int scans = Options.MandatoryScanBudget;
+            RunMandatoryBudget(tick, referencedCoarseIds, ref pops, ref scans);
+        }
+
+        public void RunMandatoryBudget(int tick, HashSet<int> referencedCoarseIds, ref int popsRemaining, ref int scansRemaining) {
+            // Drop orphaned coarse & reverse-tree jobs whose passengers left/switched.
+            if (referencedCoarseIds != null) {
+                var referencedTreeKeys = new HashSet<string>(StringComparer.Ordinal);
+                if (coarseJobs.Count > 0) {
+                    var drop = new List<int>();
+                    foreach (var kv in coarseJobs) {
+                        if (!referencedCoarseIds.Contains(kv.Key)) drop.Add(kv.Key);
+                        else if (kv.Value.TreeKey != null) referencedTreeKeys.Add(kv.Value.TreeKey);
                     }
+                    for (int i = 0; i < drop.Count; i++) {
+                        var j = coarseJobs[drop[i]];
+                        coarseJobs.Remove(drop[i]);
+                        if (coarseJobByCacheKey.TryGetValue(j.CacheKey, out int cid) && cid == j.Id) {
+                            coarseJobByCacheKey.Remove(j.CacheKey);
+                        }
+                    }
+                }
+                if (reverseTreeJobs.Count > 0) {
+                    var dropTrees = new List<string>();
+                    foreach (var kv in reverseTreeJobs) {
+                        if (!referencedTreeKeys.Contains(kv.Key)) dropTrees.Add(kv.Key);
+                    }
+                    for (int i = 0; i < dropTrees.Count; i++) reverseTreeJobs.Remove(dropTrees[i]);
                 }
             }
 
-            var budget = new WorkBudget { Pops = Options.MandatoryPopBudget, Scans = Options.MandatoryScanBudget };
+            var budget = new WorkBudget { Pops = popsRemaining, Scans = scansRemaining };
             bool progressed = true;
             while (progressed && budget.Pops > 0 && budget.Scans > 0) {
                 progressed = false;
@@ -1502,6 +1965,25 @@ namespace Metro.Sim {
                         if (budget.Pops != bp || budget.Scans != bs) progressed = true;
                     }
                 }
+                if (reverseTreeJobs.Count > 0 && budget.Pops > 0 && budget.Scans > 0) {
+                    var list = new List<ReverseCoarseTreeJob>();
+                    foreach (var kv in reverseTreeJobs) if (!kv.Value.Done) list.Add(kv.Value);
+                    list.Sort((a, b) => {
+                        int aa = tick - a.OldestTick >= StationSparsePolicy.AgePromoteTicks ? 0 : a.PriorityTier;
+                        int ba = tick - b.OldestTick >= StationSparsePolicy.AgePromoteTicks ? 0 : b.PriorityTier;
+                        int c = aa.CompareTo(ba);
+                        if (c != 0) return c;
+                        c = a.OldestTick.CompareTo(b.OldestTick);
+                        if (c != 0) return c;
+                        c = a.GoalRegionId.CompareTo(b.GoalRegionId);
+                        return c != 0 ? c : string.CompareOrdinal(a.Key, b.Key);
+                    });
+                    for (int i = 0; i < list.Count && budget.Pops > 0 && budget.Scans > 0; i++) {
+                        int bp = budget.Pops, bs = budget.Scans;
+                        StepReverseTreeJob(list[i], ref budget);
+                        if (budget.Pops != bp || budget.Scans != bs) progressed = true;
+                    }
+                }
                 if (coarseJobs.Count > 0 && budget.Pops > 0 && budget.Scans > 0) {
                     var list = new List<CoarseSearchJob>();
                     foreach (var kv in coarseJobs) if (kv.Value.Status == CoarseJobStatus.Running) list.Add(kv.Value);
@@ -1515,23 +1997,45 @@ namespace Metro.Sim {
                     });
                     for (int i = 0; i < list.Count && budget.Pops > 0 && budget.Scans > 0; i++) {
                         int bp = budget.Pops, bs = budget.Scans, bf = fieldJobs.Count;
+                        var prevStatus = list[i].Status;
                         StepCoarseJob(list[i], ref budget);
-                        if (budget.Pops != bp || budget.Scans != bs || fieldJobs.Count != bf) progressed = true;
+                        if (budget.Pops != bp || budget.Scans != bs || fieldJobs.Count != bf || list[i].Status != prevStatus) {
+                            progressed = true;
+                        }
                     }
                 }
             }
+
+            // Finalize any tree-backed coarse jobs whose shared reverse tree finished on the last pop/scan.
+            foreach (var kv in coarseJobs) {
+                var j = kv.Value;
+                if (j.Status == CoarseJobStatus.Running && j.TreeKey != null) {
+                    bool ready = reverseTreeCache.ContainsKey(j.TreeKey) ||
+                        (reverseTreeJobs.TryGetValue(j.TreeKey, out var tj) && tj.Done && tj.Result != null);
+                    if (ready) StepCoarseJob(j, ref budget);
+                }
+            }
+
+            popsRemaining = budget.Pops;
+            scansRemaining = budget.Scans;
         }
 
         public CoarseSearchJob GetCoarseJob(int id) => coarseJobs.TryGetValue(id, out var j) ? j : null;
 
         public void PruneCompletedCoarseJobs() {
-            if (coarseJobs.Count == 0) return;
-            var done = new List<int>();
-            foreach (var kv in coarseJobs) if (kv.Value.Status != CoarseJobStatus.Running) done.Add(kv.Key);
-            for (int i = 0; i < done.Count; i++) {
-                var j = coarseJobs[done[i]];
-                coarseJobs.Remove(done[i]);
-                if (coarseJobByCacheKey.TryGetValue(j.CacheKey, out int cid) && cid == j.Id) coarseJobByCacheKey.Remove(j.CacheKey);
+            if (coarseJobs.Count > 0) {
+                var done = new List<int>();
+                foreach (var kv in coarseJobs) if (kv.Value.Status != CoarseJobStatus.Running) done.Add(kv.Key);
+                for (int i = 0; i < done.Count; i++) {
+                    var j = coarseJobs[done[i]];
+                    coarseJobs.Remove(done[i]);
+                    if (coarseJobByCacheKey.TryGetValue(j.CacheKey, out int cid) && cid == j.Id) coarseJobByCacheKey.Remove(j.CacheKey);
+                }
+            }
+            if (reverseTreeJobs.Count > 0) {
+                var doneTrees = new List<string>();
+                foreach (var kv in reverseTreeJobs) if (kv.Value.Done) doneTrees.Add(kv.Key);
+                for (int i = 0; i < doneTrees.Count; i++) reverseTreeJobs.Remove(doneTrees[i]);
             }
         }
 

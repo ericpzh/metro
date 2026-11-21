@@ -369,7 +369,9 @@ demos; do not turn noisy timing into a unit-test threshold.
 Crowd distribution regressions belong in the focused deterministic suites:
 `sparse-routing.test.mjs` pins sparse policy math, soft tile claims,
 fence-split crossings, static region reachability and Tianhe Park Line 11/13
-Spanish-solution door clearance with zero fine-recovery stalls, blocked-walker
+Spanish-solution door clearance with immediate post-alighting departure (Line 11
+p90 ≤ 2 / max ≤ 3 ticks, Line 13 p90 ≤ 2 / max ≤ 4 ticks, cold `fieldBuilds < 1500`,
+and zero fine-recovery stalls), blocked-walker
 refill priority over crowded-tail trims, wide-hall spread vs legacy and narrow
 controls, two-connector balancing, remote-edit field/segment retention,
 Pause→Play and 60-tick sample refresh, tight work-cap determinism, and ≤ 15%

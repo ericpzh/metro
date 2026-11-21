@@ -56,29 +56,29 @@ Notes:
 - On the small 15k-node Zoo fixture, cold-start field builds plus 34,662 rolling local refills increase steady-state mean tick time (`4.90 → 7.18 ms`) while halving the max spike (`30.59 → 15.60 ms`), cutting expansions by 67.1% and raising exits (`15 → 20`).
 - On Tianhe Park, both engines stay well within the 16 MiB reverse-field LRU cap (~2.2–2.3 MiB) with 0.00% fine-graph fallback rate and >85% lower p95 tick latency.
 
-**Tianhe Park Line 13 cold-start arrivals (2026-11-20).** Open the shipped
-station at its default 06:30 clock and document seed. Step both sparse engines
-at one simulated second per tick. Compare the former mandatory limits
-(12,000 pops and 48,000 scans) with the new defaults (96,000 and 384,000).
-At 06:31:30 the former limits left 534 riders looking for a route by the
-Line 13 screen doors in both engines. The new limits left zero in Unity and
-six in the browser simulation. The budgets remain capped per tick, with a
-wall-clock cost when a large arrival wave uses the extra work.
+**Tianhe Park cold-start & peak-rush arrival latency (2026-11-21).** Replacing
+per-passenger forward crossing-node A* (and its thousands of singleton field
+builds) with shared region-level `ReverseCoarseTree` search per
+`(goalRegion, effNeeds)`, field-free region-level forward A* for
+`excludedServer >= 0` probes, fresh-snapshot arrival-wave sharing in
+`World.startLeg`, and a same-tick cold-field warmup pass in Unity
+`StepSparseRouting` eliminates post-alighting PSD waits across both engines:
 
-Run the movement checks from the repository root:
+- Web simulation (default 06:30 clock, 300 ticks, 1 sim-second/tick):
+  - Line 11 cold start (`t=0`) alighting-to-walk delay: `min/p50/p90/max` = `1/4/16/29` → **`0/1/1/1`** ticks; Line 11 warm (`t=200`): `1/3/4/5` → **`0/1/1/1`** ticks.
+  - Line 13 cold start (`t=0`): `1/3/5/7` → **`0/1/2/3`** ticks; Line 13 warm (`t=200`): `1/3/5/7` → **`0/1/1/2`** ticks; Line 21 (`t=0`): `1/1/1/2` → **`0/1/1/2`** ticks.
+  - Pending coarse backlog on arrival-wave ticks: `179–247` → **`0`**; cold-start field builds: `6,622` → **`841`** (−87.3%); field expansions: `1,283,985` → **`149,636`** (−88.3%); field cache: `5.62 MiB` → **`0.56 MiB`**; `fineExpansions = 0`.
+- Unity EditMode 180-tick morning-peak rush (`tianhe.metro.json`, `startSimTime = 28800`, seed 42, raw capture `.preview/crowd-routing/unity-tianhe-sparse-vs-legacy.json`):
+  - Sparse vs Legacy: `totalMs` **`5,138.59`** vs `13,269.20` (−61.3%), `p95Ms` **`51.49`** vs `269.13` (−80.9%), `maxMs` **`129.03`** vs `500.75` (−74.2%), total expansions **`1,828,781`** vs `28,248,342` (−93.5%), `fineFallbacks = 0 / 3,018` (0.00%), `fieldCacheBytes = 421,492` (**0.40 MiB**). These are simulation timings in Editor EditMode, separate from presented-frame latency.
+
+Run the movement and latency checks from the repository root:
 
 ```powershell
-node --test --test-name-pattern "Tianhe Park Line 13" game/test/sparse-routing.test.mjs
-./unity/scripts/metro-editor.ps1 test -TestFilter StationSparseRoutingTests.TianheLine13AlightersWalkAwayFromScreenDoorsAfterColdStart
+node --test --test-name-pattern "Tianhe Park Line 11" game/test/sparse-routing.test.mjs
+powershell -NoProfile -ExecutionPolicy Bypass -File unity/scripts/metro-editor.ps1 test -Mode EditMode -TestFilter StationSparseRoutingTests
 ```
 
-The checks track riders by identity and require at least 490 in the browser
-simulation and 500 in Unity to walk one metre after alighting by 06:31:30.
-The older timing table above uses the former limits. With the new limits,
-the Unity 180-tick peak-rush EditMode comparison measured 130.22 ms sparse p95
-versus 249.95 ms legacy p95, with 4.60 million versus 28.25 million expansions
-and zero sparse fine fallbacks. These are simulation timings in Editor
-EditMode, separate from presented-frame latency.
+The cold-start checks track riders by identity and enforce immediate post-alighting departure (Line 11 p90 ≤ 2 / max ≤ 3 ticks, Line 13 p90 ≤ 2 / max ≤ 4 ticks), `fieldBuilds < 1500`, and zero fine-recovery fallbacks in both engines.
 
 ### Unity FOV slider drag feedback
 

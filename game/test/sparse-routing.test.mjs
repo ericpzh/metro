@@ -57,33 +57,52 @@ test('Tianhe Park Line 11 and Line 13 alighters walk away from the screen doors 
   const walkedFromDoor = new Set()
   const line11Landing = new Map()
   const line11Walked = new Set()
+  const line11Delay = new Map()
+  const line13Delay = new Map()
   for (let tick = 0; tick < 90; tick++) {
     world.tickOnce()
     for (const passenger of world.pool.live) {
       if (passenger.dead || passenger.train >= 0) continue
+      const moving = passenger.state === 1 && passenger.path.length > passenger.pathIdx
       if (passenger.trip.origin === 'train:13') {
         const landing = landingPositions.get(passenger.id)
         if (!landing) {
-          landingPositions.set(passenger.id, { x: passenger.x, y: passenger.y, z: passenger.z })
-        } else if (Math.hypot(passenger.x - landing.x, passenger.y - landing.y, passenger.z - landing.z) >= 1) {
-          walkedFromDoor.add(passenger.id)
+          landingPositions.set(passenger.id, { x: passenger.x, y: passenger.y, z: passenger.z, tick })
+          if (moving) line13Delay.set(passenger.id, 0)
+        } else {
+          if (moving && !line13Delay.has(passenger.id)) line13Delay.set(passenger.id, tick - landing.tick)
+          if (Math.hypot(passenger.x - landing.x, passenger.y - landing.y, passenger.z - landing.z) >= 1) {
+            walkedFromDoor.add(passenger.id)
+          }
         }
       } else if (passenger.trip.origin === 'train:11') {
         const landing = line11Landing.get(passenger.id)
         if (!landing) {
-          line11Landing.set(passenger.id, { x: passenger.x, y: passenger.y, z: passenger.z })
-        } else if (Math.hypot(passenger.x - landing.x, passenger.y - landing.y, passenger.z - landing.z) >= 1) {
-          line11Walked.add(passenger.id)
+          line11Landing.set(passenger.id, { x: passenger.x, y: passenger.y, z: passenger.z, tick })
+          if (moving) line11Delay.set(passenger.id, 0)
+        } else {
+          if (moving && !line11Delay.has(passenger.id)) line11Delay.set(passenger.id, tick - landing.tick)
+          if (Math.hypot(passenger.x - landing.x, passenger.y - landing.y, passenger.z - landing.z) >= 1) {
+            line11Walked.add(passenger.id)
+          }
         }
       }
     }
   }
 
   const endStats = world.routingStats()
+  const sorted11 = [...line11Delay.values()].sort((a, b) => a - b)
+  const sorted13 = [...line13Delay.values()].sort((a, b) => a - b)
+  const p90 = (arr) => arr[Math.min(arr.length - 1, Math.floor(arr.length * 0.9))]
+  const maxOf = (arr) => arr[arr.length - 1]
+
   assert.ok(landingPositions.size >= 500, 'both Line 13 directions discharged their arrival waves')
   assert.ok(walkedFromDoor.size >= 490, `only ${walkedFromDoor.size} Line 13 riders moved a metre beyond their landing position`)
   assert.ok(line11Landing.size >= 400, 'both Line 11 directions discharged their arrival waves')
   assert.ok(line11Walked.size >= line11Landing.size - 15, `only ${line11Walked.size}/${line11Landing.size} Line 11 riders walked away from their doors`)
+  assert.ok(p90(sorted11) <= 2 && maxOf(sorted11) <= 3, `Line 11 cold-start alighting-to-walk delay regressed: p90=${p90(sorted11)} max=${maxOf(sorted11)}`)
+  assert.ok(p90(sorted13) <= 2 && maxOf(sorted13) <= 4, `Line 13 cold-start alighting-to-walk delay regressed: p90=${p90(sorted13)} max=${maxOf(sorted13)}`)
+  assert.ok(endStats.fieldBuilds < 1500, `coarse search must not trigger thousands of cold field builds (got ${endStats.fieldBuilds})`)
   assert.equal(endStats.fineExpansions, 0, 'unreachable targets never trigger futile fine-graph recovery expansions')
   assert.equal(endStats.pendingFineJobs, 0, 'no fine-graph recovery backlog left at 06:31:30')
 })

@@ -297,6 +297,50 @@ interface CachedSuffix {
   readonly remainingCostMs: number
 }
 
+interface CachedRegionSuffix {
+  readonly steps: CoarseStep[]
+  readonly walkPrefixMs: number[]
+  readonly costToEntryMs: number
+  readonly entryNode: number
+}
+
+interface ReverseCoarseTree {
+  readonly key: string
+  readonly topologyRevision: number
+  readonly snapshotId: number
+  readonly goalRegionId: number
+  readonly effNeeds: string
+  readonly distMs: Int32Array
+  /** 0 = goal/none, 1 = crossing, 2 = explicit arc. */
+  readonly nextKind: Uint8Array
+  readonly nextId: Int32Array
+  readonly nextStepCostMs: Int32Array
+}
+
+interface ReverseCoarseTreeJob {
+  readonly key: string
+  readonly topologyRevision: number
+  readonly snapshot: CostSnapshot
+  readonly goalRegionId: number
+  readonly needs: Needs
+  readonly effNeeds: string
+  readonly distMs: Int32Array
+  readonly nextKind: Uint8Array
+  readonly nextId: Int32Array
+  readonly nextStepCostMs: Int32Array
+  readonly heap: DeterministicMinHeap
+  initialized: boolean
+  expandingReg: number
+  expandingDist: number
+  /** 0 = incoming crossings, 1 = incoming explicit arcs. */
+  cursorStage: number
+  cursorIdx: number
+  priorityTier: number
+  oldestTick: number
+  done: boolean
+  result: ReverseCoarseTree | null
+}
+
 interface CoarseSearchJob {
   readonly id: number
   readonly cacheKey: string
@@ -310,6 +354,8 @@ interface CoarseSearchJob {
   readonly needs: Needs
   readonly needsClass: string
   readonly excludedServer: number
+  /** Non-null when this job is backed by a shared `ReverseCoarseTreeJob` for `goalRegion`. */
+  readonly treeKey: string | null
   readonly heap: DeterministicMinHeap
   readonly bestCost: Map<number, number>
   readonly parent: Map<number, CoarseParent>
@@ -387,12 +433,15 @@ export class SparseRouter {
   private fieldCacheBytes = 0
   private fieldJobs = new Map<string, FieldJob>()
 
-  // Coarse search jobs + single-snapshot completed result & exact continuation suffix cache
+  // Coarse search jobs + single-snapshot completed result, reverse region trees & suffix caches
   private nextCoarseId = 1
   private coarseJobs = new Map<number, CoarseSearchJob>()
   private coarseJobByCacheKey = new Map<string, number>()
   private coarseResultCache = new Map<string, CoarseItinerary | null>()
   private coarseSuffixCache = new Map<string, CachedSuffix>()
+  private coarseRegionSuffixCache = new Map<string, CachedRegionSuffix>()
+  private reverseTreeCache = new Map<string, ReverseCoarseTree>()
+  private reverseTreeJobs = new Map<string, ReverseCoarseTreeJob>()
   private coarseCacheSnapshotId = -1
   private costSnapshotSeq = 0
   private currentSnapshot: CostSnapshot | null = null
@@ -465,6 +514,9 @@ export class SparseRouter {
     this.coarseJobByCacheKey.clear()
     this.coarseResultCache.clear()
     this.coarseSuffixCache.clear()
+    this.coarseRegionSuffixCache.clear()
+    this.reverseTreeCache.clear()
+    this.reverseTreeJobs.clear()
     this.fineJobs.clear()
     this.sampleRefreshQueue.length = 0
     this.sampleQueuedKeys.clear()
@@ -486,6 +538,9 @@ export class SparseRouter {
     this.coarseJobByCacheKey.clear()
     this.coarseResultCache.clear()
     this.coarseSuffixCache.clear()
+    this.coarseRegionSuffixCache.clear()
+    this.reverseTreeCache.clear()
+    this.reverseTreeJobs.clear()
     this.fineJobs.clear()
     this.currentSnapshot = null
     this.elapsedTicks = 0
@@ -528,6 +583,9 @@ export class SparseRouter {
       this.fineJobs.clear()
       this.coarseResultCache.clear()
       this.coarseSuffixCache.clear()
+      this.coarseRegionSuffixCache.clear()
+      this.reverseTreeCache.clear()
+      this.reverseTreeJobs.clear()
       this.currentSnapshot = null
       return diff
     }
@@ -556,6 +614,9 @@ export class SparseRouter {
     this.coarseJobByCacheKey.clear()
     this.coarseResultCache.clear()
     this.coarseSuffixCache.clear()
+    this.coarseRegionSuffixCache.clear()
+    this.reverseTreeCache.clear()
+    this.reverseTreeJobs.clear()
     this.fineJobs.clear()
     this.currentSnapshot = null
 
@@ -687,6 +748,8 @@ export class SparseRouter {
     if (this.coarseCacheSnapshotId !== snap.id) {
       this.coarseResultCache.clear()
       this.coarseSuffixCache.clear()
+      this.coarseRegionSuffixCache.clear()
+      this.reverseTreeCache.clear()
       this.coarseCacheSnapshotId = snap.id
     }
     return snap
@@ -953,6 +1016,454 @@ export class SparseRouter {
 
   /* --------------------------------------------------- Coarse Sparse Search */
 
+  private effNeedsCode(n: Needs): string {
+    if (n.stepFree) return 'S'
+    return this.topology.hasLifts && n.luggage ? 'L' : 'N'
+  }
+
+  private getOrEnqueueReverseTree(
+    goalRegionId: number,
+    needs: Needs,
+    snapshot: CostSnapshot,
+    priorityTier: number,
+    tick: number,
+  ): { tree?: ReverseCoarseTree; jobKey: string } {
+    const eff = this.effNeedsCode(needs)
+    const key = `${snapshot.topologyRevision}|${snapshot.id}|${goalRegionId}|${eff}`
+    const hit = this.reverseTreeCache.get(key)
+    if (hit) return { tree: hit, jobKey: key }
+    const existing = this.reverseTreeJobs.get(key)
+    if (existing) {
+      if (priorityTier < existing.priorityTier) existing.priorityTier = priorityTier
+      if (tick < existing.oldestTick) existing.oldestTick = tick
+      return { jobKey: key }
+    }
+    const rCount = this.topology.regions.length
+    const distMs = new Int32Array(rCount)
+    distMs.fill(INF_MS)
+    const nextKind = new Uint8Array(rCount)
+    const nextId = new Int32Array(rCount)
+    nextId.fill(-1)
+    const nextStepCostMs = new Int32Array(rCount)
+    const job: ReverseCoarseTreeJob = {
+      key,
+      topologyRevision: snapshot.topologyRevision,
+      snapshot,
+      goalRegionId,
+      needs: { stepFree: needs.stepFree, luggage: needs.luggage },
+      effNeeds: eff,
+      distMs,
+      nextKind,
+      nextId,
+      nextStepCostMs,
+      heap: new DeterministicMinHeap(Math.min(256, Math.max(32, rCount))),
+      initialized: false,
+      expandingReg: -1,
+      expandingDist: 0,
+      cursorStage: 0,
+      cursorIdx: 0,
+      priorityTier,
+      oldestTick: tick,
+      done: false,
+      result: null,
+    }
+    this.reverseTreeJobs.set(key, job)
+    return { jobKey: key }
+  }
+
+  /** Step a resumable region-level reverse Dijkstra tree job within `budget`. */
+  private stepReverseTreeJob(job: ReverseCoarseTreeJob, budget: WorkBudget): boolean {
+    if (job.done) return true
+    const topo = this.topology
+    if (job.topologyRevision !== topo.topologyRevision) {
+      job.done = true
+      this.reverseTreeJobs.delete(job.key)
+      return true
+    }
+
+    if (!job.initialized) {
+      job.initialized = true
+      const goalReg = topo.regions[job.goalRegionId]
+      if (goalReg) {
+        job.distMs[job.goalRegionId] = 0
+        job.heap.push(job.goalRegionId, 0, goalReg.regionKey, 0)
+      }
+    }
+
+    const regions = topo.regions
+    const regionCrowdMs = job.snapshot.regionCrowdMs
+
+    while (job.expandingReg >= 0 || job.heap.size > 0) {
+      if (job.expandingReg < 0) {
+        if (budget.pops <= 0) return false
+        const { id: curReg, cost: curDist } = job.heap.pop()
+        budget.pops--
+        this.statsCoarseExpansions++
+        if (curDist !== job.distMs[curReg]) continue
+        job.expandingReg = curReg
+        job.expandingDist = curDist
+        job.cursorStage = 0
+        job.cursorIdx = 0
+      }
+
+      const curReg = job.expandingReg
+      const region = regions[curReg]
+      const curCrowd = curReg < regionCrowdMs.length ? regionCrowdMs[curReg] : 0
+
+      // Stage 0: incoming plain boundary crossings into `curReg`.
+      if (job.cursorStage === 0) {
+        const inCross = region.inCrossings
+        while (job.cursorIdx < inCross.length) {
+          if (budget.scans <= 0) return false
+          const c = inCross[job.cursorIdx++]
+          budget.scans--
+          this.statsCoarseEdgeScans++
+          const fromReg = c.fromRegion
+          if (fromReg === curReg) continue
+          const stepCost = c.repCostMs + curCrowd
+          const edgeCost = Math.max(1, c.regionWalkMs + curCrowd)
+          const nd = job.expandingDist + edgeCost
+          if (nd < job.distMs[fromReg]) {
+            job.distMs[fromReg] = nd
+            job.nextKind[fromReg] = 1
+            job.nextId[fromReg] = c.id
+            job.nextStepCostMs[fromReg] = stepCost
+            job.heap.push(fromReg, nd, regions[fromReg].regionKey, nd)
+          }
+        }
+        job.cursorStage = 1
+        job.cursorIdx = 0
+      }
+
+      // Stage 1: incoming explicit directed/service arcs into `curReg`.
+      if (job.cursorStage === 1) {
+        const inArcs = region.inExplicitArcs
+        while (job.cursorIdx < inArcs.length) {
+          if (budget.scans <= 0) return false
+          const arc = inArcs[job.cursorIdx++]
+          budget.scans--
+          this.statsCoarseEdgeScans++
+          const fromReg = arc.fromRegion
+          if (fromReg === curReg) continue
+          const arcCost = this.explicitArcCostMs(arc, job.needs, job.snapshot, -1)
+          if (arcCost >= INF_MS) continue
+          const edgeCost = Math.max(1, arc.fromHalfWalkMs + arcCost + arc.toHalfWalkMs)
+          const nd = job.expandingDist + edgeCost
+          if (nd < job.distMs[fromReg]) {
+            job.distMs[fromReg] = nd
+            job.nextKind[fromReg] = 2
+            job.nextId[fromReg] = arc.id
+            job.nextStepCostMs[fromReg] = arcCost
+            job.heap.push(fromReg, nd, regions[fromReg].regionKey, nd)
+          }
+        }
+      }
+
+      job.expandingReg = -1
+    }
+
+    job.done = true
+    const tree: ReverseCoarseTree = {
+      key: job.key,
+      topologyRevision: job.topologyRevision,
+      snapshotId: job.snapshot.id,
+      goalRegionId: job.goalRegionId,
+      effNeeds: job.effNeeds,
+      distMs: job.distMs,
+      nextKind: job.nextKind,
+      nextId: job.nextId,
+      nextStepCostMs: job.nextStepCostMs,
+    }
+    job.result = tree
+    if (this.coarseCacheSnapshotId === job.snapshot.id) {
+      this.reverseTreeCache.set(job.key, tree)
+    }
+    return true
+  }
+
+  /** Build a `CoarseItinerary` for `(startNode -> goalNode)` in O(path length) from a solved `ReverseCoarseTree`. */
+  private extractItineraryFromTree(
+    tree: ReverseCoarseTree,
+    startNode: number,
+    goalNode: number,
+    needs: Needs,
+    snap: CostSnapshot,
+  ): CoarseItinerary | null {
+    const topo = this.topology
+    const startReg = topo.nodeRegion[startNode]
+    const goalReg = topo.nodeRegion[goalNode]
+    if (startReg < 0 || goalReg < 0 || goalReg !== tree.goalRegionId) return null
+
+    const nc = needsCode(needs)
+    const startKey = topo.nodeTileKey[startNode]
+    const goalKey = topo.nodeTileKey[goalNode]
+    const regions = topo.regions
+
+    if (startReg === goalReg) {
+      const d = Math.round(
+        Math.hypot(topo.nodeTx[startNode] - topo.nodeTx[goalNode], topo.nodeTy[startNode] - topo.nodeTy[goalNode]) *
+          regions[startReg].walkMsPerM,
+      )
+      return {
+        topologyRevision: tree.topologyRevision,
+        costSnapshotId: tree.snapshotId,
+        startKey,
+        goalKey,
+        needsClass: nc,
+        steps: [],
+        totalCostMs: d,
+        nextGateServer: -1,
+        nextGateDir: 0,
+        nextGateDistMs: INF_MS,
+        nextServiceServer: -1,
+        nextServiceKind: '',
+      }
+    }
+
+    if (tree.distMs[startReg] >= INF_MS) return null
+
+    // Pick the best first step out of `startReg` using actual distance from `startNode`
+    // (and actual distance to `goalNode` when adjacent to `goalReg`, preserving split-seam choice).
+    const sRegion = regions[startReg]
+    const gRegion = regions[goalReg]
+    const sx = topo.nodeTx[startNode]
+    const sy = topo.nodeTy[startNode]
+    const gx = topo.nodeTx[goalNode]
+    const gy = topo.nodeTy[goalNode]
+    const regionCrowdMs = snap.regionCrowdMs
+
+    let bestKind = 0
+    let bestId = -1
+    let bestFirstWalk = 0
+    let bestStepCost = 0
+    let bestTotal = INF_MS
+    let bestTie = Infinity
+
+    for (let i = 0; i < sRegion.crossings.length; i++) {
+      const c = sRegion.crossings[i]
+      const toReg = c.toRegion
+      const rem = tree.distMs[toReg]
+      if (rem >= INF_MS) continue
+      const firstWalk = Math.round(Math.hypot(sx - topo.nodeTx[c.repFromNode], sy - topo.nodeTy[c.repFromNode]) * sRegion.walkMsPerM)
+      const crowd = toReg < regionCrowdMs.length ? regionCrowdMs[toReg] : 0
+      const stepCost = c.repCostMs + crowd
+      const afterMs = toReg === goalReg
+        ? Math.round(Math.hypot(topo.nodeTx[c.repToNode] - gx, topo.nodeTy[c.repToNode] - gy) * gRegion.walkMsPerM)
+        : c.toHalfWalkMs + rem
+      const total = firstWalk + stepCost + afterMs
+      if (total < bestTotal || (total === bestTotal && c.repToKey < bestTie)) {
+        bestTotal = total
+        bestTie = c.repToKey
+        bestKind = 1
+        bestId = c.id
+        bestFirstWalk = firstWalk
+        bestStepCost = stepCost
+      }
+    }
+    for (let i = 0; i < sRegion.explicitArcs.length; i++) {
+      const arc = sRegion.explicitArcs[i]
+      const toReg = arc.toRegion
+      if (toReg === startReg) continue
+      const rem = tree.distMs[toReg]
+      if (rem >= INF_MS) continue
+      const arcCost = this.explicitArcCostMs(arc, needs, snap, -1)
+      if (arcCost >= INF_MS) continue
+      const firstWalk = Math.round(Math.hypot(sx - topo.nodeTx[arc.fromNode], sy - topo.nodeTy[arc.fromNode]) * sRegion.walkMsPerM)
+      const afterMs = toReg === goalReg
+        ? Math.round(Math.hypot(topo.nodeTx[arc.toNode] - gx, topo.nodeTy[arc.toNode] - gy) * gRegion.walkMsPerM)
+        : arc.toHalfWalkMs + rem
+      const total = firstWalk + arcCost + afterMs
+      if (total < bestTotal || (total === bestTotal && arc.toKey < bestTie)) {
+        bestTotal = total
+        bestTie = arc.toKey
+        bestKind = 2
+        bestId = arc.id
+        bestFirstWalk = firstWalk
+        bestStepCost = arcCost
+      }
+    }
+
+    if (bestKind === 0 || bestId < 0) return null
+
+    const steps: CoarseStep[] = []
+    const walkPrefixMs: number[] = []
+    const visited = new Set<number>()
+    visited.add(startReg)
+
+    const pushStep = (kind: number, id: number, walkMs: number, stepCost: number): number => {
+      if (kind === 1) {
+        const c = topo.crossings[id]
+        steps.push({
+          kind: 'crossing',
+          crossingId: c.id,
+          arcId: -1,
+          fromKey: c.repFromKey,
+          toKey: c.repToKey,
+          fromRegionKey: c.fromRegionKey,
+          toRegionKey: c.toRegionKey,
+          edgeKind: EDGE_KIND.walk,
+          server: -1,
+          toNodeServer: -1,
+          gateDir: 0,
+          costMs: stepCost,
+        })
+        walkPrefixMs.push(walkMs)
+        return c.toRegion
+      }
+      const arc = topo.explicitArcs[id]
+      steps.push({
+        kind: 'explicit',
+        crossingId: -1,
+        arcId: arc.id,
+        fromKey: arc.fromKey,
+        toKey: arc.toKey,
+        fromRegionKey: regions[arc.fromRegion].regionKey,
+        toRegionKey: regions[arc.toRegion].regionKey,
+        edgeKind: arc.kind,
+        server: arc.server,
+        toNodeServer: arc.toNodeServer,
+        gateDir: arc.gateDir,
+        costMs: stepCost,
+      })
+      walkPrefixMs.push(walkMs)
+      return arc.toRegion
+    }
+
+    let prevNode = bestKind === 1 ? topo.crossings[bestId].repToNode : topo.explicitArcs[bestId].toNode
+    let curReg = pushStep(bestKind, bestId, bestFirstWalk, bestStepCost)
+    let totalCostMs = bestFirstWalk + bestStepCost
+
+    while (curReg !== goalReg) {
+      if (visited.has(curReg)) return null
+      visited.add(curReg)
+      const nk = tree.nextKind[curReg]
+      const nid = tree.nextId[curReg]
+      if (nk === 0 || nid < 0) return null
+      const nextFrom = nk === 1 ? topo.crossings[nid].repFromNode : topo.explicitArcs[nid].fromNode
+      const nextTo = nk === 1 ? topo.crossings[nid].repToNode : topo.explicitArcs[nid].toNode
+      const walkMs = Math.round(
+        Math.hypot(topo.nodeTx[prevNode] - topo.nodeTx[nextFrom], topo.nodeTy[prevNode] - topo.nodeTy[nextFrom]) *
+          regions[curReg].walkMsPerM,
+      )
+      const sc = tree.nextStepCostMs[curReg]
+      curReg = pushStep(nk, nid, walkMs, sc)
+      totalCostMs += walkMs + sc
+      prevNode = nextTo
+    }
+
+    totalCostMs += Math.round(
+      Math.hypot(topo.nodeTx[prevNode] - gx, topo.nodeTy[prevNode] - gy) * gRegion.walkMsPerM,
+    )
+
+    // Extract upcoming gate / service metadata for forecasts beyond 16 steps.
+    let nextGateServer = -1
+    let nextGateDir: GateDir = 0
+    let nextGateDistMs = INF_MS
+    let nextServiceServer = -1
+    let nextServiceKind = ''
+    let accumMs = 0
+    const g = topo.graph
+    for (let i = 0; i < steps.length; i++) {
+      const st = steps[i]
+      accumMs += walkPrefixMs[i]
+      if (st.kind === 'explicit') {
+        if (nextGateServer < 0 && st.toNodeServer >= 0 && g.servers[st.toNodeServer]?.kind === 'gate') {
+          nextGateServer = st.toNodeServer
+          nextGateDir = st.gateDir
+          nextGateDistMs = accumMs
+        }
+        if (nextServiceServer < 0) {
+          if (st.server >= 0) {
+            nextServiceServer = st.server
+            nextServiceKind = g.servers[st.server]?.kind ?? ''
+          } else if (st.toNodeServer >= 0) {
+            nextServiceServer = st.toNodeServer
+            nextServiceKind = g.servers[st.toNodeServer]?.kind ?? ''
+          }
+        }
+      }
+      accumMs += st.costMs
+    }
+
+    return {
+      topologyRevision: tree.topologyRevision,
+      costSnapshotId: tree.snapshotId,
+      startKey,
+      goalKey,
+      needsClass: nc,
+      steps,
+      totalCostMs,
+      nextGateServer,
+      nextGateDir,
+      nextGateDistMs,
+      nextServiceServer,
+      nextServiceKind,
+    }
+  }
+
+  /** Return a warm cached coarse itinerary under the active snapshot without creating a pending job. */
+  tryCachedCoarseSearch(
+    startNode: number,
+    goalNode: number,
+    needs: Needs,
+    excludedServer = -1,
+  ): CoarseItinerary | null | undefined {
+    const topo = this.topology
+    if (startNode < 0 || goalNode < 0 || startNode >= topo.graph.nodeCount || goalNode >= topo.graph.nodeCount) {
+      return null
+    }
+    const snapshot = this.currentSnapshot
+    if (!snapshot) return undefined
+    if (excludedServer < 0 && !topo.canReach(startNode, goalNode, needs.stepFree)) {
+      return null
+    }
+    const nc = needsCode(needs)
+    const cacheKey = `${snapshot.topologyRevision}|${snapshot.id}|${startNode}|${goalNode}|${nc}|${excludedServer}`
+    if (this.coarseResultCache.has(cacheKey)) {
+      this.statsCoarseQueries++
+      this.statsCoarseCacheHits++
+      return this.coarseResultCache.get(cacheKey)!
+    }
+    if (excludedServer < 0) {
+      const startReg = topo.nodeRegion[startNode]
+      const goalReg = topo.nodeRegion[goalNode]
+      if (startReg >= 0 && startReg === goalReg) {
+        const d = Math.round(
+          Math.hypot(topo.nodeTx[startNode] - topo.nodeTx[goalNode], topo.nodeTy[startNode] - topo.nodeTy[goalNode]) *
+            topo.regions[startReg].walkMsPerM,
+        )
+        const itin: CoarseItinerary = {
+          topologyRevision: snapshot.topologyRevision,
+          costSnapshotId: snapshot.id,
+          startKey: topo.nodeTileKey[startNode],
+          goalKey: topo.nodeTileKey[goalNode],
+          needsClass: nc,
+          steps: [],
+          totalCostMs: d,
+          nextGateServer: -1,
+          nextGateDir: 0,
+          nextGateDistMs: INF_MS,
+          nextServiceServer: -1,
+          nextServiceKind: '',
+        }
+        this.statsCoarseQueries++
+        this.statsCoarseCacheHits++
+        this.coarseResultCache.set(cacheKey, itin)
+        return itin
+      }
+      const treeKey = `${snapshot.topologyRevision}|${snapshot.id}|${goalReg}|${this.effNeedsCode(needs)}`
+      const tree = this.reverseTreeCache.get(treeKey)
+      if (tree) {
+        this.statsCoarseQueries++
+        this.statsCoarseCacheHits++
+        const itin = this.extractItineraryFromTree(tree, startNode, goalNode, needs, snapshot)
+        this.coarseResultCache.set(cacheKey, itin)
+        return itin
+      }
+    }
+    return undefined
+  }
+
   startCoarseSearch(
     startNode: number,
     goalNode: number,
@@ -981,6 +1492,111 @@ export class SparseRouter {
       return cached ? { status: 'ready', itinerary: cached } : { status: 'no_path', itinerary: null }
     }
 
+    // Fast path for normal queries (excludedServer < 0): share one reverse region-graph tree per (goalRegion, effNeeds).
+    if (excludedServer < 0) {
+      const startReg = topo.nodeRegion[startNode]
+      const goalReg = topo.nodeRegion[goalNode]
+      if (startReg >= 0 && startReg === goalReg) {
+        const d = Math.round(
+          Math.hypot(topo.nodeTx[startNode] - topo.nodeTx[goalNode], topo.nodeTy[startNode] - topo.nodeTy[goalNode]) *
+            topo.regions[startReg].walkMsPerM,
+        )
+        const itin: CoarseItinerary = {
+          topologyRevision: snapshot.topologyRevision,
+          costSnapshotId: snapshot.id,
+          startKey: topo.nodeTileKey[startNode],
+          goalKey: topo.nodeTileKey[goalNode],
+          needsClass: nc,
+          steps: [],
+          totalCostMs: d,
+          nextGateServer: -1,
+          nextGateDir: 0,
+          nextGateDistMs: INF_MS,
+          nextServiceServer: -1,
+          nextServiceKind: '',
+        }
+        this.coarseResultCache.set(cacheKey, itin)
+        return { status: 'ready', itinerary: itin }
+      }
+      const { tree, jobKey } = this.getOrEnqueueReverseTree(goalReg, needs, snapshot, priorityTier, tick)
+      if (tree) {
+        this.statsCoarseCacheHits++
+        const itin = this.extractItineraryFromTree(tree, startNode, goalNode, needs, snapshot)
+        this.coarseResultCache.set(cacheKey, itin)
+        return itin ? { status: 'ready', itinerary: itin } : { status: 'no_path', itinerary: null }
+      }
+      const existingId = this.coarseJobByCacheKey.get(cacheKey)
+      if (existingId !== undefined) {
+        const existing = this.coarseJobs.get(existingId)
+        if (existing) {
+          if (priorityTier < existing.priorityTier) existing.priorityTier = priorityTier
+          if (tick < existing.enqueuedTick) existing.enqueuedTick = tick
+          if (existing.status === 'ready') return { status: 'ready', itinerary: existing.result }
+          if (existing.status === 'failed') return { status: 'no_path', itinerary: null }
+          return { status: 'pending', jobId: existingId }
+        }
+      }
+      const id = this.nextCoarseId++
+      const job: CoarseSearchJob = {
+        id,
+        cacheKey,
+        sessionId: this.sessionId,
+        topologyRevision: topo.topologyRevision,
+        snapshot,
+        startNode,
+        goalNode,
+        startKey: topo.nodeTileKey[startNode],
+        goalKey: topo.nodeTileKey[goalNode],
+        needs: { stepFree: needs.stepFree, luggage: needs.luggage },
+        needsClass: nc,
+        excludedServer: -1,
+        treeKey: jobKey,
+        heap: new DeterministicMinHeap(1),
+        bestCost: new Map(),
+        parent: new Map(),
+        expandingPoint: -1,
+        expandingCost: 0,
+        expandingRegionId: -1,
+        cursorStage: 0,
+        cursorIdx: 0,
+        waitingFieldKey: null,
+        enqueuedTick: tick,
+        priorityTier,
+        status: 'running',
+        result: null,
+        failReason: '',
+      }
+      this.coarseJobs.set(id, job)
+      this.coarseJobByCacheKey.set(cacheKey, id)
+      return { status: 'pending', jobId: id }
+    }
+
+    const startReg = topo.nodeRegion[startNode]
+    const goalReg = topo.nodeRegion[goalNode]
+    if (startReg < 0 || goalReg < 0) return { status: 'no_path', itinerary: null }
+    if (startReg === goalReg) {
+      const d = Math.round(
+        Math.hypot(topo.nodeTx[startNode] - topo.nodeTx[goalNode], topo.nodeTy[startNode] - topo.nodeTy[goalNode]) *
+          topo.regions[startReg].walkMsPerM,
+      )
+      const itin: CoarseItinerary = {
+        topologyRevision: snapshot.topologyRevision,
+        costSnapshotId: snapshot.id,
+        startKey: topo.nodeTileKey[startNode],
+        goalKey: topo.nodeTileKey[goalNode],
+        needsClass: nc,
+        steps: [],
+        totalCostMs: d,
+        nextGateServer: -1,
+        nextGateDir: 0,
+        nextGateDistMs: INF_MS,
+        nextServiceServer: -1,
+        nextServiceKind: '',
+      }
+      this.coarseResultCache.set(cacheKey, itin)
+      return { status: 'ready', itinerary: itin }
+    }
+
     const existingId = this.coarseJobByCacheKey.get(cacheKey)
     if (existingId !== undefined) {
       const existing = this.coarseJobs.get(existingId)
@@ -997,8 +1613,8 @@ export class SparseRouter {
     const heap = new DeterministicMinHeap(64)
     const bestCost = new Map<number, number>()
     const parent = new Map<number, CoarseParent>()
-    bestCost.set(startNode, 0)
-    heap.push(startNode, this.coarseHeuristicMs(startNode, goalNode), topo.nodeTileKey[startNode], 0)
+    bestCost.set(startReg, 0)
+    heap.push(startReg, this.regionHeuristicMs(startReg, goalReg), topo.regions[startReg].regionKey, 0)
 
     const job: CoarseSearchJob = {
       id,
@@ -1013,6 +1629,7 @@ export class SparseRouter {
       needs: { stepFree: needs.stepFree, luggage: needs.luggage },
       needsClass: nc,
       excludedServer,
+      treeKey: null,
       heap,
       bestCost,
       parent,
@@ -1061,6 +1678,10 @@ export class SparseRouter {
       if (this.coarseJobByCacheKey.get(job.cacheKey) === job.id) {
         this.coarseJobByCacheKey.delete(job.cacheKey)
       }
+      if (job.treeKey !== null) {
+        const tj = this.reverseTreeJobs.get(job.treeKey)
+        if (tj?.done) this.reverseTreeJobs.delete(job.treeKey)
+      }
     }
     return job
   }
@@ -1090,11 +1711,6 @@ export class SparseRouter {
     return cost
   }
 
-  /**
-   * 100% admissible horizontal Euclidean lower bound in integer milliseconds.
-   * Uses 2.0 m/s (500 ms/m), strictly faster than maximum floor speed (~1.474 m/s)
-   * and moving walkways (1.84 m/s); vertical lift hops have dx=dy=0 so h=0.
-   */
   private coarseHeuristicMs(node: number, goalNode: number): number {
     const topo = this.topology
     const dx = topo.nodeTx[node] - topo.nodeTx[goalNode]
@@ -1102,7 +1718,19 @@ export class SparseRouter {
     return Math.floor(Math.hypot(dx, dy) * 500)
   }
 
-  /** Step a resumable coarse sparse A* job (admissible horizontal h, heap ordered by [fMs, tileKey]) (§4.2). */
+  /**
+   * 100% admissible horizontal Euclidean lower bound in integer milliseconds between region centroids.
+   * Uses 2.0 m/s (500 ms/m), strictly faster than maximum floor speed (~1.474 m/s)
+   * and moving walkways (1.84 m/s); vertical lift hops have dx=dy=0 so h=0.
+   */
+  private regionHeuristicMs(regId: number, goalRegId: number): number {
+    const regions = this.topology.regions
+    const r = regions[regId]
+    const g = regions[goalRegId]
+    return Math.floor(Math.hypot(r.centerX - g.centerX, r.centerY - g.centerY) * 500)
+  }
+
+  /** Step a resumable coarse search job (reverse region-tree for normal queries, region-level A* for excludedServer probes). */
   private stepCoarseJob(job: CoarseSearchJob, budget: WorkBudget): boolean {
     if (job.status !== 'running') return true
     const topo = this.topology
@@ -1114,34 +1742,66 @@ export class SparseRouter {
       return true
     }
 
-    // If previously suspended waiting for a field, check if it's ready now.
-    if (job.waitingFieldKey !== null) {
-      if (!this.fieldCache.has(job.waitingFieldKey)) {
-        // Ensure field job exists and inherits priority.
-        const fj = this.fieldJobs.get(job.waitingFieldKey)
-        if (fj) {
-          if (job.priorityTier < fj.priorityTier) fj.priorityTier = job.priorityTier
-          if (job.enqueuedTick < fj.oldestTick) fj.oldestTick = job.enqueuedTick
-          return false
+    // Shared reverse region-tree backed coarse query (O(path length) extraction once the tree finishes).
+    if (job.treeKey !== null) {
+      let tree = this.reverseTreeCache.get(job.treeKey)
+      if (!tree) {
+        let tJob = this.reverseTreeJobs.get(job.treeKey)
+        if (!tJob) {
+          const goalReg = topo.nodeRegion[job.goalNode]
+          const enq = this.getOrEnqueueReverseTree(goalReg, job.needs, job.snapshot, job.priorityTier, job.enqueuedTick)
+          tree = enq.tree
+          tJob = this.reverseTreeJobs.get(enq.jobKey)
         }
-        // Field job was evicted/dropped; clear wait and re-request on resume.
+        if (!tree && tJob) {
+          if (job.priorityTier < tJob.priorityTier) tJob.priorityTier = job.priorityTier
+          if (job.enqueuedTick < tJob.oldestTick) tJob.oldestTick = job.enqueuedTick
+          if (!tJob.done) this.stepReverseTreeJob(tJob, budget)
+          if (tJob.done) tree = tJob.result ?? undefined
+        }
       }
-      job.waitingFieldKey = null
+      if (!tree) return false
+      const itinerary = this.extractItineraryFromTree(tree, job.startNode, job.goalNode, job.needs, job.snapshot)
+      if (itinerary) {
+        job.status = 'ready'
+        job.result = itinerary
+        if (this.coarseCacheSnapshotId === job.snapshot.id) {
+          this.coarseResultCache.set(job.cacheKey, itinerary)
+        }
+      } else {
+        job.status = 'failed'
+        job.failReason = 'sparse-exhausted'
+        if (this.coarseCacheSnapshotId === job.snapshot.id) {
+          this.coarseResultCache.set(job.cacheKey, null)
+        }
+      }
+      return true
     }
 
-    const goalRegionId = topo.nodeRegion[job.goalNode]
-    const canUseSuffix = this.coarseCacheSnapshotId === job.snapshot.id
-    const suffixPrefix = canUseSuffix ? `${job.snapshot.id}|${job.goalNode}|${job.needsClass}|${job.excludedServer}|` : ''
+    // Region-level forward A* for excludedServer probes: zero 256-node field builds and
+    // identical region-centroid cost model to `ReverseCoarseTree`.
+    const startReg = topo.nodeRegion[job.startNode]
+    const goalReg = topo.nodeRegion[job.goalNode]
+    if (startReg < 0 || goalReg < 0) {
+      job.status = 'failed'
+      job.failReason = 'sparse-exhausted'
+      return true
+    }
+    const regions = topo.regions
+    const goalRegion = regions[goalReg]
+    const sx = topo.nodeTx[job.startNode], sy = topo.nodeTy[job.startNode]
+    const gx = topo.nodeTx[job.goalNode], gy = topo.nodeTy[job.goalNode]
+    const regionCrowdMs = job.snapshot.regionCrowdMs
 
-    while (job.expandingPoint >= 0 || job.heap.size > 0) {
-      if (job.expandingPoint < 0) {
+    while (job.expandingRegionId >= 0 || job.heap.size > 0) {
+      if (job.expandingRegionId < 0) {
         if (budget.pops <= 0) return false
-        const { id: point, cost } = job.heap.pop()
+        const { id: curReg, cost } = job.heap.pop()
         budget.pops--
         this.statsCoarseExpansions++
-        const best = job.bestCost.get(point)
+        const best = job.bestCost.get(curReg)
         if (best === undefined || cost !== best) continue
-        if (point === job.goalNode) {
+        if (curReg === goalReg) {
           const itinerary = this.reconstructItinerary(job)
           job.status = 'ready'
           job.result = itinerary
@@ -1150,87 +1810,51 @@ export class SparseRouter {
           }
           return true
         }
-        // Exact continuation sharing (§1): if an earlier search under the same snapshot
-        // already solved the exact optimal continuation from `point -> goalNode`, relax goal directly!
-        if (canUseSuffix) {
-          const suffix = this.coarseSuffixCache.get(suffixPrefix + point)
-          if (suffix) {
-            const total = cost + suffix.remainingCostMs
-            const prevGoal = job.bestCost.get(job.goalNode)
-            if (prevGoal === undefined || total < prevGoal) {
-              job.bestCost.set(job.goalNode, total)
-              job.parent.set(job.goalNode, { fromPoint: point, step: null, walkMs: 0, suffix })
-              job.heap.push(job.goalNode, total, job.goalKey, total)
-            }
-            continue
-          }
-        }
-        job.expandingPoint = point
+        job.expandingRegionId = curReg
         job.expandingCost = cost
-        job.expandingRegionId = topo.nodeRegion[point]
         job.cursorStage = 0
         job.cursorIdx = 0
       }
 
       const regId = job.expandingRegionId
-      const region = regId >= 0 ? topo.regions[regId] : undefined
+      const region = regions[regId]
       if (!region) {
-        job.expandingPoint = -1
+        job.expandingRegionId = -1
         continue
       }
-      const pointLocal = topo.nodeLocalIdx[job.expandingPoint]
 
-      // Stage 0: direct within-region connection to goalNode if in same region.
+      // Stage 0: outgoing plain boundary crossings from this region.
       if (job.cursorStage === 0) {
-        if (regId === goalRegionId) {
-          if (budget.scans <= 0) return false
-          budget.scans--
-          this.statsCoarseEdgeScans++
-          const field = this.getSingletonField(regId, job.goalNode, job.priorityTier, job.enqueuedTick)
-          if (!field) {
-            job.waitingFieldKey = this.fieldKeyForNodes(region, [job.goalNode])
-            return false
-          }
-          const d = field.distMs[pointLocal]
-          if (d < INF_MS) {
-            const nc = job.expandingCost + d
-            const prev = job.bestCost.get(job.goalNode)
-            if (prev === undefined || nc < prev) {
-              job.bestCost.set(job.goalNode, nc)
-              job.parent.set(job.goalNode, { fromPoint: job.expandingPoint, step: null, walkMs: d })
-              job.heap.push(job.goalNode, nc, job.goalKey, nc)
-            }
-          }
-        }
-        job.cursorStage = 1
-        job.cursorIdx = 0
-      }
-
-      // Stage 1: outgoing plain boundary crossings from this region.
-      if (job.cursorStage === 1) {
         const crossings = region.crossings
         while (job.cursorIdx < crossings.length) {
           if (budget.scans <= 0) return false
-          const c = crossings[job.cursorIdx]
-          const field = this.getSingletonField(regId, c.repFromNode, job.priorityTier, job.enqueuedTick)
-          if (!field) {
-            job.waitingFieldKey = this.fieldKeyForNodes(region, [c.repFromNode])
-            return false
-          }
+          const c = crossings[job.cursorIdx++]
           budget.scans--
           this.statsCoarseEdgeScans++
-          job.cursorIdx++
-          const walkMs = field.distMs[pointLocal]
-          if (walkMs >= INF_MS) continue
-          const regCrowd = c.toRegion >= 0 && c.toRegion < job.snapshot.regionCrowdMs.length ? job.snapshot.regionCrowdMs[c.toRegion] : 0
+          const toReg = c.toRegion
+          if (toReg === regId) continue
+          const regCrowd = toReg >= 0 && toReg < regionCrowdMs.length ? regionCrowdMs[toReg] : 0
           const stepCost = c.repCostMs + regCrowd
-          const total = job.expandingCost + walkMs + stepCost
-          const prev = job.bestCost.get(c.repToNode)
+          let edgeCost: number
+          if (regId === startReg) {
+            const firstWalk = Math.round(Math.hypot(sx - topo.nodeTx[c.repFromNode], sy - topo.nodeTy[c.repFromNode]) * region.walkMsPerM)
+            const afterMs = toReg === goalReg
+              ? Math.round(Math.hypot(topo.nodeTx[c.repToNode] - gx, topo.nodeTy[c.repToNode] - gy) * goalRegion.walkMsPerM)
+              : c.toHalfWalkMs
+            edgeCost = Math.max(1, firstWalk + stepCost + afterMs)
+          } else if (toReg === goalReg) {
+            const tailWalk = Math.round(Math.hypot(topo.nodeTx[c.repToNode] - gx, topo.nodeTy[c.repToNode] - gy) * goalRegion.walkMsPerM)
+            edgeCost = Math.max(1, c.fromHalfWalkMs + stepCost + tailWalk)
+          } else {
+            edgeCost = Math.max(1, c.regionWalkMs + regCrowd)
+          }
+          const total = job.expandingCost + edgeCost
+          const prev = job.bestCost.get(toReg)
           if (prev === undefined || total < prev) {
-            job.bestCost.set(c.repToNode, total)
-            job.parent.set(c.repToNode, {
-              fromPoint: job.expandingPoint,
-              walkMs,
+            job.bestCost.set(toReg, total)
+            job.parent.set(toReg, {
+              fromPoint: regId,
+              walkMs: 0,
               step: {
                 kind: 'crossing',
                 crossingId: c.id,
@@ -1246,44 +1870,40 @@ export class SparseRouter {
                 costMs: stepCost,
               },
             })
-            const f = total + this.coarseHeuristicMs(c.repToNode, job.goalNode)
-            job.heap.push(c.repToNode, f, c.repToKey, total)
+            const f = toReg === goalReg ? total : total + this.regionHeuristicMs(toReg, goalReg)
+            job.heap.push(toReg, f, regions[toReg].regionKey, total)
           }
         }
-        job.cursorStage = 2
+        job.cursorStage = 1
         job.cursorIdx = 0
       }
 
-      // Stage 2: outgoing explicit directed/service arcs from this region.
-      if (job.cursorStage === 2) {
+      // Stage 1: outgoing explicit directed/service arcs from this region.
+      if (job.cursorStage === 1) {
         const arcs = region.explicitArcs
         while (job.cursorIdx < arcs.length) {
           if (budget.scans <= 0) return false
-          const arc = arcs[job.cursorIdx]
-          const arcCost = this.explicitArcCostMs(arc, job.needs, job.snapshot, job.excludedServer)
-          if (arcCost >= INF_MS) {
-            budget.scans--
-            this.statsCoarseEdgeScans++
-            job.cursorIdx++
-            continue
-          }
-          const field = this.getSingletonField(regId, arc.fromNode, job.priorityTier, job.enqueuedTick)
-          if (!field) {
-            job.waitingFieldKey = this.fieldKeyForNodes(region, [arc.fromNode])
-            return false
-          }
+          const arc = arcs[job.cursorIdx++]
           budget.scans--
           this.statsCoarseEdgeScans++
-          job.cursorIdx++
-          const walkMs = field.distMs[pointLocal]
-          if (walkMs >= INF_MS) continue
-          const total = job.expandingCost + walkMs + arcCost
-          const prev = job.bestCost.get(arc.toNode)
+          const toReg = arc.toRegion
+          if (toReg === regId) continue
+          const arcCost = this.explicitArcCostMs(arc, job.needs, job.snapshot, job.excludedServer)
+          if (arcCost >= INF_MS) continue
+          const firstHalf = regId === startReg
+            ? Math.round(Math.hypot(sx - topo.nodeTx[arc.fromNode], sy - topo.nodeTy[arc.fromNode]) * region.walkMsPerM)
+            : arc.fromHalfWalkMs
+          const afterMs = toReg === goalReg
+            ? Math.round(Math.hypot(topo.nodeTx[arc.toNode] - gx, topo.nodeTy[arc.toNode] - gy) * goalRegion.walkMsPerM)
+            : arc.toHalfWalkMs
+          const edgeCost = Math.max(1, firstHalf + arcCost + afterMs)
+          const total = job.expandingCost + edgeCost
+          const prev = job.bestCost.get(toReg)
           if (prev === undefined || total < prev) {
-            job.bestCost.set(arc.toNode, total)
-            job.parent.set(arc.toNode, {
-              fromPoint: job.expandingPoint,
-              walkMs,
+            job.bestCost.set(toReg, total)
+            job.parent.set(toReg, {
+              fromPoint: regId,
+              walkMs: 0,
               step: {
                 kind: 'explicit',
                 crossingId: -1,
@@ -1291,7 +1911,7 @@ export class SparseRouter {
                 fromKey: arc.fromKey,
                 toKey: arc.toKey,
                 fromRegionKey: region.regionKey,
-                toRegionKey: topo.regions[arc.toRegion].regionKey,
+                toRegionKey: regions[toReg].regionKey,
                 edgeKind: arc.kind,
                 server: arc.server,
                 toNodeServer: arc.toNodeServer,
@@ -1299,13 +1919,13 @@ export class SparseRouter {
                 costMs: arcCost,
               },
             })
-            const f = total + this.coarseHeuristicMs(arc.toNode, job.goalNode)
-            job.heap.push(arc.toNode, f, arc.toKey, total)
+            const f = toReg === goalReg ? total : total + this.regionHeuristicMs(toReg, goalReg)
+            job.heap.push(toReg, f, regions[toReg].regionKey, total)
           }
         }
       }
 
-      job.expandingPoint = -1
+      job.expandingRegionId = -1
     }
 
     job.status = 'failed'
@@ -1317,56 +1937,40 @@ export class SparseRouter {
   }
 
   private reconstructItinerary(job: CoarseSearchJob): CoarseItinerary {
+    const topo = this.topology
+    const regions = topo.regions
+    const startReg = topo.nodeRegion[job.startNode]
+    const goalReg = topo.nodeRegion[job.goalNode]
     const rev: CoarseStep[] = []
-    const walkPrefixMs: number[] = []
-    const pointChain: Array<{ point: number; gCost: number; stepCountAfter: number }> = []
-    let cur = job.goalNode
-    const goalTotal = job.bestCost.get(job.goalNode) ?? INF_MS
-
-    // Handle exact suffix shortcut if `goalNode` was reached via `coarseSuffixCache`.
-    let trailingSuffix: CachedSuffix | undefined
-    const goalParent = job.parent.get(job.goalNode)
-    if (goalParent?.suffix) {
-      trailingSuffix = goalParent.suffix
-      cur = goalParent.fromPoint
-    }
-
-    while (cur !== job.startNode) {
-      const p = job.parent.get(cur)
-      if (!p) break
-      if (p.step) {
-        pointChain.push({ point: cur, gCost: job.bestCost.get(cur) ?? 0, stepCountAfter: rev.length })
-        rev.push(p.step)
-        walkPrefixMs.push(p.walkMs)
-      }
-      cur = p.fromPoint
+    let curReg = goalReg
+    while (curReg !== startReg) {
+      const p = job.parent.get(curReg)
+      if (!p || !p.step) break
+      rev.push(p.step)
+      curReg = p.fromPoint
     }
     rev.reverse()
-    walkPrefixMs.reverse()
 
-    const prefixLen = rev.length
-    if (trailingSuffix) {
-      for (let i = 0; i < trailingSuffix.steps.length; i++) {
-        rev.push(trailingSuffix.steps[i])
-        walkPrefixMs.push(trailingSuffix.walkPrefixMs[i])
-      }
+    const walkPrefixMs: number[] = []
+    let prevNode = job.startNode
+    let totalCostMs = 0
+    for (let i = 0; i < rev.length; i++) {
+      const st = rev[i]
+      const nextFrom = st.kind === 'crossing' ? topo.crossings[st.crossingId].repFromNode : topo.explicitArcs[st.arcId].fromNode
+      const nextTo = st.kind === 'crossing' ? topo.crossings[st.crossingId].repToNode : topo.explicitArcs[st.arcId].toNode
+      const rId = topo.nodeRegion[prevNode]
+      const walkMs = rId >= 0
+        ? Math.round(Math.hypot(topo.nodeTx[prevNode] - topo.nodeTx[nextFrom], topo.nodeTy[prevNode] - topo.nodeTy[nextFrom]) * regions[rId].walkMsPerM)
+        : 0
+      walkPrefixMs.push(walkMs)
+      totalCostMs += walkMs + st.costMs
+      prevNode = nextTo
     }
-
-    // Publish exact optimal continuations along the path into `coarseSuffixCache` (§1).
-    if (this.coarseCacheSnapshotId === job.snapshot.id && goalTotal < INF_MS) {
-      const suffixPrefix = `${job.snapshot.id}|${job.goalNode}|${job.needsClass}|${job.excludedServer}|`
-      for (let i = 0; i < pointChain.length; i++) {
-        const entry = pointChain[i]
-        const startIdx = prefixLen - entry.stepCountAfter
-        const rem = goalTotal - entry.gCost
-        if (rem >= 0 && startIdx >= 0 && startIdx <= rev.length) {
-          this.coarseSuffixCache.set(suffixPrefix + entry.point, {
-            steps: rev.slice(startIdx),
-            walkPrefixMs: walkPrefixMs.slice(startIdx),
-            remainingCostMs: rem,
-          })
-        }
-      }
+    if (goalReg >= 0) {
+      totalCostMs += Math.round(
+        Math.hypot(topo.nodeTx[prevNode] - topo.nodeTx[job.goalNode], topo.nodeTy[prevNode] - topo.nodeTy[job.goalNode]) *
+          regions[goalReg].walkMsPerM,
+      )
     }
 
     // Extract upcoming gate / service metadata for forecasts beyond 16 steps.
@@ -1376,7 +1980,7 @@ export class SparseRouter {
     let nextServiceServer = -1
     let nextServiceKind = ''
     let accumMs = 0
-    const g = this.topology.graph
+    const g = topo.graph
     for (let i = 0; i < rev.length; i++) {
       const st = rev[i]
       accumMs += walkPrefixMs[i]
@@ -1406,7 +2010,7 @@ export class SparseRouter {
       goalKey: job.goalKey,
       needsClass: job.needsClass,
       steps: rev,
-      totalCostMs: job.bestCost.get(job.goalNode) ?? INF_MS,
+      totalCostMs,
       nextGateServer,
       nextGateDir,
       nextGateDistMs,
@@ -1782,7 +2386,9 @@ export class SparseRouter {
       }
 
       // Not yet at target: obtain shared multi-source reverse field in `regId`.
-      const field = this.getField(regId, targetNodes, priorityTier, currentTick)
+      const field = targetNodes.length === 1
+        ? this.getSingletonField(regId, targetNodes[0], priorityTier, currentTick)
+        : this.getField(regId, targetNodes, priorityTier, currentTick)
       if (!field) {
         pendingField = true
         break
@@ -2014,11 +2620,17 @@ export class SparseRouter {
     }
 
     // Drop any orphaned jobs whose walkers died or moved on.
+    const referencedTreeKeys = new Set<string>()
     for (const [id, job] of this.coarseJobs) {
       if (!referencedCoarseIds.has(id)) {
         this.coarseJobs.delete(id)
         if (this.coarseJobByCacheKey.get(job.cacheKey) === id) this.coarseJobByCacheKey.delete(job.cacheKey)
+      } else if (job.treeKey !== null) {
+        referencedTreeKeys.add(job.treeKey)
       }
+    }
+    for (const key of this.reverseTreeJobs.keys()) {
+      if (!referencedTreeKeys.has(key)) this.reverseTreeJobs.delete(key)
     }
     for (const key of this.fineJobs.keys()) {
       if (!referencedFineKeys.has(key)) this.fineJobs.delete(key)
@@ -2293,12 +2905,15 @@ export class SparseRouter {
       }
     }
 
-    // Prune completed coarse/fine jobs once adopted.
+    // Prune completed coarse/tree/fine jobs once adopted.
     for (const [id, job] of this.coarseJobs) {
       if (job.status !== 'running') {
         this.coarseJobs.delete(id)
         if (this.coarseJobByCacheKey.get(job.cacheKey) === id) this.coarseJobByCacheKey.delete(job.cacheKey)
       }
+    }
+    for (const [key, tJob] of this.reverseTreeJobs) {
+      if (tJob.done) this.reverseTreeJobs.delete(key)
     }
     for (const [key, job] of this.fineJobs) {
       if (job.status !== 'running') this.fineJobs.delete(key)
@@ -2328,6 +2943,22 @@ export class SparseRouter {
         }
       }
 
+      // 1b. Run highest-priority shared reverse region-tree jobs so all waiting queries unblock together.
+      if (this.reverseTreeJobs.size > 0 && budget.pops > 0 && budget.scans > 0) {
+        const sortedTrees = [...this.reverseTreeJobs.values()]
+          .filter((j) => !j.done)
+          .sort((a, b) => {
+            const aAge = tick - a.oldestTick >= SPARSE_AGE_PROMOTE_TICKS ? 0 : a.priorityTier
+            const bAge = tick - b.oldestTick >= SPARSE_AGE_PROMOTE_TICKS ? 0 : b.priorityTier
+            return aAge - bAge || a.oldestTick - b.oldestTick || a.goalRegionId - b.goalRegionId || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0)
+          })
+        for (let i = 0; i < sortedTrees.length && budget.pops > 0 && budget.scans > 0; i++) {
+          const prevPops = budget.pops, prevScans = budget.scans
+          this.stepReverseTreeJob(sortedTrees[i], budget)
+          if (budget.pops !== prevPops || budget.scans !== prevScans) progressed = true
+        }
+      }
+
       // 2. Run highest-priority coarse search jobs.
       if (this.coarseJobs.size > 0 && budget.pops > 0 && budget.scans > 0) {
         const sortedCoarse = [...this.coarseJobs.values()]
@@ -2340,8 +2971,10 @@ export class SparseRouter {
         for (let i = 0; i < sortedCoarse.length && budget.pops > 0 && budget.scans > 0; i++) {
           const prevPops = budget.pops, prevScans = budget.scans
           const prevFieldCount = this.fieldJobs.size
+          const prevStatus = sortedCoarse[i].status
           this.stepCoarseJob(sortedCoarse[i], budget)
-          if (budget.pops !== prevPops || budget.scans !== prevScans || this.fieldJobs.size !== prevFieldCount) {
+          if (budget.pops !== prevPops || budget.scans !== prevScans ||
+              this.fieldJobs.size !== prevFieldCount || sortedCoarse[i].status !== prevStatus) {
             progressed = true
           }
         }
@@ -2361,6 +2994,14 @@ export class SparseRouter {
           this.stepFineRecoveryJob(sortedFine[i], budget, snap)
           if (budget.pops !== prevPops || budget.scans !== prevScans) progressed = true
         }
+      }
+    }
+
+    // Finalize any tree-backed coarse jobs whose shared reverse tree finished on the last pop/scan.
+    for (const job of this.coarseJobs.values()) {
+      if (job.status === 'running' && job.treeKey !== null) {
+        const readyTree = this.reverseTreeCache.get(job.treeKey) ?? this.reverseTreeJobs.get(job.treeKey)?.result
+        if (readyTree) this.stepCoarseJob(job, budget)
       }
     }
   }

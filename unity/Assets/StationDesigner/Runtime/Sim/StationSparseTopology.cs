@@ -33,6 +33,9 @@ namespace Metro.Sim {
         public long RepFromKey;
         public long RepToKey;
         public int RepCostMs;
+        public int FromHalfWalkMs;
+        public int ToHalfWalkMs;
+        public int RegionWalkMs;
     }
 
     public sealed class StationSparseExplicitArc {
@@ -51,6 +54,8 @@ namespace Metro.Sim {
         public int StairFlights = 1;
         public string LiftId;
         public int StaticCostMs;
+        public int FromHalfWalkMs;
+        public int ToHalfWalkMs;
     }
 
     public sealed class StationSparseRegion {
@@ -60,8 +65,13 @@ namespace Metro.Sim {
         public int Revision = 1;
         public int[] Nodes = Array.Empty<int>();
         public long[] TileKeys = Array.Empty<long>();
+        public double CenterX;
+        public double CenterY;
+        public double WalkMsPerM = 1000.0 / 1.34;
         public readonly List<StationSparseCrossing> Crossings = new List<StationSparseCrossing>();
         public readonly List<StationSparseExplicitArc> ExplicitArcs = new List<StationSparseExplicitArc>();
+        public readonly List<StationSparseCrossing> InCrossings = new List<StationSparseCrossing>();
+        public readonly List<StationSparseExplicitArc> InExplicitArcs = new List<StationSparseExplicitArc>();
         public long SampleTileKey = -1;
         public int SampleNode = -1;
     }
@@ -112,6 +122,7 @@ namespace Metro.Sim {
         public readonly Dictionary<long, StationSparseRegion> RegionByKey = new Dictionary<long, StationSparseRegion>();
         public readonly List<StationSparseCrossing> Crossings = new List<StationSparseCrossing>();
         public readonly List<StationSparseExplicitArc> ExplicitArcs = new List<StationSparseExplicitArc>();
+        public bool HasLifts;
         public readonly Dictionary<long, int> SamplesDirty = new Dictionary<long, int>();
 
         bool revAdjBuilt;
@@ -553,12 +564,18 @@ namespace Metro.Sim {
                     var regNodes = bfs.ToArray();
                     var regKeys = new long[regNodes.Length];
                     int regId = topo.Regions.Count;
+                    double sumX = 0.0, sumY = 0.0, sumSpeed = 0.0;
                     for (int k = 0; k < regNodes.Length; k++) {
                         int u = regNodes[k];
                         regKeys[k] = topo.NodeTileKey[u];
                         topo.NodeRegion[u] = regId;
                         topo.NodeLocalIdx[u] = k;
+                        sumX += topo.NodeTx[u];
+                        sumY += topo.NodeTy[u];
+                        sumSpeed += graph.NodeSpeed[u] > 0.0 ? graph.NodeSpeed[u] : 1.0;
                     }
+                    double invCount = regNodes.Length > 0 ? 1.0 / regNodes.Length : 1.0;
+                    double avgSpeed = Math.Max(0.1, sumSpeed * invCount);
                     var region = new StationSparseRegion {
                         Id = regId,
                         RegionKey = regKeys[0],
@@ -566,6 +583,9 @@ namespace Metro.Sim {
                         Revision = 1,
                         Nodes = regNodes,
                         TileKeys = regKeys,
+                        CenterX = sumX * invCount,
+                        CenterY = sumY * invCount,
+                        WalkMsPerM = 1000.0 / (1.34 * avgSpeed),
                     };
                     topo.Regions.Add(region);
                     topo.RegionByKey[region.RegionKey] = region;
@@ -735,6 +755,12 @@ namespace Metro.Sim {
                         }
                     }
                     var toReg = topo.Regions[run.ToRegion];
+                    double fdx = region.CenterX - topo.NodeTx[rep.FromNode];
+                    double fdy = region.CenterY - topo.NodeTy[rep.FromNode];
+                    double tdx = toReg.CenterX - topo.NodeTx[rep.ToNode];
+                    double tdy = toReg.CenterY - topo.NodeTy[rep.ToNode];
+                    int fromHalf = (int)Math.Floor(Math.Sqrt(fdx * fdx + fdy * fdy) * region.WalkMsPerM + 0.5);
+                    int toHalf = (int)Math.Floor(Math.Sqrt(tdx * tdx + tdy * tdy) * toReg.WalkMsPerM + 0.5);
                     var crossing = new StationSparseCrossing {
                         Id = topo.Crossings.Count,
                         StableKey = region.RegionKey + "|" + toReg.RegionKey + "|" + rep.FromKey + "|" + rep.ToKey,
@@ -752,9 +778,13 @@ namespace Metro.Sim {
                         RepFromKey = rep.FromKey,
                         RepToKey = rep.ToKey,
                         RepCostMs = rep.CostMs,
+                        FromHalfWalkMs = fromHalf,
+                        ToHalfWalkMs = toHalf,
+                        RegionWalkMs = fromHalf + rep.CostMs + toHalf,
                     };
                     topo.Crossings.Add(crossing);
                     region.Crossings.Add(crossing);
+                    toReg.InCrossings.Add(crossing);
                 }
 
                 rawExplicit.Sort((a, b) => {
@@ -769,6 +799,14 @@ namespace Metro.Sim {
                 });
                 for (int i = 0; i < rawExplicit.Count; i++) {
                     var ex = rawExplicit[i];
+                    var toReg = topo.Regions[ex.ToRegion];
+                    double fdx = region.CenterX - topo.NodeTx[ex.FromNode];
+                    double fdy = region.CenterY - topo.NodeTy[ex.FromNode];
+                    double tdx = toReg.CenterX - topo.NodeTx[ex.ToNode];
+                    double tdy = toReg.CenterY - topo.NodeTy[ex.ToNode];
+                    int fromHalf = (int)Math.Floor(Math.Sqrt(fdx * fdx + fdy * fdy) * region.WalkMsPerM + 0.5);
+                    int toHalf = (int)Math.Floor(Math.Sqrt(tdx * tdx + tdy * tdy) * toReg.WalkMsPerM + 0.5);
+                    if (ex.Kind == WalkEdgeKind.Lift) topo.HasLifts = true;
                     var arc = new StationSparseExplicitArc {
                         Id = topo.ExplicitArcs.Count,
                         FromNode = ex.FromNode,
@@ -785,9 +823,12 @@ namespace Metro.Sim {
                         StairFlights = ex.StairFlights,
                         LiftId = ex.LiftId,
                         StaticCostMs = ex.CostMs,
+                        FromHalfWalkMs = fromHalf,
+                        ToHalfWalkMs = toHalf,
                     };
                     topo.ExplicitArcs.Add(arc);
                     region.ExplicitArcs.Add(arc);
+                    toReg.InExplicitArcs.Add(arc);
                 }
             }
 

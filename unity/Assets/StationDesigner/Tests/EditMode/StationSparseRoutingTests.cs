@@ -439,6 +439,8 @@ public class StationSparseRoutingTests {
         var session = new StationSimulationSession(setup);
 
         var line13Arrivals = new HashSet<int>();
+        var firstPlatformTick = new Dictionary<int, int>();
+        var walkDelayTicks = new Dictionary<int, int>();
         var walkedFromDoor = new HashSet<int>();
         for (int tick = 0; tick < 90; tick++) {
             session.Advance(1.0);
@@ -447,14 +449,32 @@ public class StationSparseRoutingTests {
                     passenger.ServerId.StartsWith("line:13|", StringComparison.Ordinal)) {
                     line13Arrivals.Add(passenger.SimId);
                 }
-                if (line13Arrivals.Contains(passenger.SimId) && passenger.WalkDistance >= 1) {
+                if (!line13Arrivals.Contains(passenger.SimId)) continue;
+                if (passenger.State != StationPassengerState.Alighting && !firstPlatformTick.ContainsKey(passenger.SimId)) {
+                    firstPlatformTick[passenger.SimId] = tick;
+                }
+                if (firstPlatformTick.TryGetValue(passenger.SimId, out int landedTick) &&
+                    !walkDelayTicks.ContainsKey(passenger.SimId) &&
+                    passenger.WalkDistance > 0.01) {
+                    walkDelayTicks[passenger.SimId] = tick - landedTick;
+                }
+                if (passenger.WalkDistance >= 1) {
                     walkedFromDoor.Add(passenger.SimId);
                 }
             }
         }
 
+        var delays = walkDelayTicks.Values.Select(v => (double)v).OrderBy(v => v).ToList();
+        double p90 = Percentile(delays, 0.90);
+        double maxDelay = delays.Count > 0 ? delays[delays.Count - 1] : double.PositiveInfinity;
+        var stats = session.Services.SparseRoutingStats();
+
         Assert.AreEqual(534, line13Arrivals.Count, "both Line 13 trains delivered their wave");
         Assert.GreaterOrEqual(walkedFromDoor.Count, 500, "the arrival waves walked away from the door");
+        Assert.LessOrEqual(p90, 2.0, $"Line 13 cold-start alighting-to-walk p90 delay ({p90}) regressed");
+        Assert.LessOrEqual(maxDelay, 4.0, $"Line 13 cold-start alighting-to-walk max delay ({maxDelay}) regressed");
+        Assert.Less(stats.FieldBuilds, 1500, $"coarse search must not trigger thousands of cold field builds (got {stats.FieldBuilds})");
+        Assert.AreEqual(0, stats.FineFallbacks, "no fine-graph fallbacks during cold start");
     }
 
     [Test]

@@ -1,6 +1,7 @@
 // Static 16×16 sector/region decomposition, contiguous boundary crossings, explicit
 // service/restricted arcs, concourse samples and per-sector topology diffing
 // (design/crowd-routing-plan.md §1, §3, §4.1, §4.5).
+import { WALK_SPEED } from './constants.ts'
 import { EDGE_KIND, gateApproach, type StationGraph } from './station.ts'
 import type { GateDir } from './types.ts'
 import {
@@ -35,6 +36,9 @@ export interface SparseCrossing {
   readonly repFromKey: number
   readonly repToKey: number
   readonly repCostMs: number
+  readonly fromHalfWalkMs: number
+  readonly toHalfWalkMs: number
+  readonly regionWalkMs: number
 }
 
 export interface SparseExplicitArc {
@@ -51,6 +55,8 @@ export interface SparseExplicitArc {
   readonly toNodeServer: number
   readonly gateDir: GateDir
   readonly staticCostMs: number
+  readonly fromHalfWalkMs: number
+  readonly toHalfWalkMs: number
 }
 
 export interface SparseRegion {
@@ -63,10 +69,18 @@ export interface SparseRegion {
   nodes: Int32Array
   /** Stable TileKeys matching `nodes`. */
   readonly tileKeys: Float64Array
+  /** Mean tile centroid & free-flow ms/m for region-level reverse coarse trees. */
+  readonly centerX: number
+  readonly centerY: number
+  readonly walkMsPerM: number
   /** Outgoing plain crossings from this region (in stable order). */
   crossings: SparseCrossing[]
   /** Outgoing explicit directed/service arcs from this region (in stable order). */
   explicitArcs: SparseExplicitArc[]
+  /** Incoming plain crossings arriving in this region. */
+  inCrossings: SparseCrossing[]
+  /** Incoming explicit directed/service arcs arriving in this region. */
+  inExplicitArcs: SparseExplicitArc[]
   /** Stable TileKey of the concourse sample, or -1 if none. */
   sampleTileKey: number
   /** Dense node id of the concourse sample, or -1 if none. */
@@ -117,6 +131,7 @@ export class SparseTopology {
   regionByKey: Map<number, SparseRegion>
   crossings: SparseCrossing[]
   explicitArcs: SparseExplicitArc[]
+  hasLifts = false
 
   /** Sectors whose optional concourse samples need refresh: sectorKey -> dirty sector.revision. */
   samplesDirty = new Map<number, number>()
@@ -463,12 +478,20 @@ export function buildSparseTopology(
       const regNodes = Int32Array.from(bfsQueue)
       const regKeys = new Float64Array(regNodes.length)
       const regId = topo.regions.length
+      let sumX = 0
+      let sumY = 0
+      let sumSpeed = 0
       for (let k = 0; k < regNodes.length; k++) {
         const u = regNodes[k]
         regKeys[k] = topo.nodeTileKey[u]
         topo.nodeRegion[u] = regId
         topo.nodeLocalIdx[u] = k
+        sumX += topo.nodeTx[u]
+        sumY += topo.nodeTy[u]
+        sumSpeed += graph.nodeSpeed[u] > 0 ? graph.nodeSpeed[u] : 1
       }
+      const invCount = regNodes.length > 0 ? 1 / regNodes.length : 1
+      const avgSpeed = Math.max(0.1, sumSpeed * invCount)
       const regionKey = regKeys[0]
       const region: SparseRegion = {
         id: regId,
@@ -477,8 +500,13 @@ export function buildSparseTopology(
         revision: 1,
         nodes: regNodes,
         tileKeys: regKeys,
+        centerX: sumX * invCount,
+        centerY: sumY * invCount,
+        walkMsPerM: 1000 / (WALK_SPEED * avgSpeed),
         crossings: [],
         explicitArcs: [],
+        inCrossings: [],
+        inExplicitArcs: [],
         sampleTileKey: -1,
         sampleNode: -1,
       }
@@ -637,6 +665,8 @@ export function buildSparseTopology(
         }
       }
       const toReg = topo.regions[run.toRegion]
+      const fromHalfWalkMs = Math.round(Math.hypot(region.centerX - topo.nodeTx[rep.fromNode], region.centerY - topo.nodeTy[rep.fromNode]) * region.walkMsPerM)
+      const toHalfWalkMs = Math.round(Math.hypot(toReg.centerX - topo.nodeTx[rep.toNode], toReg.centerY - topo.nodeTy[rep.toNode]) * toReg.walkMsPerM)
       const crossing: SparseCrossing = {
         id: topo.crossings.length,
         stableKey: `${region.regionKey}|${toReg.regionKey}|${rep.fromKey}|${rep.toKey}`,
@@ -654,9 +684,13 @@ export function buildSparseTopology(
         repFromKey: rep.fromKey,
         repToKey: rep.toKey,
         repCostMs: rep.costMs,
+        fromHalfWalkMs,
+        toHalfWalkMs,
+        regionWalkMs: fromHalfWalkMs + rep.costMs + toHalfWalkMs,
       }
       topo.crossings.push(crossing)
       region.crossings.push(crossing)
+      toReg.inCrossings.push(crossing)
     }
 
     // Publish explicit directed arcs in stable order.
@@ -668,6 +702,10 @@ export function buildSparseTopology(
       if (toNodeServer >= 0 && graph.servers[toNodeServer].kind === 'gate') {
         gDir = gateApproach(graph, ex.fromNode, ex.toNode)
       }
+      const toReg = topo.regions[ex.toRegion]
+      const fromHalfWalkMs = Math.round(Math.hypot(region.centerX - topo.nodeTx[ex.fromNode], region.centerY - topo.nodeTy[ex.fromNode]) * region.walkMsPerM)
+      const toHalfWalkMs = Math.round(Math.hypot(toReg.centerX - topo.nodeTx[ex.toNode], toReg.centerY - topo.nodeTy[ex.toNode]) * toReg.walkMsPerM)
+      if (ex.kind === EDGE_KIND.lift) topo.hasLifts = true
       const arc: SparseExplicitArc = {
         id: topo.explicitArcs.length,
         fromNode: ex.fromNode,
@@ -682,9 +720,12 @@ export function buildSparseTopology(
         toNodeServer,
         gateDir: gDir,
         staticCostMs: ex.costMs,
+        fromHalfWalkMs,
+        toHalfWalkMs,
       }
       topo.explicitArcs.push(arc)
       region.explicitArcs.push(arc)
+      toReg.inExplicitArcs.push(arc)
     }
   }
 

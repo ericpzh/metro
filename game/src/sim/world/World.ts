@@ -2956,27 +2956,30 @@ export class World {
     if (this.useSparseRouting()) {
       const router = this.sparseRouter!
       this.sparseRouter!.claims.release(a.id)
+      if (!router.topology.canReach(a.fromNode, leg.node, a.needs.stepFree)) {
+        // Statically proven unreachable: skip optional stop legs or mark the trip stuck immediately.
+        a.awaitingPath = false
+        a.walker = null
+        if (leg.kind === 'stop') this.advanceLeg(a)
+        else { a.dead = true; this.metrics.stuck++ }
+        return
+      }
       const walker = router.createWalker(leg.node, a.walker?.legGen ?? 0)
       a.walker = walker
       a.path = EMPTY_PATH
       a.pathIdx = 0
-      const res = router.startCoarseSearch(a.fromNode, leg.node, a.needs, -1, 1, this.tick)
-      if (res.status === 'ready' && res.itinerary) {
-        walker.itinerary = res.itinerary
+      // Adopt immediately when the active snapshot already cached this route; otherwise defer
+      // job creation to the next tick's `routeTick` so the entire arrival wave shares one fresh
+      // cost snapshot and its suffix caches instead of running under a stale prior-tick snapshot.
+      const cached = router.tryCachedCoarseSearch(a.fromNode, leg.node, a.needs, -1)
+      if (cached) {
+        walker.itinerary = cached
         walker.stepIdx = 0
         const outcome = router.refillWalker(a, walker, this.tick, a.fromNode, 1)
         if (outcome === 'ok' && a.path.length > a.pathIdx) {
           a.awaitingPath = false
           a.state = STATE_WALKING
         }
-      } else if (res.status === 'pending' && res.jobId !== undefined) {
-        walker.pendingCoarseId = res.jobId
-      } else if (!router.topology.canReach(a.fromNode, leg.node, a.needs.stepFree)) {
-        // Statically proven unreachable: skip optional stop legs or mark the trip stuck immediately.
-        a.awaitingPath = false
-        a.walker = null
-        if (leg.kind === 'stop') this.advanceLeg(a)
-        else { a.dead = true; this.metrics.stuck++ }
       }
       return
     }
