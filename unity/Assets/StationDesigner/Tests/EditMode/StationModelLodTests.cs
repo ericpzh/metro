@@ -158,6 +158,52 @@ namespace Metro.Tests {
         }
 
         [Test]
+        public void EveryTrainFormationUsesAtMostHalfItsHighTrianglesAtLow() {
+            var catalogue = AssetDatabase.LoadAssetAtPath<Metro.View.TrainCatalogue>(Metro.View.TrainCatalogue.AssetPath);
+            Assert.That(catalogue, Is.Not.Null);
+            var compact = typeof(TrainConsistViews).GetMethod("CompactConsistInstance",
+                System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
+            Assert.That(compact, Is.Not.Null);
+            var seen = new HashSet<GameObject>();
+            foreach (var entry in catalogue.Entries) {
+                Assert.That(entry.prefab, Is.Not.Null, entry.key);
+                if (!seen.Add(entry.prefab)) continue;
+                var instance = Object.Instantiate(entry.prefab);
+                var owned = new List<Mesh>();
+                try {
+                    var doorSpec = Metro.App.TrainDoorRig.ForLine(entry.stock, entry.cars, entry.bakedScale);
+                    int originalLeaves = new Metro.App.TrainDoorRig(instance, doorSpec).Leaves;
+                    var cache = System.Activator.CreateInstance(compact.GetParameters()[2].ParameterType);
+                    compact.Invoke(null, new object[] { instance, entry.key, cache, owned, null });
+                    var rig = new Metro.App.TrainDoorRig(instance, doorSpec);
+                    Assert.That(rig.Leaves, Is.EqualTo(originalLeaves).And.Positive, entry.key);
+                    rig.SetPlatformBank(1);
+                    rig.SetBank(1, 1f);
+                    Assert.That(rig.Movement, Is.Positive, entry.key);
+                    long high = 0;
+                    long low = 0;
+                    foreach (var filter in instance.GetComponentsInChildren<MeshFilter>(true)) {
+                        if (!filter.TryGetComponent<MeshRenderer>(out var renderer) || !renderer.enabled) continue;
+                        var mesh = filter.sharedMesh;
+                        if (mesh == null) continue;
+                        for (int sub = 0; sub < mesh.subMeshCount; sub++) {
+                            if (mesh.GetTopology(sub) != MeshTopology.Triangles) continue;
+                            high += mesh.GetIndexCount(sub, 0);
+                            low += mesh.GetIndexCount(sub, Mathf.Clamp(mesh.lodCount - 1, 0, 2));
+                        }
+                    }
+                    Assert.That(high, Is.Positive, entry.key);
+                    Assert.That(low, Is.Positive, entry.key);
+                    Assert.That(2 * low, Is.LessThanOrEqualTo(high), $"{entry.key}: {low / 3} / {high / 3} triangles");
+                } finally {
+                    Object.DestroyImmediate(instance);
+                    foreach (var mesh in owned) Object.DestroyImmediate(mesh);
+                }
+            }
+            Assert.That(seen.Count, Is.EqualTo(50));
+        }
+
+        [Test]
         public void CommuterTiersFitTheSameRigWhenLocalAssetsAreInstalled() {
             const string root = "Assets/StationDesigner/Generated/Passengers/";
             const string recipe = "Models/Male/commuter/soft-male-commuter-daypack";

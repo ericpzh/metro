@@ -625,6 +625,7 @@ namespace Metro.App.Views {
                 if (gw == null) continue;
                 CompactSubtreeCore(gw, (formationKey ?? "") + "|gangway", preserveDoors: false, cache, ownedMeshes, forceShadowMode);
             }
+            ApplyUnbatchedLods(consist, cache, ownedMeshes);
         }
 
         static readonly System.Text.RegularExpressions.Regex DoorLeafPattern =
@@ -653,6 +654,90 @@ namespace Metro.App.Views {
             public readonly List<CombineInstance> Combines = new List<CombineInstance>();
             public readonly List<int> LastTiers = new List<int>();
             public int VertexCount;
+        }
+
+        static TrainMeshLods trainMeshLods;
+
+        static TrainMeshLods LoadTrainLods() =>
+            trainMeshLods != null ? trainMeshLods : trainMeshLods = Resources.Load<TrainMeshLods>(TrainMeshLods.ResourceKey);
+
+        static void ApplyUnbatchedLods(GameObject consist, Dictionary<string, StaticCombinedPart[]> cache, List<Mesh> ownedMeshes) {
+            var library = LoadTrainLods();
+            if (library == null) return;
+            foreach (var filter in consist.GetComponentsInChildren<MeshFilter>(true)) {
+                var full = filter.sharedMesh;
+                var low = library.FindLow(full);
+                if (low == null) continue;
+                // Keep the original leaf/pantograph transform and renderer, including its animation and materials.
+                string key = "train-lod-mesh|" + full.GetEntityId();
+                if (!cache.TryGetValue(key, out var parts)) {
+                    var source = new CombineInstance { mesh = full, transform = Matrix4x4.identity };
+                    var mesh = CombineTrainTiers(full.name, new[] { source }, new[] { 2 }, full.vertexCount,
+                        library, allowOmission: false);
+                    ownedMeshes.Add(mesh);
+                    parts = new[] { new StaticCombinedPart(mesh, null, default, full.name) };
+                    cache.Add(key, parts);
+                }
+                filter.sharedMesh = parts[0].Mesh;
+            }
+        }
+
+        static Mesh CombineTrainTiers(string name, IReadOnlyList<CombineInstance> source, IReadOnlyList<int> lastTiers,
+            int vertexCount, TrainMeshLods library, bool allowOmission) {
+            var combines = new List<CombineInstance>(source.Count);
+            var lowSlots = new int[source.Count];
+            for (int i = 0; i < source.Count; i++) combines.Add(source[i]);
+            for (int i = 0; i < source.Count; i++) {
+                lowSlots[i] = i;
+                if (library == null || (allowOmission && lastTiers[i] < 2)) continue;
+                var part = source[i];
+                if (part.mesh.subMeshCount != 1) continue;
+                var low = library.FindLow(part.mesh);
+                if (low == null) continue;
+                lowSlots[i] = combines.Count;
+                part.mesh = low;
+                combines.Add(part);
+                vertexCount += low.vertexCount;
+            }
+
+            var mesh = new Mesh {
+                name = name,
+                indexFormat = vertexCount > 65535
+                    ? UnityEngine.Rendering.IndexFormat.UInt32
+                    : UnityEngine.Rendering.IndexFormat.UInt16,
+            };
+            mesh.CombineMeshes(combines.ToArray(), mergeSubMeshes: true, useMatrices: true);
+            mesh.RecalculateBounds();
+            if (combines.Count == source.Count) {
+                if (allowOmission) {
+                    for (int i = 0; i < lastTiers.Count; i++) {
+                        if (lastTiers[i] >= 2) continue;
+                        StationMeshLodIndices.ApplyCombined(mesh, source, lastTiers);
+                        break;
+                    }
+                }
+                return mesh;
+            }
+
+            var indices = new List<int>();
+            mesh.GetTriangles(indices, 0);
+            var offsets = new int[combines.Count + 1];
+            for (int i = 0; i < combines.Count; i++)
+                offsets[i + 1] = offsets[i] + (int)combines[i].mesh.GetIndexCount(combines[i].subMeshIndex);
+            var packed = new List<int>(indices.Count);
+            void Append(int slot) {
+                for (int i = offsets[slot]; i < offsets[slot + 1]; i++) packed.Add(indices[i]);
+            }
+            for (int i = 0; i < source.Count; i++)
+                if (!allowOmission || lastTiers[i] >= 1) Append(i);
+            int balancedCount = packed.Count;
+            for (int i = 0; i < source.Count; i++)
+                if (allowOmission && lastTiers[i] == 0) Append(i);
+            int fullCount = packed.Count;
+            for (int i = 0; i < source.Count; i++)
+                if (!allowOmission || lastTiers[i] >= 2) Append(lowSlots[i]);
+            StationMeshLodIndices.ApplyLowOverride(mesh, packed, fullCount, balancedCount);
+            return mesh;
         }
 
         void CompactConsistStaticBodies(string formationKey, IReadOnlyList<TrainCarView> carViews, List<Transform> gangways) {
@@ -789,21 +874,14 @@ namespace Metro.App.Views {
                     }
                 }
                 var builtParts = new List<StaticCombinedPart>(order.Count);
+                var library = LoadTrainLods();
                 for (int b = 0; b < order.Count; b++) {
                     var bucket = order[b];
                     if (bucket.Combines.Count == 0) continue;
                     var matName = bucket.Material != null ? bucket.Material.name : "mat";
-                    var combined = new Mesh {
-                        name = cacheKey + " [" + matName + "]",
-                        indexFormat = bucket.VertexCount > 65535
-                            ? UnityEngine.Rendering.IndexFormat.UInt32
-                            : UnityEngine.Rendering.IndexFormat.UInt16,
-                    };
-                    combined.CombineMeshes(bucket.Combines.ToArray(), mergeSubMeshes: true, useMatrices: true);
-                    combined.RecalculateBounds();
-                    if (bucket.Material.renderQueue < (int)UnityEngine.Rendering.RenderQueue.Transparent &&
-                        bucket.LastTiers.Exists(tier => tier < 2))
-                        StationMeshLodIndices.ApplyCombined(combined, bucket.Combines, bucket.LastTiers);
+                    var combined = CombineTrainTiers(cacheKey + " [" + matName + "]", bucket.Combines,
+                        bucket.LastTiers, bucket.VertexCount, library,
+                        allowOmission: bucket.Material.renderQueue < (int)UnityEngine.Rendering.RenderQueue.Transparent);
                     ownedMeshes.Add(combined);
                     builtParts.Add(new StaticCombinedPart(combined, bucket.Material, bucket.Shadow, matName));
                 }
@@ -1000,6 +1078,7 @@ namespace Metro.App.Views {
             var gangways = CollectGangways(instance);
             for (int i = 0; i < gangways.Count; i++) view.Gangways.Add(gangways[i]);
             CompactConsistStaticBodies(formationKey, view.CarViews, gangways);
+            ApplyUnbatchedLods(instance, staticBodyCache, staticBodyMeshes);
             var grid = StationLevelGrid.FromDocument(document.LevelBase, document.StoreyHeight);
             var bands = StationModuleLevels.Of(track.Facts, grid);
             int trackLevel = bands.Length > 0 ? bands[0] : StationModuleLevels.Band(grid, track.Z);

@@ -281,35 +281,37 @@ Explicitly retained procedural paths (same geometry across `LOD0`–`LOD2` to pr
 
 ## Train models (车辆)
 
-All 50 selectable formations (`A`/`B`/`C`/`D`/`L` × 2–8 cars × Third-rail / Catenary), measured after Unity runtime consist compaction (`TrainConsistViews.CompactConsistInstance`). Compacted car bodies drop decorative faces across `LOD1` and `LOD2` while retaining independent animated door leaves on their original meshes.
+All 50 selectable formations (`A`/`B`/`C`/`D`/`L` × 2, 3, 4, 6, or 8 cars × Third-rail / Catenary), measured after Unity runtime consist compaction (`TrainConsistViews.CompactConsistInstance`). Low uses baked geometry from the train exporter for car bodies, moving door leaves, gangways, and pantographs. The original door transforms, material slots, glass and signage stay in place. The compactor also omits selected small opaque details such as bolts, springs, straps, ring lights, and vents.
 
-| Train model | Third-rail LOD2 | Third-rail LOD1 | Third-rail LOD0 | Catenary LOD2 | Catenary LOD1 | Catenary LOD0 |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| A-2 | 244812 | 251292 | 263836 | 257836 | 264316 | 276860 |
-| A-3 | 314338 | 324058 | 342874 | 327362 | 337082 | 355898 |
-| A-4 | 383864 | 396824 | 421912 | 396888 | 409848 | 434936 |
-| A-6 | 522916 | 542356 | 579988 | 535940 | 555380 | 593012 |
-| A-8 | 661968 | 687888 | 738064 | 681504 | 707424 | 757600 |
-| B-2 | 227536 | 232720 | 245264 | 240560 | 245744 | 258288 |
-| B-3 | 287678 | 295454 | 314270 | 300702 | 308478 | 327294 |
-| B-4 | 347820 | 358188 | 383276 | 360844 | 371212 | 396300 |
-| B-6 | 468104 | 483656 | 521288 | 481128 | 496680 | 534312 |
-| B-8 | 588388 | 609124 | 659300 | 607924 | 628660 | 678836 |
-| C-2 | 241080 | 246000 | 258544 | 254104 | 259024 | 271568 |
-| C-3 | 302870 | 310250 | 329066 | 315894 | 323274 | 342090 |
-| C-4 | 364660 | 374500 | 399588 | 377684 | 387524 | 412612 |
-| C-6 | 488240 | 503000 | 540632 | 501264 | 516024 | 553656 |
-| C-8 | 611820 | 631500 | 681676 | 624844 | 644524 | 694700 |
-| D-2 | 401628 | 406284 | 418828 | 414732 | 419388 | 431932 |
-| D-3 | 541026 | 548274 | 567090 | 554130 | 561378 | 580194 |
-| D-4 | 680424 | 690264 | 715352 | 693528 | 703368 | 728456 |
-| D-6 | 959220 | 974244 | 1011876 | 972324 | 987348 | 1024980 |
-| D-8 | 1238016 | 1258224 | 1308400 | 1251120 | 1271328 | 1321504 |
-| L-2 | 210368 | 213992 | 226536 | 223392 | 227016 | 239560 |
-| L-3 | 263230 | 268666 | 287482 | 276254 | 281690 | 300506 |
-| L-4 | 316092 | 323340 | 348428 | 329116 | 336364 | 361452 |
-| L-6 | 421816 | 432688 | 470320 | 441352 | 452224 | 489856 |
-| L-8 | 527540 | 542036 | 592212 | 547076 | 561572 | 611748 |
+Low submits **55.1%–70.3% fewer triangles** than High per formation when the whole formation uses LOD2. The buffers carry the High and Low geometry together. These are triangle counts for the selected tier. The camera and graphics profile determine when the renderer selects each tier.
+
+| Train model | Third-rail LOD2 | Third-rail LOD1 | Third-rail LOD0 | Third-rail saved | Catenary LOD2 | Catenary LOD1 | Catenary LOD0 | Catenary saved |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| A-2 | 109201 | 251292 | 263836 | 58.6% (Pass) | 117949 | 264316 | 276860 | 57.4% (Pass) |
+| A-3 | 143162 | 324058 | 342874 | 58.2% (Pass) | 151910 | 337082 | 355898 | 57.3% (Pass) |
+| A-4 | 177123 | 396824 | 421912 | 58.0% (Pass) | 185871 | 409848 | 434936 | 57.3% (Pass) |
+| A-6 | 245045 | 542356 | 579988 | 57.7% (Pass) | 253793 | 555380 | 593012 | 57.2% (Pass) |
+| A-8 | 312967 | 687888 | 738064 | 57.6% (Pass) | 326089 | 707424 | 757600 | 57.0% (Pass) |
+| B-2 | 101628 | 232720 | 245264 | 58.6% (Pass) | 110376 | 245744 | 258288 | 57.3% (Pass) |
+| B-3 | 131505 | 295454 | 314270 | 58.2% (Pass) | 140253 | 308478 | 327294 | 57.1% (Pass) |
+| B-4 | 161382 | 358188 | 383276 | 57.9% (Pass) | 170130 | 371212 | 396300 | 57.1% (Pass) |
+| B-6 | 221136 | 483656 | 521288 | 57.6% (Pass) | 229884 | 496680 | 534312 | 57.0% (Pass) |
+| B-8 | 280890 | 609124 | 659300 | 57.4% (Pass) | 294012 | 628660 | 678836 | 56.7% (Pass) |
+| C-2 | 91273 | 246000 | 258544 | 64.7% (Pass) | 100021 | 259024 | 271568 | 63.2% (Pass) |
+| C-3 | 122798 | 310250 | 329066 | 62.7% (Pass) | 131546 | 323274 | 342090 | 61.5% (Pass) |
+| C-4 | 154323 | 374500 | 399588 | 61.4% (Pass) | 163071 | 387524 | 412612 | 60.5% (Pass) |
+| C-6 | 217373 | 503000 | 540632 | 59.8% (Pass) | 226121 | 516024 | 553656 | 59.2% (Pass) |
+| C-8 | 280423 | 631500 | 681676 | 58.9% (Pass) | 289171 | 644524 | 694700 | 58.4% (Pass) |
+| D-2 | 124356 | 406284 | 418828 | 70.3% (Pass) | 133184 | 419388 | 431932 | 69.2% (Pass) |
+| D-3 | 171814 | 548274 | 567090 | 69.7% (Pass) | 180642 | 561378 | 580194 | 68.9% (Pass) |
+| D-4 | 219272 | 690264 | 715352 | 69.3% (Pass) | 228100 | 703368 | 728456 | 68.7% (Pass) |
+| D-6 | 314188 | 974244 | 1011876 | 68.9% (Pass) | 323016 | 987348 | 1024980 | 68.5% (Pass) |
+| D-8 | 409104 | 1258224 | 1308400 | 68.7% (Pass) | 417932 | 1271328 | 1321504 | 68.4% (Pass) |
+| L-2 | 95056 | 213992 | 226536 | 58.0% (Pass) | 103804 | 227016 | 239560 | 56.7% (Pass) |
+| L-3 | 122775 | 268666 | 287482 | 57.3% (Pass) | 131523 | 281690 | 300506 | 56.2% (Pass) |
+| L-4 | 150494 | 323340 | 348428 | 56.8% (Pass) | 159242 | 336364 | 361452 | 55.9% (Pass) |
+| L-6 | 205932 | 432688 | 470320 | 56.2% (Pass) | 219054 | 452224 | 489856 | 55.3% (Pass) |
+| L-8 | 261370 | 542036 | 592212 | 55.9% (Pass) | 274492 | 561572 | 611748 | 55.1% (Pass) |
 
 ## Passenger models (乘客)
 

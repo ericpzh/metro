@@ -148,20 +148,32 @@ lines.push('| `construction-and-catalogue-previews` | Uses `LOD0` (Full) so prev
 lines.push('')
 
 // 3. Trains
+const saved = row => row ? pct(row.lod0 - row.lod2, row.lod0) : "—"
+const target = row => !row ? "Unmeasured" : row.lod2 * 2 <= row.lod0 ? "Pass" : "Miss"
+const trainSavings = inventory.trains
+  .filter(row => row.lod0 > 0)
+  .map(row => (row.lod0 - row.lod2) / row.lod0)
 lines.push('## Train models (车辆)')
 lines.push('')
 lines.push(
-  'All 50 selectable formations (`A`/`B`/`C`/`D`/`L` × 2–8 cars × Third-rail / Catenary), measured after Unity runtime consist compaction (`TrainConsistViews.CompactConsistInstance`). ' +
-  'Compacted car bodies drop decorative faces across `LOD1` and `LOD2` while retaining independent animated door leaves on their original meshes.',
+  'All 50 selectable formations (`A`/`B`/`C`/`D`/`L` × 2, 3, 4, 6, or 8 cars × Third-rail / Catenary), measured after Unity runtime consist compaction (`TrainConsistViews.CompactConsistInstance`). ' +
+  'Low uses baked geometry from the train exporter for car bodies, moving door leaves, gangways, and pantographs. The original door transforms, material slots, glass and signage stay in place. The compactor also omits selected small opaque details such as bolts, springs, straps, ring lights, and vents.',
 )
 lines.push('')
-lines.push('| Train model | Third-rail LOD2 | Third-rail LOD1 | Third-rail LOD0 | Catenary LOD2 | Catenary LOD1 | Catenary LOD0 |')
-lines.push('| --- | ---: | ---: | ---: | ---: | ---: | ---: |')
+if (trainSavings.length) {
+  lines.push(
+    `Low submits **${pct(Math.min(...trainSavings), 1)}–${pct(Math.max(...trainSavings), 1)} fewer triangles** than High per formation when the whole formation uses LOD2. ` +
+    'The buffers carry the High and Low geometry together. These are triangle counts for the selected tier. The camera and graphics profile determine when the renderer selects each tier.',
+  )
+  lines.push('')
+}
+lines.push('| Train model | Third-rail LOD2 | Third-rail LOD1 | Third-rail LOD0 | Third-rail saved | Catenary LOD2 | Catenary LOD1 | Catenary LOD0 | Catenary saved |')
+lines.push('| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |')
 for (const row of trainList) {
   const tr = row.thirdRail
   const cat = row.catenary
   lines.push(
-    `| ${row.id} | ${tr?.lod2 ?? '—'} | ${tr?.lod1 ?? '—'} | ${tr?.lod0 ?? '—'} | ${cat?.lod2 ?? '—'} | ${cat?.lod1 ?? '—'} | ${cat?.lod0 ?? '—'} |`,
+    `| ${row.id} | ${tr?.lod2 ?? '—'} | ${tr?.lod1 ?? '—'} | ${tr?.lod0 ?? '—'} | ${saved(tr)} (${target(tr)}) | ${cat?.lod2 ?? '—'} | ${cat?.lod1 ?? '—'} | ${cat?.lod0 ?? '—'} | ${saved(cat)} (${target(cat)}) |`,
   )
 }
 lines.push('')

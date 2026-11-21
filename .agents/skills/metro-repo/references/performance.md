@@ -2451,13 +2451,21 @@ with `node tools/unity-assets/export-passenger-library.mjs
 .preview/unity/passenger-lod-library --lod-meshes`. Runtime frame cost and
 packed build size require separate captures.
 
-The isolated train export with `--lod-meshes` validated 62 lower-detail GLBs
-for 31 parts alongside the 50 formation configurations. The Type C lead car
-export had 128,002, 66,510, and 59,228 triangles at LOD0, LOD1, and LOD2.
-The 62 preview GLBs total 138,717,064 bytes. Runtime train meshes currently
-use a narrower reduction during static body compaction that drops selected
-decorative indices and keeps the original door rig. The export counts apply
-to the staged GLBs.
+The train geometry bake covers all 50 promoted formations in Unity 6000.6.8f1.
+Generate the source parts with `node tools/unity-assets/export-formations.mjs
+.preview/unity/train-lod-catalogue --lod-meshes`, bake them in the live Editor
+with `metro bake_train_lods --export-path <absolute export directory>`, then
+run `metro model_lod_inventory`. The inventory instantiates every promoted
+prefab and runs the production compactor before counting its triangle ranges.
+All 50 formations meet the 50% budget. Full-formation LOD2 reduces triangles
+by 55.1% to 70.3%, compared with 4.0% to 10.9% before the geometry bake.
+The L eight-car overhead formation drops from 611,748 to 274,492 triangles.
+The Zoo Line 5 formation drops from 470,320 to 205,932. The D two-car
+third-rail formation drops from 418,828 to 124,356. High and Balanced counts
+match the previous inventory for all 50 formations. The bake adds a shared
+mesh asset of about 12.8 MiB on disk. These counts measure the available
+mesh ranges. Camera-dependent submission, player memory use, and frame time
+for the new train bake require separate measurements.
 
 The station model audit reported 153 baked keys, five generated reductions,
 and 17 explicit reuse policies across the 175 resolved keys. The strict

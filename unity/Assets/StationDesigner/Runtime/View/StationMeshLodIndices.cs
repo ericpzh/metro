@@ -53,6 +53,14 @@ namespace Metro.View {
             });
         }
 
+        public static void ApplyLowOverride(Mesh mesh, List<int> indices, int fullCount, int reducedCount) {
+            SetRanges(mesh, indices, new[] {
+                new MeshLodRange(0, (uint)fullCount),
+                new MeshLodRange(0, (uint)reducedCount),
+                new MeshLodRange((uint)fullCount, (uint)(indices.Count - fullCount)),
+            });
+        }
+
         public static void Apply(Mesh mesh, List<int> full, List<int> reduced, List<int> simplified) {
             var packed = new List<int>(full.Count + reduced.Count + simplified.Count);
             packed.AddRange(full);

@@ -492,7 +492,7 @@ async function exportPart(mats, spec, context, out) {
   const options = { binary: true }
   if (clips.length) options.animations = clips
   const bytes = new Uint8Array(await new GLTFExporter().parseAsync(root, options))
-  const lodAssets = EXPORT_LODS ? await exportPartLods(root, group, spec.file, out) : null
+  const lodAssets = EXPORT_LODS ? await exportPartLods(root, group, spec.file, out, options) : null
   const report = await validator.validateBytes(bytes, { uri: spec.file })
   const reportName = spec.file.replace(/\.glb$/, '.validation.json')
   await writeFile(join(out, reportName), JSON.stringify(report, null, 2) + '\n')
@@ -551,7 +551,7 @@ async function exportPart(mats, spec, context, out) {
   return manifest
 }
 
-async function exportPartLods(root, group, file, out) {
+async function exportPartLods(root, group, file, out, options) {
   await MeshoptSimplifier.ready
   const details = []
   const generated = []
@@ -561,9 +561,9 @@ async function exportPartLods(root, group, file, out) {
     const full = mesh.geometry
     const authored = modelDetailGeometry(mesh)
     const canSimplify = !Array.isArray(mesh.material) && !mesh.material.transparent &&
-      !mesh.material.map && full.groups.length <= 1 && trainTriangles(full) >= 96
+      !mesh.material.map && full.groups.length <= 1 && trainTriangles(full) >= 48
     const reduced = canSimplify ? simplifyTrainGeometry(full, .6, generated) : null
-    const simplified = canSimplify ? simplifyTrainGeometry(full, .28, generated) : null
+    const simplified = canSimplify ? simplifyTrainGeometry(full, .20, generated, true) : null
     const low = authored && trainTriangles(authored) < trainTriangles(full) ? authored : simplified
     const mid = trainTriangles(full) >= 256 && low && trainTriangles(low) > 0 &&
       trainTriangles(low) < trainTriangles(reduced ?? full) ? low : reduced ?? full
@@ -575,7 +575,7 @@ async function exportPartLods(root, group, file, out) {
         mesh.geometry = level === 2 && trainTriangles(low) <= trainTriangles(reduced) ? low : reduced
       }
       const name = file.replace(/\.glb$/, `-lod${level}.glb`)
-      const bytes = new Uint8Array(await new GLTFExporter().parseAsync(root, { binary: true }))
+      const bytes = new Uint8Array(await new GLTFExporter().parseAsync(root, options))
       const report = await validator.validateBytes(bytes, { uri: name })
       assert.equal(report.issues.numErrors + report.issues.numWarnings, 0, name)
       await writeFile(join(out, name), bytes)
@@ -594,18 +594,30 @@ async function exportPartLods(root, group, file, out) {
 
 const trainTriangles = geometry => (geometry.index?.count ?? geometry.getAttribute('position').count) / 3
 
-function simplifyTrainGeometry(full, ratio, generated) {
+function simplifyTrainGeometry(full, ratio, generated, coarse = false) {
   const indexed = full.index ? full : mergeVertices(full)
   const position = indexed.getAttribute('position')
   if (indexed !== full) generated.push(indexed)
   if (position.itemSize !== 3 || position.isInterleavedBufferAttribute) return null
   const indices = Uint32Array.from(indexed.index.array)
   const target = Math.floor(indices.length * ratio / 3) * 3
-  const [reduced] = MeshoptSimplifier.simplify(indices, Float32Array.from(position.array), 3, target, .012, ['LockBorder'])
+  const positions = Float32Array.from(position.array)
+  const [reduced] = MeshoptSimplifier.simplify(indices, positions, 3, target, coarse ? .025 : .012,
+    coarse ? ['Permissive'] : ['LockBorder'])
   if (reduced.length >= indices.length || reduced.length === 0) return null
-  const geometry = indexed.clone()
+  const [remap, vertexCount] = MeshoptSimplifier.compactMesh(reduced)
+  const geometry = new THREE.BufferGeometry()
+  for (const [name, attribute] of Object.entries(indexed.attributes)) {
+    const { array, itemSize, normalized } = attribute
+    const compact = new array.constructor(vertexCount * itemSize)
+    for (let vertex = 0; vertex < remap.length; vertex++) {
+      if (remap[vertex] >= vertexCount) continue
+      compact.set(array.subarray(vertex * itemSize, (vertex + 1) * itemSize), remap[vertex] * itemSize)
+    }
+    geometry.setAttribute(name, new THREE.BufferAttribute(compact, itemSize, normalized))
+  }
   geometry.setIndex(new THREE.Uint32BufferAttribute(reduced, 1))
-  if (geometry.groups.length === 1) geometry.groups[0].count = reduced.length
+  if (indexed.groups.length === 1) geometry.addGroup(0, reduced.length, indexed.groups[0].materialIndex)
   generated.push(geometry)
   return geometry
 }
