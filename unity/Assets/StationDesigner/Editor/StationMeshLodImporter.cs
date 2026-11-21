@@ -34,6 +34,19 @@ namespace Metro.Editor {
             AuditRigidCoverage();
         }
 
+        [CliGroupCommand("metro", "Bake one generated rigid prefab's model LOD sidecar.",
+            Effect = CommandEffect.Destructive, Tags = new[] { "assets" })]
+        internal static ExitCode BakeRigidModelLod(
+            CommandContext cmd, [CliArg("prefab", "Generated prefab name without extension.")] string prefabName) {
+            var path = RuntimePrefabPaths().FirstOrDefault(candidate =>
+                Path.GetFileNameWithoutExtension(candidate) == prefabName);
+            if (path == null)
+                throw new System.ArgumentException("Unknown generated rigid prefab: " + prefabName, nameof(prefabName));
+            BakeRigidPrefab(AssetDatabase.LoadAssetAtPath<GameObject>(path));
+            cmd.Log.Info("Baked model LODs for " + prefabName);
+            return ExitCode.Success;
+        }
+
         static IEnumerable<string> RuntimePrefabPaths() => AssetDatabase.GetAllAssetPaths()
             .Where(path => path.StartsWith(RuntimePrefabs, System.StringComparison.Ordinal) &&
                            path.EndsWith(".prefab") &&
@@ -103,7 +116,7 @@ namespace Metro.Editor {
                     Enumerable.Range(0, source.subMeshCount).All(sub => source.GetTopology(sub) == MeshTopology.Triangles)) {
                     var baked = Object.Instantiate(source);
                     baked.name = source.name;
-                    MeshLodUtility.GenerateMeshLods(baked, 2);
+                    GenerateBudgetedMeshLods(baked);
                     if (baked.lodCount <= 1) {
                         entry.ReuseReason = "Unity produced no simpler index buffer.";
                         Object.DestroyImmediate(baked);
@@ -131,6 +144,24 @@ namespace Metro.Editor {
                 if (entry.Baked != null && !entries.Any(row => row.Baked == entry.Baked))
                     Object.DestroyImmediate(entry.Baked, allowDestroyingAssets: true);
             AssetDatabase.SaveAssetIfDirty(library);
+        }
+
+        static void GenerateBudgetedMeshLods(Mesh mesh) {
+            MeshLodUtility.GenerateMeshLods(mesh, 4);
+            if (mesh.lodCount < 3) return;
+
+            int low = mesh.lodCount - 1;
+
+            // The first two ranges keep the existing High and Balanced geometry.
+            // Read every submesh before changing the mesh-wide tier count.
+            var tiers = new MeshLodRange[mesh.subMeshCount][];
+            for (int sub = 0; sub < tiers.Length; sub++) {
+                var ranges = mesh.GetLods(sub);
+                tiers[sub] = new[] { ranges[0], ranges[1], ranges[low] };
+            }
+            mesh.lodCount = 3;
+            for (int sub = 0; sub < tiers.Length; sub++)
+                mesh.SetLods(tiers[sub], sub);
         }
 
         [CliGroupCommand("metro",
@@ -286,7 +317,7 @@ namespace Metro.Editor {
                                     ["name"] = "booth-" + kind + " (3×3 m)",
                                     ["type"] = "booth",
                                     ["lod0"] = l0, ["lod1"] = l1, ["lod2"] = l2,
-                                    ["note"] = "Counter body/glazing/fascia retained; trim and kick rails drop at LOD1/LOD2",
+                                    ["note"] = "Low retains the counter, fascia and glazing; small fittings, posts and recess trim are omitted",
                                 });
                             }
                         } finally {

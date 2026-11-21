@@ -1,13 +1,14 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 
+const strict = process.argv.slice(2).includes('--strict')
 const [
   inventoryPath = '.preview/unity/model-lod-inventory.json',
   coveragePath = '.preview/unity/model-lod-coverage.json',
   passengerManifestPath = 'unity/Assets/StationDesigner/Generated/Passengers/passenger-library.manifest.json',
   passengerLodsPath = '.preview/unity/passenger-lod-library/passenger-lods.json',
   outputPath = '.agents/skills/metro-repo/references/unity-model-lod-inventory.md',
-] = process.argv.slice(2)
+] = process.argv.slice(2).filter(arg => arg !== '--strict')
 
 const inventory = JSON.parse(readFileSync(resolve(inventoryPath), 'utf8'))
 const coverage = existsSync(resolve(coveragePath))
@@ -15,6 +16,18 @@ const coverage = existsSync(resolve(coveragePath))
   : null
 
 const pct = (low, high) => high > 0 ? `${((low / high) * 100).toFixed(1)}%` : '—'
+const saved = row => row ? pct(row.lod0 - row.lod2, row.lod0) : '—'
+const target = row => {
+  if (!row || !Number.isInteger(row.lod0) || !Number.isInteger(row.lod2) ||
+      row.lod0 < 0 || row.lod2 < 0 || row.lod2 > row.lod0) return 'Unmeasured'
+  if (row.lod0 === 0 || (row.lod0 === 2 && row.lod2 === 2)) return 'Exception'
+  return row.lod2 * 2 <= row.lod0 ? 'Pass' : 'Miss'
+}
+const targetCounts = rows => {
+  const counts = { Pass: 0, Miss: 0, Exception: 0, Unmeasured: 0 }
+  for (const row of rows) counts[target(row)] += row?.count ?? 1
+  return counts
+}
 
 // Map prefabPath -> runtime keys from model-lod-coverage.json
 const keysByPrefab = new Map()
@@ -66,8 +79,8 @@ if (existsSync(resolve(passengerManifestPath)) && existsSync(resolve(passengerLo
   for (const asset of pm.assets) {
     const lods = byRecipe.get(asset.id)
     const lod0 = asset.triangles
-    const lod1 = lods?.lod1 ?? lod0
-    const lod2 = lods?.lod2 ?? asset.low?.triangles ?? lod0
+    const lod1 = lods?.lod1
+    const lod2 = lods?.lod2
     const key = `${lod0}/${lod1}/${lod2}`
     const g = groups.get(key) ?? { count: 0, lod0, lod1, lod2 }
     g.count++
@@ -94,11 +107,29 @@ lines.push(
   `**${inventory.publicPassengers.length} public stand-in passenger assets**, and **${passengerTotal} local soft-human passenger variants**.`,
 )
 lines.push('')
+lines.push('## Low triangle target')
+lines.push('')
+lines.push('Low targets at least 50% fewer triangles than High for every model. A pass requires LOD2 × 2 ≤ LOD0 before rounding. Zero-triangle geometry and unchanged two-triangle quads are exceptions. The retained paths listed below have explicit geometry-preservation exceptions.')
+lines.push('')
+lines.push('| Model family | Pass | Miss | Exception | Unmeasured |')
+lines.push('| --- | ---: | ---: | ---: | ---: |')
+const targetFamilies = [
+  ['Rigid prefabs', targetCounts(rigidSorted)],
+  ['Procedural probes', targetCounts(inventory.generatedModules)],
+  ['Train formations', targetCounts(inventory.trains)],
+  ['Public stand-in passengers', targetCounts(inventory.publicPassengers)],
+  ['Review-only passengers', targetCounts(passengerGroups)],
+]
+for (const [label, counts] of targetFamilies) {
+  lines.push(`| ${label} | ${counts.Pass} | ${counts.Miss} | ${counts.Exception} | ${counts.Unmeasured} |`)
+}
+lines.push('')
 lines.push('Regenerate from the open Unity Editor with:')
 lines.push('```powershell')
 lines.push('unity --no-banner --no-pager --format json command --project-path "$PWD/unity" --timeout 180 metro model_lod_inventory')
 lines.push('node tools/unity-assets/write-model-lod-inventory.mjs')
 lines.push('```')
+lines.push('Pass `--strict` to exit with an error when an inventoried shipped model misses the target or lacks valid triangle counts.')
 lines.push('')
 
 // 1. Rigid prefabs
@@ -106,17 +137,17 @@ lines.push('## Rigid prefabs (equipment, decor & structures)')
 lines.push('')
 lines.push(
   'Every runtime rigid prefab under `unity/Assets/StationDesigner/Generated/Prefabs/` with its resolved `StationRigidModelLods` sidecar (`Resources/ModelLods/Rigid/<Prefab>.asset`), summed across all `MeshFilter` instances in the prefab and sorted descending by `LOD0` triangles. ' +
-  'Meshes where Unity `MeshLodUtility.GenerateMeshLods(mesh, 2)` could not simplify further (or that use non-triangle topology such as court net lines) reuse `LOD0` across tiers.',
+  'Native Mesh LOD baking tries deeper simplification levels to approach the Low triangle budget. Geometry that Unity cannot simplify and non-triangle topology such as court net lines retain their source geometry.',
 )
 lines.push('')
-lines.push('| Prefab | Runtime keys | 3-tier meshes | LOD2 (Low) | LOD1 (Balanced) | LOD0 (High) | Low / High |')
-lines.push('| --- | --- | ---: | ---: | ---: | ---: | ---: |')
+lines.push('| Prefab | Runtime keys | 3-tier meshes | LOD2 (Low) | LOD1 (Balanced) | LOD0 (High) | Low / High | Target |')
+lines.push('| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |')
 for (const r of rigidSorted) {
   const keys = keysByPrefab.get(r.prefab)
   const keyText = keys && keys.length > 0 ? keys.join(', ') : '—'
   const suffix = r.nonTriangleSubmeshes > 0 ? ` (+${r.nonTriangleSubmeshes} line)` : ''
   lines.push(
-    `| \`${r.name}\` | ${keyText} | ${r.threeTiers} / ${r.distinctMeshes} | ${r.lod2} | ${r.lod1} | ${r.lod0}${suffix} | ${pct(r.lod2, r.lod0)} |`,
+    `| \`${r.name}\` | ${keyText} | ${r.threeTiers} / ${r.distinctMeshes} | ${r.lod2} | ${r.lod1} | ${r.lod0}${suffix} | ${pct(r.lod2, r.lod0)} | ${target(r)} |`,
   )
 }
 lines.push('')
@@ -126,10 +157,10 @@ lines.push('## Generated & retained procedural modules')
 lines.push('')
 lines.push('Procedural C# builders that emit native 3-tier index ranges via `StationMeshLodIndices`:')
 lines.push('')
-lines.push('| Procedural model | LOD2 (Low) | LOD1 (Balanced) | LOD0 (High) | Low / High | Policy |')
-lines.push('| --- | ---: | ---: | ---: | ---: | --- |')
+lines.push('| Procedural model | LOD2 (Low) | LOD1 (Balanced) | LOD0 (High) | Low / High | Target | Policy |')
+lines.push('| --- | ---: | ---: | ---: | ---: | --- | --- |')
 for (const g of inventory.generatedModules) {
-  lines.push(`| ${g.name} | ${g.lod2} | ${g.lod1} | ${g.lod0} | ${pct(g.lod2, g.lod0)} | ${g.note} |`)
+  lines.push(`| ${g.name} | ${g.lod2} | ${g.lod1} | ${g.lod0} | ${pct(g.lod2, g.lod0)} | ${target(g)} | ${g.note} |`)
 }
 lines.push('')
 lines.push('Explicitly retained procedural paths (same geometry across `LOD0`–`LOD2` to preserve motion, walk-contact, cutaway, or pick fidelity):')
@@ -148,8 +179,6 @@ lines.push('| `construction-and-catalogue-previews` | Uses `LOD0` (Full) so prev
 lines.push('')
 
 // 3. Trains
-const saved = row => row ? pct(row.lod0 - row.lod2, row.lod0) : "—"
-const target = row => !row ? "Unmeasured" : row.lod2 * 2 <= row.lod0 ? "Pass" : "Miss"
 const trainSavings = inventory.trains
   .filter(row => row.lod0 > 0)
   .map(row => (row.lod0 - row.lod2) / row.lod0)
@@ -183,10 +212,10 @@ lines.push('## Passenger models (乘客)')
 lines.push('')
 lines.push('### Public stand-in passenger assets')
 lines.push('')
-lines.push('| Asset | Meshes | LOD2 (Low) | LOD1 (Balanced) | LOD0 (High) |')
-lines.push('| --- | ---: | ---: | ---: | ---: |')
+lines.push('| Asset | Meshes | LOD2 (Low) | LOD1 (Balanced) | LOD0 (High) | Target |')
+lines.push('| --- | ---: | ---: | ---: | ---: | --- |')
 for (const p of inventory.publicPassengers) {
-  lines.push(`| \`${p.name}\` | ${p.meshes} | ${p.lod2} | ${p.lod1} | ${p.lod0} |`)
+  lines.push(`| \`${p.name}\` | ${p.meshes} | ${p.lod2} | ${p.lod1} | ${p.lod0} | ${target(p)} |`)
 }
 lines.push('')
 if (passengerGroups.length > 0) {
@@ -197,10 +226,11 @@ if (passengerGroups.length > 0) {
     'Source counts come from `passenger-library.manifest.json` (`LOD0`) and `.preview/unity/passenger-lod-library/passenger-lods.json` (`LOD1`, `LOD2`).',
   )
   lines.push('')
-  lines.push('| Variants | LOD2 (Low) | LOD1 (Balanced) | LOD0 (High) | Low / High |')
-  lines.push('| ---: | ---: | ---: | ---: | ---: |')
+  lines.push('| Variants | LOD2 (Low) | LOD1 (Balanced) | LOD0 (High) | Low / High | Target |')
+  lines.push('| ---: | ---: | ---: | ---: | ---: | --- |')
   for (const g of passengerGroups) {
-    lines.push(`| ${g.count} | ${g.lod2} | ${g.lod1} | ${g.lod0} | ${pct(g.lod2, g.lod0)} |`)
+    const ratio = g.lod2 === undefined ? '—' : pct(g.lod2, g.lod0)
+    lines.push(`| ${g.count} | ${g.lod2 ?? '—'} | ${g.lod1 ?? '—'} | ${g.lod0} | ${ratio} | ${target(g)} |`)
   }
   lines.push('')
 }
@@ -216,4 +246,9 @@ console.log(JSON.stringify({
   trainFormations: inventory.trains.length,
   passengerGroups: passengerGroups.length,
   passengerTotal,
+  lowTarget: Object.fromEntries(targetFamilies),
 }))
+if (strict && targetFamilies.slice(0, -1).some(([, counts]) => counts.Miss || counts.Unmeasured)) {
+  console.error('The shipped model inventory misses the Low triangle target.')
+  process.exitCode = 1
+}

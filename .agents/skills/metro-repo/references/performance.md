@@ -2475,6 +2475,23 @@ triangle table (236 rigid prefabs, procedural LOD probes, 50 runtime
 compacted train formations, and passenger assets) lives in the sister file
 [unity-model-lod-inventory.md](unity-model-lod-inventory.md).
 
+The Low geometry budget is half of High's triangle count per model. In
+Unity 6000.6.8f1, a focused rebake of 25 rigid misses that already had mesh
+LODs tried four native reduction levels and kept the deepest range for
+LOD2. Fourteen prefabs used fewer Low triangles and eight newly met the
+target, with identical High and Balanced triangle counts. ShelfWire changed
+from 3,356 to 2,716 Low triangles against 6,524 at High. The rigid inventory
+went from 53 to 61 passes out of 236 prefabs. These are geometry counts.
+Reproduce with `metro bake_rigid_model_lod --prefab ShelfWire` and
+`metro model_lod_inventory` in the live Editor, then run
+`node tools/unity-assets/write-model-lod-inventory.mjs --strict`.
+
+The same live Editor inventory measured the 3 × 3 m procedural ticket booth
+at 396 High and 192 Low triangles (51.5% saved) and the information booth at
+384 High and 144 Low (62.5% saved). Low preserves the counter, fascia and
+glazing, and omits the small fittings, posts and trim. The owning EditMode
+fixture asserts the budget on both booth types at 2 × 4 m.
+
 In the WebGL Release Zoo build, the `model-detail` browser case changed the
 profile from High to Low, kept document revision 1, and read Low again after
 reload. The separate `model-detail-render` case waited for visible station

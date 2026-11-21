@@ -104,19 +104,19 @@ namespace Metro.App.Views {
                 if (info) {
                     // Underside light and the burgundy seam follow the suspended frame.
                     foreach (float x in new[] { -w * .5f + .09f, w * .5f - .09f }) {
-                        Box(x, 0f, HeaderBottom + .015f, .18f, h, .03f, White);
+                        Box(x, 0f, HeaderBottom + .015f, .18f, h, .03f, White, lastTier: 1);
                         Box(x, 0f, HeaderBottom + .0375f, .18f, h, .015f, Red, lastTier: 0);
                     }
                     foreach (float planY in new[] { -h * .5f + .098f, h * .5f - .098f }) {
-                        Box(mid, planY, HeaderBottom + .015f, w - .36f, .18f, .03f, White);
+                        Box(mid, planY, HeaderBottom + .015f, w - .36f, .18f, .03f, White, lastTier: 1);
                         Box(mid, planY, HeaderBottom + .0375f, w - .36f, .18f, .015f, Red, lastTier: 0);
                     }
                     foreach (float planY in new[] { -h * .5f + .1f, h * .5f - .1f })
-                        Box(mid, planY, HeaderBottom - .015f, w - .36f, .12f, .03f, White);
+                        Box(mid, planY, HeaderBottom - .015f, w - .36f, .12f, .03f, White, lastTier: 1);
                     foreach (float x in new[] { -w * .5f + .1f, w * .5f - .1f })
-                        Box(x, 0f, HeaderBottom - .015f, .12f, h - .36f, .03f, White);
+                        Box(x, 0f, HeaderBottom - .015f, .12f, h - .36f, .03f, White, lastTier: 1);
                 } else {
-                    Glaze((x, y, z, sx, sy, sz, colour) => Box(x, y, z, sx, sy, sz, colour), w, h, top, cap, mid);
+                    Glaze(Box, w, h, top, cap, mid);
                 }
                 // Counter fittings. A stocked record's staff seats stay separate modules.
                 float[] screens = info
@@ -124,10 +124,10 @@ namespace Metro.App.Views {
                     : new[] { a + run * .2f, b - run * .2f };
                 float screenY = -h * .5f + inset * .67f;
                 foreach (float x in screens) {
-                    Box(x, screenY, top + cap + .025f, .28f, .18f, .035f, Dark);
-                    Box(x, screenY, top + cap + .10f, .035f, .04f, .15f, Dark);
-                    Box(x, screenY, top + cap + .23f, .34f, .045f, .23f, Dark);
-                    Box(x, screenY - .024f, top + cap + .23f, .30f, .01f, .19f, Line);
+                    Box(x, screenY, top + cap + .025f, .28f, .18f, .035f, Dark, lastTier: 1);
+                    Box(x, screenY, top + cap + .10f, .035f, .04f, .15f, Dark, lastTier: 1);
+                    Box(x, screenY, top + cap + .23f, .34f, .045f, .23f, Dark, lastTier: 1);
+                    Box(x, screenY - .024f, top + cap + .23f, .30f, .01f, .19f, Line, lastTier: 1);
                 }
                 view = kit.Finish(string.IsNullOrEmpty(module.Id) ? "booth" : module.Id);
             } catch (Exception error) {
@@ -139,7 +139,7 @@ namespace Metro.App.Views {
             return true;
         }
 
-        static void Glaze(Action<float, float, float, float, float, float, int> box,
+        static void Glaze(Action<float, float, float, float, float, float, int, int> box,
             float w, float h, float top, float cap, float mid) {
             const float post = .08f;
             float glassBottom = top + cap;
@@ -148,18 +148,18 @@ namespace Metro.App.Views {
             float glassMid = (glassBottom + glassTop) * .5f;
             foreach (float x in new[] { -w * .5f + post * .5f, w * .5f - post * .5f }) {
                 foreach (float planY in new[] { -h * .5f + post * .5f, h * .5f - post * .5f })
-                    box(x, planY, glassMid, post, post, glassHeight, Dark);
-                box(x, 0f, glassMid, .025f, h - 2 * post, glassHeight, Glass);
+                    box(x, planY, glassMid, post, post, glassHeight, Dark, 1);
+                box(x, 0f, glassMid, .025f, h - 2 * post, glassHeight, Glass, 2);
             }
-            box(mid, h * .5f - .04f, glassMid, w - 2 * post, .025f, glassHeight, Glass);
+            box(mid, h * .5f - .04f, glassMid, w - 2 * post, .025f, glassHeight, Glass, 2);
             int bays = Mathf.Max(1, Mathf.FloorToInt((w - .16f) / 1.6f));
             float bayWidth = (w - 2 * post) / bays;
             for (int i = 0; i < bays; i++) {
                 float x = -w * .5f + post + bayWidth * (i + .5f);
                 float sill = glassBottom + .16f;
-                box(x, -h * .5f + .04f, (sill + glassTop) * .5f, bayWidth - .03f, .025f, glassTop - sill, Glass);
-                box(x, -h * .5f + .04f, sill, bayWidth - .03f, .045f, .035f, Steel);
-                if (i > 0) box(x - bayWidth * .5f, -h * .5f + .04f, glassMid, .03f, .06f, glassHeight, Dark);
+                box(x, -h * .5f + .04f, (sill + glassTop) * .5f, bayWidth - .03f, .025f, glassTop - sill, Glass, 2);
+                box(x, -h * .5f + .04f, sill, bayWidth - .03f, .045f, .035f, Steel, 1);
+                if (i > 0) box(x - bayWidth * .5f, -h * .5f + .04f, glassMid, .03f, .06f, glassHeight, Dark, 1);
             }
         }
 

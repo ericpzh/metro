@@ -74,7 +74,7 @@ namespace Metro.Tests {
 
         [TestCase("ticket")]
         [TestCase("info")]
-        public void LowerTiersKeepTheBoothAndRemoveOnlySmallTrim(string kind) {
+        public void LowKeepsTheBoothWithinHalfTheHighTriangleCount(string kind) {
             Assert.IsTrue(BoothModuleViews.TryBuild(Booth(2, 4, kind: kind), root.transform, materials, out var view, out var note), note);
             uint full = 0, simplified = 0;
             foreach (var filter in view.GetComponentsInChildren<MeshFilter>(true)) {
@@ -83,7 +83,7 @@ namespace Metro.Tests {
                 simplified += mesh.GetIndexCount(0, mesh.lodCount - 1);
             }
             Assert.That(simplified, Is.GreaterThan(0));
-            Assert.That(simplified, Is.LessThan(full));
+            Assert.That(simplified * 2, Is.LessThanOrEqualTo(full));
         }
 
         [Test]
