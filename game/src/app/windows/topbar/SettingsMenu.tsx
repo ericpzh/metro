@@ -17,18 +17,26 @@ import { reportIssueHrefFor } from '../../reportIssueRoute.ts'
 import { useStationHost, type ModelDetailProfile, type StationHost } from '../StationHost.tsx'
 
 const upscalingModes = ['native', 'ultra', 'quality', 'balanced', 'performance'] as const
+const modelDetailProfiles: readonly ModelDetailProfile[] = ['high', 'balanced', 'low']
 
 function ModelDetailSetting({ readOrSet }: { readOrSet: NonNullable<StationHost['modelDetail']> }): React.ReactElement {
   const [profile, setProfile] = useState<ModelDetailProfile>()
   const [requested, setRequested] = useState<ModelDetailProfile>()
   const [failed, setFailed] = useState(false)
+  const applied = useRef<ModelDetailProfile | undefined>(undefined)
+  const latest = useRef<ModelDetailProfile | undefined>(undefined)
   const queued = useRef<ModelDetailProfile | undefined>(undefined)
   const sending = useRef(false)
   const language = useLanguage()
   const chinese = language === 'zh-CN'
   useEffect(() => {
     let active = true
-    void readOrSet().then(value => { if (active) setProfile(value) }, () => { if (active) setFailed(true) })
+    void readOrSet().then(value => {
+      if (!active) return
+      applied.current = value
+      if (latest.current === undefined) latest.current = value
+      setProfile(value)
+    }, () => { if (active) setFailed(true) })
     return () => { active = false }
   }, [readOrSet])
 
@@ -42,8 +50,16 @@ function ModelDetailSetting({ readOrSet }: { readOrSet: NonNullable<StationHost[
       while (queued.current !== undefined) {
         const next = queued.current
         queued.current = undefined
-        try { setProfile(await readOrSet(next)); setFailed(false) }
-        catch { setFailed(true) }
+        try {
+          const result = await readOrSet(next)
+          applied.current = result
+          if (queued.current === undefined) latest.current = result
+          setProfile(result)
+          setFailed(false)
+        } catch {
+          if (queued.current === undefined) latest.current = applied.current
+          setFailed(true)
+        }
       }
     } finally {
       sending.current = false
@@ -51,19 +67,38 @@ function ModelDetailSetting({ readOrSet }: { readOrSet: NonNullable<StationHost[
     }
   }
 
-  return <label className="settingsToggle">
+  function cycle(): void {
+    const base = latest.current ?? requested ?? profile
+    const next = base
+      ? modelDetailProfiles[(modelDetailProfiles.indexOf(base) + 1) % modelDetailProfiles.length]
+      : modelDetailProfiles[0]
+    latest.current = next
+    void change(next)
+  }
+
+  const current = requested ?? profile
+  const label = chinese ? '模型细节' : 'Model detail'
+  const profileLabel = current === 'high' ? (chinese ? '高' : 'High')
+    : current === 'balanced' ? (chinese ? '均衡' : 'Balanced')
+    : current === 'low' ? (chinese ? '低' : 'Low')
+    : '…'
+  const statusLabel = failed ? (chinese ? '不可用' : 'Unavailable') : profileLabel
+
+  return <button
+    type="button"
+    className={`settingsToggle ${current !== undefined && current !== 'low' ? 'on' : ''}`}
+    data-setting="model-detail"
+    data-profile={current ?? ''}
+    aria-busy={requested !== undefined}
+    aria-label={current ? `${label}: ${profileLabel}` : label}
+    title={failed ? (chinese ? '无法应用设置' : 'Setting unavailable') : label}
+    disabled={profile === undefined && !failed && requested === undefined}
+    onClick={cycle}
+  >
     <PiHighDefinition aria-hidden="true"/>
-    <span>{chinese ? '模型细节' : 'Model detail'}</span>
-    <select value={requested ?? profile ?? ''} aria-busy={requested !== undefined}
-      disabled={profile === undefined && !failed && requested === undefined}
-      onChange={event => { void change(event.target.value as ModelDetailProfile) }}>
-      {profile === undefined && <option value="" disabled>…</option>}
-      <option value="high">{chinese ? '高' : 'High'}</option>
-      <option value="balanced">{chinese ? '均衡' : 'Balanced'}</option>
-      <option value="low">{chinese ? '低' : 'Low'}</option>
-    </select>
-    {failed && <span role="status">{chinese ? '无法应用设置' : 'Setting unavailable'}</span>}
-  </label>
+    <span>{label}</span>
+    <strong>{statusLabel}</strong>
+  </button>
 }
 
 export function SettingsMenu(): React.ReactElement {

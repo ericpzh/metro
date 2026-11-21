@@ -2438,7 +2438,10 @@ to the staged GLBs.
 The station model audit reported 153 baked keys, five generated reductions,
 and 17 explicit reuse policies across the 175 resolved keys. The strict
 coverage report records the reason for each reuse. It does not measure
-profile-dependent render cost.
+profile-dependent render cost. The full per-model Unity LOD0/LOD1/LOD2
+triangle table (236 rigid prefabs, procedural LOD probes, 50 runtime
+compacted train formations, and passenger assets) lives in the sister file
+[unity-model-lod-inventory.md](unity-model-lod-inventory.md).
 
 In the WebGL Release Zoo build, the `model-detail` browser case changed the
 profile from High to Low, kept document revision 1, and read Low again after

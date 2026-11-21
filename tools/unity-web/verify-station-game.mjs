@@ -436,29 +436,28 @@ async function runViewToolsCase() {
 
 async function runModelDetailCase() {
   const record = caseStart('model-detail')
-  const select = "document.querySelector('details.settingsMenu select')"
+  const button = "document.querySelector('details.settingsMenu button[data-setting=\"model-detail\"]')"
   const open = async () => {
     await page.evaluate("document.querySelector('details.settingsMenu').open = true")
-    await poll(`${select} && ${select}.value !== ''`, 'model detail menu loaded')
+    await poll(`${button} && ${button}.dataset.profile !== ''`, 'model detail menu loaded')
   }
   await open()
   const localizedLabel = await page.evaluate(`(() => {
-    const label = ${select}.closest('label')?.querySelector('span')?.textContent
+    const label = ${button}.querySelector('span')?.textContent
     const expected = document.documentElement.lang.startsWith('zh') ? '模型细节' : 'Model detail'
     return { label, expected }
   })()`)
-  const options = await page.evaluate(`Array.from(${select}.options, option => option.value)`)
-  const original = await page.evaluate(`${select}.value`)
-  const target = original === 'low' ? 'balanced' : 'low'
+  const hasSelect = await page.evaluate("Boolean(document.querySelector('details.settingsMenu select'))")
+  const original = await page.evaluate(`${button}.dataset.profile`)
+  const order = ['high', 'balanced', 'low']
+  const target = order[(order.indexOf(original) + 2) % order.length]
   const { revision, sourceId } = await currentSnapshot()
   await page.evaluate(`(() => {
-    const select = ${select};
-    select.value = ${JSON.stringify(target === 'low' ? 'balanced' : 'high')};
-    select.dispatchEvent(new Event('change', { bubbles: true }));
-    select.value = ${JSON.stringify(target)};
-    select.dispatchEvent(new Event('change', { bubbles: true }));
+    const btn = ${button};
+    btn.click();
+    btn.click();
   })()`)
-  await poll(`${select}.value === ${JSON.stringify(target)} && ${select}.getAttribute('aria-busy') !== 'true'`, 'model detail applied')
+  await poll(`${button}.dataset.profile === ${JSON.stringify(target)} && ${button}.getAttribute('aria-busy') !== 'true'`, 'model detail applied')
   const profile = await page.evaluate("window.__metroStationBridge.request('graphics.get').then(result => result.profile)")
   const after = await page.evaluate('window.__metroStationBridge.getSnapshot().revision')
   let reloaded
@@ -472,14 +471,14 @@ async function runModelDetailCase() {
     await page.send('Page.reload')
     await waitForSnapshot(`!window.__metroModelDetailBeforeReload && s.revision >= 0 && s.sourceId === ${JSON.stringify(sourceId)}`, 'model detail reload')
     await open()
-    reloaded = await page.evaluate(`${select}.value`)
+    reloaded = await page.evaluate(`${button}.dataset.profile`)
     startupProfile = await page.evaluate('window.__metroStationBridge.getSnapshot().state.graphics?.profile')
   }
   await page.evaluate(`window.__metroStationBridge.request('graphics.set', { profile: ${JSON.stringify(original)} })`)
   await page.evaluate("document.querySelector('details.settingsMenu').open = false")
-  return finishCase(record, profile === target && revision === after && localizedLabel.label === localizedLabel.expected &&
-    options.join(',') === 'high,balanced,low' && (!onlyCases || reloaded === target && startupProfile === target),
-    { original, target, profile, reloaded, startupProfile, revision, after, options, localizedLabel })
+  return finishCase(record, !hasSelect && profile === target && revision === after && localizedLabel.label === localizedLabel.expected &&
+    (!onlyCases || reloaded === target && startupProfile === target),
+    { original, target, profile, reloaded, startupProfile, revision, after, hasSelect, localizedLabel })
 }
 
 async function runModelDetailRenderCase() {
