@@ -28,6 +28,13 @@ rollback switch (default sparse), and reproduce paired benchmarks with
 `node tools/bench-crowd-routing.mjs` and `StationSparseRoutingTests` (see
 [references/performance.md](references/performance.md#sparse-hierarchical-crowd-routing)).
 
+When tuning mandatory routing work, keep the finite per-tick limits aligned
+in Unity and the browser. Run the default-clock Tianhe Park Line 13 cold-start
+regressions in both engines and track how far riders walk from the screen doors
+after alighting. Report route wait and tick cost together, since a smaller work
+budget can improve tick timings while leaving riders stopped at the doors.
+See the [Line 13 reproduction](references/performance.md#sparse-hierarchical-crowd-routing).
+
 Station equipment models, including shop fixtures, seating, ballfields and steel
 fences, belong to `metro-game`; their deterministic regressions belong to
 `metro-game-test`, while Unity port equipment/court binding, corner-pivot

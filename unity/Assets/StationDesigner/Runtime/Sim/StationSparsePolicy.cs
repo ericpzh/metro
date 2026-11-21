@@ -28,8 +28,10 @@ namespace Metro.Sim {
         public const int SwitchMarginMs = 2000;
         public const int FieldCacheMaxBytes = 16 * 1024 * 1024;
         public const int SampleRefreshSimSeconds = 60;
-        public const int MandatoryPopBudget = 12000;
-        public const int MandatoryScanBudget = 48000;
+        // Large simultaneous train arrivals need enough route work to clear
+        // their platforms during the dwell. The scheduler yields when work runs out.
+        public const int MandatoryPopBudget = 96000;
+        public const int MandatoryScanBudget = 384000;
         public const int LocalRefillBudget = 384;
         public const int OptionalPopBudget = 2000;
         public const int OptionalScanBudget = 8000;

@@ -15,8 +15,10 @@ export const SPARSE_JITTER_MOD_MS = 100
 export const SPARSE_SWITCH_MARGIN_MS = 2000
 export const SPARSE_FIELD_CACHE_MAX_BYTES = 16 * 1024 * 1024
 export const SPARSE_SAMPLE_REFRESH_SIM_S = 60
-export const SPARSE_MANDATORY_POP_BUDGET = 12000
-export const SPARSE_MANDATORY_SCAN_BUDGET = 48000
+// Keep cold, simultaneous train arrivals from leaving riders at their doors
+// for several dwells. The scheduler stops early when its required jobs finish.
+export const SPARSE_MANDATORY_POP_BUDGET = 96000
+export const SPARSE_MANDATORY_SCAN_BUDGET = 384000
 export const SPARSE_LOCAL_REFILL_BUDGET = 384
 export const SPARSE_OPTIONAL_POP_BUDGET = 2000
 export const SPARSE_OPTIONAL_SCAN_BUDGET = 8000

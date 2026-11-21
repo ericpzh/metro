@@ -22,7 +22,30 @@ import {
 } from '../src/sim/sparsePolicy.ts'
 import { SparseRouter } from '../src/sim/sparseRouter.ts'
 import { World } from '../src/sim/world.ts'
+import { referenceStation } from '../src/data/reference-station.ts'
 import { scenarioStation } from './support/scenario-station.ts'
+
+test('Tianhe Park Line 13 alighters can walk away from the screen doors after the first arrivals', () => {
+  const station = referenceStation('tianhe')
+  const world = new World(station, station.seed)
+  const landingPositions = new Map()
+  const walkedFromDoor = new Set()
+  for (let tick = 0; tick < 90; tick++) {
+    world.tickOnce()
+    for (const passenger of world.pool.live) {
+      if (passenger.dead || passenger.trip.origin !== 'train:13' || passenger.train >= 0) continue
+      const landing = landingPositions.get(passenger.id)
+      if (!landing) {
+        landingPositions.set(passenger.id, { x: passenger.x, y: passenger.y, z: passenger.z })
+      } else if (Math.hypot(passenger.x - landing.x, passenger.y - landing.y, passenger.z - landing.z) >= 1) {
+        walkedFromDoor.add(passenger.id)
+      }
+    }
+  }
+
+  assert.ok(landingPositions.size >= 500, 'both directions discharged their arrival waves')
+  assert.ok(walkedFromDoor.size >= 490, `only ${walkedFromDoor.size} Line 13 riders moved a metre beyond their landing position`)
+})
 
 function wideHallStation({ width = 11, length = 30, twoConnectors = false, diagonalOffset = false } = {}) {
   const cells = []

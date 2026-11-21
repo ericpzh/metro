@@ -56,6 +56,30 @@ Notes:
 - On the small 15k-node Zoo fixture, cold-start field builds plus 34,662 rolling local refills increase steady-state mean tick time (`4.90 → 7.18 ms`) while halving the max spike (`30.59 → 15.60 ms`), cutting expansions by 67.1% and raising exits (`15 → 20`).
 - On Tianhe Park, both engines stay well within the 16 MiB reverse-field LRU cap (~2.2–2.3 MiB) with 0.00% fine-graph fallback rate and >85% lower p95 tick latency.
 
+**Tianhe Park Line 13 cold-start arrivals (2026-11-20).** Open the shipped
+station at its default 06:30 clock and document seed. Step both sparse engines
+at one simulated second per tick. Compare the former mandatory limits
+(12,000 pops and 48,000 scans) with the new defaults (96,000 and 384,000).
+At 06:31:30 the former limits left 534 riders looking for a route by the
+Line 13 screen doors in both engines. The new limits left zero in Unity and
+six in the browser simulation. The budgets remain capped per tick, with a
+wall-clock cost when a large arrival wave uses the extra work.
+
+Run the movement checks from the repository root:
+
+```powershell
+node --test --test-name-pattern "Tianhe Park Line 13" game/test/sparse-routing.test.mjs
+./unity/scripts/metro-editor.ps1 test -TestFilter StationSparseRoutingTests.TianheLine13AlightersWalkAwayFromScreenDoorsAfterColdStart
+```
+
+The checks track riders by identity and require at least 490 in the browser
+simulation and 500 in Unity to walk one metre after alighting by 06:31:30.
+The older timing table above uses the former limits. With the new limits,
+the Unity 180-tick peak-rush EditMode comparison measured 130.22 ms sparse p95
+versus 249.95 ms legacy p95, with 4.60 million versus 28.25 million expansions
+and zero sparse fine fallbacks. These are simulation timings in Editor
+EditMode, separate from presented-frame latency.
+
 ### Unity FOV slider drag feedback
 
 In the Windows Chromium fixture under `.preview/unity/fov-drag/`, mount the

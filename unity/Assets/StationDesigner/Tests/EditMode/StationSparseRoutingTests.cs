@@ -430,6 +430,34 @@ public class StationSparseRoutingTests {
     }
 
     [Test]
+    public void TianheLine13AlightersWalkAwayFromScreenDoorsAfterColdStart() {
+        string path = Path.Combine(Application.dataPath, "StationDesigner/Demos/tianhe.metro.json");
+        var source = StationDocumentReader.ReadFile(path);
+        Assert.IsNotNull(source?.Document);
+        var setup = StationSessionProjection.Setup(source.Document, source.Index, "tianhe-line-13-alighting");
+        setup.StartPlaying = true;
+        var session = new StationSimulationSession(setup);
+
+        var line13Arrivals = new HashSet<int>();
+        var walkedFromDoor = new HashSet<int>();
+        for (int tick = 0; tick < 90; tick++) {
+            session.Advance(1.0);
+            foreach (var passenger in session.Snapshot().Passengers) {
+                if (passenger.State == StationPassengerState.Alighting &&
+                    passenger.ServerId.StartsWith("line:13|", StringComparison.Ordinal)) {
+                    line13Arrivals.Add(passenger.SimId);
+                }
+                if (line13Arrivals.Contains(passenger.SimId) && passenger.WalkDistance >= 1) {
+                    walkedFromDoor.Add(passenger.SimId);
+                }
+            }
+        }
+
+        Assert.AreEqual(534, line13Arrivals.Count, "both Line 13 trains delivered their wave");
+        Assert.GreaterOrEqual(walkedFromDoor.Count, 500, "the arrival waves walked away from the door");
+    }
+
+    [Test]
     public void TianhePeakRushSparseBeatsLegacyExpansionsAndTickTails() {
         string path = Path.Combine(Application.dataPath, "StationDesigner/Demos/tianhe.metro.json");
         Assert.IsTrue(File.Exists(path), "tianhe.metro.json must exist");
