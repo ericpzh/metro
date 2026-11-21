@@ -215,6 +215,8 @@ namespace Metro.App.Views {
             public readonly List<Vector3> Vertices = new List<Vector3>();
             public readonly List<int> Triangles = new List<int>();
             public readonly List<Vector2> Uvs = new List<Vector2>();
+            public readonly List<(int Offset, int Vertex, int Segments, int Top, int Bottom)> Cylinders =
+                new List<(int, int, int, int, int)>();
         }
 
         readonly List<Bin> bins = new List<Bin>();
@@ -291,6 +293,8 @@ namespace Metro.App.Views {
             int bottomCentre = bin.Vertices.Count;
             bin.Vertices.Add(bottom);
             bin.Uvs.Add(Vector2.zero);
+            if (segments >= 12 && segments % 4 == 0)
+                bin.Cylinders.Add((bin.Triangles.Count, start, segments, topCentre, bottomCentre));
             for (int i = 0; i < segments; i++) {
                 int next = (i + 1) % segments;
                 int lo = start + i, loNext = start + next;
@@ -338,6 +342,8 @@ namespace Metro.App.Views {
                 mesh.SetUVs(0, bin.Uvs);
                 mesh.RecalculateNormals();
                 mesh.RecalculateBounds();
+                if (bin.Cylinders.Count > 0)
+                    StationMeshLodIndices.Apply(mesh, bin.Triangles, CylinderTier(bin, 2), CylinderTier(bin, 4));
                 var part = new GameObject(name + " " + b, typeof(MeshFilter), typeof(MeshRenderer));
                 part.transform.SetParent(parent, false);
                 part.GetComponent<MeshFilter>().sharedMesh = mesh;
@@ -345,6 +351,26 @@ namespace Metro.App.Views {
                 renderer.sharedMaterial = bin.Material;
                 owned?.Add(mesh);
             }
+        }
+
+        static List<int> CylinderTier(Bin bin, int stride) {
+            var result = new List<int>();
+            int source = 0;
+            foreach (var shape in bin.Cylinders) {
+                for (; source < shape.Offset; source++) result.Add(bin.Triangles[source]);
+                for (int i = 0; i < shape.Segments; i += stride) {
+                    int next = (i + stride) % shape.Segments;
+                    int lo = shape.Vertex + i, loNext = shape.Vertex + next;
+                    int hi = lo + shape.Segments, hiNext = loNext + shape.Segments;
+                    result.Add(lo); result.Add(hiNext); result.Add(loNext);
+                    result.Add(lo); result.Add(hi); result.Add(hiNext);
+                    result.Add(shape.Top); result.Add(hiNext); result.Add(hi);
+                    result.Add(shape.Bottom); result.Add(lo); result.Add(loNext);
+                }
+                source = shape.Offset + shape.Segments * 12;
+            }
+            for (; source < bin.Triangles.Count; source++) result.Add(bin.Triangles[source]);
+            return result;
         }
     }
 

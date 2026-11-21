@@ -1,0 +1,52 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6f43c4c1f8d849948efabb62d0969ffe, type: 3}
+  m_Name: Tv
+  m_EditorClassIdentifier: Assembly-CSharp::Metro.App.StationRigidModelLods
+  Meshes:
+  - Source: {fileID: 1050908021570271116, guid: 88e718ad76502b04ea3cb605244066f1, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -4926770370004109585, guid: 88e718ad76502b04ea3cb605244066f1, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 6353846178406903386, guid: 88e718ad76502b04ea3cb605244066f1, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 6626584385738647817, guid: 88e718ad76502b04ea3cb605244066f1, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 507335340564709042, guid: 88e718ad76502b04ea3cb605244066f1, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 1504685076926549125, guid: 88e718ad76502b04ea3cb605244066f1, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -7082694738345363723, guid: 88e718ad76502b04ea3cb605244066f1, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -3334790557154237171, guid: 88e718ad76502b04ea3cb605244066f1, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -5232869444906879717, guid: 88e718ad76502b04ea3cb605244066f1, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 485997548631887258, guid: 88e718ad76502b04ea3cb605244066f1, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -2468736375032848024, guid: 88e718ad76502b04ea3cb605244066f1, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 6665960685077247083, guid: 88e718ad76502b04ea3cb605244066f1, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  PrefabDependencyHash: 9fd06ce1bbdac9bdea8c8d3f43500579

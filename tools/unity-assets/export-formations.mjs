@@ -35,6 +35,7 @@ import { Canvas, createCanvas, ImageData } from '@napi-rs/canvas'
 import validator from 'gltf-validator'
 import * as THREE from '../../game/node_modules/three/build/three.module.js'
 import { GLTFExporter } from '../../game/node_modules/three/examples/jsm/exporters/GLTFExporter.js'
+import { mergeVertices } from '../../game/node_modules/three/examples/jsm/utils/BufferGeometryUtils.js'
 import { createModelMaterials, slab } from '../../game/src/render/models/PieceBuilder.ts'
 import { buildTrain, setDoorsSides } from '../../game/src/render/models/pieces/TrainModel.ts'
 import { buildTrainPantograph, pantographElbowDirection, PANTOGRAPH_MOUNT_Z, PANTOGRAPH_WELL_HALF_LENGTH } from '../../game/src/render/models/pieces/TrainPantograph.ts'
@@ -45,6 +46,8 @@ import { STOCK, STOCK_CLASSES, PANTOGRAPH_CONTACT_Z, doorCentres, doorWidthAt } 
 import { FORMATION_OPTIONS } from '../../game/src/sim/headway.ts'
 import { lineColourFor } from '../../game/src/sim/cityStyles.ts'
 import { Rng } from '../../game/src/sim/rng.ts'
+import { modelDetailGeometry } from '../../game/src/render/modelDetail.ts'
+import { MeshoptSimplifier } from '../../game/node_modules/meshoptimizer/meshopt_simplifier.js'
 
 const WELL_HALF = PANTOGRAPH_WELL_HALF_LENGTH
 const WELL_LENGTH = WELL_HALF * 2
@@ -52,6 +55,7 @@ const MOUNT_OFFSET = (length) => (length - CAR_GAP) / 2 - 2
 const LIVERIES = { A: '1', B: '2', C: '4', L: '5', D: '18' }
 const POWERS = ['third-rail', 'catenary']
 const CAR_COUNTS = [...FORMATION_OPTIONS]
+const EXPORT_LODS = process.argv.includes('--lod-meshes')
 
 globalThis.HTMLCanvasElement = Canvas
 globalThis.ImageData = ImageData
@@ -488,6 +492,7 @@ async function exportPart(mats, spec, context, out) {
   const options = { binary: true }
   if (clips.length) options.animations = clips
   const bytes = new Uint8Array(await new GLTFExporter().parseAsync(root, options))
+  const lodAssets = EXPORT_LODS ? await exportPartLods(root, group, spec.file, out) : null
   const report = await validator.validateBytes(bytes, { uri: spec.file })
   const reportName = spec.file.replace(/\.glb$/, '.validation.json')
   await writeFile(join(out, reportName), JSON.stringify(report, null, 2) + '\n')
@@ -498,6 +503,7 @@ async function exportPart(mats, spec, context, out) {
     id: spec.id,
     file: spec.file,
     kind: spec.kind,
+    ...(lodAssets ? { lodAssets } : {}),
     stock: spec.stock,
     canonicalCars: spec.canonicalCars ?? null,
     lamp: spec.lamp ?? null,
@@ -543,6 +549,65 @@ async function exportPart(mats, spec, context, out) {
   await writeFile(join(out, spec.file), bytes)
   await writeFile(join(out, spec.file.replace(/\.glb$/, '.manifest.json')), JSON.stringify(manifest, null, 2) + '\n')
   return manifest
+}
+
+async function exportPartLods(root, group, file, out) {
+  await MeshoptSimplifier.ready
+  const details = []
+  const generated = []
+  const assets = []
+  group.traverse(mesh => {
+    if (!mesh.isMesh || mesh.isInstancedMesh) return
+    const full = mesh.geometry
+    const authored = modelDetailGeometry(mesh)
+    const canSimplify = !Array.isArray(mesh.material) && !mesh.material.transparent &&
+      !mesh.material.map && full.groups.length <= 1 && trainTriangles(full) >= 96
+    const reduced = canSimplify ? simplifyTrainGeometry(full, .6, generated) : null
+    const simplified = canSimplify ? simplifyTrainGeometry(full, .28, generated) : null
+    const low = authored && trainTriangles(authored) < trainTriangles(full) ? authored : simplified
+    const mid = trainTriangles(full) >= 256 && low && trainTriangles(low) > 0 &&
+      trainTriangles(low) < trainTriangles(reduced ?? full) ? low : reduced ?? full
+    if (reduced || low) details.push({ mesh, full, reduced: mid, low: low ?? reduced })
+  })
+  try {
+    for (const level of [1, 2]) {
+      for (const { mesh, reduced, low } of details) {
+        mesh.geometry = level === 2 && trainTriangles(low) <= trainTriangles(reduced) ? low : reduced
+      }
+      const name = file.replace(/\.glb$/, `-lod${level}.glb`)
+      const bytes = new Uint8Array(await new GLTFExporter().parseAsync(root, { binary: true }))
+      const report = await validator.validateBytes(bytes, { uri: name })
+      assert.equal(report.issues.numErrors + report.issues.numWarnings, 0, name)
+      await writeFile(join(out, name), bytes)
+      let triangles = 0
+      group.traverse(mesh => {
+        if (mesh.isMesh) triangles += trainTriangles(mesh.geometry) * (mesh.isInstancedMesh ? mesh.count : 1)
+      })
+      assets.push({ level, file: name, triangles, bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') })
+    }
+  } finally {
+    for (const { mesh, full } of details) mesh.geometry = full
+    for (const mesh of generated) mesh.dispose()
+  }
+  return assets
+}
+
+const trainTriangles = geometry => (geometry.index?.count ?? geometry.getAttribute('position').count) / 3
+
+function simplifyTrainGeometry(full, ratio, generated) {
+  const indexed = full.index ? full : mergeVertices(full)
+  const position = indexed.getAttribute('position')
+  if (indexed !== full) generated.push(indexed)
+  if (position.itemSize !== 3 || position.isInterleavedBufferAttribute) return null
+  const indices = Uint32Array.from(indexed.index.array)
+  const target = Math.floor(indices.length * ratio / 3) * 3
+  const [reduced] = MeshoptSimplifier.simplify(indices, Float32Array.from(position.array), 3, target, .012, ['LockBorder'])
+  if (reduced.length >= indices.length || reduced.length === 0) return null
+  const geometry = indexed.clone()
+  geometry.setIndex(new THREE.Uint32BufferAttribute(reduced, 1))
+  if (geometry.groups.length === 1) geometry.groups[0].count = reduced.length
+  generated.push(geometry)
+  return geometry
 }
 
 /* ------------------------------------------------------- the 50-cell plan */

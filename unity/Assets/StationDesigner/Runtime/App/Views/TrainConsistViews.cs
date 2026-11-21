@@ -651,6 +651,7 @@ namespace Metro.App.Views {
             public Material Material;
             public UnityEngine.Rendering.ShadowCastingMode Shadow;
             public readonly List<CombineInstance> Combines = new List<CombineInstance>();
+            public readonly List<int> LastTiers = new List<int>();
             public int VertexCount;
         }
 
@@ -783,6 +784,7 @@ namespace Metro.App.Views {
                             subMeshIndex = s,
                             transform = localMat,
                         });
+                        bucket.LastTiers.Add(StaticDetailLastTier(item.Filter.transform.name));
                         bucket.VertexCount += item.Mesh.vertexCount;
                     }
                 }
@@ -799,6 +801,9 @@ namespace Metro.App.Views {
                     };
                     combined.CombineMeshes(bucket.Combines.ToArray(), mergeSubMeshes: true, useMatrices: true);
                     combined.RecalculateBounds();
+                    if (bucket.Material.renderQueue < (int)UnityEngine.Rendering.RenderQueue.Transparent &&
+                        bucket.LastTiers.Exists(tier => tier < 2))
+                        StationMeshLodIndices.ApplyCombined(combined, bucket.Combines, bucket.LastTiers);
                     ownedMeshes.Add(combined);
                     builtParts.Add(new StaticCombinedPart(combined, bucket.Material, bucket.Shadow, matName));
                 }
@@ -835,6 +840,18 @@ namespace Metro.App.Views {
                 mr.receiveShadows = true;
             }
         }
+
+        static int StaticDetailLastTier(string name) {
+            if (name.StartsWith("bogie-wheel-face-bolt", StringComparison.Ordinal) ||
+                name.StartsWith("bogie-primary-coil-spring", StringComparison.Ordinal))
+                return 0;
+            if (name.StartsWith("hanging-strap", StringComparison.Ordinal) ||
+                name.StartsWith("cabin-ring-light", StringComparison.Ordinal) ||
+                name.StartsWith("underframe-vent", StringComparison.Ordinal))
+                return 1;
+            return 2;
+        }
+
 
         public IReadOnlyList<TrainConsistView> Consists => consists;
         /// <summary>The per-world door dispatch; its probes measure the leaves' real travel.</summary>

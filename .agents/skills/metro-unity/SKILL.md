@@ -341,6 +341,13 @@ ordinary samples (`zoo`, `tanwei`, max `84.70 ms`; `tianhe` remains gated by the
 `4096 MiB` Wasm32 cold-open ceiling) pass `< 100 ms` with `0` misses and `0`
 fallbacks; see “Current block commit stages” in the repo performance reference.
 
+## Model detail and mesh LODs
+
+- `StationGraphicsSettings` owns the High, Balanced, and Low preference through `graphics.get` and `graphics.set`. The localized Settings menu reads the applied profile from Unity. Configure defaults and thresholds under **Project Settings → Station Designer → Graphics**. Preference changes stay outside the station document and undo history.
+- After promoting a rigid prefab, use **Assets → Station Designer → Bake Rigid Model LODs**. **Metro → Station Game → Bake All Rigid Model LODs** writes native mesh sidecars and a coverage CSV. Keep sidecars and their `.meta` files with the source. Run `tools/unity-assets/audit-runtime-models.mjs` and pass its inventory and the CSV to `audit-model-lod-coverage.mjs --strict`.
+- Preserve full placement previews, moving parts, and interaction geometry. Rigid batches choose a tier per batch. Production trains, rail hardware, and booth trim use shorter prefixes of a shared index buffer. Authored train GLB variants are review exports. Keep the skinned passenger tiers under the review-only library and verify the clean public pack with `node unity/tests/passenger-profile.test.mjs --pack <pack>`.
+- Run `StationModelLodTests` through `metro-editor.ps1`. Use `verify-station-game.mjs --only model-detail,model-detail-render,exploded-view` for browser checks and `metro player_benchmark_start --model-detail true` for Windows playback. Compare submitted geometry and frame times separately. The measured results and open Tianhe Park gates are in the [performance reference](../metro-repo/references/performance.md#unity-native-mesh-lod-generation).
+
 ## Verification checklist before reporting done
 
 1. Every new tracked file under `unity/Assets/` **must** have a paired `.meta` file (`node tools/unity-assets/ensure-meta.mjs` if generated outside the Editor, which also enforces 2D `TextureImporter` blocks on images).

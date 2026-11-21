@@ -348,6 +348,7 @@ namespace Metro.App {
                 StationWorldView.DestroyView(holder);
                 return;
             }
+            StationRigidModelLods.Apply(view.Instance, entry.prefab.name);
             context.World.RegisterModule(Role, module.Id, view.Instance, "", null, module.Z, module.Z + 1);
             if (!string.IsNullOrEmpty(module.Id) && view.Instance != null) {
                 state.HoldersById[module.Id] = holder;

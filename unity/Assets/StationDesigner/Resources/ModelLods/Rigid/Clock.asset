@@ -1,0 +1,594 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6f43c4c1f8d849948efabb62d0969ffe, type: 3}
+  m_Name: Clock
+  m_EditorClassIdentifier: Assembly-CSharp::Metro.App.StationRigidModelLods
+  Meshes:
+  - Source: {fileID: 1050908021570271116, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 6446670550736330585}
+    ReuseReason: 
+  - Source: {fileID: -4926770370004109585, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 6353846178406903386, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 6626584385738647817, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 507335340564709042, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 1504685076926549125, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -7082694738345363723, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -3334790557154237171, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -5232869444906879717, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 485997548631887258, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -2468736375032848024, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 6665960685077247083, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 8704106827887099360, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -1869844010968926827, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -5493599870180795736, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 8372624934355411090, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -8827924870445457265, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -8893334198972310517, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 6701609574432901002, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -8491938900105307153, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -81789757951508690, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 2492334215949989605, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -2967070624618473721, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 8879382375787106323, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 8418158224481276074, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 5891575282243229102, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 8460640126855049462, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 3655285479241488986, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -125193164459783318, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -7055529436944864502, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 4316861854023265013, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 8206269853646054632, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -2065652014367938071, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -2763361361628188293, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -4189537316207260130, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 8196150590994885862, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -4908294560725804396, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 1978905647140654705, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -1518388090117728813, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 6481796449130043252, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 2013090938931159944, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 4800086075016437894, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 7160507599727273584, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -3863437251703176553, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -8484205448017938224, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 5596962893442247291, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -5152633678844236326, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -8864531024890566693, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 1591130607432514306, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 984256039051047516, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 6259930209849761124, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -2993913434539687254, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 4922690354275452994, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -1656138934513540408, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 5856923977016206122, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -8484377009385738766, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 506761840580144052, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -4841860518671219529, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 4001091377060424201, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 7520415071785218719, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -7416246609128620839, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 8270966964918019472, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 4132889864974579202, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 7830666498309933554, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -4197189659935449498, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -5086807617578536539, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 993608456792442431, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 4231101498738105293, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 8767630005574834719, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -855191265535610798, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -842142083220234055, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -8339025629579625360, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 8405663083287936479, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -1793501964074991179, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 1600265804711763052, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 7289126636127415513, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 6637148752748470791, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -5927790387466933618, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -7103249058251013976, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 5553874139508006681, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -1244771950431461884, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 5733844875552591935, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -6243330023626420986, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 4509737503092310961, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 5243568294876945941, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -773280483108664990, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 4542137063364159020, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -7164099129159983674, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 1436269354736625609, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 2620346132508427630, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -8137923109027102126, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -275530875123550730, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -3902375280785218964, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -3359017496170569865, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -6874929192374871036, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -5628187467310085123, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 2123562534092929740, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 9187982873251859834, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 7750811313917715310, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 3614286142518328133, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -5466490905962375672, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -6655290500378792848, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -2110012297309597165, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -5011533760912573379, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -5573692460983445136, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 6757095481311742341, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -5042144861611754984, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -1743119481535036904, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -2160075518308652214, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -2555252385775812110, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 5837610571499846469, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -4939887971917854521, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 702599997748017812, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 7565336135610187983, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 7570285236475836715, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -5285320238432184669, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -4010931667927239200, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -4773346769041792265, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -4708032484938558399, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -4874153231593790525, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -7406448004209958278, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -7014769006608928985, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -4182271311671370951, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -671413502186843095, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 7044056448762720237, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -2514130561279003808, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -9144725363132533267, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 7917215893890505228, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -5622665815820774816, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 6718247709258396169, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 7854839118996424371, guid: f0b12c6c0cd2f67409bd53eadac43686, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  PrefabDependencyHash: 06e2771d9f9ae78ab4580bacd1ff95b8
+--- !u!43 &6446670550736330585
+Mesh:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_Name: 
+  serializedVersion: 12
+  m_SubMeshes:
+  - serializedVersion: 2
+    firstByte: 0
+    indexCount: 1152
+    topology: 0
+    baseVertex: 0
+    firstVertex: 0
+    vertexCount: 292
+    localAABB:
+      m_Center: {x: 0, y: 0, z: 0}
+      m_Extent: {x: 0.38, y: 0.06, z: 0.38}
+  m_Shapes:
+    vertices: []
+    shapes: []
+    channels: []
+    fullWeights: []
+  m_BindPose: []
+  m_BoneNameHashes: 
+  m_RootBoneNameHash: 0
+  m_BonesAABB: []
+  m_VariableBoneCountWeights:
+    m_Data: 
+  m_MeshCompression: 0
+  m_IsReadable: 1
+  m_KeepVertices: 0
+  m_KeepIndices: 0
+  m_IndexFormat: 0
+  m_IndexBuffer: 310001003200320002003300520022005300530023005400f400c300f300f500c400f400f600c500f500f800c700f7001201e10011011301e20012011401e30013011501e40014011601e50015011701e60016012101f00020012201f1002101230024005400540024005500240025005500550025005600250026005600560026005700570027005800580028005900280029005900590029005a0029002a005a005a002a005b002a002b005b005b002b005c002b002c005c005c002c005d002c002d005d005d002d005e002d002e005e005e002e005f002e002f005f005f002f0060002f0030006000600030006100b6008600b700bb008b00bc00bc008c00bd001801e70017011901e80018011c01eb001b01950065009600960066009700970067009800980068009900990069009a009a006a009b00aa007a00ab00ab007b00ac00b0008000b100b1008100b200b8008800b900bd008d00be00be008e00bf00bf008f00c000c0009000c100c1009100c2003a000a003b003b000b003c003c000c003d00f900c800f800fd00cc00fc00fe00cd00fd00ff00ce00fe000001cf00ff000301d20002010601d50005010701d60006010a01d90009010b01da000a010d01dc000c011001df000f011101e0001001f700c600f600fa00c900f900fb00ca00fa00fc00cb00fb000101d00000010201d10001010801d70007010901d80008010c01db000b011a01e90019011b01ea001a011d01ec001c011e01ed001d011f01ee001e012001ef001f012301f2002201020003003300330003003400030004003400340004003500040005003500050006003600360006003700060007003700370007003800070008003800380008003900080009003900390009003a0009000a003a000c000d003d003d000d003e000d000e003e003e000e003f00440014004500450015004600150016004600160017004700170018004800480018004900180019004900490019004a001d001e004e004e001e004f001e001f004f004f001f0050001f002000500050002000510020002100510051002100520000000100310001000200320019001a004a001a001b004b001b001c004c001c001d004d00260027005700270028005800920062009300930063009400940064009500ac007c00ad00ad007d00ae00ae007e00af00b9008900ba00ba008a00bb000a000b003b000b000c003c002100220052002200230053009b006b009c009c006c009d009d006d009e009e006e009f009f006f00a000a8007800a900a9007900aa00b2008200b300b3008300b400b4008400b500b5008500b600b7008700b8003500050036003f000f0040004000100041004100110042004200120043004300130044004600160047004700170048004a001a004b004b001b004c004c001c004d004d001d004e000401d30003010501d40004010e01dd000d010f01de000e010e000f003f000f0010004000100011004100110012004200120013004300130014004400140015004500a0007000a100a1007100a200a2007200a300a3007300a400a4007400a500a5007500a600a6007600a700a7007700a800af007f00b000310000003300330002003400340004003500040005003500350005003600360005003800050007003800380008003a00080009003a003a0009003b0009000b003b003b000b003d000b000c003d003d000c003e000c000e003e003e000e0040000e0010004000400010004200420012004300430013004400440014004500f700c600f600f800c700f700fa00c800f800fc00ca00fa00fd00cc00fc00ff00cd00fd000001cf00ff000201d00000010401d20002010501d40004010601d5000501000002003300020004003400070008003800920063009400940065009600960066009700970068009900990069009a009a006a009b009b006c009d00a0007100a200b5008500b600b9008a00bb00bb008c00bd00bd008e00bf00c0009100c200490018004a004a001a004c004c001c004e00540024005500550024005600240026005600560026005800260027005800580027005a005a0029005c005c002b005d00f500c300f300f600c500f5000701d60006010901d70007010b01d90009010c01db000b010e01dc000c011001de000e011201e00010011301e20012011401e30013011501e40014011601e50015011701e60016011801e70017011a01e80018011c01ea001a011e01ec001c011f01ee001e012101ef001f012301f100210110001100420011001200420012001300430013001400440014001500450045001500470015001700470047001700490017001800490018001a004a001a001c004c001c001d004e001d001e004e004e001e0050001e001f00500050001f0051001f0021005100510021005200520021005300210023005300530023005400230024005400270029005a0029002b005c002b002d005d005d002d005f002d002e005f005f002e0061002e0030006100b1008200b300b3008400b500bf008f00c0009d006d009e009e006f00a000a2007200a300a3007300a400a4007400a500a5007500a600a6007600a700a7007800a900a9007900aa00aa007b00ac00ac007d00ae00ae007e00af00af007f00b000b0008000b100b6008700b800b8008800b90092006500970097006800990099006c009e009e007100a300b9008a00bd00bd008e00c000c0009100c20049001a004c004c001d004e00240027005500550027005800580027005a005a002b005c0013001800490018001a0049001a001d004c004e001d0050001d002100500050002100530021002400530053002400550027002b005a002b002e005c005c002e0061002e0030006100af008200b300b3008400b600a3007400a500a5007800aa00aa007b00ac00ac007d00af00b6008700b900310000003300330005003600360005003800050007003800380007003a0007000c003a003a000c003d003d000c0040000c0011004000400011004200420011004400f800c600f500fa00c800f800fc00ca00fa00ff00cd00fc000201d000ff000401d20002010601d4000401000005003300f500c300f3000b01d70006010e01dc000b011001de000e011201e00010011501e30012011701e50015011a01e80017011c01ea001a011e01ec001c012301ef001e01110013004400440013004900y
+  m_VertexData:
+    serializedVersion: 3
+    m_VertexCount: 292
+    m_Channels:
+    - stream: 0
+      offset: 0
+      format: 0
+      dimension: 3
+    - stream: 0
+      offset: 12
+      format: 0
+      dimension: 3
+    - stream: 0
+      offset: 0
+      format: 0
+      dimension: 0
+    - stream: 0
+      offset: 0
+      format: 0
+      dimension: 0
+    - stream: 1
+      offset: 0
+      format: 0
+      dimension: 2
+    - stream: 0
+      offset: 0
+      format: 0
+      dimension: 0
+    - stream: 0
+      offset: 0
+      format: 0
+      dimension: 0
+    - stream: 0
+      offset: 0
+      format: 0
+      dimension: 0
+    - stream: 0
+      offset: 0
+      format: 0
+      dimension: 0
+    - stream: 0
+      offset: 0
+      format: 0
+      dimension: 0
+    - stream: 0
+      offset: 0
+      format: 0
+      dimension: 0
+    - stream: 0
+      offset: 0
+      format: 0
+      dimension: 0
+    - stream: 0
+      offset: 0
+      format: 0
+      dimension: 0
+    - stream: 0
+      offset: 0
+      format: 0
+      dimension: 0
+    m_DataSize: 9344
+    _typelessdata: 000000808fc2753d5c8fc23e00000080000000000000803f52294bbd8fc2753d40e5c03ea8a805be0000000055cf7d3f606cc9bd8fc2753d37eebb3eee8384be00000000ea46773fe7e814be8fc2753d00c0b33e15efc3be000000005e836c3f5c8f42be8fc2753d707ea83e000000bf00000000d7b35d3f99e16cbe8fc2753dd65a9a3ecad71bbf0000000034194b3f1f9389be8fc2753d1f93893ef30435bf00000000f304353fd65a9abe8fc2753d99e16c3e34194bbf00000000cad71b3f707ea8be8fc2753d5c8f423ed7b35dbf000000000000003f00c0b3be8fc2753de7e8143e5e836cbf0000000015efc33e37eebbbe8fc2753d606cc93dea4677bf00000000ee83843e40e5c0be8fc2753d52294b3d55cf7dbf00000000a8a8053e5c8fc2be8fc2753db29cd623000080bf0000000032318d2440e5c0be8fc2753d52294bbd55cf7dbf00000000a8a805be37eebbbe8fc2753d606cc9bdea4677bf00000000ee8384be00c0b3be8fc2753de7e814be5e836cbf0000000015efc3be707ea8be8fc2753d5c8f42bed7b35dbf00000000000000bfd65a9abe8fc2753d99e16cbe34194bbf00000000cad71bbf1f9389be8fc2753d1f9389bef30435bf00000000f30435bf99e16cbe8fc2753dd65a9abecad71bbf0000000034194bbf5c8f42be8fc2753d707ea8be000000bf00000000d7b35dbfe7e814be8fc2753d00c0b3be15efc3be000000005e836cbf606cc9bd8fc2753d37eebbbeee8384be00000000ea4677bf52294bbd8fc2753d40e5c0bea8a805be0000000055cf7dbfb29c56a48fc2753d5c8fc2be32310da500000000000080bf52294b3d8fc2753d40e5c0bea8a8053e0000000055cf7dbf606cc93d8fc2753d37eebbbeee83843e00000000ea4677bfe7e8143e8fc2753d00c0b3be15efc33e000000005e836cbf5c8f423e8fc2753d707ea8be0000003f00000000d7b35dbf99e16c3e8fc2753dd65a9abecad71b3f0000000034194bbf1f93893e8fc2753d1f9389bef304353f00000000f30435bfd65a9a3e8fc2753d99e16cbe34194b3f00000000cad71bbf707ea83e8fc2753d5c8f42bed7b35d3f00000000000000bf00c0b33e8fc2753de7e814be5e836c3f0000000015efc3be37eebb3e8fc2753d606cc9bdea46773f00000000ee8384be40e5c03e8fc2753d52294bbd55cf7d3f00000000a8a805be5c8fc23e8fc2753d85f5a0a40000803f00000000cac953a540e5c03e8fc2753d52294b3d55cf7d3f00000000a8a8053e37eebb3e8fc2753d606cc93dea46773f00000000ee83843e00c0b33e8fc2753de7e8143e5e836c3f0000000015efc33e707ea83e8fc2753d5c8f423ed7b35d3f000000000000003fd65a9a3e8fc2753d99e16c3e34194b3f00000000cad71b3f1f93893e8fc2753d1f93893ef304353f00000000f304353f99e16c3e8fc2753dd65a9a3ecad71b3f0000000034194b3f5c8f423e8fc2753d707ea83e0000003f00000000d7b35d3fe7e8143e8fc2753d00c0b33e15efc33e000000005e836c3f606cc93d8fc2753d37eebb3eee83843e00000000ea46773f52294b3d8fc2753d40e5c03ea8a8053e0000000055cf7d3fb29cd6248fc2753d5c8fc23e32318d25000000000000803f000000808fc275bd5c8fc23e00000080000000000000803f52294bbd8fc275bd40e5c03ea8a805be0000000055cf7d3f606cc9bd8fc275bd37eebb3eee8384be00000000ea46773fe7e814be8fc275bd00c0b33e15efc3be000000005e836c3f5c8f42be8fc275bd707ea83e000000bf00000000d7b35d3f99e16cbe8fc275bdd65a9a3ecad71bbf0000000034194b3f1f9389be8fc275bd1f93893ef30435bf00000000f304353fd65a9abe8fc275bd99e16c3e34194bbf00000000cad71b3f707ea8be8fc275bd5c8f423ed7b35dbf000000000000003f00c0b3be8fc275bde7e8143e5e836cbf0000000015efc33e37eebbbe8fc275bd606cc93dea4677bf00000000ee83843e40e5c0be8fc275bd52294b3d55cf7dbf00000000a8a8053e5c8fc2be8fc275bdb29cd623000080bf0000000032318d2440e5c0be8fc275bd52294bbd55cf7dbf00000000a8a805be37eebbbe8fc275bd606cc9bdea4677bf00000000ee8384be00c0b3be8fc275bde7e814be5e836cbf0000000015efc3be707ea8be8fc275bd5c8f42bed7b35dbf00000000000000bfd65a9abe8fc275bd99e16cbe34194bbf00000000cad71bbf1f9389be8fc275bd1f9389bef30435bf00000000f30435bf99e16cbe8fc275bdd65a9abecad71bbf0000000034194bbf5c8f42be8fc275bd707ea8be000000bf00000000d7b35dbfe7e814be8fc275bd00c0b3be15efc3be000000005e836cbf606cc9bd8fc275bd37eebbbeee8384be00000000ea4677bf52294bbd8fc275bd40e5c0bea8a805be0000000055cf7dbfb29c56a48fc275bd5c8fc2be32310da500000000000080bf52294b3d8fc275bd40e5c0bea8a8053e0000000055cf7dbf606cc93d8fc275bd37eebbbeee83843e00000000ea4677bfe7e8143e8fc275bd00c0b3be15efc33e000000005e836cbf5c8f423e8fc275bd707ea8be0000003f00000000d7b35dbf99e16c3e8fc275bdd65a9abecad71b3f0000000034194bbf1f93893e8fc275bd1f9389bef304353f00000000f30435bfd65a9a3e8fc275bd99e16cbe34194b3f00000000cad71bbf707ea83e8fc275bd5c8f42bed7b35d3f00000000000000bf00c0b33e8fc275bde7e814be5e836c3f0000000015efc3be37eebb3e8fc275bd606cc9bdea46773f00000000ee8384be40e5c03e8fc275bd52294bbd55cf7d3f00000000a8a805be5c8fc23e8fc275bd85f5a0a40000803f00000000cac953a540e5c03e8fc275bd52294b3d55cf7d3f00000000a8a8053e37eebb3e8fc275bd606cc93dea46773f00000000ee83843e00c0b33e8fc275bde7e8143e5e836c3f0000000015efc33e707ea83e8fc275bd5c8f423ed7b35d3f000000000000003fd65a9a3e8fc275bd99e16c3e34194b3f00000000cad71b3f1f93893e8fc275bd1f93893ef304353f00000000f304353f99e16c3e8fc275bdd65a9a3ecad71b3f0000000034194b3f5c8f423e8fc275bd707ea83e0000003f00000000d7b35d3fe7e8143e8fc275bd00c0b33e15efc33e000000005e836c3f606cc93d8fc275bd37eebb3eee83843e00000000ea46773f52294b3d8fc275bd40e5c03ea8a8053e0000000055cf7d3fb29cd6248fc275bd5c8fc23e32318d25000000000000803f000000808fc2753d00000000000000800000803f00000000000000808fc2753d00000000000000800000803f00000000000000808fc2753d00000000000000800000803f00000000000000808fc2753d00000000000000800000803f00000000000000808fc2753d00000000000000800000803f00000000000000808fc2753d00000000000000800000803f00000000000000808fc2753d00000000000000800000803f00000000000000808fc2753d00000000000000800000803f00000000000000808fc2753d00000000000000800000803f00000000000000808fc2753d00000000000000800000803f00000000000000808fc2753d00000000000000800000803f00000000000000808fc2753d00000000000000800000803f00000000000000808fc2753d00000000000000800000803f00000000000000808fc2753d00000000000000800000803f00000000000000808fc2753d00000000000000800000803f00000000000000808fc2753d00000000000000800000803f00000000000000808fc2753d00000000000000800000803f00000000000000808fc2753d00000000000000800000803f00000000000000808fc2753d00000000000000800000803f00000000000000808fc2753d00000000000000800000803f00000000000000808fc2753d00000000000000800000803f00000000000000808fc2753d00000000000000800000803f00000000000000808fc2753d00000000000000800000803f00000000000000808fc2753d00000000000000800000803f00000000000000808fc2753d00000000000000800000803f00000000000000808fc2753d00000000000000800000803f00000000000000808fc2753d00000000000000800000803f00000000000000808fc2753d00000000000000800000803f00000000000000808fc2753d00000000000000800000803f00000000000000808fc2753d00000000000000800000803f00000000000000808fc2753d00000000000000800000803f00000000000000808fc2753d00000000000000800000803f00000000000000808fc2753d00000000000000800000803f00000000000000808fc2753d00000000000000800000803f00000000000000808fc2753d00000000000000800000803f00000000000000808fc2753d00000000000000800000803f00000000000000808fc2753d00000000000000800000803f00000000000000808fc2753d00000000000000800000803f00000000000000808fc2753d00000000000000800000803f00000000000000808fc2753d00000000000000800000803f00000000000000808fc2753d00000000000000800000803f00000000000000808fc2753d00000000000000800000803f00000000000000808fc2753d00000000000000800000803f00000000000000808fc2753d00000000000000800000803f00000000000000808fc2753d00000000000000800000803f00000000000000808fc2753d00000000000000800000803f00000000000000808fc2753d00000000000000800000803f00000000000000808fc2753d00000000000000800000803f00000000000000808fc2753d5c8fc23e000000800000803f0000000052294bbd8fc2753d40e5c03e000000800000803f00000000606cc9bd8fc2753d37eebb3e000000800000803f00000000e7e814be8fc2753d00c0b33e000000800000803f000000005c8f42be8fc2753d707ea83e000000800000803f0000000099e16cbe8fc2753dd65a9a3e000000800000803f000000001f9389be8fc2753d1f93893e000000800000803f00000000d65a9abe8fc2753d99e16c3e000000800000803f00000000707ea8be8fc2753d5c8f423e000000800000803f0000000000c0b3be8fc2753de7e8143e000000800000803f0000000037eebbbe8fc2753d606cc93d000000800000803f0000000040e5c0be8fc2753d52294b3d000000800000803f000000005c8fc2be8fc2753db29cd623000000800000803f0000000040e5c0be8fc2753d52294bbd000000800000803f0000000037eebbbe8fc2753d606cc9bd000000800000803f0000000000c0b3be8fc2753de7e814be000000800000803f00000000707ea8be8fc2753d5c8f42be000000800000803f00000000d65a9abe8fc2753d99e16cbe000000800000803f000000001f9389be8fc2753d1f9389be000000800000803f0000000099e16cbe8fc2753dd65a9abe000000800000803f000000005c8f42be8fc2753d707ea8be000000800000803f00000000e7e814be8fc2753d00c0b3be000000800000803f00000000606cc9bd8fc2753d37eebbbe000000800000803f0000000052294bbd8fc2753d40e5c0be000000800000803f00000000b29c56a48fc2753d5c8fc2be000000800000803f0000000052294b3d8fc2753d40e5c0be000000800000803f00000000606cc93d8fc2753d37eebbbe000000800000803f00000000e7e8143e8fc2753d00c0b3be000000800000803f000000005c8f423e8fc2753d707ea8be000000800000803f0000000099e16c3e8fc2753dd65a9abe000000800000803f000000001f93893e8fc2753d1f9389be000000800000803f00000000d65a9a3e8fc2753d99e16cbe000000800000803f00000000707ea83e8fc2753d5c8f42be000000800000803f0000000000c0b33e8fc2753de7e814be000000800000803f0000000037eebb3e8fc2753d606cc9bd000000800000803f0000000040e5c03e8fc2753d52294bbd000000800000803f000000005c8fc23e8fc2753d85f5a0a4000000800000803f0000000040e5c03e8fc2753d52294b3d000000800000803f0000000037eebb3e8fc2753d606cc93d000000800000803f0000000000c0b33e8fc2753de7e8143e000000800000803f00000000707ea83e8fc2753d5c8f423e000000800000803f00000000d65a9a3e8fc2753d99e16c3e000000800000803f000000001f93893e8fc2753d1f93893e000000800000803f0000000099e16c3e8fc2753dd65a9a3e000000800000803f000000005c8f423e8fc2753d707ea83e000000800000803f00000000e7e8143e8fc2753d00c0b33e000000800000803f00000000606cc93d8fc2753d37eebb3e000000800000803f0000000052294b3d8fc2753d40e5c03e000000800000803f00000000b29cd6248fc2753d5c8fc23e000000800000803f00000000000000808fc275bd0000000000000080000080bf00000000000000808fc275bd0000000000000080000080bf00000000000000808fc275bd0000000000000080000080bf00000000000000808fc275bd0000000000000080000080bf00000000000000808fc275bd0000000000000080000080bf00000000000000808fc275bd0000000000000080000080bf00000000000000808fc275bd0000000000000080000080bf00000000000000808fc275bd0000000000000080000080bf00000000000000808fc275bd0000000000000080000080bf00000000000000808fc275bd0000000000000080000080bf00000000000000808fc275bd0000000000000080000080bf00000000000000808fc275bd0000000000000080000080bf00000000000000808fc275bd0000000000000080000080bf00000000000000808fc275bd0000000000000080000080bf00000000000000808fc275bd0000000000000080000080bf00000000000000808fc275bd0000000000000080000080bf00000000000000808fc275bd0000000000000080000080bf00000000000000808fc275bd0000000000000080000080bf00000000000000808fc275bd0000000000000080000080bf00000000000000808fc275bd0000000000000080000080bf00000000000000808fc275bd0000000000000080000080bf00000000000000808fc275bd0000000000000080000080bf00000000000000808fc275bd0000000000000080000080bf00000000000000808fc275bd0000000000000080000080bf00000000000000808fc275bd0000000000000080000080bf00000000000000808fc275bd0000000000000080000080bf00000000000000808fc275bd0000000000000080000080bf00000000000000808fc275bd0000000000000080000080bf00000000000000808fc275bd0000000000000080000080bf00000000000000808fc275bd0000000000000080000080bf00000000000000808fc275bd0000000000000080000080bf00000000000000808fc275bd0000000000000080000080bf00000000000000808fc275bd0000000000000080000080bf00000000000000808fc275bd0000000000000080000080bf00000000000000808fc275bd0000000000000080000080bf00000000000000808fc275bd0000000000000080000080bf00000000000000808fc275bd0000000000000080000080bf00000000000000808fc275bd0000000000000080000080bf00000000000000808fc275bd0000000000000080000080bf00000000000000808fc275bd0000000000000080000080bf00000000000000808fc275bd0000000000000080000080bf00000000000000808fc275bd0000000000000080000080bf00000000000000808fc275bd0000000000000080000080bf00000000000000808fc275bd0000000000000080000080bf00000000000000808fc275bd0000000000000080000080bf00000000000000808fc275bd0000000000000080000080bf00000000000000808fc275bd0000000000000080000080bf00000000000000808fc275bd0000000000000080000080bf00000000000000808fc275bd5c8fc23e00000080000080bf0000000052294bbd8fc275bd40e5c03e00000080000080bf00000000606cc9bd8fc275bd37eebb3e00000080000080bf00000000e7e814be8fc275bd00c0b33e00000080000080bf000000005c8f42be8fc275bd707ea83e00000080000080bf0000000099e16cbe8fc275bdd65a9a3e00000080000080bf000000001f9389be8fc275bd1f93893e00000080000080bf00000000d65a9abe8fc275bd99e16c3e00000080000080bf00000000707ea8be8fc275bd5c8f423e00000080000080bf0000000000c0b3be8fc275bde7e8143e00000080000080bf0000000037eebbbe8fc275bd606cc93d00000080000080bf0000000040e5c0be8fc275bd52294b3d00000080000080bf000000005c8fc2be8fc275bdb29cd62300000080000080bf0000000040e5c0be8fc275bd52294bbd00000080000080bf0000000037eebbbe8fc275bd606cc9bd00000080000080bf0000000000c0b3be8fc275bde7e814be00000080000080bf00000000707ea8be8fc275bd5c8f42be00000080000080bf00000000d65a9abe8fc275bd99e16cbe00000080000080bf000000001f9389be8fc275bd1f9389be00000080000080bf0000000099e16cbe8fc275bdd65a9abe00000080000080bf000000005c8f42be8fc275bd707ea8be00000080000080bf00000000e7e814be8fc275bd00c0b3be00000080000080bf00000000606cc9bd8fc275bd37eebbbe00000080000080bf0000000052294bbd8fc275bd40e5c0be00000080000080bf00000000b29c56a48fc275bd5c8fc2be00000080000080bf0000000052294b3d8fc275bd40e5c0be00000080000080bf00000000606cc93d8fc275bd37eebbbe00000080000080bf00000000e7e8143e8fc275bd00c0b3be00000080000080bf000000005c8f423e8fc275bd707ea8be00000080000080bf0000000099e16c3e8fc275bdd65a9abe00000080000080bf000000001f93893e8fc275bd1f9389be00000080000080bf00000000d65a9a3e8fc275bd99e16cbe00000080000080bf00000000707ea83e8fc275bd5c8f42be00000080000080bf0000000000c0b33e8fc275bde7e814be00000080000080bf0000000037eebb3e8fc275bd606cc9bd00000080000080bf0000000040e5c03e8fc275bd52294bbd00000080000080bf000000005c8fc23e8fc275bd85f5a0a400000080000080bf0000000040e5c03e8fc275bd52294b3d00000080000080bf0000000037eebb3e8fc275bd606cc93d00000080000080bf0000000000c0b33e8fc275bde7e8143e00000080000080bf00000000707ea83e8fc275bd5c8f423e00000080000080bf00000000d65a9a3e8fc275bd99e16c3e00000080000080bf000000001f93893e8fc275bd1f93893e00000080000080bf0000000099e16c3e8fc275bdd65a9a3e00000080000080bf000000005c8f423e8fc275bd707ea83e00000080000080bf00000000e7e8143e8fc275bd00c0b33e00000080000080bf00000000606cc93d8fc275bd37eebb3e00000080000080bf0000000052294b3d8fc275bd40e5c03e00000080000080bf00000000b29cd6248fc275bd5c8fc23e00000080000080bf000000000000000000000000abaaaa3c00000000abaa2a3d000000000000803d00000000abaaaa3d000000005555d53d000000000000003e000000005555153e00000000abaa2a3e000000000000403e000000005555553e00000000abaa6a3e000000000000803e00000000abaa8a3e000000005555953e000000000000a03e00000000abaaaa3e000000005555b53e000000000000c03e00000000abaaca3e000000005555d53e000000000000e03e00000000abaaea3e000000005555f53e000000000000003f000000005555053f00000000abaa0a3f000000000000103f000000005555153f00000000abaa1a3f000000000000203f000000005555253f00000000abaa2a3f000000000000303f000000005555353f00000000abaa3a3f000000000000403f000000005555453f00000000abaa4a3f000000000000503f000000005555553f00000000abaa5a3f000000000000603f000000005555653f00000000abaa6a3f000000000000703f000000005555753f00000000abaa7a3f000000000000803f00000000000000000000803fabaaaa3c0000803fabaa2a3d0000803f0000803d0000803fabaaaa3d0000803f5555d53d0000803f0000003e0000803f5555153e0000803fabaa2a3e0000803f0000403e0000803f5555553e0000803fabaa6a3e0000803f0000803e0000803fabaa8a3e0000803f5555953e0000803f0000a03e0000803fabaaaa3e0000803f5555b53e0000803f0000c03e0000803fabaaca3e0000803f5555d53e0000803f0000e03e0000803fabaaea3e0000803f5555f53e0000803f0000003f0000803f5555053f0000803fabaa0a3f0000803f0000103f0000803f5555153f0000803fabaa1a3f0000803f0000203f0000803f5555253f0000803fabaa2a3f0000803f0000303f0000803f5555353f0000803fabaa3a3f0000803f0000403f0000803f5555453f0000803fabaa4a3f0000803f0000503f0000803f5555553f0000803fabaa5a3f0000803f0000603f0000803f5555653f0000803fabaa6a3f0000803f0000703f0000803f5555753f0000803fabaa7a3f0000803f0000803f0000803f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000803f0000003faae77e3fd695de3e75a37b3f08bebd3eaf41763f76089e3eecd96e3f0000803e9a8c653f6c50483e7a825a3f18f6153ee5eb4d3f309bd33d0000403fa030893dc5fb303f10e51b3dfc20213f60918b3c15b5103f002b8c3b0000003f00000000d695de3e002b8c3b09bebd3e60918b3c75089e3e10e51b3d0000803ea030893d6c50483e309bd33d1af6153e18f6153e2f9bd33d6c50483ea330893d0000803e0ce51b3d76089e3e5c918b3c08bebd3eda2a8c3bd695de3e000000000000003fda2a8c3b15b5103f5c918b3cfc20213f0ce51b3dc6fb303fa330893d0000403f2f9bd33de5eb4d3f1af6153e7a825a3f6c50483e9a8c653f0000803eecd96e3f75089e3eaf41763f09bebd3e75a37b3fd695de3eaae77e3f0000003f0000803f15b5103faae77e3ffc20213f75a37b3fc5fb303faf41763f0000403fecd96e3fe5eb4d3f9a8c653f7a825a3f7a825a3f9a8c653fe5eb4d3fecd96e3f0000403faf41763fc6fb303f75a37b3ffc20213faae77e3f15b5103f0000803f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000003f0000803f0000003faae77e3f15b5103f75a37b3ffc20213faf41763fc6fb303fecd96e3f0000403f9a8c653fe5eb4d3f7a825a3f7a825a3fe5eb4d3f9a8c653f0000403fecd96e3fc5fb303faf41763ffc20213f75a37b3f15b5103faae77e3f0000003f0000803fd695de3eaae77e3f09bebd3e75a37b3f75089e3eaf41763f0000803eecd96e3f6c50483e9a8c653f1af6153e7a825a3f2f9bd33de5eb4d3fa330893d0000403f0ce51b3dc6fb303f5c918b3cfc20213fda2a8c3b15b5103f000000000000003fda2a8c3bd695de3e5c918b3c08bebd3e0ce51b3d76089e3ea330893d0000803e2f9bd33d6c50483e1af6153e18f6153e6c50483e309bd33d0000803ea030893d75089e3e10e51b3d09bebd3e60918b3cd695de3e002b8c3b0000003f0000000015b5103f002b8c3bfc20213f60918b3cc5fb303f10e51b3d0000403fa030893de5eb4d3f309bd33d7a825a3f18f6153e9a8c653f6c50483eecd96e3f0000803eaf41763f76089e3e75a37b3f08bebd3eaae77e3fd695de3e0000803f0000003f
+  m_CompressedMesh:
+    m_Vertices:
+      m_NumItems: 0
+      m_Range: 0
+      m_Start: 0
+      m_Data: 
+      m_BitSize: 0
+    m_UV:
+      m_NumItems: 0
+      m_Range: 0
+      m_Start: 0
+      m_Data: 
+      m_BitSize: 0
+    m_Normals:
+      m_NumItems: 0
+      m_Range: 0
+      m_Start: 0
+      m_Data: 
+      m_BitSize: 0
+    m_Tangents:
+      m_NumItems: 0
+      m_Range: 0
+      m_Start: 0
+      m_Data: 
+      m_BitSize: 0
+    m_Weights:
+      m_NumItems: 0
+      m_Data: 
+      m_BitSize: 0
+    m_NormalSigns:
+      m_NumItems: 0
+      m_Data: 
+      m_BitSize: 0
+    m_TangentSigns:
+      m_NumItems: 0
+      m_Data: 
+      m_BitSize: 0
+    m_FloatColors:
+      m_NumItems: 0
+      m_Range: 0
+      m_Start: 0
+      m_Data: 
+      m_BitSize: 0
+    m_BoneIndices:
+      m_NumItems: 0
+      m_Data: 
+      m_BitSize: 0
+    m_Triangles:
+      m_NumItems: 0
+      m_Data: 
+      m_BitSize: 0
+    m_UVInfo: 0
+  m_LocalAABB:
+    m_Center: {x: 0, y: 0, z: 0}
+    m_Extent: {x: 0.38, y: 0.06, z: 0.38}
+  m_CookingOptions: 30
+  m_PreBakeConvexCollisionMesh: 0
+  m_PreBakeTriangleCollisionMesh: 0
+  m_BakedConvexCollisionMesh: 
+  m_BakedTriangleCollisionMesh: 
+  'm_MeshMetrics[0]': 1
+  'm_MeshMetrics[1]': 1
+  m_MeshOptimizationFlags: 1
+  m_StreamData:
+    serializedVersion: 2
+    offset: 0
+    size: 0
+    path: 
+  m_MeshLodInfo:
+    serializedVersion: 2
+    m_LodSelectionCurve:
+      serializedVersion: 1
+      m_LodSlope: 1.341357
+      m_LodBias: 4.9744077
+    m_NumLevels: 3
+    m_SubMeshes:
+    - serializedVersion: 2
+      m_Levels:
+      - serializedVersion: 1
+        m_IndexStart: 0
+        m_IndexCount: 576
+      - serializedVersion: 1
+        m_IndexStart: 576
+        m_IndexCount: 384
+      - serializedVersion: 1
+        m_IndexStart: 960
+        m_IndexCount: 192

@@ -1,0 +1,22 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6f43c4c1f8d849948efabb62d0969ffe, type: 3}
+  m_Name: StructureCeiling
+  m_EditorClassIdentifier: Assembly-CSharp::Metro.App.StationRigidModelLods
+  Meshes:
+  - Source: {fileID: 1050908021570271116, guid: 90501e7fd05f91340ba7359b2e817fee, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -4926770370004109585, guid: 90501e7fd05f91340ba7359b2e817fee, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  PrefabDependencyHash: 11bdc57abd46d985eb4e940202a6e874

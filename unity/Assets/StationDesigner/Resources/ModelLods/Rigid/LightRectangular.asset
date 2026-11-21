@@ -1,0 +1,22 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6f43c4c1f8d849948efabb62d0969ffe, type: 3}
+  m_Name: LightRectangular
+  m_EditorClassIdentifier: Assembly-CSharp::Metro.App.StationRigidModelLods
+  Meshes:
+  - Source: {fileID: 1050908021570271116, guid: 37c58c66803120e42a26eba1a12228d9, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -4926770370004109585, guid: 37c58c66803120e42a26eba1a12228d9, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  PrefabDependencyHash: 7d5532234db83e00b4630ef258d2fa02

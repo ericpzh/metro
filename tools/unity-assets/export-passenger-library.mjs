@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { cpSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import validator from 'gltf-validator'
 import * as T from '../../model/node_modules/three/build/three.module.js'
 import { GLTFExporter } from '../../model/node_modules/three/examples/jsm/exporters/GLTFExporter.js'
 import { unzlibSync } from '../../game/node_modules/three/examples/jsm/libs/fflate.module.js'
+import { MeshoptSimplifier } from '../../game/node_modules/meshoptimizer/meshopt_simplifier.js'
 import { createImportedSoftHuman, SOFT_BASE_URL } from '../../model/src/soft-human/imported-base.js'
 import { createWardrobe, OUTFITS } from '../../model/src/soft-human/wardrobe.js'
 import { createMotion } from '../../model/src/soft-human/character.js'
@@ -55,6 +56,7 @@ const LIMIT = Number(flag('limit', '0')) || 0
 const START = Number(flag('start', '0')) || 0
 const ONLY = flag('only', null)
 const VERBOSE = args.includes('--verbose')
+const LOD_MESHES = args.includes('--lod-meshes')
 
 const approved = JSON.parse(read('game/src/assets/passenger-approved.json'))
 const activities = JSON.parse(read('game/src/assets/passenger-activities.json'))
@@ -71,6 +73,9 @@ assert.equal(sourceLf.recipeSha256, approved.recipeSha256)
 
 const sourceInputs = []
 for (const [path, expected] of Object.entries(approved.sourceHashes)) {
+  // Mesh-only export consumes the pinned bind geometry and omits all clips.
+  // The live simulation constants are only used by the clip-producing path.
+  if (LOD_MESHES && path === 'game/src/sim/constants.ts') continue
   const bytes = read(path)
   const raw = sha(bytes)
   assert.equal(raw, expected, `${path} does not match the bake's raw provenance; rebake first`)
@@ -233,7 +238,8 @@ function buildGeometry(recipe, detail = 'full') {
   const triangleCount = detail === 'low' ? recipe.lowTriangles : recipe.triangles
   const row = approved.library.indexOf(recipe)
   assert.ok(row >= 0, `${recipe.id} is not in the active bake`)
-  const corners = Array.from(table.subarray(row * stride, row * stride + triangleCount * 3))
+  let corners = Array.from(table.subarray(row * stride, row * stride + triangleCount * 3))
+  if (detail === 'reduced') corners = reducePassengerCorners(corners)
   const used = [...new Set(corners)]
   const remap = new Map(used.map((vertex, index) => [vertex, index]))
   const triangles = corners.map(vertex => remap.get(vertex))
@@ -316,7 +322,31 @@ function buildGeometry(recipe, detail = 'full') {
   }
   geometry.computeBoundingBox()
   geometry.computeBoundingSphere()
-  return { geometry, materials, groups, regionIds, vertices: used.length, triangles: triangleCount, used, region, heldBagMask }
+  return { geometry, materials, groups, regionIds, vertices: used.length, triangles: corners.length / 3, used, region, heldBagMask }
+}
+
+function reducePassengerCorners(corners) {
+  const byRegion = Map.groupBy(Array.from({ length: corners.length / 3 }, (_, index) => index * 3),
+    start => bind[corners[start] * 16 + 7])
+  const result = []
+  for (const offsets of byRegion.values()) {
+    const regionCorners = offsets.flatMap(start => corners.slice(start, start + 3))
+    const vertices = [...new Set(regionCorners)]
+    const remap = new Map(vertices.map((value, index) => [value, index]))
+    const local = Uint32Array.from(regionCorners, value => remap.get(value))
+    const positions = Float32Array.from(vertices.flatMap(value => Array.from(bind.subarray(value * 16, value * 16 + 3))))
+    const attributes = Float32Array.from(vertices.flatMap(value => {
+      const start = value * 16
+      const weights = Array(boneNames.length).fill(0)
+      for (let slot = 0; slot < 4; slot++) weights[bind[start + 12 + slot]] += bind[start + 8 + slot]
+      return weights
+    }))
+    const target = Math.max(3, Math.ceil(local.length / 6) * 3)
+    const [reduced] = MeshoptSimplifier.simplifyWithAttributes(local, positions, 3,
+      attributes, boneNames.length, Array(boneNames.length).fill(2), null, target, .01, ['LockBorder'])
+    for (const index of reduced) result.push(vertices[index])
+  }
+  return result
 }
 
 // ---------------------------------------------------------------------------
@@ -721,6 +751,41 @@ const selected = ONLY
   ? SOFT_MODEL_LIBRARY.filter(entry => entry.id === ONLY)
   : SOFT_MODEL_LIBRARY.slice(START, LIMIT ? START + LIMIT : undefined)
 assert.ok(selected.length > 0, 'No recipes selected')
+
+if (LOD_MESHES) {
+  await MeshoptSimplifier.ready
+  const written = []
+  for (const catalogue of selected) {
+    const recipe = approved.library.find(row => row.id === catalogue.id)
+    assert.ok(recipe, `No baked appearance for ${catalogue.id}`)
+    for (const [tier, detail] of [[1, 'reduced'], [2, 'low']]) {
+      const built = buildGeometry(recipe, detail)
+      const { mesh } = buildSkinnedScene(built.geometry, built.materials, [])
+      const file = stagedModelPath(recipe).replace(/\.glb$/, `-lod${tier}.glb`)
+      const target = join(OUT, file)
+      const bytes = new Uint8Array(await new GLTFExporter().parseAsync(mesh, { binary: true }))
+      const report = await validator.validateBytes(bytes, { uri: file })
+      assert.equal(report.issues.numErrors + report.issues.numWarnings, 0, file)
+      mkdirSync(dirname(target), { recursive: true })
+      writeFileSync(target, bytes)
+      written.push({ recipe: recipe.id, tier, file, vertices: built.vertices,
+        triangles: built.triangles, sha256: sha(bytes), rights: 'INTERNAL_REVIEW_ONLY' })
+      mesh.geometry.dispose()
+      built.geometry.dispose()
+      for (const material of built.materials) material.dispose()
+    }
+  }
+  writeFileSync(join(OUT, 'passenger-lods.json'), JSON.stringify({ recipeSha256, sourceSha256, assets: written }, null, 2) + '\n')
+  if (args.includes('--stage-local-lods')) {
+    assert.equal(written.length, SOFT_MODEL_LIBRARY.length * 2, 'Stage the complete local library in one run')
+    const target = 'unity/Assets/StationDesigner/Generated/Passengers/Lods'
+    mkdirSync(target, { recursive: true })
+    cpSync(join(OUT, 'Models'), join(target, 'Models'), { recursive: true })
+    cpSync(join(OUT, 'passenger-lods.json'), join(target, 'passenger-lods.json'))
+  }
+  console.log(`PASSENGER_LOD_EXPORT ${written.length} meshes`)
+  process.exit(0)
+}
 
 for (const [position, catalogue] of selected.entries()) {
   const recipe = approved.library.find(entry => entry.id === catalogue.id)

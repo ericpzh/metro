@@ -8,6 +8,7 @@ using System.Security.Cryptography;
 using Metro.Build;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using Unity.Profiling;
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -22,6 +23,7 @@ namespace Metro.App {
     public sealed class StationPlayerBenchmark : MonoBehaviour {
         string reportPath = "";
         string[] targetDemos = { "zoo", "tanwei", "tianhe" };
+        bool modelDetail;
         readonly List<float> recentFrameMs = new List<float>(2048);
         bool measuringFrames;
 
@@ -54,6 +56,7 @@ namespace Metro.App {
             var runner = go.AddComponent<StationPlayerBenchmark>();
             runner.reportPath = outPath;
             runner.targetDemos = demos;
+            runner.modelDetail = Array.IndexOf(args, "-metroBenchModelDetail") >= 0;
         }
 
         void Update() {
@@ -191,7 +194,8 @@ namespace Metro.App {
             foreach (var demoId in targetDemos) {
                 var demoJson = new JObject { ["demo"] = demoId };
                 demoReports.Add(demoJson);
-                yield return RunDemoMatrixCoroutine(host, demoId, demoJson);
+                if (modelDetail) yield return RunModelDetailCoroutine(host, demoId, demoJson);
+                else yield return RunDemoMatrixCoroutine(host, demoId, demoJson);
             }
 
             StationEditProfileCommandHandler.SetActive(false);
@@ -209,6 +213,86 @@ namespace Metro.App {
                 ["payload"] = payload ?? new JObject(),
             };
             return host.SendForTest(env.ToString(Formatting.None));
+        }
+
+        static IEnumerator RunModelDetailCoroutine(StationGameHost host, string demoId, JObject demoOut) {
+            int priorRevision = host.CurrentRevision;
+            host.BrowserCommand(new JObject {
+                ["schemaVersion"] = 2, ["id"] = "bench-detail-" + demoId,
+                ["sessionId"] = host.ClientSessionId, ["type"] = "station.openDemo",
+                ["payload"] = new JObject { ["id"] = demoId },
+            }.ToString(Formatting.None));
+            if (host.CurrentRevision <= priorRevision)
+                throw new InvalidOperationException($"Model detail benchmark could not open {demoId}.");
+
+            JObject Command(string type, JObject payload = null) =>
+                JObject.Parse(HostCmd(host, type, payload))["payload"] as JObject;
+            string original = (string)Command("graphics.get")?["profile"];
+            if (string.IsNullOrEmpty(original)) throw new InvalidOperationException("Model detail command is unavailable.");
+            Command("view.set", new JObject { ["key"] = "level", ["value"] = 0 });
+            Command("view.set", new JObject { ["key"] = "ground", ["value"] = false });
+            yield return new WaitForSecondsRealtime(5f);
+
+            using var triangles = ProfilerRecorder.StartNew(ProfilerCategory.Render, "Triangles Count");
+            using var draws = ProfilerRecorder.StartNew(ProfilerCategory.Render, "Draw Calls Count");
+            using var render = ProfilerRecorder.StartNew(ProfilerCategory.Internal, "Render Thread");
+            using var memory = ProfilerRecorder.StartNew(ProfilerCategory.Memory, "Total Used Memory");
+            var frames = new List<double>(8192);
+            var samples = new JArray();
+            demoOut["sourceHash"] = host.CurrentSourceHash;
+            demoOut["samples"] = samples;
+            try {
+                foreach (int speed in new[] { 0, 1, 16 }) {
+                    foreach (string profile in new[] { "high", "low" }) {
+                        Command("sim.play", new JObject { ["playing"] = false });
+                        Command("sim.seek", new JObject { ["simTimeSeconds"] = 374400 });
+                        Command("sim.restart");
+                        var start = Command("sim.speed", new JObject { ["speed"] = Math.Max(1, speed) })?["clock"];
+                        var applied = Command("graphics.set", new JObject { ["profile"] = profile });
+                        if ((int?)start?["simTimeSeconds"] != 374400 || (string)applied?["profile"] != profile)
+                            throw new InvalidOperationException($"Could not set up {demoId} at {speed}× on {profile}.");
+                        yield return new WaitForSecondsRealtime(1.5f);
+
+                        frames.Clear();
+                        long triangleSum = 0, drawSum = 0, renderSum = 0, memoryPeak = 0;
+                        if (speed != 0) Command("sim.play", new JObject { ["playing"] = true });
+                        double startTime = Time.realtimeSinceStartupAsDouble;
+                        double seconds = speed == 0 ? 5d : 30d;
+                        do {
+                            yield return null;
+                            frames.Add(Time.unscaledDeltaTime * 1000d);
+                            if (triangles.Valid) triangleSum += triangles.LastValue;
+                            if (draws.Valid) drawSum += draws.LastValue;
+                            if (render.Valid) renderSum += render.LastValue;
+                            if (memory.Valid) memoryPeak = Math.Max(memoryPeak, memory.LastValue);
+                        } while (Time.realtimeSinceStartupAsDouble - startTime < seconds);
+
+                        var end = Command("sim.play", new JObject { ["playing"] = false })?["clock"];
+                        int ticks = ((int?)end?["tick"] ?? 0) - ((int?)start?["tick"] ?? 0);
+                        if (speed > 0 && ticks <= 0)
+                            throw new InvalidOperationException($"{demoId} did not advance at {speed}× on {profile}.");
+                        if (triangles.Valid && triangleSum == 0)
+                            throw new InvalidOperationException($"{demoId} submitted no triangles. Run the benchmark on the interactive desktop.");
+                        frames.Sort();
+                        var row = new JObject {
+                            ["profile"] = profile, ["speed"] = speed, ["frames"] = frames.Count, ["ticks"] = ticks,
+                            ["averageFps"] = 1000d / frames.Average(),
+                            ["onePercentLowFps"] = 1000d / frames.Skip((int)Math.Floor(frames.Count * .99d)).Average(),
+                            ["worstFrameMs"] = frames[frames.Count - 1],
+                            ["averageTriangles"] = triangles.Valid ? (JToken)((double)triangleSum / frames.Count) : null,
+                            ["averageDraws"] = draws.Valid ? (JToken)((double)drawSum / frames.Count) : null,
+                            ["averageRenderThreadMs"] = render.Valid ? (JToken)(renderSum / 1000000d / frames.Count) : null,
+                            ["peakUsedMemoryBytes"] = memory.Valid ? (JToken)memoryPeak : null,
+                        };
+                        samples.Add(row);
+                        UnityEngine.Debug.Log($"[ModelDetailBenchmark] {demoId} {row.ToString(Formatting.None)}");
+                    }
+                }
+            } finally {
+                Command("sim.play", new JObject { ["playing"] = false });
+                Command("sim.speed", new JObject { ["speed"] = 1 });
+                Command("graphics.set", new JObject { ["profile"] = original });
+            }
         }
 
         static JObject ProbeCoord(StationGameHost host, StationCellKey cell, bool focus = true, float distance = 26f, bool solidCenter = false, bool exactCell = false) {

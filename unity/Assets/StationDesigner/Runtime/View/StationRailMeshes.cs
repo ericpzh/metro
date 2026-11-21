@@ -41,10 +41,12 @@ namespace Metro.View {
     public sealed class RailMeshBin {
         public readonly List<Vector3> Vertices = new List<Vector3>();
         public readonly List<int> Triangles = new List<int>();
+        readonly List<(int Start, int LastTier)> hardware = new List<(int, int)>();
         public int VertexCount => Vertices.Count;
         public int TriangleCount => Triangles.Count / 3;
 
-        public void Box(Vector3 centre, Vector3 size) {
+        public void Box(Vector3 centre, Vector3 size, int lastTier = 2) {
+            if (lastTier < 2) hardware.Add((Triangles.Count, lastTier));
             float hx = size.x * .5f, hy = size.y * .5f, hz = size.z * .5f;
             int start = Vertices.Count;
             for (int i = 0; i < 8; i++) {
@@ -100,7 +102,33 @@ namespace Metro.View {
             mesh.SetTriangles(Triangles, 0);
             mesh.RecalculateNormals();
             mesh.RecalculateBounds();
+            if (hardware.Count > 0) {
+                var ordered = StructuralIndices();
+                int simplified = ordered.Count;
+                AppendFasteners(ordered, 1);
+                int reduced = ordered.Count;
+                AppendFasteners(ordered, 0);
+                StationMeshLodIndices.ApplySharedPrefix(mesh, ordered, reduced, simplified);
+            }
             return mesh;
+        }
+
+        List<int> StructuralIndices() {
+            var result = new List<int>();
+            int source = 0;
+            foreach (var item in hardware) {
+                for (; source < item.Start; source++) result.Add(Triangles[source]);
+                source = item.Start + 36;
+            }
+            for (; source < Triangles.Count; source++) result.Add(Triangles[source]);
+            return result;
+        }
+
+        void AppendFasteners(List<int> indices, int tier) {
+            foreach (var item in hardware) {
+                if (item.LastTier != tier) continue;
+                for (int next = item.Start; next < item.Start + 36; next++) indices.Add(Triangles[next]);
+            }
         }
     }
 
@@ -242,8 +270,8 @@ namespace Metro.View {
                     float x = ((i + .5f) / sleepers) * w - .5f;
                     Detail(Dark, V(x, y, .567f), S(.19f, .34f, .014f));
                     for (int clip = -1; clip <= 1; clip += 2) {
-                        Detail(Dark, V(x, y + clip * .085f, .591f), S(.13f, .02f, .018f));
-                        Detail(Dark, V(x, y + clip * .135f, .59f), S(.046f, .046f, .026f));
+                        Detail(Dark, V(x, y + clip * .085f, .591f), S(.13f, .02f, .018f), lastTier: 1);
+                        Detail(Dark, V(x, y + clip * .135f, .59f), S(.046f, .046f, .026f), lastTier: 0);
                     }
                 }
             }
@@ -427,15 +455,15 @@ namespace Metro.View {
         /// One running-gear box: apply the source's hardware group — across correction
         /// <c>cy·(1−scale)</c>, up scale, the lift and the final `TRACK_BED_DROP` shift.
         /// </summary>
-        void Detail(RailMeshBin bin, Vector3 centre, Vector3 size) {
+        void Detail(RailMeshBin bin, Vector3 centre, Vector3 size, int lastTier = 2) {
             float s = Scale;
             float hardwareLift = StationRailGeometry.HardwareLift(s);
             // `centre` is already in Unity local axes: y is up, z is across.
-            Box(bin,
+            bin.Box(
                 new Vector3(centre.x,
                     hardwareLift + (centre.y - StationRailGeometry.BedDrop) * s,
                     cy * (1f - s) + centre.z * s),
-                new Vector3(size.x, size.y * s, size.z * s));
+                new Vector3(size.x, size.y * s, size.z * s), lastTier);
         }
 
         /// <summary>`TrackDetails.ts:buildThirdRail`: guarded conductor rail, cover and insulators.</summary>

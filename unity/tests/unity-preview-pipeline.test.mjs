@@ -243,8 +243,22 @@ test('start-unity CLI parser and raw build verifier detect input and output drif
     writeFileSync(join(proj, 'Packages/manifest.json'), '{}')
     writeFileSync(join(proj, 'ProjectSettings/ProjectVersion.txt'), 'm_EditorVersion: 6000.6.8f1')
     writeFileSync(join(sandbox, 'fixtures/valid.json'), '{}')
+    const localRoot = 'Assets/StationDesigner/Generated/Passengers'
+    const localScene = 'Assets/StationDesigner/Scenes/StationGameLocalWeb.unity'
+    mkdirSync(join(proj, localRoot, 'Lods'), { recursive: true })
+    mkdirSync(join(proj, 'Assets/StationDesigner/Scenes'), { recursive: true })
+    writeFileSync(join(proj, localRoot, 'Lods/model.glb'), 'review-only')
+    writeFileSync(join(proj, localRoot + '.meta'), 'review-only folder meta')
+    writeFileSync(join(proj, localScene), 'review-only scene')
+    writeFileSync(join(proj, localScene + '.meta'), 'review-only scene meta')
 
     const inputs = snapshotDirectoryInputs(proj, ['Assets', 'Packages', 'ProjectSettings'], { ignore: MUTABLE_BUILD_INPUTS })
+    assert.ok(inputs.some(entry => entry.Path === localRoot + '/Lods/model.glb'))
+    const publicInputs = snapshotDirectoryInputs(proj, ['Assets', 'Packages', 'ProjectSettings'], {
+      ignore: MUTABLE_BUILD_INPUTS, includeLocalPassengers: false,
+    })
+    assert.ok(!publicInputs.some(entry => entry.Path.startsWith(localRoot) || entry.Path.startsWith(localScene)))
+    assert.ok(publicInputs.some(entry => entry.Path === 'Assets/Host.cs'))
     const fixtures = snapshotDirectoryInputs(sandbox, ['fixtures'])
     assert.ok(!inputs.some(entry => entry.Path.includes('UniversalRenderPipelineGlobalSettings.asset')))
 

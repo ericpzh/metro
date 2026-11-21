@@ -373,6 +373,9 @@ namespace Metro.App.Views {
         internal double LastHeading = double.NaN;
         internal StationDrawMode LastToneMode = (StationDrawMode)(-1);
         internal Material[] OriginalMaterials = Array.Empty<Material>();
+        internal Material[] FullMaterials = Array.Empty<Material>();
+        internal Mesh FullMesh;
+        internal int MeshTier = -1;
 
         public Vector3 Position => Root != null ? Root.transform.position : Vector3.zero;
         public Quaternion Rotation => Root != null ? Root.transform.rotation : Quaternion.identity;
@@ -387,9 +390,8 @@ namespace Metro.App.Views {
     ///
     /// Deliberately **not** an instanced stand-in: a missing catalogue, recipe, rig
     /// or clip hides that actor and reports a named diagnostic. Child is a runtime
-    /// scale of the same recipe. Low topology is declared by the manifest but not yet
-    /// rendered from the retained sample; a Low request is reported
-    /// (<c>low-topology-unported</c>) rather than silently substituted.
+        /// scale of the same recipe. Local catalogue entries can provide compact
+        /// skinned tiers using the same ordered joints and bind poses.
     /// </summary>
     public sealed class PassengerCrowdView : MonoBehaviour {
         public sealed class Diagnostic {
@@ -490,6 +492,8 @@ namespace Metro.App.Views {
             SkippedUnchangedAnimationThisFrame = 0;
             var rig = StationViewFeature.Active;
             var cam = rig != null && rig.viewCamera != null ? rig.viewCamera : Camera.main;
+            var lodCamera = StationExplodedView.IsStandaloneActive
+                ? StationViewFeature.ActiveExploded?.ViewerCamera : cam;
             bool hasCam = Application.isPlaying && cam != null;
             Vector3 camPos = hasCam ? cam.transform.position : Vector3.zero;
             int followId = rig?.Visibility != null ? rig.Visibility.State.FollowPassenger : 0;
@@ -499,6 +503,7 @@ namespace Metro.App.Views {
                     if (!pose.Visible) { Hide(pose.SimId); continue; }
                     var actor = GetOrSpawn(pose);
                     if (actor == null) continue;
+                    SelectActorMesh(actor, pose, lodCamera, followId);
                     Pose(actor, pose, hasCam, camPos, followId);
                 }
             }
@@ -545,7 +550,7 @@ namespace Metro.App.Views {
                 ClearToneBlock(pooled);
                 if (pooled.Root != null) pooled.Root.name = "passenger " + pose.SimId + " " + entry.recipe;
                 actors[pose.SimId] = pooled;
-                if (pose.Detail == PassengerDetail.Low)
+                if (pose.Detail == PassengerDetail.Low && entry.simplifiedMesh == null)
                     Diagnose("low-topology-unported", pose.SimId, "Low mesh is not rendered; Full topology is shown");
                 return pooled;
             }
@@ -583,6 +588,8 @@ namespace Metro.App.Views {
                 LegacyAnimation = animation, Skin = skin, Target = target, Entry = entry,
                 Look = PassengerAppearance.Look(catalogue, pose.SimId, pose.Detail),
                 OriginalMaterials = originals,
+                FullMaterials = originals,
+                FullMesh = skin.sharedMesh,
             };
             var names = catalogue.clipSet?.clipNames ?? Array.Empty<string>();
             for (int i = 0; i < names.Length; i++) {
@@ -597,9 +604,36 @@ namespace Metro.App.Views {
             target.ModeApplied += mode => OnActorModeApplied(actor, mode);
             actors[pose.SimId] = actor;
             actor.Root.SetActive(false);
-            if (pose.Detail == PassengerDetail.Low)
+            if (pose.Detail == PassengerDetail.Low && entry.simplifiedMesh == null)
                 Diagnose("low-topology-unported", pose.SimId, "Low mesh is not rendered; Full topology is shown");
             return actor;
+        }
+
+        void SelectActorMesh(PassengerCrowdActor actor, PassengerPose pose, Camera camera, int followId) {
+            var reduced = actor.Entry.reducedMesh;
+            var simplified = actor.Entry.simplifiedMesh;
+            if (reduced == null && simplified == null) return;
+            int desired = 0;
+            if (actor.SimId != followId) {
+                if (pose.Detail == PassengerDetail.Low) desired = 2;
+                else if (camera != null) {
+                    float depth = Vector3.Distance(actor.Position, camera.transform.position);
+                    float viewHeight = camera.orthographic ? 2f * camera.orthographicSize :
+                        2f * Mathf.Max(camera.nearClipPlane, depth) *
+                            Mathf.Tan(camera.fieldOfView * Mathf.Deg2Rad * .5f);
+                    desired = StationGraphicsSettings.SelectTier(
+                        (float)actor.Look.Height / Mathf.Max(.01f, viewHeight), actor.MeshTier, 3);
+                }
+            }
+            var chosen = desired == 2 ? simplified ?? reduced : desired == 1 ? reduced : null;
+            var mesh = chosen?.mesh ?? actor.FullMesh;
+            actor.MeshTier = desired;
+            if (actor.Skin.sharedMesh == mesh) return;
+            ClearToneBlock(actor);
+            actor.OriginalMaterials = chosen?.materials ?? actor.FullMaterials;
+            actor.Skin.sharedMesh = mesh;
+            actor.Skin.sharedMaterials = actor.OriginalMaterials;
+            actor.Target?.Recapture(actor.Skin);
         }
 
         void Pose(PassengerCrowdActor actor, PassengerPose pose, bool hasCam, Vector3 camPos, int followId) {

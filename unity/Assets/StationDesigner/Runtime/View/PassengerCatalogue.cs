@@ -52,6 +52,8 @@ namespace Metro.View {
         public string modelPath = "";
         public string prefabPath = "";
         public GameObject prefab;
+        public PassengerMeshTier reducedMesh;
+        public PassengerMeshTier simplifiedMesh;
         /// <summary>SHA-256 of the promoted recipe GLB (manifest <c>sha256</c>).</summary>
         public string assetSha256 = "";
         /// <summary>SHA-256 of the shared recipe bake (manifest <c>source.recipeSha256</c>).</summary>
@@ -67,6 +69,12 @@ namespace Metro.View {
         public float assetHeightMetres;
         public string rights = "";
         public string[] bones = Array.Empty<string>();
+    }
+
+    [Serializable]
+    public sealed class PassengerMeshTier {
+        public Mesh mesh;
+        public Material[] materials = Array.Empty<Material>();
     }
 
     /// <summary>
@@ -92,6 +100,7 @@ namespace Metro.View {
         public int schemaVersion = 1;
         public string manifestPath = ManifestPath;
         public string manifestSha256 = "";
+        public string lodManifestSha256 = "";
         public string family = "passenger-library";
         public string rights = "";
         public string sourcePath = "";

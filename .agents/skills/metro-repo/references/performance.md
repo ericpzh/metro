@@ -2383,3 +2383,211 @@ one-pick input, pooled traffic, retained grid geometry and the existing
 ordinary-block fast path already have Unity coverage. Optional Rust/Wasm A*
 is an experiment excluded from the normal web build and is outside this
 production parity list.
+
+### Unity native Mesh LOD generation
+
+On 2026-11-20, an isolated EditMode probe at `e0c01299` used Unity
+`6000.6.8f1` and glTFast `6.19.0` to generate LODs on copies of five GLB assets
+from `unity/Assets/StationDesigner/Generated/`. All five imported with LOD0
+only. The probe also saved a generated tree mesh as a separate Unity `.asset`
+and verified that its LOD count and lowest-tier index count survived reload.
+
+| GLB | Meshes with generated LODs | LOD0 triangles | Lowest generated tier triangles |
+| --- | ---: | ---: | ---: |
+| `bench` | 0 / 21 | 252 | 252 |
+| `tree` | 2 / 2 | 18,432 | 1,343 |
+| `train-c-cab-lead` | 106 / 896 | 128,002 | 43,059 |
+| `soft-male-commuter-daypack` | 1 / 1 | 6,242 | 452 |
+| `soft-human-adult-commuter-daypack-low` | 1 / 1 | 592 | 64 |
+
+To reproduce, import the GLBs with glTFast and enumerate their distinct `Mesh`
+subassets with `AssetDatabase.LoadAllAssetsAtPath`. Clone each mesh, run
+`MeshLodUtility.GenerateMeshLods(mesh, 4)`, and sum
+`GetIndexCount(submesh, lod) / 3` for triangle submeshes. Each mesh contributes
+its own last available level to the lowest-tier total. Every mesh retained
+its original vertex count. Probe and raw results are under
+`.preview/unity/mesh-lod-study-20261120-104431/`. These counts describe the
+geometry Unity can generate. Frame time, draw calls, deformation quality,
+and LOD selection in the running station were outside the probe.
+[Unity Mesh LOD limitations](https://docs.unity.com/en-us/engine/6000.6/manual/analysis/graphics-performance-profiling/lod/mesh-lod/mesh-lod-introduction)
+
+A subsequent isolated rigid catalogue bake used two generated levels per
+source mesh. With formation wrappers and the five legacy monolithic train
+prefabs excluded, 236 prefabs resolved 6,372 source mesh references. Unity
+generated three total tiers for 361 references. The remaining 6,011 reused
+their source geometry. The resulting serialized rigid asset files total
+40,440,592 bytes before player packaging. Run `Bake All Rigid Model LODs`
+under `Metro / Station Game` to regenerate the coverage CSV.
+
+The local passenger exporter produced 880 validated GLBs for 440 existing
+recipes. The commuter changed from 6,242 triangles and 3,497 vertices at
+LOD0 to 3,406 triangles and 2,048 vertices at LOD1, then 592 triangles and
+355 vertices at LOD2. The 880 GLBs total 63,243,572 bytes on disk. Reproduce
+with `node tools/unity-assets/export-passenger-library.mjs
+.preview/unity/passenger-lod-library --lod-meshes`. Runtime frame cost and
+packed build size require separate captures.
+
+The isolated train export with `--lod-meshes` validated 62 lower-detail GLBs
+for 31 parts alongside the 50 formation configurations. The Type C lead car
+export had 128,002, 66,510, and 59,228 triangles at LOD0, LOD1, and LOD2.
+The 62 preview GLBs total 138,717,064 bytes. Runtime train meshes currently
+use a narrower reduction during static body compaction that drops selected
+decorative indices and keeps the original door rig. The export counts apply
+to the staged GLBs.
+
+The station model audit reported 153 baked keys, five generated reductions,
+and 17 explicit reuse policies across the 175 resolved keys. The strict
+coverage report records the reason for each reuse. It does not measure
+profile-dependent render cost.
+
+In the WebGL Release Zoo build, the `model-detail` browser case changed the
+profile from High to Low, kept document revision 1, and read Low again after
+reload. The separate `model-detail-render` case waited for visible station
+frames and captured High, Low, and High again at one street-level camera
+pose. The High capture repeated byte-for-byte, while the Low capture
+differed. Raw results are under `.preview/unity/model-lod-web-final-verify/`
+and `.preview/unity/model-lod-web-pixel-check/`. These checks establish
+preference persistence and a rendering change at a matched camera pose.
+
+The shared-index pack `pack-20261120233704881` repeated these checks with
+the Chinese menu. High reproduced the same screenshot bytes after Low,
+and the saved Low profile returned after reloading the Zoo route. The same
+run passed exploded-view entry and exit. See
+`.preview/unity/model-lod-current-browser-rerun/station-game/`.
+
+The clean public pack `pack-20261121042904258` passed the review-only
+passenger audit and repeated the English menu, reload, rendered profile,
+and exploded-view checks. Its packed Build directory totals 166,971,753
+bytes. The test report is under
+`.preview/unity/model-lod-verified-public/station-game/`.
+
+The provenance-verified Windows Release build under
+`.preview/unity/model-lod-current-windows-final/` measured 647,050,774 bytes
+in Unity's build report. In the standalone Unity and WebView2 session, choosing
+Low changed the graphics preference at station revision 1. After restarting
+the player, the menu and Unity snapshot both reported Low. The check restored
+the original High preference. The Zoo browser block-brush check hit the same
+preview and pointer-commit failures on the latest pack and the retained
+pre-LOD Plan 35 pack, leaving the edit-latency gate unmeasured in those runs.
+
+### WebGL playback by model detail profile
+
+The `model-detail-performance` verifier pauses, seeks to Monday 08:00
+(`374400` simulation seconds), and restarts actors before each 30-second
+sample. High runs before Low at each speed. The reported intervals are
+browser animation frames. The profile comparison uses the same scene,
+street-level camera, and canvas within each demo.
+
+Zoo and Tanwei ran on an RTX 4080 SUPER through ANGLE D3D11 at a
+852 × 715 canvas in the WebGL Release pack `pack-20261120230622478`.
+
+| Demo | Playback | High average FPS | Low average FPS | High 1% low FPS | Low 1% low FPS |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Zoo | 1× | 32.71 | 33.19 | 18.15 | 19.31 |
+| Zoo | 16× | 30.71 | 30.64 | 15.78 | 14.99 |
+| Tanwei | 1× | 53.79 | 54.29 | 26.07 | 26.73 |
+| Tanwei | 16× | 39.62 | 39.15 | 12.84 | 11.23 |
+
+Both profiles advanced 30 ticks at 1×. At 16× they advanced 481 on Zoo and
+480/481 on Tanwei. Average frame rates were similar across profiles in
+these single-run comparisons. Both Low profiles missed the 15 FPS 1% low
+comparison target at 16×. Reproduce with `METRO_BROWSER_GPU=hardware`, `METRO_STATIC_SERVER=1`
+and `node tools/unity-web/verify-station-game.mjs
+.preview/unity/model-lod-peak-zoo --packed <pack> --demo zoo --locale en
+--timeout-ms 180000 --only model-detail-performance`.
+
+The pre-LOD WebGL pack `pack-20261120041339214` completed one Tianhe Park
+street-level sample per speed at the same playback start and canvas. It measured
+17.41 average FPS and 5.07 FPS 1% low at 1×, and 3.29 average FPS and 0.53 FPS
+1% low at 16×. The first LOD pack aborted on Wasm heap growth during the
+Tianhe comparison, which runs two samples per speed. The differing
+repetition counts leave causation open. Its Chrome log is under
+`.preview/unity/model-lod-peak-tianhe/`. The baseline report is under
+`.preview/unity/model-lod-baseline-tianhe/`.
+
+The subsequent train and rail change places essential geometry first in
+the index buffer. Each lower tier references a shorter prefix. The
+EditMode fixture verifies a compacted train mesh has 12 stored indices
+with 12, nine, and six selected across the three tiers. The rail fixture
+also verifies that total stored indices equal LOD0.
+
+The shared-buffer Release pack `pack-20261120233704881` still exhausted the
+Tianhe Park Wasm heap during the four-sample sequence. The load probe recorded
+29 growth events and a final heap size of 4,278,190,080 bytes before the abort.
+At 1×, both profiles advanced 30 ticks. High measured 16.12 average FPS and
+7.69 FPS 1% low, while Low measured 15.82 and 6.66 FPS. At 16×, High advanced
+241 ticks and Low advanced zero. The browser continued emitting animation
+frames after Unity stopped advancing, so the 16× FPS readings are excluded.
+The report and Chrome log are under
+`.preview/unity/model-lod-tianhe-shared-buffer/station-game/`. The verifier also
+accepts `--sample-speed 16 --sample-profile low` to run one sample in a fresh
+browser session and avoid carrying allocations across profiles.
+
+The retained pre-LOD Plan 35 `heap-resize-pack` also reached 4,278,190,080
+bytes and aborted, before the benchmark loading shell dismissed in this run.
+This is a different baseline artifact from `pack-20261120041339214`, so it
+establishes that the heap failure can occur without the LOD changes. It
+does not supply a same-build playback comparison. See
+`.preview/unity/model-lod-plan35-matched-tianhe/station-game/`.
+
+The fresh-session 16× High sample reached the same 4,278,190,080-byte
+capacity and reported a WebAssembly out-of-bounds memory access before it
+could finish. The isolated 16× Low run stopped reporting progress after its
+last observed growth to 3,255,762,944 bytes and failed with a Chrome DevTools
+`Runtime.evaluate` timeout. The stalled browser was stopped after seven
+minutes. Neither session produced a valid 16× timing. The raw reports are under
+`.preview/unity/model-lod-tianhe-cold-16x-high/` and
+`.preview/unity/model-lod-tianhe-cold-16x-low/`.
+
+### Windows Release playback by model detail profile
+
+The standalone benchmark completed all 18 samples using the Windows Release
+player launched from the interactive Editor desktop. The renderer was URP PC
+on Direct3D 12 with an RTX 4080 SUPER, 1600 × 900, vSync off and no frame cap.
+Each profile starts at Monday 08:00, street level, with ground hidden. Paused
+samples run for five seconds. Playback samples run for 30 seconds. The table
+lists High / Low. FPS uses Unity's unscaled frame intervals. Memory is the
+peak of Unity's Total Used Memory counter during the sample. The Release build
+reported no render-thread timing, and the runs did not capture GPU durations.
+
+| Demo | Speed | Mean triangles | Mean draws | Mean FPS | 1% low FPS | Peak MiB |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Zoo | 0 | 182,407 / 178,349 | 4,215 / 4,215 | 653.31 / 652.44 | 389.77 / 378.12 | 2,138 / 2,139 |
+| Zoo | 1 | 1,020,822 / 948,308 | 4,729 / 4,729 | 572.18 / 572.99 | 221.75 / 237.73 | 2,153 / 2,145 |
+| Zoo | 16 | 482,859 / 459,850 | 4,397 / 4,401 | 487.51 / 494.01 | 81.51 / 89.10 | 2,208 / 2,222 |
+| Tanwei | 0 | 411,848 / 401,689 | 5,585 / 5,585 | 548.73 / 547.20 | 213.61 / 179.77 | 2,320 / 2,285 |
+| Tanwei | 1 | 467,505 / 454,186 | 5,614 / 5,616 | 459.38 / 461.65 | 140.97 / 136.20 | 2,328 / 2,341 |
+| Tanwei | 16 | 787,807 / 744,116 | 5,797 / 5,796 | 287.54 / 286.73 | 40.83 / 40.26 | 2,441 / 2,429 |
+| Tianhe Park | 0 | 878,119 / 873,020 | 14,891 / 14,891 | 220.09 / 217.15 | 114.90 / 113.88 | 6,372 / 6,328 |
+| Tianhe Park | 1 | 1,037,252 / 1,026,994 | 15,061 / 15,062 | 190.19 / 190.63 | 78.52 / 81.17 | 6,298 / 6,140 |
+| Tianhe Park | 16 | 1,673,498 / 1,623,799 | 15,755 / 15,753 | 69.14 / 58.40 | 12.13 / 12.56 | 6,432 / 6,457 |
+
+Triangles fell 0.6% to 7.1% across the nine pairs. Draw counts were nearly
+identical. At 16× in Tianhe Park, Low averaged 58.40 FPS against High at
+69.14 FPS, with 480 and 479 simulation ticks respectively. This run leaves
+the frame-cost target open. Reproduce with `metro player_benchmark_start
+--model-detail true` and the Windows Release executable. Raw results and
+the build provenance are in `.preview/unity/model-lod-windows-benchmark/`.
+
+The same Windows binary completed the standard block-edit benchmark.
+
+| Demo | Committed ordinary samples | Misses | Fallbacks | Release to commit p95 / max | Release to first frame p95 / max |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Zoo | 72 | 2 | 0 | 46.41 / 98.16 ms | 49.00 / 102.15 ms |
+| Tanwei | 64 | 0 | 0 | 71.99 / 72.86 ms | 75.53 / 77.64 ms |
+| Tianhe Park | 69 | 5 | 0 | 262.95 / 380.10 ms | 268.15 / 386.30 ms |
+
+The Tianhe Park ordinary-edit max came from an equipment-adjacent block
+delete. The trace measured 116.39 ms in `Sim.CommitInstall` and 9.97 ms in
+`StationEdit.StageLocalWorld`. The 100 ms target failed in Tianhe Park.
+Raw data are in
+`.preview/unity/model-lod-windows-benchmark/windows-block-edits.json`.
+
+The retained pre-LOD Windows player ran the Tianhe Park edit workload on
+the same hardware and demo hash. It committed 74 ordinary samples with
+zero misses, a 56.34 ms p95, and a 94.67 ms max. It built a different
+walk graph (153,566 nodes against 153,448 on the LOD candidate), so the
+comparison does not isolate LOD. For the equipment-adjacent delete, local
+world staging was 10.75 ms on the pre-LOD player and 9.97 ms on the
+candidate. Raw control data are in
+`.preview/unity/model-lod-windows-benchmark/windows-block-pre-lod-tianhe.json`.

@@ -251,6 +251,7 @@ namespace Metro.App.Views {
             Transform instance;
             if (prefab != null) {
                 var go = UnityEngine.Object.Instantiate(prefab, parent, false);
+                StationRigidModelLods.Apply(go, prefab.name);
                 go.name = "vehicle " + variant;
                 // The promoted family is authored in metres; never scale the whole prefab.
                 go.transform.localScale = Vector3.one;

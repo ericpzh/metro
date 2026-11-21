@@ -1,6 +1,6 @@
 import {MusicSetting} from './MusicSetting.tsx'
 import { Slider } from '../../Slider.tsx'
-import { useEffect, useId, useRef, useSyncExternalStore } from 'react'
+import { useEffect, useId, useRef, useState, useSyncExternalStore } from 'react'
 import {getAudioVolumes, subscribeAudioVolumes, setAudioVolume} from '../../audioSettings.ts'
 import { FaGear } from 'react-icons/fa6'
 import { FaBug } from 'react-icons/fa'
@@ -14,12 +14,63 @@ import { getLanguage, setLanguage, useLanguage } from '../../i18n.ts'
 import { t } from '../../../sim/i18n.ts'
 import { useStore } from '../../store.ts'
 import { reportIssueHrefFor } from '../../reportIssueRoute.ts'
+import { useStationHost, type ModelDetailProfile, type StationHost } from '../StationHost.tsx'
 
 const upscalingModes = ['native', 'ultra', 'quality', 'balanced', 'performance'] as const
+
+function ModelDetailSetting({ readOrSet }: { readOrSet: NonNullable<StationHost['modelDetail']> }): React.ReactElement {
+  const [profile, setProfile] = useState<ModelDetailProfile>()
+  const [requested, setRequested] = useState<ModelDetailProfile>()
+  const [failed, setFailed] = useState(false)
+  const queued = useRef<ModelDetailProfile | undefined>(undefined)
+  const sending = useRef(false)
+  const language = useLanguage()
+  const chinese = language === 'zh-CN'
+  useEffect(() => {
+    let active = true
+    void readOrSet().then(value => { if (active) setProfile(value) }, () => { if (active) setFailed(true) })
+    return () => { active = false }
+  }, [readOrSet])
+
+  async function change(value: ModelDetailProfile): Promise<void> {
+    queued.current = value
+    setRequested(value)
+    setFailed(false)
+    if (sending.current) return
+    sending.current = true
+    try {
+      while (queued.current !== undefined) {
+        const next = queued.current
+        queued.current = undefined
+        try { setProfile(await readOrSet(next)); setFailed(false) }
+        catch { setFailed(true) }
+      }
+    } finally {
+      sending.current = false
+      setRequested(undefined)
+    }
+  }
+
+  return <label className="settingsToggle">
+    <PiHighDefinition aria-hidden="true"/>
+    <span>{chinese ? '模型细节' : 'Model detail'}</span>
+    <select value={requested ?? profile ?? ''} aria-busy={requested !== undefined}
+      disabled={profile === undefined && !failed && requested === undefined}
+      onChange={event => { void change(event.target.value as ModelDetailProfile) }}>
+      {profile === undefined && <option value="" disabled>…</option>}
+      <option value="high">{chinese ? '高' : 'High'}</option>
+      <option value="balanced">{chinese ? '均衡' : 'Balanced'}</option>
+      <option value="low">{chinese ? '低' : 'Low'}</option>
+    </select>
+    {failed && <span role="status">{chinese ? '无法应用设置' : 'Setting unavailable'}</span>}
+  </label>
+}
 
 export function SettingsMenu(): React.ReactElement {
   const volumes = useSyncExternalStore(subscribeAudioVolumes, getAudioVolumes)
   const language = useLanguage()
+  const modelDetail = useStationHost()?.modelDetail
+  const [menuOpen, setMenuOpen] = useState(false)
   const theme = useSyncExternalStore(subscribeUiTheme, getUiTheme)
   const quality = useStore(s => s.graphicsQuality)
   const setQuality = useStore(s => s.setGraphicsQuality)
@@ -48,7 +99,7 @@ export function SettingsMenu(): React.ReactElement {
       window.removeEventListener('keydown', escape, true)
     }
   }, [])
-  return <details className="settingsMenu" ref={root} onKeyDown={event => {
+  return <details className="settingsMenu" ref={root} onToggle={event => setMenuOpen(event.currentTarget.open)} onKeyDown={event => {
     if (root.current?.open || event.key === ' ' || event.key === 'Enter') event.stopPropagation()
   }}>
     <summary className="ghost iconBtn" aria-label={t('settings')} title={t('settings')}><FaGear aria-hidden="true" /></summary>
@@ -61,7 +112,7 @@ export function SettingsMenu(): React.ReactElement {
       <MusicSetting/>
       </div>
       <div className="settingsToggleGrid">
-        <button type="button" className={`settingsToggle ${quality === 'high' ? 'on' : ''}`} onClick={() => setQuality(quality === 'high' ? 'low' : 'high')} aria-label={`${t('graphics_quality')}: ${t(quality === 'high' ? 'graphics_high' : 'graphics_low')}`}><PiHighDefinition aria-hidden="true"/><span>{t('graphics_quality')}</span><strong>{t(quality === 'high' ? 'graphics_high_short' : 'graphics_low_short')}</strong></button>
+        {modelDetail ? menuOpen && <ModelDetailSetting readOrSet={modelDetail}/> : <button type="button" className={`settingsToggle ${quality === 'high' ? 'on' : ''}`} onClick={() => setQuality(quality === 'high' ? 'low' : 'high')} aria-label={`${t('graphics_quality')}: ${t(quality === 'high' ? 'graphics_high' : 'graphics_low')}`}><PiHighDefinition aria-hidden="true"/><span>{t('graphics_quality')}</span><strong>{t(quality === 'high' ? 'graphics_high_short' : 'graphics_low_short')}</strong></button>}
         <button type="button" className={`settingsToggle ${upscalingMode !== 'native' ? 'on' : ''}`} onClick={() => setUpscalingMode(upscalingModes[(upscalingModes.indexOf(upscalingMode)+1)%upscalingModes.length])} aria-label={`${t('upscaling')}: ${upscalingMode === 'native' ? t('share_stats_off') : t(`upscaling_${upscalingMode}`)}`} title={t('upscaling')}>
           <PiGraphicsCard aria-hidden="true"/><span>{t('upscaling')}</span><strong>{upscalingMode === 'native' ? t('share_stats_off') : t(`upscaling_${upscalingMode}`)}</strong>
         </button>

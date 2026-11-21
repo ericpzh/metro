@@ -421,6 +421,7 @@ namespace Metro.App.Views {
                     }
 
                     var go = UnityEngine.Object.Instantiate(entry.prefab, context.StagingRoot, false);
+                    StationRigidModelLods.Apply(go, entry.prefab.name);
                     go.name = (string.IsNullOrEmpty(module.Id) ? "module" : module.Id) + " " + module.Type;
                     StationEditTrace.AddInstantiatedPrefab();
 
@@ -521,6 +522,7 @@ namespace Metro.App.Views {
             string key, WorldState state, string part = "") {
             var parent = context.RoleRoot(Role);
             var go = UnityEngine.Object.Instantiate(entry.prefab, parent, false);
+            StationRigidModelLods.Apply(go, entry.prefab.name);
             go.name = (string.IsNullOrEmpty(module.Id) ? "module" : module.Id) + " " + module.Type;
             go.transform.SetPositionAndRotation(ModulePlacement.Resolve(context.Index.GetModule(module.Id), entry, context.Index), ModulePlacement.Rotation(module.Rotation));
             context.World.RegisterModule(Role, module.Id, go, part, null, module.Z, module.Z + 1);
@@ -548,6 +550,7 @@ namespace Metro.App.Views {
             var mount = mounts.Resolve(module, StationCeilingMounts.FallbackFor(module, storeyHeight));
             var parent = context.RoleRoot(Role);
             var go = UnityEngine.Object.Instantiate(entry.prefab, parent, false);
+            StationRigidModelLods.Apply(go, entry.prefab.name);
             go.name = (string.IsNullOrEmpty(module.Id) ? "module" : module.Id) + " " + module.Type;
             // The shared pivot rotates the rectangular prefab into its saved light orientation.
             var rotation = ModulePlacement.Rotation(module);
@@ -709,6 +712,9 @@ namespace Metro.App.Views {
         public UnityEngine.Rendering.ShadowCastingMode ShadowCasting = UnityEngine.Rendering.ShadowCastingMode.Off;
         public bool FollowTransformOffset;
         [NonSerialized] public Bounds WorldBounds;
+        [NonSerialized] internal int LastMeshLod = -1;
+        [NonSerialized] internal int LastLodViewVersion = -1;
+        [NonSerialized] internal Vector3 LastLodOffset;
         [NonSerialized] public Matrix4x4[] Matrices = Array.Empty<Matrix4x4>();
         [NonSerialized] public Matrix4x4[][] DrawSlices = Array.Empty<Matrix4x4[]>();
         [NonSerialized] public int[] SourceStart = Array.Empty<int>();
@@ -725,6 +731,7 @@ namespace Metro.App.Views {
             List<Matrix4x4> matrices,
             bool followTransformOffset) {
             SharedMesh = sharedMesh;
+            LastMeshLod = LastLodViewVersion = -1;
             SubmeshIndex = submeshIndex;
             ProxyRenderer = proxyRenderer;
             FollowTransformOffset = followTransformOffset;
@@ -884,6 +891,13 @@ namespace Metro.App.Views {
     public sealed class StationInstancedSurfaceDrawer : MonoBehaviour {
         readonly List<StationInstancedSurfaceBatch> batches = new List<StationInstancedSurfaceBatch>();
         MaterialPropertyBlock propertyBlock;
+        Vector3 lodCameraPosition;
+        float lodFrustumHeight;
+        float lodNearClip;
+        float lodProfileBias;
+        int lodProfileMinimum;
+        bool lodOrthographic;
+        int lodViewVersion;
         public bool PauseDuringExplodedView = true;
 
         public static StationInstancedSurfaceDrawer EnsureFor(Transform worldRoot) {
@@ -902,6 +916,8 @@ namespace Metro.App.Views {
 
         void LateUpdate() {
             if (PauseDuringExplodedView && StationExplodedView.IsStandaloneActive) return;
+            Camera lodCamera = null;
+            bool lodCameraSampled = false;
             for (int i = 0; i < batches.Count; i++) {
                 var batch = batches[i];
                 if (batch == null) continue;
@@ -920,14 +936,74 @@ namespace Metro.App.Views {
                     block = propertyBlock;
                 }
                 int layer = go.layer;
+                bool useMeshLods = mesh.lodCount > 1;
+                var renderParams = default(RenderParams);
+                if (useMeshLods) {
+                    if (!lodCameraSampled) {
+                        lodCamera = StationExplodedView.IsStandaloneActive
+                            ? StationViewFeature.ActiveExploded?.ViewerCamera
+                            : StationViewFeature.Active?.viewCamera ?? Camera.main;
+                        if (lodCamera != null) SampleLodView(lodCamera);
+                        lodCameraSampled = true;
+                    }
+                    var bounds = batch.WorldBounds;
+                    var offset = batch.FollowTransformOffset ? go.transform.position : Vector3.zero;
+                    bounds.center += offset;
+                    int tier = lodCamera != null ? SelectMeshLod(mesh, batch, bounds, offset) : 0;
+                    renderParams = new RenderParams(mat) {
+                        layer = layer,
+                        matProps = block,
+                        shadowCastingMode = batch.ShadowCasting,
+                        receiveShadows = true,
+                        worldBounds = bounds,
+                        forceMeshLod = tier,
+                    };
+                }
                 var slices = batch.ResolveDrawSlices();
                 for (int s = 0; s < slices.Length; s++) {
                     var slice = slices[s];
                     if (slice == null || slice.Length == 0) continue;
-                    Graphics.DrawMeshInstanced(mesh, batch.SubmeshIndex, mat, slice, slice.Length, block,
-                        batch.ShadowCasting, true, layer);
+                    if (useMeshLods)
+                        Graphics.RenderMeshInstanced(renderParams, mesh, batch.SubmeshIndex, slice, slice.Length);
+                    else
+                        Graphics.DrawMeshInstanced(mesh, batch.SubmeshIndex, mat, slice, slice.Length, block,
+                            batch.ShadowCasting, true, layer);
                 }
             }
+        }
+
+        void SampleLodView(Camera camera) {
+            bool orthographic = camera.orthographic;
+            var position = camera.transform.position;
+            float height = orthographic ? 2f * camera.orthographicSize :
+                2f * Mathf.Tan(camera.fieldOfView * Mathf.Deg2Rad * .5f);
+            float near = camera.nearClipPlane;
+            float bias = StationGraphicsSettings.ModelLodBias;
+            int minimum = StationGraphicsSettings.MinimumModelLod;
+            if (position.Equals(lodCameraPosition) && height == lodFrustumHeight &&
+                near == lodNearClip && bias == lodProfileBias && minimum == lodProfileMinimum &&
+                orthographic == lodOrthographic) return;
+            lodCameraPosition = position;
+            lodFrustumHeight = height;
+            lodNearClip = near;
+            lodProfileBias = bias;
+            lodProfileMinimum = minimum;
+            lodOrthographic = orthographic;
+            lodViewVersion++;
+        }
+
+        int SelectMeshLod(Mesh mesh, StationInstancedSurfaceBatch batch, Bounds worldBounds, Vector3 offset) {
+            if (batch.Matrices.Length == 0) return 0;
+            if (batch.LastLodViewVersion == lodViewVersion && offset.Equals(batch.LastLodOffset))
+                return batch.LastMeshLod;
+            float size = StationPrefabMeshTemplate.TransformBounds(mesh.bounds, batch.Matrices[0]).size.magnitude;
+            float viewHeight = lodOrthographic ? lodFrustumHeight : lodFrustumHeight *
+                Mathf.Max(lodNearClip, Mathf.Sqrt(worldBounds.SqrDistance(lodCameraPosition)));
+            batch.LastMeshLod = StationGraphicsSettings.SelectTier(
+                size / Mathf.Max(.01f, viewHeight), batch.LastMeshLod, mesh.lodCount);
+            batch.LastLodViewVersion = lodViewVersion;
+            batch.LastLodOffset = offset;
+            return batch.LastMeshLod;
         }
     }
 
@@ -3182,6 +3258,7 @@ namespace Metro.App.Views {
             string key, WorldState state) {
             var parent = context.RoleRoot(Role);
             var go = UnityEngine.Object.Instantiate(entry.prefab, parent, false);
+            StationRigidModelLods.Apply(go, entry.prefab.name);
             go.name = (string.IsNullOrEmpty(module.Id) ? "module" : module.Id) + " " + module.Type;
             go.transform.SetPositionAndRotation(ModulePlacement.Position(module, entry), ModulePlacement.Rotation(module.Rotation));
             var grid = StationLevelGrid.FromDocument(context.Document.LevelBase, context.Document.StoreyHeight);

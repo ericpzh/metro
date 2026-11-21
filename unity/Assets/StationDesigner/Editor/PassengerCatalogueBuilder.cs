@@ -100,6 +100,8 @@ namespace Metro.Editor {
             modelPath = source.modelPath,
             prefabPath = source.prefabPath,
             prefab = source.prefab,
+            reducedMesh = source.reducedMesh,
+            simplifiedMesh = source.simplifiedMesh,
             assetSha256 = source.assetSha256,
             recipeSha256 = source.recipeSha256,
             adultEligible = source.adultEligible,
@@ -183,7 +185,7 @@ namespace Metro.Editor {
             try {
                 if (!File.Exists(ManifestPath)) return;
                 var asset = AssetDatabase.LoadAssetAtPath<PassengerCatalogue>(AssetPath);
-                if (asset != null && asset.manifestSha256 == ManifestSha256()) return;
+                if (IsCurrent(asset)) return;
                 Generate();
             } catch (Exception error) {
                 Debug.LogError("PASSENGER_CATALOGUE_FAILED " + error.Message);
@@ -194,7 +196,7 @@ namespace Metro.Editor {
         public static PassengerCatalogue Ensure() {
             if (!File.Exists(ManifestPath)) throw new FileNotFoundException("Passenger manifest is missing", ManifestPath);
             var asset = AssetDatabase.LoadAssetAtPath<PassengerCatalogue>(AssetPath);
-            if (asset != null && asset.manifestSha256 == ManifestSha256()) return asset;
+            if (IsCurrent(asset)) return asset;
             Generate();
             var created = AssetDatabase.LoadAssetAtPath<PassengerCatalogue>(AssetPath);
             if (created == null) throw new InvalidOperationException("Passenger catalogue did not import: " + AssetPath);
@@ -203,6 +205,12 @@ namespace Metro.Editor {
 
         // ---------------------------------------------------------------- build
 
+        const string LodManifestPath = "Assets/StationDesigner/Generated/Passengers/Lods/passenger-lods.json";
+
+        static bool IsCurrent(PassengerCatalogue asset) => asset != null &&
+            asset.manifestSha256 == ManifestSha256() && asset.lodManifestSha256 ==
+                (File.Exists(LodManifestPath) ? Sha256(File.ReadAllText(LodManifestPath)) : "");
+
         public static BuildReport Generate() {
             if (!File.Exists(ManifestPath))
                 throw new FileNotFoundException("Passenger manifest is missing; the catalogue cannot be built", ManifestPath);
@@ -210,6 +218,14 @@ namespace Metro.Editor {
             var manifestSha = Sha256(manifestText);
             var manifest = JObject.Parse(manifestText);
             var problems = new List<string>();
+            var lodManifestText = File.Exists(LodManifestPath) ? File.ReadAllText(LodManifestPath) : "";
+            bool hasLodLibrary = lodManifestText.Length > 0;
+            if (hasLodLibrary) {
+                var lodManifest = JObject.Parse(lodManifestText);
+                if ((string)lodManifest["recipeSha256"] != (string)manifest["source"]?["recipeSha256"] ||
+                    (string)lodManifest["sourceSha256"] != (string)manifest["source"]?["sha256"])
+                    problems.Add("Passenger LOD provenance differs from the full catalogue.");
+            }
             var report = new BuildReport {
                 manifestSha256 = manifestSha,
                 recipeSha256 = (string)manifest["source"]?["recipeSha256"] ?? "",
@@ -295,7 +311,14 @@ namespace Metro.Editor {
                     else report.modelsVerified++;
                     var binding = VerifyRig(prefab, boneNames);
                     if (binding != null) problems.Add(entry.recipe + ": " + binding);
-                    else report.prefabsVerified++;
+                    else {
+                        report.prefabsVerified++;
+                        var near = prefab.GetComponentInChildren<SkinnedMeshRenderer>(true);
+                        entry.reducedMesh = LoadMeshTier(entry.modelPath, 1, near, problems);
+                        entry.simplifiedMesh = LoadMeshTier(entry.modelPath, 2, near, problems);
+                        if (hasLodLibrary && (entry.reducedMesh == null || entry.simplifiedMesh == null))
+                            problems.Add(entry.recipe + ": one or more installed passenger LOD tiers cannot be loaded");
+                    }
                     if (!string.Equals(entry.rights, "INTERNAL_REVIEW_ONLY", StringComparison.Ordinal))
                         problems.Add(entry.recipe + ": rights " + entry.rights + " is not INTERNAL_REVIEW_ONLY");
                 }
@@ -321,6 +344,7 @@ namespace Metro.Editor {
             asset.schemaVersion = 1;
             asset.manifestPath = ManifestPath;
             asset.manifestSha256 = manifestSha;
+            asset.lodManifestSha256 = hasLodLibrary ? Sha256(lodManifestText) : "";
             asset.family = "passenger-library";
             asset.rights = rightsStatus;
             asset.sourcePath = (string)manifest["source"]?["path"] ?? "";
@@ -407,6 +431,22 @@ namespace Metro.Editor {
         }
 
         // ------------------------------------------------------------- bindings
+
+        static PassengerMeshTier LoadMeshTier(string modelPath, int level, SkinnedMeshRenderer full, List<string> problems) {
+            string path = modelPath.Replace("/Passengers/Models/", "/Passengers/Lods/Models/");
+            if (path == modelPath || !path.EndsWith(".glb", StringComparison.OrdinalIgnoreCase)) return null;
+            path = path.Substring(0, path.Length - 4) + "-lod" + level + ".glb";
+            var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+            if (prefab == null) return null;
+            var skin = prefab.GetComponentInChildren<SkinnedMeshRenderer>(true);
+            if (skin == null || skin.sharedMesh == null || full == null || full.sharedMesh == null ||
+                !skin.bones.Select(bone => bone.name).SequenceEqual(full.bones.Select(bone => bone.name)) ||
+                !skin.sharedMesh.bindposes.SequenceEqual(full.sharedMesh.bindposes)) {
+                problems.Add(path + ": LOD skin must have the same ordered bones and bind poses as LOD0");
+                return null;
+            }
+            return new PassengerMeshTier { mesh = skin.sharedMesh, materials = skin.sharedMaterials };
+        }
 
         static PassengerClipSet LoadClipSet(string modelPath, string[] names, double[] durations, string[] bones,
             PassengerWalkProfileSpec[] walkProfiles, List<string> problems) {

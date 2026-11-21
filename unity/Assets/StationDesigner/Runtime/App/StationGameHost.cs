@@ -115,7 +115,10 @@ namespace Metro.App {
             coordinator.SetSimulationHost(new StationSimulationHost());
             coordinator.Committed += OnCommitted;
             router = new StationCommandRouter(this);
-            foreach (var handler in StationCommandHandlers.Snapshot()) router.Register(handler);
+            foreach (var handler in StationCommandHandlers.Snapshot()) {
+                router.Register(handler);
+                if (handler is IStationStateContributor contributor) RegisterStateContributor(contributor);
+            }
             StationStatisticsFeature.Attach(this);
             RebuildDemoIndex();
         }

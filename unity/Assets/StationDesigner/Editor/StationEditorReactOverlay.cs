@@ -401,7 +401,8 @@ namespace Metro.Editor {
             [CliArg("exe", "Path to MetroStation.exe.")] string exe = "",
             [CliArg("out-path", "Output JSON report path.")] string outPath = "",
             [CliArg("demos", "Comma-separated demos (e.g. zoo,tanwei,tianhe).")] string demos = "zoo,tanwei,tianhe",
-            [CliArg("log-path", "Optional Unity player log path.")] string logPath = "") {
+            [CliArg("log-path", "Optional Unity player log path.")] string logPath = "",
+            [CliArg("model-detail", "Compare High and Low model detail during playback.")] bool modelDetail = false) {
             try {
                 if (string.IsNullOrWhiteSpace(exe) || string.IsNullOrWhiteSpace(outPath)) {
                     cmd.Log.Error("Both --exe and --out-path are required.");
@@ -415,6 +416,7 @@ namespace Metro.Editor {
                 }
                 if (File.Exists(fullOut)) File.Delete(fullOut);
                 string args = $"-metroBenchOut \"{fullOut}\" -metroBenchDemos \"{demos}\"";
+                if (modelDetail) args += " -metroBenchModelDetail";
                 if (!string.IsNullOrWhiteSpace(logPath)) {
                     string fullLog = Path.GetFullPath(logPath);
                     if (File.Exists(fullLog)) File.Delete(fullLog);

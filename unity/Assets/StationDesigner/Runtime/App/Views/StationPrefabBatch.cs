@@ -140,6 +140,7 @@ namespace Metro.App.Views {
 
             var filters = prefab.GetComponentsInChildren<MeshFilter>(true);
             if (filters == null || filters.Length == 0) return false;
+            var lodLibrary = Resources.Load<StationRigidModelLods>(StationRigidModelLods.ResourcesPath + prefab.name);
 
             var rootInv = prefab.transform.worldToLocalMatrix;
             var groups = new Dictionary<MaterialGroupKey, CombineBucket>();
@@ -154,6 +155,7 @@ namespace Metro.App.Views {
                 if (filter == null || !IsActiveInPrefab(filter.transform, prefab.transform)) continue;
                 var mesh = filter.sharedMesh;
                 if (mesh == null || mesh.vertexCount == 0) continue;
+                if (lodLibrary != null) mesh = lodLibrary.Resolve(mesh);
                 var renderer = filter.GetComponent<MeshRenderer>();
                 if (renderer == null || !renderer.enabled) continue;
                 var mats = renderer.sharedMaterials;
@@ -170,7 +172,7 @@ namespace Metro.App.Views {
                     if (mat == null) continue;
                     var topo = mesh.GetTopology(s);
                     bool isTri = topo == MeshTopology.Triangles;
-                    if (isTri && mesh.isReadable) {
+                    if (isTri && mesh.isReadable && mesh.lodCount <= 1) {
                         var key = new MaterialGroupKey(mat, renderer.shadowCastingMode);
                         if (!groups.TryGetValue(key, out var bucket)) {
                             bucket = new CombineBucket { Material = mat, Shadow = renderer.shadowCastingMode };

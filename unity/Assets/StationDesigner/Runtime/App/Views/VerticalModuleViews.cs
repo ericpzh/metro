@@ -3339,6 +3339,7 @@ namespace Metro.App.Views {
                     context.ReportUnresolved("vertical-build", module.Type, module.Id, "the authored record could not be built");
                     continue;
                 }
+                if (view.UsedPrefab && prefab != null) StationRigidModelLods.Apply(view.Root.gameObject, prefab.name);
                 view.Root.name = module.Id;
                 context.World.RegisterModule(RoleName, module.Id, view.Root.gameObject, "",
                     new StationBox(view.DocumentBounds.X0, view.DocumentBounds.Y0, view.DocumentBounds.Z0,
@@ -3490,6 +3491,7 @@ namespace Metro.App.Views {
                         context.ReportUnresolved("vertical-build", module.Type, module.Id, "the authored record could not be built");
                         continue;
                     }
+                    if (view.UsedPrefab && prefab != null) StationRigidModelLods.Apply(view.Root.gameObject, prefab.name);
                     view.Root.name = module.Id;
                     StationEditTrace.AddInstantiatedPrefab();
                     stagedViews.Add((view, readCells));

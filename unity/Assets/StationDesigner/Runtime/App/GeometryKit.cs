@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Metro.View;
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -15,6 +16,7 @@ namespace Metro.App {
         readonly StationMaterials materials;
         readonly Transform root;
         readonly Dictionary<int, List<CombineInstance>> batches = new Dictionary<int, List<CombineInstance>>();
+        Dictionary<int, List<int>> lastTiers;
         readonly List<Mesh> meshes = new List<Mesh>();
 
         public GeometryKit(Transform parent, Mesh cube, StationMaterials materials) {
@@ -26,8 +28,17 @@ namespace Metro.App {
 
         public Transform Root => root;
 
-        public void Box(Vector3 centre, Vector3 size, int colour, Quaternion rotation = default) {
+        public void Box(Vector3 centre, Vector3 size, int colour, Quaternion rotation = default, int lastTier = 2) {
             if (!batches.TryGetValue(colour, out var parts)) batches.Add(colour, parts = new List<CombineInstance>());
+            if (lastTier < 2) {
+                lastTiers ??= new Dictionary<int, List<int>>();
+                if (!lastTiers.ContainsKey(colour)) {
+                    var existing = new List<int>(parts.Count + 1);
+                    for (int i = 0; i < parts.Count; i++) existing.Add(2);
+                    lastTiers.Add(colour, existing);
+                }
+            }
+            if (lastTiers != null && lastTiers.TryGetValue(colour, out var tiers)) tiers.Add(lastTier);
             parts.Add(new CombineInstance {
                 mesh = cube,
                 transform = Matrix4x4.TRS(centre, rotation == default ? Quaternion.identity : rotation, size),
@@ -35,14 +46,16 @@ namespace Metro.App {
         }
 
         /// <summary>A box in a local frame: `origin` plus `rotation * local`.</summary>
-        public void LocalBox(Vector3 origin, Quaternion rotation, Vector3 local, Vector3 size, int colour) =>
-            Box(origin + rotation * local, size, colour, rotation);
+        public void LocalBox(Vector3 origin, Quaternion rotation, Vector3 local, Vector3 size, int colour, int lastTier = 2) =>
+            Box(origin + rotation * local, size, colour, rotation, lastTier);
 
         public void Combine(string name) {
             foreach (var entry in batches) {
                 if (entry.Value.Count == 0) continue;
                 var mesh = new Mesh { name = name + " part", indexFormat = IndexFormat.UInt32 };
                 mesh.CombineMeshes(entry.Value.ToArray());
+                if (lastTiers != null && lastTiers.TryGetValue(entry.Key, out var tiers))
+                    StationMeshLodIndices.ApplyCombined(mesh, entry.Value, tiers);
                 meshes.Add(mesh);
                 var part = new GameObject(name + " part", typeof(MeshFilter), typeof(MeshRenderer));
                 part.transform.SetParent(root, false);
@@ -50,6 +63,7 @@ namespace Metro.App {
                 part.GetComponent<MeshRenderer>().sharedMaterial = materials[entry.Key];
             }
             batches.Clear();
+            lastTiers?.Clear();
         }
 
         public Transform Node(string name, Vector3 position, Quaternion rotation) {

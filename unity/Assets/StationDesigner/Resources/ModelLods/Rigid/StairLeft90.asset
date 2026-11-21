@@ -1,0 +1,364 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6f43c4c1f8d849948efabb62d0969ffe, type: 3}
+  m_Name: StairLeft90
+  m_EditorClassIdentifier: Assembly-CSharp::Metro.App.StationRigidModelLods
+  Meshes:
+  - Source: {fileID: 1050908021570271116, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -4926770370004109585, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 6353846178406903386, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 6626584385738647817, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 507335340564709042, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 1504685076926549125, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -7082694738345363723, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -3334790557154237171, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -5232869444906879717, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 485997548631887258, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -2468736375032848024, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 6665960685077247083, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 8704106827887099360, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -1869844010968926827, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -5493599870180795736, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 8372624934355411090, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -8827924870445457265, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -8893334198972310517, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 6701609574432901002, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -8491938900105307153, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -81789757951508690, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 2492334215949989605, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -2967070624618473721, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 8879382375787106323, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 8418158224481276074, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 5891575282243229102, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 8460640126855049462, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 3655285479241488986, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -125193164459783318, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -7055529436944864502, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 4316861854023265013, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 8206269853646054632, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -2065652014367938071, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -2763361361628188293, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -4189537316207260130, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 8196150590994885862, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -4908294560725804396, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 1978905647140654705, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -1518388090117728813, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 6481796449130043252, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 2013090938931159944, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 4800086075016437894, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 7160507599727273584, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -3863437251703176553, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -8484205448017938224, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 5596962893442247291, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -5152633678844236326, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -8864531024890566693, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 1591130607432514306, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 984256039051047516, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 6259930209849761124, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -2993913434539687254, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 4922690354275452994, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -1656138934513540408, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 5856923977016206122, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -8484377009385738766, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 506761840580144052, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -4841860518671219529, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 4001091377060424201, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 7520415071785218719, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -7416246609128620839, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 8270966964918019472, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 4132889864974579202, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 7830666498309933554, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -4197189659935449498, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -5086807617578536539, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 993608456792442431, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 4231101498738105293, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 8767630005574834719, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -855191265535610798, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -842142083220234055, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -8339025629579625360, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 8405663083287936479, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -1793501964074991179, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 1600265804711763052, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 7289126636127415513, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 6637148752748470791, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -5927790387466933618, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -7103249058251013976, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 5553874139508006681, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -1244771950431461884, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 5733844875552591935, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -6243330023626420986, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 4509737503092310961, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 5243568294876945941, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -773280483108664990, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 4542137063364159020, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -7164099129159983674, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 1436269354736625609, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 2620346132508427630, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -8137923109027102126, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -275530875123550730, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -3902375280785218964, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -3359017496170569865, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -6874929192374871036, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -5628187467310085123, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 2123562534092929740, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 9187982873251859834, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 7750811313917715310, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 3614286142518328133, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -5466490905962375672, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -6655290500378792848, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -2110012297309597165, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -5011533760912573379, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -5573692460983445136, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 6757095481311742341, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -5042144861611754984, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -1743119481535036904, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -2160075518308652214, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -2555252385775812110, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 5837610571499846469, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -4939887971917854521, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 702599997748017812, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 7565336135610187983, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: 7570285236475836715, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  - Source: {fileID: -5285320238432184669, guid: b7c15bcd721850640a5d869c881ac31a, type: 3}
+    Baked: {fileID: 0}
+    ReuseReason: Unity produced no simpler index buffer.
+  PrefabDependencyHash: 520fbddfaf48b6cc957591d0e3c9faf6

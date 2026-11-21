@@ -694,6 +694,7 @@ namespace Metro.App {
             Material lineMaterial = null;
             foreach (var renderer in go.GetComponentsInChildren<Renderer>(true)) {
                 if (renderer == null) continue;
+                renderer.forceMeshLod = 0;
                 var filter = renderer.GetComponent<MeshFilter>();
                 var mesh = filter != null ? filter.sharedMesh : null;
                 int count = renderer.sharedMaterials.Length;

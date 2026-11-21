@@ -44,12 +44,12 @@ namespace Metro.Tests {
             Object.DestroyImmediate(value);
         }
 
-        static ModuleFacts Booth(int w, int h, int rot = 0, int front = 0) => ModuleFactsReader.Read(new JObject {
+        static ModuleFacts Booth(int w, int h, int rot = 0, int front = 0, string kind = "ticket") => ModuleFactsReader.Read(new JObject {
             ["id"] = "booth-" + w + "x" + h,
             ["type"] = "booth",
             ["x"] = 63, ["y"] = 33, ["z"] = 0,
             ["w"] = w, ["h"] = h, ["rot"] = rot,
-            ["cfg"] = new JObject { ["kind"] = "ticket", ["stocked"] = true, ["front"] = front },
+            ["cfg"] = new JObject { ["kind"] = kind, ["stocked"] = true, ["front"] = front },
         });
 
         static StationBox Measure(GameObject view) {
@@ -70,6 +70,20 @@ namespace Metro.Tests {
                 }
             }
             return new StationBox(min.x, min.y, min.z, max.x, max.y, max.z);
+        }
+
+        [TestCase("ticket")]
+        [TestCase("info")]
+        public void LowerTiersKeepTheBoothAndRemoveOnlySmallTrim(string kind) {
+            Assert.IsTrue(BoothModuleViews.TryBuild(Booth(2, 4, kind: kind), root.transform, materials, out var view, out var note), note);
+            uint full = 0, simplified = 0;
+            foreach (var filter in view.GetComponentsInChildren<MeshFilter>(true)) {
+                var mesh = filter.sharedMesh;
+                full += mesh.GetIndexCount(0, 0);
+                simplified += mesh.GetIndexCount(0, mesh.lodCount - 1);
+            }
+            Assert.That(simplified, Is.GreaterThan(0));
+            Assert.That(simplified, Is.LessThan(full));
         }
 
         [Test]

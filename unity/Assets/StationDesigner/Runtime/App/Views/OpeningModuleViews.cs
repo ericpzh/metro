@@ -1044,6 +1044,7 @@ namespace Metro.App {
                     unresolved?.Invoke(module, view.Diagnostic);
                     continue;
                 }
+                StationRigidModelLods.Apply(view.Instance, System.IO.Path.GetFileNameWithoutExtension(view.PrefabPath));
                 target.Add(view);
                 count++;
                 built?.Invoke(module, view);
@@ -3027,6 +3028,7 @@ namespace Metro.App {
                     if (!context.NextIndex.TryGetModule(id, out var mod) || mod == null || !IsLocalOpeningType(mod.Type)) continue;
                     var request = OpeningModuleViews.RequestFor(mod, context.NextIndex);
                     if (OpeningModuleViews.TryBuild(request, mod.Facts, stationFacts, catalogue, context.StagingRoot, state.Palette, out var view)) {
+                        StationRigidModelLods.Apply(view.Instance, System.IO.Path.GetFileNameWithoutExtension(view.PrefabPath));
                         stagedViews.Add((mod, view));
                         StationEditTrace.AddInstantiatedPrefab();
                     } else {

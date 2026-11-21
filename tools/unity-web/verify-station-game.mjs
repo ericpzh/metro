@@ -21,6 +21,7 @@
 // (document elided), the browser errors and a PNG. Run:
 //   node tools/unity-web/verify-station-game.mjs <run-dir> [--demo zoo|tanwei|tianhe|all]
 //        [--locale both|zh|en] [--timeout-ms 90000] [--only case[,case]] [--load-probe]
+//        [--sample-speed 1|16] [--sample-profile high|low|baseline-a|baseline-b]
 
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { spawn } from 'node:child_process'
@@ -29,6 +30,7 @@ import { join, resolve, sep } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { withPage } from '../browser-harness.mjs'
 import { createStaticServer } from './static-pack-server.mjs'
+import { summarizeFrameIntervals } from '../../game/src/app/benchmark/benchmarkStats.ts'
 
 const root = resolve(import.meta.dirname, '../..')
 const run = resolve(process.argv[2] ?? '')
@@ -430,6 +432,177 @@ async function runViewToolsCase() {
   const after = await currentSnapshot()
   if (after.revision !== before.revision) problems.push('a view.set changed the document revision')
   return finishCase(record, problems.length === 0, { problems, revision: after.revision, visual })
+}
+
+async function runModelDetailCase() {
+  const record = caseStart('model-detail')
+  const select = "document.querySelector('details.settingsMenu select')"
+  const open = async () => {
+    await page.evaluate("document.querySelector('details.settingsMenu').open = true")
+    await poll(`${select} && ${select}.value !== ''`, 'model detail menu loaded')
+  }
+  await open()
+  const localizedLabel = await page.evaluate(`(() => {
+    const label = ${select}.closest('label')?.querySelector('span')?.textContent
+    const expected = document.documentElement.lang.startsWith('zh') ? '模型细节' : 'Model detail'
+    return { label, expected }
+  })()`)
+  const options = await page.evaluate(`Array.from(${select}.options, option => option.value)`)
+  const original = await page.evaluate(`${select}.value`)
+  const target = original === 'low' ? 'balanced' : 'low'
+  const { revision, sourceId } = await currentSnapshot()
+  await page.evaluate(`(() => {
+    const select = ${select};
+    select.value = ${JSON.stringify(target === 'low' ? 'balanced' : 'high')};
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    select.value = ${JSON.stringify(target)};
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  })()`)
+  await poll(`${select}.value === ${JSON.stringify(target)} && ${select}.getAttribute('aria-busy') !== 'true'`, 'model detail applied')
+  const profile = await page.evaluate("window.__metroStationBridge.request('graphics.get').then(result => result.profile)")
+  const after = await page.evaluate('window.__metroStationBridge.getSnapshot().revision')
+  let reloaded
+  let startupProfile
+  if (onlyCases) {
+    await page.evaluate('window.__metroModelDetailBeforeReload = true')
+    if (byId.has(sourceId)) {
+      const locale = await page.evaluate("document.documentElement.lang.startsWith('zh') ? 'zh' : 'en'")
+      await page.evaluate(`history.replaceState(history.state, '', ${JSON.stringify(demoUrl(sourceId, locale))})`)
+    }
+    await page.send('Page.reload')
+    await waitForSnapshot(`!window.__metroModelDetailBeforeReload && s.revision >= 0 && s.sourceId === ${JSON.stringify(sourceId)}`, 'model detail reload')
+    await open()
+    reloaded = await page.evaluate(`${select}.value`)
+    startupProfile = await page.evaluate('window.__metroStationBridge.getSnapshot().state.graphics?.profile')
+  }
+  await page.evaluate(`window.__metroStationBridge.request('graphics.set', { profile: ${JSON.stringify(original)} })`)
+  await page.evaluate("document.querySelector('details.settingsMenu').open = false")
+  return finishCase(record, profile === target && revision === after && localizedLabel.label === localizedLabel.expected &&
+    options.join(',') === 'high,balanced,low' && (!onlyCases || reloaded === target && startupProfile === target),
+    { original, target, profile, reloaded, startupProfile, revision, after, options, localizedLabel })
+}
+
+async function runModelDetailRenderCase() {
+  const record = caseStart('model-detail-render')
+  const request = (type, payload) => page.evaluate(
+    `window.__metroStationBridge.request(${JSON.stringify(type)}, ${JSON.stringify(payload)})`)
+  const original = (await request('graphics.get', {})).profile
+  await page.evaluate("document.querySelector('.tutorialActions .ghost')?.click()")
+  await poll(`(() => {
+    for (const id of ['game-loading', 'unity-logo', 'unity-logo-title-footer']) {
+      const el = document.getElementById(id)
+      if (el && !el.hidden && el.offsetParent !== null && getComputedStyle(el).display !== 'none' &&
+          !el.classList.contains('is-hidden')) return false
+    }
+    return true
+  })()`, 'model detail canvas is ready', Math.min(timeoutMs, 60000))
+  const point = await page.evaluate(`(() => {
+    const rect = document.querySelector('#unity-canvas').getBoundingClientRect()
+    return { x: Math.round(rect.x + rect.width / 2), y: Math.round(rect.y + rect.height / 2) }
+  })()`)
+  await page.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button: 'left', buttons: 1, clickCount: 1 })
+  await page.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button: 'left', buttons: 0, clickCount: 1 })
+  await request('view.set', { key: 'level', value: 0 })
+  await request('view.set', { key: 'ground', value: false })
+  await sleep(1200)
+  await page.send('Page.captureScreenshot', { format: 'png' })
+  const archive = async (profile, sample, suffix = '') => {
+    await request('graphics.set', { profile })
+    await sleep(350)
+    const name = `station-model-detail-${sample}-${profile}${suffix}`
+    const rect = await screenshotCanvas(name)
+    if (!rect) throw new Error('Unity canvas is not visible')
+    return readFileSync(join(outDir, name + '.png'))
+  }
+  try {
+    const samples = []
+    for (let i = 0; i < 3; i++) {
+      if (i > 0) await request('camera.zoom', { factor: .75 })
+      const high = await archive('high', i)
+      const low = await archive('low', i)
+      const highAgain = await archive('high', i, '-again')
+      const changed = !high.equals(low)
+      const stable = high.equals(highAgain)
+      samples.push({ changed, stable, highBytes: high.length, lowBytes: low.length })
+      if (changed && stable) return finishCase(record, true, { samples })
+    }
+    return finishCase(record, false, { samples })
+  } finally {
+    await request('graphics.set', { profile: original })
+  }
+}
+
+async function runModelDetailPerformanceCase(baseline = false) {
+  const record = caseStart(baseline ? 'model-detail-baseline' : 'model-detail-performance')
+  const request = (type, payload = {}) => page.evaluate(
+    `window.__metroStationBridge.request(${JSON.stringify(type)}, ${JSON.stringify(payload)}, { timeoutMs: 60000 })`)
+  await poll(`(() => {
+    const loading = document.getElementById('game-loading')
+    return !loading || loading.hidden || loading.classList.contains('is-hidden')
+      || getComputedStyle(loading).display === 'none'
+  })()`, 'benchmark loading shell dismissed', timeoutMs)
+  await page.evaluate("document.querySelector('.tutorialActions .ghost')?.click()")
+  const focus = await page.evaluate(`(() => {
+    const rect = document.querySelector('#unity-canvas').getBoundingClientRect()
+    return { x: Math.round(rect.x + rect.width / 2), y: Math.round(rect.y + rect.height / 2) }
+  })()`)
+  await page.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...focus, button: 'left', buttons: 1, clickCount: 1 })
+  await page.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...focus, button: 'left', buttons: 0, clickCount: 1 })
+  const original = baseline ? null : (await request('graphics.get')).profile
+  await request('view.set', { key: 'level', value: 0 })
+  await request('view.set', { key: 'ground', value: false })
+  await page.send('Page.captureScreenshot', { format: 'png' })
+  const viewport = await page.evaluate("(() => { const c = document.querySelector('#unity-canvas'); return [c.width, c.height] })()")
+  const startTime = 4 * 86400 + 28800
+  const samples = []
+  const speedArg = arg('--sample-speed', '')
+  const profileArg = arg('--sample-profile', '')
+  const speeds = [1, 16].filter(speed => !speedArg || String(speed) === speedArg)
+  const profiles = (baseline ? ['baseline-a', 'baseline-b'] : ['high', 'low'])
+    .filter(profile => !profileArg || profile === profileArg)
+  if (speeds.length === 0 || profiles.length === 0) throw new Error('Invalid Model Detail benchmark sample')
+  try {
+    for (const speed of speeds) {
+      for (const profile of profiles) {
+        await request('sim.play', { playing: false })
+        await request('sim.seek', { simTimeSeconds: startTime })
+        await request('sim.restart')
+        const { clock: start } = await request('sim.speed', { speed })
+        if (!baseline) await request('graphics.set', { profile })
+        await sleep(1500)
+        const frames = await page.evaluate(`(async () => {
+          await window.__metroStationBridge.request('sim.play', { playing: true })
+          return new Promise(resolve => {
+            let first = null, previous = null
+            const intervals = []
+            function sample(now) {
+              if (first === null) first = now
+              if (previous !== null) intervals.push(now - previous)
+              previous = now
+              if (now - first < 30000) requestAnimationFrame(sample)
+              else resolve(intervals)
+            }
+            requestAnimationFrame(sample)
+          })
+        })()`)
+        if (loadFailure) throw new Error(loadFailure)
+        const { clock: end } = await request('sim.play', { playing: false })
+        samples.push({ speed, profile, start, end, frames, frameStats: summarizeFrameIntervals(frames) })
+      }
+    }
+    const device = await page.evaluate(`(() => {
+      const gl = document.createElement('canvas').getContext('webgl2')
+      const ext = gl && gl.getExtension('WEBGL_debug_renderer_info')
+      return ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : null
+    })()`)
+    if (!baseline) await request('graphics.set', { profile: original })
+    await request('sim.speed', { speed: 1 })
+    return finishCase(record, samples.every(sample => sample.start.simTimeSeconds === startTime &&
+      sample.frames.length > 30 && sample.end.tick > sample.start.tick),
+      { viewport, device, startTime, samples })
+  } catch (error) {
+    return finishCase(record, false, { viewport, startTime, samples, problem: String(error.message ?? error) })
+  }
 }
 
 async function runCameraCase() {
@@ -4729,7 +4902,9 @@ async function main() {
     await page.send('Page.navigate', { url: demoUrl(demos[0], locales[0]) })
   }
   if (onlyCases && (!loadProbe || !wanted(`demo-${demos[0]}-${locales[0]}`))) {
-    await poll('window.__metroStationBridge && window.__metroStationBridge.getSnapshot().revision >= 0', 'initial commit')
+    const modelDetailOnly = onlyCases.some(name => name.startsWith('model-detail'))
+    const fixture = modelDetailOnly ? ` && s.sourceId === ${JSON.stringify(demos[0])}` : ''
+    await waitForSnapshot(`s.revision >= 0${fixture}`, 'initial commit')
   }
   for (const locale of locales) {
     for (const id of demos) if (wanted(`demo-${id}-${locale}`)) await runDemoCase(id, locale)
@@ -4742,6 +4917,10 @@ async function main() {
   // replaces it: reloading a 14 k-cell station is the expensive install path, and the
   // browser must not pay it twice in one run.
   if (wanted('view-tools')) await runViewToolsCase()
+  if (wanted('model-detail')) await runModelDetailCase()
+  if (onlyCases && onlyCases.includes('model-detail-render')) await runModelDetailRenderCase()
+  if (onlyCases && onlyCases.includes('model-detail-performance')) await runModelDetailPerformanceCase()
+  if (onlyCases && onlyCases.includes('model-detail-baseline')) await runModelDetailPerformanceCase(true)
   if (wanted('exploded-view')) await runExplodedViewCase()
   if (wanted('camera-cube')) await runCameraCase()
   if (wanted('pointer-camera')) await runPointerCameraCase()

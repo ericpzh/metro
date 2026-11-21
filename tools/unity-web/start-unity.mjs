@@ -9,6 +9,11 @@ import { fileURLToPath } from 'node:url'
 const SCENES = new Set(['StationGameLocal'])
 const CONFIGURATIONS = new Set(['Development', 'Release'])
 export const MUTABLE_BUILD_INPUTS = new Set(['Assets/Settings/UniversalRenderPipelineGlobalSettings.asset'])
+const LOCAL_PASSENGER_ROOT = 'Assets/StationDesigner/Generated/Passengers'
+const LOCAL_WEB_SCENE = 'Assets/StationDesigner/Scenes/StationGameLocalWeb.unity'
+const LOCAL_PASSENGER_FILES = [`${LOCAL_PASSENGER_ROOT}.meta`, LOCAL_WEB_SCENE, `${LOCAL_WEB_SCENE}.meta`]
+const isLocalPassengerInput = path => path === LOCAL_PASSENGER_ROOT ||
+  path.startsWith(`${LOCAL_PASSENGER_ROOT}/`) || LOCAL_PASSENGER_FILES.includes(path)
 
 export function parseUnityStartArgs(argv) {
   const options = {
@@ -57,12 +62,13 @@ function sha256Bytes(bytes) {
   return createHash('sha256').update(bytes).digest('hex').toUpperCase()
 }
 
-export function snapshotDirectoryInputs(baseDir, subdirs, { ignore = new Set() } = {}) {
+export function snapshotDirectoryInputs(baseDir, subdirs, { ignore = new Set(), includeLocalPassengers = true } = {}) {
   const files = []
   function visit(dir) {
     if (!existsSync(dir)) return
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const full = join(dir, entry.name)
+      if (!includeLocalPassengers && isLocalPassengerInput(relative(baseDir, full).replaceAll('\\', '/'))) continue
       if (entry.isDirectory()) visit(full)
       else if (entry.isFile()) files.push(full)
     }
@@ -618,6 +624,7 @@ export async function runUnityDev(argv = process.argv.slice(2)) {
   const fixtureInputs = snapshotDirectoryInputs(root, ['unity/tests/fixtures'])
   const sourceInputs = snapshotDirectoryInputs(sourceUnityDir, ['Assets', 'Packages', 'ProjectSettings'], {
     ignore: MUTABLE_BUILD_INPUTS,
+    includeLocalPassengers: useLocalWebPassengers,
   })
   const sourceSignature = digestSnapshot(sourceInputs)
 
@@ -704,6 +711,11 @@ export async function runUnityDev(argv = process.argv.slice(2)) {
     for (const folder of ['Assets', 'Packages', 'ProjectSettings', 'asset-recipes']) {
       const src = join(sourceUnityDir, folder)
       if (existsSync(src)) mirrorDirectory(src, join(devProjectDir, folder))
+    }
+    if (!useLocalWebPassengers) {
+      // The public build and its exported provenance must exclude the review-only library.
+      rmSync(join(devProjectDir, LOCAL_PASSENGER_ROOT), { recursive: true, force: true })
+      for (const path of LOCAL_PASSENGER_FILES) rmSync(join(devProjectDir, path), { force: true })
     }
     ensureDemosExported(root, join(devProjectDir, 'Assets/StationDesigner/Demos'))
 

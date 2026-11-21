@@ -1,6 +1,8 @@
 import { createContext, useContext } from 'react'
 import type { ExampleStationId } from '../../data/reference-station.ts'
 
+export type ModelDetailProfile = 'high' | 'balanced' | 'low'
+
 /**
  * The station runtime that owns the document. In the Three/TS app there is no
  * host: the store itself is the document owner, and every control keeps its
@@ -13,6 +15,7 @@ export interface StationHost {
   openDemo(id: ExampleStationId): void
   openSave(text: string): void
   save(): void
+  modelDetail?(profile?: ModelDetailProfile): Promise<ModelDetailProfile>
   /** An edit the host does not implement yet: shown, not attempted. */
   unsupported?(feature: string): void
 }

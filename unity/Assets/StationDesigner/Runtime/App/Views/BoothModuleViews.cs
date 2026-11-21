@@ -63,9 +63,9 @@ namespace Metro.App.Views {
             try {
                 var yaw = Quaternion.Euler(0f, -90f * front, 0f);
                 // A canonical-axis box at (lx, planY, elevation) with extents (sx, sy, sz).
-                void Box(float lx, float planY, float elevation, float sx, float sy, float sz, int colour) =>
+                void Box(float lx, float planY, float elevation, float sx, float sy, float sz, int colour, int lastTier = 2) =>
                     kit.LocalBox(Vector3.zero, yaw, new Vector3(lx, elevation, planY),
-                        new Vector3(sx, sz, sy), colour);
+                        new Vector3(sx, sz, sy), colour, lastTier);
 
                 float inset = Mathf.Min(.55f, Mathf.Min(w / 3f, h / 3f));
                 const float cap = .08f;
@@ -91,9 +91,9 @@ namespace Metro.App.Views {
                 }
                 int kick = info ? Steel : Dark;
                 foreach (float planY in new[] { -h * .5f + .015f, h * .5f - .015f })
-                    Box(mid, planY, .055f, w, .03f, .11f, kick);
+                    Box(mid, planY, .055f, w, .03f, .11f, kick, lastTier: 1);
                 foreach (float x in new[] { -w * .5f + .015f, w * .5f - .015f })
-                    Box(x, 0f, .055f, .03f, h, .11f, kick);
+                    Box(x, 0f, .055f, .03f, h, .11f, kick, lastTier: 1);
                 // Open rectangular overhead frame and its fascia band.
                 float fasciaBottom = info ? HeaderBottom + .045f : HeaderBottom;
                 int band = info ? Dark : BinSteel;
@@ -105,18 +105,18 @@ namespace Metro.App.Views {
                     // Underside light and the burgundy seam follow the suspended frame.
                     foreach (float x in new[] { -w * .5f + .09f, w * .5f - .09f }) {
                         Box(x, 0f, HeaderBottom + .015f, .18f, h, .03f, White);
-                        Box(x, 0f, HeaderBottom + .0375f, .18f, h, .015f, Red);
+                        Box(x, 0f, HeaderBottom + .0375f, .18f, h, .015f, Red, lastTier: 0);
                     }
                     foreach (float planY in new[] { -h * .5f + .098f, h * .5f - .098f }) {
                         Box(mid, planY, HeaderBottom + .015f, w - .36f, .18f, .03f, White);
-                        Box(mid, planY, HeaderBottom + .0375f, w - .36f, .18f, .015f, Red);
+                        Box(mid, planY, HeaderBottom + .0375f, w - .36f, .18f, .015f, Red, lastTier: 0);
                     }
                     foreach (float planY in new[] { -h * .5f + .1f, h * .5f - .1f })
                         Box(mid, planY, HeaderBottom - .015f, w - .36f, .12f, .03f, White);
                     foreach (float x in new[] { -w * .5f + .1f, w * .5f - .1f })
                         Box(x, 0f, HeaderBottom - .015f, .12f, h - .36f, .03f, White);
                 } else {
-                    Glaze(Box, w, h, top, cap, mid);
+                    Glaze((x, y, z, sx, sy, sz, colour) => Box(x, y, z, sx, sy, sz, colour), w, h, top, cap, mid);
                 }
                 // Counter fittings. A stocked record's staff seats stay separate modules.
                 float[] screens = info
