@@ -458,6 +458,49 @@ public class StationSparseRoutingTests {
     }
 
     [Test]
+    public void TianheReachabilityRejectsAlightingOnlySidePlatformsWithZeroExpansions() {
+        string path = Path.Combine(Application.dataPath, "StationDesigner/Demos/tianhe.metro.json");
+        var source = StationDocumentReader.ReadFile(path);
+        Assert.IsNotNull(source?.Document);
+        var setup = StationSessionProjection.Setup(source.Document, source.Index, "tianhe-reachability");
+        var session = new StationSimulationSession(setup);
+        var router = session.Services.SparseRouter;
+        Assert.IsNotNull(router);
+        var topo = router.Topology;
+        var graph = topo.Graph;
+
+        int line11Door = -1, line13BoardDoor = -1, line13AlightDoor = -1;
+        for (int i = 0; i < graph.Servers.Count; i++) {
+            var s = graph.Servers[i];
+            if (s.Kind != "door" || s.Node < 0) continue;
+            if (line11Door < 0 && Math.Abs(graph.NodeZ[s.Node] - (-9.0)) < 0.5 && Math.Abs(graph.NodeX[s.Node] - (-14.5)) < 1.0) {
+                line11Door = s.Node;
+            }
+            if (line13BoardDoor < 0 && Math.Abs(graph.NodeZ[s.Node] - (-19.0)) < 0.5 && Math.Abs(graph.NodeY[s.Node] - (-107.5)) < 1.0) {
+                line13BoardDoor = s.Node;
+            }
+            if (line13AlightDoor < 0 && Math.Abs(graph.NodeZ[s.Node] - (-19.0)) < 0.5 && Math.Abs(graph.NodeY[s.Node] - (-111.5)) < 1.0) {
+                line13AlightDoor = s.Node;
+            }
+        }
+        Assert.GreaterOrEqual(line11Door, 0, "found Line 11 platform door");
+        Assert.GreaterOrEqual(line13BoardDoor, 0, "found Line 13 boarding island door");
+        Assert.GreaterOrEqual(line13AlightDoor, 0, "found Line 13 alighting-only outer door");
+
+        Assert.IsTrue(topo.CanReach(line11Door, line13BoardDoor, stepFree: false), "Line 11 can reach Line 13 boarding island");
+        Assert.IsFalse(topo.CanReach(line11Door, line13AlightDoor, stepFree: false), "Line 11 cannot reach Line 13 alighting-only outer platform");
+
+        router.BeginTick(1, null, new Dictionary<string, double>());
+        var before = router.Stats();
+        var status = router.StartCoarseSearch(line11Door, line13AlightDoor, default, -1, 0, 1, out _, out int jobId);
+        var after = router.Stats();
+        Assert.AreEqual(StationSparseRouter.CoarseJobStatus.Failed, status, "unreachable target fails immediately");
+        Assert.AreEqual(-1, jobId, "no coarse job allocated for unreachable target");
+        Assert.AreEqual(before.CoarseExpansions, after.CoarseExpansions, "zero coarse expansions for unreachable target");
+        Assert.AreEqual(before.FieldExpansions, after.FieldExpansions, "zero field expansions for unreachable target");
+    }
+
+    [Test]
     public void TianhePeakRushSparseBeatsLegacyExpansionsAndTickTails() {
         string path = Path.Combine(Application.dataPath, "StationDesigner/Demos/tianhe.metro.json");
         Assert.IsTrue(File.Exists(path), "tianhe.metro.json must exist");

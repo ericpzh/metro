@@ -2971,6 +2971,12 @@ export class World {
         }
       } else if (res.status === 'pending' && res.jobId !== undefined) {
         walker.pendingCoarseId = res.jobId
+      } else if (!router.topology.canReach(a.fromNode, leg.node, a.needs.stepFree)) {
+        // Statically proven unreachable: skip optional stop legs or mark the trip stuck immediately.
+        a.awaitingPath = false
+        a.walker = null
+        if (leg.kind === 'stop') this.advanceLeg(a)
+        else { a.dead = true; this.metrics.stuck++ }
       }
       return
     }
@@ -3007,18 +3013,28 @@ export class World {
       }
       let best = -1
       let bestScore = Infinity
+      let bestReachable = -1
+      let bestReachableScore = Infinity
       const from = this.nearestNode(a.x, a.y, a.z)
+      const sparseTopo = this.useSparseRouting() ? this.sparseRouter!.topology : null
       for (const d of doors) {
         const s = g.servers[d]
         const dist = from >= 0 ? Math.hypot(g.nodeX[from] - g.nodeX[s.node], g.nodeY[from] - g.nodeY[s.node]) : 0
         // Include walkers already committed to a door: otherwise a whole wave
         // chooses the nearest door while every queue still looks empty (§5.9).
         const score = PLATFORM_DOOR_WALK_WEIGHT * dist + PLATFORM_DOOR_COMMIT_WEIGHT * this.doorLoads[d]
+        if (sparseTopo && from >= 0 && sparseTopo.canReach(from, s.node, a.needs.stepFree)) {
+          if (score < bestReachableScore || (score === bestReachableScore && d < bestReachable)) {
+            bestReachableScore = score
+            bestReachable = d
+          }
+        }
         if (score < bestScore || (score === bestScore && d < best)) {
           bestScore = score
           best = d
         }
       }
+      if (bestReachable >= 0) best = bestReachable
       if (best < 0) {
         leg.node = -1
         return

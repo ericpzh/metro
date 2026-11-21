@@ -764,6 +764,9 @@ namespace Metro.Sim {
             if ((uint)startNode >= (uint)Topology.Graph.NodeCount || (uint)goalNode >= (uint)Topology.Graph.NodeCount || currentSnapshot == null) {
                 return CoarseJobStatus.Failed;
             }
+            if (excludedServer < 0 && !Topology.CanReach(startNode, goalNode, needs.StepFree)) {
+                return CoarseJobStatus.Failed;
+            }
             byte nb = NeedsBitsOf(needs);
             string cacheKey = currentSnapshot.TopologyRevision + "|" + currentSnapshot.Id + "|" + startNode + "|" + goalNode + "|" + nb + "|" + excludedServer;
             statsCoarseQueries++;

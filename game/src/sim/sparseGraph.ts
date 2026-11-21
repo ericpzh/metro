@@ -121,6 +121,14 @@ export class SparseTopology {
   /** Sectors whose optional concourse samples need refresh: sectorKey -> dirty sector.revision. */
   samplesDirty = new Map<number, number>()
 
+  // Lazy reverse region adjacency CSR + per-(goalRegion, stepFree) reachability bitsets.
+  private revAdjBuilt = false
+  private revAllStart: Int32Array | null = null
+  private revAllFrom: Int32Array | null = null
+  private revStepFreeStart: Int32Array | null = null
+  private revStepFreeFrom: Int32Array | null = null
+  private reachCache = new Map<number, Uint32Array>()
+
   constructor(graph: StationGraph, seed: number, topologyRevision = 1) {
     this.graph = graph
     this.seed = seed
@@ -182,6 +190,111 @@ export class SparseTopology {
     region.sampleNode = bestNode
     region.sampleTileKey = bestNode >= 0 ? bestKey : -1
     return region.sampleTileKey
+  }
+
+  private ensureRevRegionAdj(): void {
+    if (this.revAdjBuilt) return
+    this.revAdjBuilt = true
+    const rCount = this.regions.length
+    const allCounts = new Int32Array(rCount)
+    const sfCounts = new Int32Array(rCount)
+    for (let r = 0; r < rCount; r++) {
+      const reg = this.regions[r]
+      for (let i = 0; i < reg.crossings.length; i++) {
+        const to = reg.crossings[i].toRegion
+        if (to >= 0 && to < rCount) {
+          allCounts[to]++
+          sfCounts[to]++
+        }
+      }
+      for (let i = 0; i < reg.explicitArcs.length; i++) {
+        const arc = reg.explicitArcs[i]
+        const to = arc.toRegion
+        if (to >= 0 && to < rCount) {
+          allCounts[to]++
+          if (arc.kind !== EDGE_KIND.stair && arc.kind !== EDGE_KIND.escalator) {
+            sfCounts[to]++
+          }
+        }
+      }
+    }
+    const allStart = new Int32Array(rCount + 1)
+    const sfStart = new Int32Array(rCount + 1)
+    for (let r = 0; r < rCount; r++) {
+      allStart[r + 1] = allStart[r] + allCounts[r]
+      sfStart[r + 1] = sfStart[r] + sfCounts[r]
+    }
+    const allFrom = new Int32Array(allStart[rCount])
+    const sfFrom = new Int32Array(sfStart[rCount])
+    const allCur = allStart.slice(0, rCount)
+    const sfCur = sfStart.slice(0, rCount)
+    for (let r = 0; r < rCount; r++) {
+      const reg = this.regions[r]
+      for (let i = 0; i < reg.crossings.length; i++) {
+        const to = reg.crossings[i].toRegion
+        if (to >= 0 && to < rCount) {
+          allFrom[allCur[to]++] = r
+          sfFrom[sfCur[to]++] = r
+        }
+      }
+      for (let i = 0; i < reg.explicitArcs.length; i++) {
+        const arc = reg.explicitArcs[i]
+        const to = arc.toRegion
+        if (to >= 0 && to < rCount) {
+          allFrom[allCur[to]++] = r
+          if (arc.kind !== EDGE_KIND.stair && arc.kind !== EDGE_KIND.escalator) {
+            sfFrom[sfCur[to]++] = r
+          }
+        }
+      }
+    }
+    this.revAllStart = allStart
+    this.revAllFrom = allFrom
+    this.revStepFreeStart = sfStart
+    this.revStepFreeFrom = sfFrom
+  }
+
+  /**
+   * Exact static reachability between two graph nodes under `stepFree`.
+   * Equivalent to fine-graph reachability because every region is a connected component
+   * of bidirectional plain walk edges and every non-plain edge is an explicit arc.
+   */
+  canReach(fromNode: number, toNode: number, stepFree: boolean): boolean {
+    const n = this.nodeRegion.length
+    if (fromNode < 0 || fromNode >= n || toNode < 0 || toNode >= n) return false
+    const fromReg = this.nodeRegion[fromNode]
+    const toReg = this.nodeRegion[toNode]
+    if (fromReg < 0 || toReg < 0) return false
+    if (fromReg === toReg) return true
+
+    const cacheKey = toReg * 2 + (stepFree ? 1 : 0)
+    let bits = this.reachCache.get(cacheKey)
+    if (!bits) {
+      this.ensureRevRegionAdj()
+      const rCount = this.regions.length
+      bits = new Uint32Array((rCount + 31) >>> 5)
+      const start = stepFree ? this.revStepFreeStart! : this.revAllStart!
+      const from = stepFree ? this.revStepFreeFrom! : this.revAllFrom!
+      const queue = new Int32Array(rCount)
+      let head = 0
+      let tail = 0
+      bits[toReg >>> 5] |= 1 << (toReg & 31)
+      queue[tail++] = toReg
+      while (head < tail) {
+        const cur = queue[head++]
+        for (let e = start[cur]; e < start[cur + 1]; e++) {
+          const prev = from[e]
+          const w = prev >>> 5
+          const m = 1 << (prev & 31)
+          if ((bits[w] & m) === 0) {
+            bits[w] |= m
+            queue[tail++] = prev
+          }
+        }
+      }
+      this.reachCache.set(cacheKey, bits)
+    }
+    return (bits[fromReg >>> 5] & (1 << (fromReg & 31))) !== 0
   }
 }
 

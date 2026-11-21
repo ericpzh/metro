@@ -406,6 +406,8 @@ export class SparseRouter {
   private pendingPlayResume = false
   private sampleRefreshQueue: Array<{ sectorKey: number; requestedRevision: number }> = []
   private sampleQueuedKeys = new Set<number>()
+  private refillCursor = 0
+  private trimCursor = 0
 
   // Telemetry
   private statsCoarseQueries = 0
@@ -470,6 +472,8 @@ export class SparseRouter {
     this.elapsedTicks = 0
     this.lastScheduledRefreshTick = -100000
     this.pendingPlayResume = false
+    this.refillCursor = 0
+    this.trimCursor = 0
   }
 
   /** Same-document restart: clear live decisions, claims & pending jobs; retain validated static geometry & fields. */
@@ -487,6 +491,8 @@ export class SparseRouter {
     this.elapsedTicks = 0
     this.lastScheduledRefreshTick = -100000
     this.pendingPlayResume = false
+    this.refillCursor = 0
+    this.trimCursor = 0
   }
 
   /** Real Pause -> Play transition notification (§3 / §4.5). */
@@ -961,6 +967,9 @@ export class SparseRouter {
     }
     const snapshot = this.currentSnapshot
     if (!snapshot) return { status: 'no_path', itinerary: null }
+    if (excludedServer < 0 && !topo.canReach(startNode, goalNode, needs.stepFree)) {
+      return { status: 'no_path', itinerary: null }
+    }
 
     const nc = needsCode(needs)
     const cacheKey = `${snapshot.topologyRevision}|${snapshot.id}|${startNode}|${goalNode}|${nc}|${excludedServer}`
@@ -1478,7 +1487,7 @@ export class SparseRouter {
     const gScore = new Map<number, number>()
     const cameFrom = new Map<number, number>()
     gScore.set(startNode, 0)
-    heap.push(startNode, 0, this.topology.nodeTileKey[startNode])
+    heap.push(startNode, this.coarseHeuristicMs(startNode, goalNode), this.topology.nodeTileKey[startNode], 0)
 
     this.fineJobs.set(key, {
       key,
@@ -1578,7 +1587,7 @@ export class SparseRouter {
         if (prev === undefined || ng < prev) {
           job.gScore.set(nb, ng)
           job.cameFrom.set(nb, cur)
-          job.heap.push(nb, ng, topo.nodeTileKey[nb])
+          job.heap.push(nb, ng + this.coarseHeuristicMs(nb, job.goalNode), topo.nodeTileKey[nb], ng)
         }
       }
       job.expandingNode = -1
@@ -1963,8 +1972,9 @@ export class SparseRouter {
       if (w.candidateCoarseId >= 0 && !this.coarseJobs.has(w.candidateCoarseId)) w.candidateCoarseId = -1
       if (w.pendingFineKey !== null && !this.fineJobs.has(w.pendingFineKey)) w.pendingFineKey = null
 
+      const hasValidItinerary = w.itinerary !== null && w.itinerary.topologyRevision === this.topology.topologyRevision
       const isBlocked = a.path.length <= a.pathIdx
-      if ((a.awaitingPath || (a.state === 1 && !w.itinerary)) && isBlocked && w.blockedSinceTick < 0) {
+      if ((a.awaitingPath || (a.state === 1 && !hasValidItinerary)) && isBlocked && w.blockedSinceTick < 0) {
         w.blockedSinceTick = tick
       }
       const age = w.blockedSinceTick >= 0 ? tick - w.blockedSinceTick : 0
@@ -1979,7 +1989,7 @@ export class SparseRouter {
         const fj = this.fineJobs.get(w.pendingFineKey)!
         if (tier < fj.priorityTier) fj.priorityTier = tier
         referencedFineKeys.add(w.pendingFineKey)
-      } else if ((a.awaitingPath || (a.state === 1 && !w.itinerary)) &&
+      } else if ((a.awaitingPath || a.state === 1) && !hasValidItinerary &&
           selfNode >= 0 && w.goalNode >= 0 && selfNode !== w.goalNode && tick >= w.retryAfterTick) {
         const res = this.startCoarseSearch(selfNode, w.goalNode, a.needs, -1, tier, tick)
         if (res.status === 'ready' && res.itinerary) {
@@ -1991,6 +2001,10 @@ export class SparseRouter {
         } else if (res.status === 'pending' && res.jobId !== undefined) {
           w.pendingCoarseId = res.jobId
           referencedCoarseIds.add(res.jobId)
+        } else if (!this.topology.canReach(selfNode, w.goalNode, a.needs.stepFree)) {
+          w.blockedSinceTick = -1
+          this.claims.release(a.id)
+          onNoPath(a)
         } else {
           w.pendingFineKey = this.enqueueFineRecovery(selfNode, w.goalNode, a.needs, -1, tier, tick, 'sparse-no-path')
           referencedFineKeys.add(w.pendingFineKey)
@@ -2017,14 +2031,16 @@ export class SparseRouter {
     }
     this.runMandatoryJobs(mandatoryBudget, snap, tick)
 
-    // Adopt ready coarse/fine results and refill eligible walkers in tick-rotated deterministic order.
+    // Adopt ready coarse/fine results first, then refill in priority order:
+    // (1) blocked walkers (remaining === 0), (2) low-buffer walkers (<= refillThreshold),
+    // (3) optional live-crowd tail trims, so speculative trims never starve newly-alighted riders.
     const count = walkers.length
     const offset = count > 0 ? tick % count : 0
     let localRefillsLeft = this.localRefillBudget
 
     for (let k = 0; k < count; k++) {
       const { a, w, selfNode } = walkers[(offset + k) % count]
-      if (a.dead) continue
+      if (a.dead || getWalker(a) !== w) continue
 
       // Check pending service-change candidate (§4.3 considerServiceChange).
       if (w.candidateCoarseId >= 0) {
@@ -2068,6 +2084,12 @@ export class SparseRouter {
           w.pendingCoarseId = -1
           w.sparseMisses++
           if (selfNode >= 0 && w.goalNode >= 0) {
+            if (job.failReason === 'sparse-exhausted' && !this.topology.canReach(selfNode, w.goalNode, a.needs.stepFree)) {
+              w.blockedSinceTick = -1
+              this.claims.release(a.id)
+              onNoPath(a)
+              continue
+            }
             w.pendingFineKey = this.enqueueFineRecovery(selfNode, w.goalNode, a.needs, -1, 0, tick, job.failReason || 'coarse-failed')
           }
         }
@@ -2100,80 +2122,120 @@ export class SparseRouter {
           continue
         }
       }
+    }
 
-      // Refill rolling walking segment when walking or waiting to start walking.
-      if (w.itinerary && (a.state === 1 || a.awaitingPath)) {
-        let remaining = Math.max(0, a.path.length - a.pathIdx)
-        // Preserve a 2-step committed prefix (§2.4), but if a crowd or claim forms directly
-        // ahead in the uncommitted tail, trim past the 2-step prefix so the walker smoothly
-        // steps around live crowding instead of marching blindly for 12+ ticks (§2.3).
-        if (remaining > this.refillThreshold && a.state === 1 && localRefillsLeft > 0) {
+    const tryRefill = (a: Agent, w: SparseWalkerState, selfNode: number, isBlocked: boolean): void => {
+      if (isBlocked && w.blockedSinceTick < 0) w.blockedSinceTick = tick
+      const age = w.blockedSinceTick >= 0 ? tick - w.blockedSinceTick : 0
+      const tier = isBlocked || age >= SPARSE_AGE_PROMOTE_TICKS ? 0 : 1
+      const outcome = this.refillWalker(a, w, tick, selfNode, tier)
+      if (outcome === 'ok') {
+        localRefillsLeft--
+        if (a.path.length > a.pathIdx) {
+          a.awaitingPath = false
+          a.state = 1
+          w.blockedSinceTick = -1
+        }
+      } else if (outcome === 'repair') {
+        w.itinerary = null
+        w.stepIdx = 0
+        if (selfNode >= 0 && w.goalNode >= 0) {
+          const res = this.startCoarseSearch(selfNode, w.goalNode, a.needs, -1, 0, tick)
+          if (res.status === 'ready' && res.itinerary) {
+            w.itinerary = res.itinerary
+          } else if (res.status === 'pending' && res.jobId !== undefined) {
+            w.pendingCoarseId = res.jobId
+          } else if (!this.topology.canReach(selfNode, w.goalNode, a.needs.stepFree)) {
+            w.blockedSinceTick = -1
+            this.claims.release(a.id)
+            onNoPath(a)
+          } else {
+            w.pendingFineKey = this.enqueueFineRecovery(selfNode, w.goalNode, a.needs, -1, 0, tick, 'refill-repair')
+          }
+        }
+      }
+    }
+
+    if (count > 0) {
+      const startRefill = this.refillCursor % count
+      let nextRefillCursor = startRefill
+      // Pass 1: blocked walkers (remaining === 0) get first claim on local refills.
+      for (let k = 0; k < count && localRefillsLeft > 0; k++) {
+        const idx = (startRefill + k) % count
+        nextRefillCursor = (idx + 1) % count
+        const { a, w, selfNode } = walkers[idx]
+        if (a.dead || getWalker(a) !== w) continue
+        if (!w.itinerary || (a.state !== 1 && !a.awaitingPath)) continue
+        if (w.segmentEndsAtGoal || w.segmentEndsAtService) continue
+        const remaining = Math.max(0, a.path.length - a.pathIdx)
+        if (remaining === 0) tryRefill(a, w, selfNode, true)
+      }
+      // Pass 2: low-buffer walkers (1..refillThreshold steps remaining).
+      for (let k = 0; k < count && localRefillsLeft > 0; k++) {
+        const idx = (startRefill + k) % count
+        nextRefillCursor = (idx + 1) % count
+        const { a, w, selfNode } = walkers[idx]
+        if (a.dead || getWalker(a) !== w) continue
+        if (!w.itinerary || (a.state !== 1 && !a.awaitingPath)) continue
+        if (w.segmentEndsAtGoal || w.segmentEndsAtService) continue
+        const remaining = Math.max(0, a.path.length - a.pathIdx)
+        if (remaining > 0 && remaining <= this.refillThreshold) tryRefill(a, w, selfNode, false)
+      }
+      this.refillCursor = nextRefillCursor
+
+      // Pass 3: optional live-crowd tail trims using any leftover local refill budget.
+      if (localRefillsLeft > 0) {
+        const startTrim = this.trimCursor % count
+        let nextTrimCursor = startTrim
+        for (let k = 0; k < count && localRefillsLeft > 0; k++) {
+          const idx = (startTrim + k) % count
+          nextTrimCursor = (idx + 1) % count
+          const { a, w, selfNode } = walkers[idx]
+          if (a.dead || getWalker(a) !== w) continue
+          if (!w.itinerary || a.state !== 1) continue
+          const remaining = Math.max(0, a.path.length - a.pathIdx)
+          if (remaining <= this.refillThreshold) continue
           const check1 = a.pathIdx + 1 < a.path.length ? a.path[a.pathIdx + 1] : -1
           const check2 = a.pathIdx + 2 < a.path.length ? a.path[a.pathIdx + 2] : -1
           const crowdedAhead =
             (check1 >= 0 && (this.occupancy.otherBodiesOn(check1, selfNode) > 0 || (this.useClaims && this.claims.countOtherAgentsOn(check1, a.id) > 0))) ||
             (check2 >= 0 && (this.occupancy.otherBodiesOn(check2, selfNode) > 0 || (this.useClaims && this.claims.countOtherAgentsOn(check2, a.id) > 0)))
-          if (crowdedAhead) {
-            const keepEnd = Math.min(a.path.length, a.pathIdx + 2)
-            let safePrefix = keepEnd < a.path.length
-            const g = this.topology.graph
-            for (let k = a.pathIdx; safePrefix && k < keepEnd; k++) {
-              if (g.serverForNode.has(a.path[k])) safePrefix = false
-              if (k + 1 < keepEnd && Math.abs(g.nodeZ[a.path[k]] - g.nodeZ[a.path[k + 1]]) > 1e-6) safePrefix = false
+          if (!crowdedAhead) continue
+          const keepEnd = Math.min(a.path.length, a.pathIdx + 2)
+          let safePrefix = keepEnd < a.path.length
+          const graph = this.topology.graph
+          for (let j = a.pathIdx; safePrefix && j < keepEnd; j++) {
+            if (graph.serverForNode.has(a.path[j])) safePrefix = false
+            if (j + 1 < keepEnd && Math.abs(graph.nodeZ[a.path[j]] - graph.nodeZ[a.path[j + 1]]) > 1e-6) safePrefix = false
+          }
+          const tailAfter = a.path[keepEnd - 1]
+          const tailReg = safePrefix ? this.topology.nodeRegion[tailAfter] : -1
+          const tailRegKey = tailReg >= 0 ? this.topology.regions[tailReg].regionKey : -1
+          if (tailRegKey >= 0) {
+            while (w.stepIdx > 0) {
+              const curStep = w.stepIdx < w.itinerary.steps.length ? w.itinerary.steps[w.stepIdx] : null
+              if (curStep && curStep.fromRegionKey === tailRegKey) break
+              if (!curStep && this.topology.nodeRegion[w.goalNode] === tailReg) break
+              w.stepIdx--
             }
-            const tailAfter = a.path[keepEnd - 1]
-            const tailReg = safePrefix ? this.topology.nodeRegion[tailAfter] : -1
-            const tailRegKey = tailReg >= 0 ? this.topology.regions[tailReg].regionKey : -1
-            if (tailRegKey >= 0) {
-              while (w.stepIdx > 0) {
-                const curStep = w.stepIdx < w.itinerary.steps.length ? w.itinerary.steps[w.stepIdx] : null
-                if (curStep && curStep.fromRegionKey === tailRegKey) break
-                if (!curStep && this.topology.nodeRegion[w.goalNode] === tailReg) break
-                w.stepIdx--
-              }
-              a.path = a.path.slice(a.pathIdx, keepEnd)
-              a.pathIdx = 0
-              w.segmentEndsAtGoal = false
-              w.segmentEndsAtService = false
-              remaining = a.path.length
-            }
+            a.path = a.path.slice(a.pathIdx, keepEnd)
+            a.pathIdx = 0
+            w.segmentEndsAtGoal = false
+            w.segmentEndsAtService = false
+            tryRefill(a, w, selfNode, false)
           }
         }
-        const needsRefill = remaining <= this.refillThreshold && !w.segmentEndsAtGoal && !w.segmentEndsAtService
-        if (needsRefill && localRefillsLeft > 0) {
-          const isBlocked = remaining === 0
-          if (isBlocked && w.blockedSinceTick < 0) w.blockedSinceTick = tick
-          const age = w.blockedSinceTick >= 0 ? tick - w.blockedSinceTick : 0
-          const tier = isBlocked || age >= SPARSE_AGE_PROMOTE_TICKS ? 0 : 1
-          const outcome = this.refillWalker(a, w, tick, selfNode, tier)
-          if (outcome === 'ok') {
-            localRefillsLeft--
-            if (a.path.length > a.pathIdx) {
-              a.awaitingPath = false
-              a.state = 1
-              w.blockedSinceTick = -1
-            }
-          } else if (outcome === 'repair') {
-            w.itinerary = null
-            w.stepIdx = 0
-            if (selfNode >= 0 && w.goalNode >= 0) {
-              const res = this.startCoarseSearch(selfNode, w.goalNode, a.needs, -1, 0, tick)
-              if (res.status === 'ready' && res.itinerary) {
-                w.itinerary = res.itinerary
-              } else if (res.status === 'pending' && res.jobId !== undefined) {
-                w.pendingCoarseId = res.jobId
-              } else {
-                w.pendingFineKey = this.enqueueFineRecovery(selfNode, w.goalNode, a.needs, -1, 0, tick, 'refill-repair')
-              }
-            }
-          }
-        }
+        this.trimCursor = nextTrimCursor
       }
 
       // Track backlog age.
-      if (w.blockedSinceTick >= 0) {
-        const age = tick - w.blockedSinceTick
-        if (age > this.statsMaxBacklogAge) this.statsMaxBacklogAge = age
+      for (let k = 0; k < count; k++) {
+        const { a, w } = walkers[k]
+        if (a.dead || getWalker(a) !== w) continue
+        if (w.blockedSinceTick >= 0) {
+          const age = tick - w.blockedSinceTick
+          if (age > this.statsMaxBacklogAge) this.statsMaxBacklogAge = age
+        }
       }
     }
 
@@ -2184,7 +2246,7 @@ export class SparseRouter {
       // Immediately adopt newly-finished coarse/fine/field results for blocked walkers so delay stays minimal!
       for (let k = 0; k < count; k++) {
         const { a, w, selfNode } = walkers[(offset + k) % count]
-        if (a.dead) continue
+        if (a.dead || getWalker(a) !== w) continue
         if (w.pendingCoarseId >= 0) {
           const job = this.coarseJobs.get(w.pendingCoarseId)
           if (job?.status === 'ready' && job.result) {

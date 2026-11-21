@@ -114,6 +114,13 @@ namespace Metro.Sim {
         public readonly List<StationSparseExplicitArc> ExplicitArcs = new List<StationSparseExplicitArc>();
         public readonly Dictionary<long, int> SamplesDirty = new Dictionary<long, int>();
 
+        bool revAdjBuilt;
+        int[] revAllStart;
+        int[] revAllFrom;
+        int[] revStepFreeStart;
+        int[] revStepFreeFrom;
+        readonly Dictionary<int, uint[]> reachCache = new Dictionary<int, uint[]>();
+
         StationSparseTopology(StationWalkGraph graph, int seed, int topologyRevision) {
             Graph = graph;
             Seed = seed;
@@ -166,6 +173,110 @@ namespace Metro.Sim {
             region.SampleNode = bestNode;
             region.SampleTileKey = bestNode >= 0 ? bestKey : -1;
             return region.SampleTileKey;
+        }
+
+        void EnsureRevRegionAdj() {
+            if (revAdjBuilt) return;
+            revAdjBuilt = true;
+            int rCount = Regions.Count;
+            var allCounts = new int[rCount];
+            var sfCounts = new int[rCount];
+            for (int r = 0; r < rCount; r++) {
+                var reg = Regions[r];
+                for (int i = 0; i < reg.Crossings.Count; i++) {
+                    int to = reg.Crossings[i].ToRegion;
+                    if ((uint)to < (uint)rCount) {
+                        allCounts[to]++;
+                        sfCounts[to]++;
+                    }
+                }
+                for (int i = 0; i < reg.ExplicitArcs.Count; i++) {
+                    var arc = reg.ExplicitArcs[i];
+                    int to = arc.ToRegion;
+                    if ((uint)to < (uint)rCount) {
+                        allCounts[to]++;
+                        if (arc.Kind != WalkEdgeKind.Stair && arc.Kind != WalkEdgeKind.Escalator) {
+                            sfCounts[to]++;
+                        }
+                    }
+                }
+            }
+            var allStart = new int[rCount + 1];
+            var sfStart = new int[rCount + 1];
+            for (int r = 0; r < rCount; r++) {
+                allStart[r + 1] = allStart[r] + allCounts[r];
+                sfStart[r + 1] = sfStart[r] + sfCounts[r];
+            }
+            var allFrom = new int[allStart[rCount]];
+            var sfFrom = new int[sfStart[rCount]];
+            var allCur = new int[rCount];
+            var sfCur = new int[rCount];
+            Array.Copy(allStart, allCur, rCount);
+            Array.Copy(sfStart, sfCur, rCount);
+            for (int r = 0; r < rCount; r++) {
+                var reg = Regions[r];
+                for (int i = 0; i < reg.Crossings.Count; i++) {
+                    int to = reg.Crossings[i].ToRegion;
+                    if ((uint)to < (uint)rCount) {
+                        allFrom[allCur[to]++] = r;
+                        sfFrom[sfCur[to]++] = r;
+                    }
+                }
+                for (int i = 0; i < reg.ExplicitArcs.Count; i++) {
+                    var arc = reg.ExplicitArcs[i];
+                    int to = arc.ToRegion;
+                    if ((uint)to < (uint)rCount) {
+                        allFrom[allCur[to]++] = r;
+                        if (arc.Kind != WalkEdgeKind.Stair && arc.Kind != WalkEdgeKind.Escalator) {
+                            sfFrom[sfCur[to]++] = r;
+                        }
+                    }
+                }
+            }
+            revAllStart = allStart;
+            revAllFrom = allFrom;
+            revStepFreeStart = sfStart;
+            revStepFreeFrom = sfFrom;
+        }
+
+        /// <summary>
+        /// Exact static reachability between two walk-graph nodes under <paramref name="stepFree"/>.
+        /// Equivalent to fine-graph reachability because every region is a connected component
+        /// of bidirectional plain walk edges and every non-plain edge is an explicit arc.
+        /// </summary>
+        public bool CanReach(int fromNode, int toNode, bool stepFree) {
+            if ((uint)fromNode >= (uint)NodeRegion.Length || (uint)toNode >= (uint)NodeRegion.Length) return false;
+            int fromReg = NodeRegion[fromNode];
+            int toReg = NodeRegion[toNode];
+            if (fromReg < 0 || toReg < 0) return false;
+            if (fromReg == toReg) return true;
+
+            int cacheKey = toReg * 2 + (stepFree ? 1 : 0);
+            if (!reachCache.TryGetValue(cacheKey, out var bits)) {
+                EnsureRevRegionAdj();
+                int rCount = Regions.Count;
+                bits = new uint[(rCount + 31) >> 5];
+                var start = stepFree ? revStepFreeStart : revAllStart;
+                var from = stepFree ? revStepFreeFrom : revAllFrom;
+                var queue = new int[rCount];
+                int head = 0, tail = 0;
+                bits[toReg >> 5] |= 1u << (toReg & 31);
+                queue[tail++] = toReg;
+                while (head < tail) {
+                    int cur = queue[head++];
+                    for (int e = start[cur]; e < start[cur + 1]; e++) {
+                        int prev = from[e];
+                        int w = prev >> 5;
+                        uint m = 1u << (prev & 31);
+                        if ((bits[w] & m) == 0) {
+                            bits[w] |= m;
+                            queue[tail++] = prev;
+                        }
+                    }
+                }
+                reachCache[cacheKey] = bits;
+            }
+            return (bits[fromReg >> 5] & (1u << (fromReg & 31))) != 0;
         }
 
         struct RawPlainEdge {

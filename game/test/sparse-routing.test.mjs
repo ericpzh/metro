@@ -25,26 +25,67 @@ import { World } from '../src/sim/world.ts'
 import { referenceStation } from '../src/data/reference-station.ts'
 import { scenarioStation } from './support/scenario-station.ts'
 
-test('Tianhe Park Line 13 alighters can walk away from the screen doors after the first arrivals', () => {
+test('Tianhe Park Line 11 and Line 13 alighters walk away from the screen doors without fine-recovery stalls', () => {
   const station = referenceStation('tianhe')
   const world = new World(station, station.seed)
+  const g = world.graph
+  const router = world.sparseRouter
+  const topo = router.topology
+
+  // Line 13 uses Spanish-solution outer side platforms (up-escalator exit only) and a
+  // reachable center island for boarding. Static region reachability must distinguish them
+  // and reject unreachable queries with zero coarse/field expansions.
+  const plat11 = g.platforms.find((p) => p.line === '11')
+  const plat13Board = g.platforms.find((p) => p.id === 'edge-track-55-right')
+  const plat13AlightOnly = g.platforms.find((p) => p.id === 'edge-track-55-left')
+  assert.ok(plat11 && plat13Board && plat13AlightOnly, 'Tianhe Park Line 11 and Line 13 Spanish-solution platforms exist')
+  const d11 = g.servers[plat11.doors[0]].node
+  const d13Board = g.servers[plat13Board.doors[0]].node
+  const d13AlightOnly = g.servers[plat13AlightOnly.doors[0]].node
+  assert.equal(topo.canReach(d11, d13Board, false), true, 'Line 11 can reach Line 13 boarding island')
+  assert.equal(topo.canReach(d11, d13AlightOnly, false), false, 'Line 11 cannot reach Line 13 alighting-only outer platform')
+
+  router.captureCostSnapshot(world.path.gateWait)
+  const beforeStats = router.stats()
+  const unreachRes = router.startCoarseSearch(d11, d13AlightOnly, { stepFree: false, luggage: false }, -1, 0, 0)
+  const afterStats = router.stats()
+  assert.equal(unreachRes.status, 'no_path', 'unreachable target fails immediately without coarse search')
+  assert.equal(afterStats.coarseExpansions, beforeStats.coarseExpansions, 'zero coarse expansions for unreachable target')
+  assert.equal(afterStats.fieldExpansions, beforeStats.fieldExpansions, 'zero field expansions for unreachable target')
+
   const landingPositions = new Map()
   const walkedFromDoor = new Set()
+  const line11Landing = new Map()
+  const line11Walked = new Set()
   for (let tick = 0; tick < 90; tick++) {
     world.tickOnce()
     for (const passenger of world.pool.live) {
-      if (passenger.dead || passenger.trip.origin !== 'train:13' || passenger.train >= 0) continue
-      const landing = landingPositions.get(passenger.id)
-      if (!landing) {
-        landingPositions.set(passenger.id, { x: passenger.x, y: passenger.y, z: passenger.z })
-      } else if (Math.hypot(passenger.x - landing.x, passenger.y - landing.y, passenger.z - landing.z) >= 1) {
-        walkedFromDoor.add(passenger.id)
+      if (passenger.dead || passenger.train >= 0) continue
+      if (passenger.trip.origin === 'train:13') {
+        const landing = landingPositions.get(passenger.id)
+        if (!landing) {
+          landingPositions.set(passenger.id, { x: passenger.x, y: passenger.y, z: passenger.z })
+        } else if (Math.hypot(passenger.x - landing.x, passenger.y - landing.y, passenger.z - landing.z) >= 1) {
+          walkedFromDoor.add(passenger.id)
+        }
+      } else if (passenger.trip.origin === 'train:11') {
+        const landing = line11Landing.get(passenger.id)
+        if (!landing) {
+          line11Landing.set(passenger.id, { x: passenger.x, y: passenger.y, z: passenger.z })
+        } else if (Math.hypot(passenger.x - landing.x, passenger.y - landing.y, passenger.z - landing.z) >= 1) {
+          line11Walked.add(passenger.id)
+        }
       }
     }
   }
 
-  assert.ok(landingPositions.size >= 500, 'both directions discharged their arrival waves')
+  const endStats = world.routingStats()
+  assert.ok(landingPositions.size >= 500, 'both Line 13 directions discharged their arrival waves')
   assert.ok(walkedFromDoor.size >= 490, `only ${walkedFromDoor.size} Line 13 riders moved a metre beyond their landing position`)
+  assert.ok(line11Landing.size >= 400, 'both Line 11 directions discharged their arrival waves')
+  assert.ok(line11Walked.size >= line11Landing.size - 15, `only ${line11Walked.size}/${line11Landing.size} Line 11 riders walked away from their doors`)
+  assert.equal(endStats.fineExpansions, 0, 'unreachable targets never trigger futile fine-graph recovery expansions')
+  assert.equal(endStats.pendingFineJobs, 0, 'no fine-graph recovery backlog left at 06:31:30')
 })
 
 function wideHallStation({ width = 11, length = 30, twoConnectors = false, diagonalOffset = false } = {}) {
@@ -421,4 +462,35 @@ test('free-flow sparse route stretch stays within 15% of exact shortest path and
   ratios.sort((a, b) => a - b)
   const p95 = ratios[Math.min(ratios.length - 1, Math.floor(ratios.length * 0.95))]
   assert.ok(p95 <= 1.15, `free-flow p95 route stretch ${p95.toFixed(3)} exceeds 1.15`)
+})
+
+test('blocked walkers receive local refills ahead of speculative crowded-tail trims', () => {
+  const data = wideHallStation({ width: 5, length: 24 })
+  const w = new World(data, 42, {
+    routingMode: 'sparse',
+    sparseOptions: { localRefillBudget: 4 },
+  })
+  // Spawn 16 closely-packed walkers ahead of a fresh wave so every tick triggers crowdedAhead trims.
+  for (let i = 0; i < 16; i++) {
+    const a = w.pool.spawn({ origin: 'exit:exit-in', stops: [], dest: 'exit:exit-out' }, 2.5 + (i % 4), 2.5, 10, 0)
+    a.needs = { stepFree: false, luggage: false }
+  }
+  for (let t = 0; t < 4; t++) w.tickOnce()
+
+  // Add 4 newly-arrived blocked walkers at the tail of `pool.live`.
+  const freshIds = []
+  for (let i = 0; i < 4; i++) {
+    const a = w.pool.spawn({ origin: 'exit:exit-in', stops: [], dest: 'exit:exit-out' }, 1.5, 1.5 + i * 0.5, 10, 4)
+    a.needs = { stepFree: false, luggage: false }
+    freshIds.push(a.id)
+  }
+  // Tick twice (one to solve/adopt coarse itinerary if cold, one to guarantee initial refill).
+  w.tickOnce()
+  w.tickOnce()
+
+  const active = new Map(w.pool.live.map((a) => [a.id, a]))
+  for (const id of freshIds) {
+    const a = active.get(id)
+    assert.ok(a && !a.awaitingPath && a.path.length > a.pathIdx, `fresh blocked walker ${id} must not be starved by crowded-tail trims`)
+  }
 })

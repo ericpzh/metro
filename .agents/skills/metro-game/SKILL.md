@@ -470,15 +470,19 @@ Pin the retention policy and real ModuleSystem keep-set in
   baked-passenger hash on `sim/constants.ts` stays stable.
 * **Sparse hierarchical crowd routing (`sim/sparse{Constants,Policy,Graph,Router}.ts`):**
   16×16-cell sectors/regions, fence-split boundary crossings, explicit directed
-  service arcs, byte-capped LRU reverse distance fields (`16 MiB`), work-capped
-  resumable coarse A* with suffix sharing, bounded fine-graph recovery, and
-  rolling 16-step local walking (standing density, 2-step soft tile claims,
-  turn inertia, deterministic Murmur3 tile jitter, and 2-step committed-prefix
-  live-crowd tail trim). Remote edits retain unaffected fields and active walk
-  segments; concourse sample refresh runs only on Pause→Play and every 60
-  elapsed sim ticks (never on clock scrub); `routingMode: 'sparse' | 'legacy'`
-  (default `'sparse'`) preserves legacy A* rollback. Keep policy, topology and
-  rolling-step parity aligned with Unity (`tools/unity-parity/record-crowd-routing.mjs`).
+  service arcs, lazy exact region-graph reachability (`canReach`, used to filter
+  reachable boarding doors and reject unreachable goals without coarse or fine
+  expansions), byte-capped LRU reverse distance fields (`16 MiB`), work-capped
+  resumable coarse A* with suffix sharing, A*-guided bounded fine-graph recovery,
+  and rolling 16-step local walking (standing density, 2-step soft tile claims,
+  turn inertia, deterministic Murmur3 tile jitter, and 3-pass refill priority
+  serving blocked and low-buffer walkers ahead of 2-step committed-prefix
+  live-crowd tail trims without re-searching valid itineraries). Remote edits
+  retain unaffected fields and active walk segments; concourse sample refresh
+  runs only on Pause→Play and every 60 elapsed sim ticks (never on clock scrub);
+  `routingMode: 'sparse' | 'legacy'` (default `'sparse'`) preserves legacy A*
+  rollback. Keep policy, topology, reachability and rolling-step parity aligned
+  with Unity (`tools/unity-parity/record-crowd-routing.mjs`).
 * The decorative 信号机 is one metre tall; its lower post and base use the shared
   `floor.concrete` finish. Keep the material choice pinned in
   `game/test/monitor-signal.test.mjs` when changing its model.

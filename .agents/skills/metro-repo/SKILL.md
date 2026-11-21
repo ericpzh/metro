@@ -29,10 +29,16 @@ rollback switch (default sparse), and reproduce paired benchmarks with
 [references/performance.md](references/performance.md#sparse-hierarchical-crowd-routing)).
 
 When tuning mandatory routing work, keep the finite per-tick limits aligned
-in Unity and the browser. Run the default-clock Tianhe Park Line 13 cold-start
+in Unity and the browser. Run the default-clock Tianhe Park Line 11/13 cold-start
 regressions in both engines and track how far riders walk from the screen doors
 after alighting. Report route wait and tick cost together, since a smaller work
 budget can improve tick timings while leaving riders stopped at the doors.
+Keep static region-graph reachability (`SparseTopology.canReach` /
+`StationSparseTopology.CanReach`) filtering boarding doors away from
+alighting-only Spanish-solution platforms and rejecting unreachable goals with
+zero coarse/fine expansions, never re-search a valid itinerary while awaiting
+refill, and prioritize local refills for blocked and low-buffer walkers ahead of
+speculative live-crowd tail trims in both engines.
 See the [Line 13 reproduction](references/performance.md#sparse-hierarchical-crowd-routing).
 
 Station equipment models, including shop fixtures, seating, ballfields and steel
