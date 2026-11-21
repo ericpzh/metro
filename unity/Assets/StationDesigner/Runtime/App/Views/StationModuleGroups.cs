@@ -714,7 +714,16 @@ namespace Metro.App.Views {
         [NonSerialized] public Bounds WorldBounds;
         [NonSerialized] internal int LastMeshLod = -1;
         [NonSerialized] internal int LastLodViewVersion = -1;
+        [NonSerialized] internal bool LastLodOtherLevel;
         [NonSerialized] internal Vector3 LastLodOffset;
+        [NonSerialized] StationVisibilityTarget cachedVisibilityTarget;
+
+        internal StationVisibilityTarget ResolveVisibilityTarget() {
+            if (cachedVisibilityTarget != null) return cachedVisibilityTarget;
+            if (FollowTransformOffset) return null;
+            cachedVisibilityTarget = GetComponentInParent<StationVisibilityTarget>(true);
+            return cachedVisibilityTarget;
+        }
         [NonSerialized] public Matrix4x4[] Matrices = Array.Empty<Matrix4x4>();
         [NonSerialized] public Matrix4x4[][] DrawSlices = Array.Empty<Matrix4x4[]>();
         [NonSerialized] public int[] SourceStart = Array.Empty<int>();
@@ -732,6 +741,7 @@ namespace Metro.App.Views {
             bool followTransformOffset) {
             SharedMesh = sharedMesh;
             LastMeshLod = LastLodViewVersion = -1;
+            LastLodOtherLevel = false;
             SubmeshIndex = submeshIndex;
             ProxyRenderer = proxyRenderer;
             FollowTransformOffset = followTransformOffset;
@@ -896,6 +906,7 @@ namespace Metro.App.Views {
         float lodNearClip;
         float lodProfileBias;
         int lodProfileMinimum;
+        int lodProfileOtherLevelMinimum;
         bool lodOrthographic;
         int lodViewVersion;
         public bool PauseDuringExplodedView = true;
@@ -949,7 +960,11 @@ namespace Metro.App.Views {
                     var bounds = batch.WorldBounds;
                     var offset = batch.FollowTransformOffset ? go.transform.position : Vector3.zero;
                     bounds.center += offset;
-                    int tier = lodCamera != null ? SelectMeshLod(mesh, batch, bounds, offset) : 0;
+                    int tier = lodCamera != null
+                        ? SelectMeshLod(mesh, batch, bounds, offset)
+                        : (batch.ResolveVisibilityTarget() is { OtherLevelLod: true }
+                            ? StationGraphicsSettings.OtherLevelTier(mesh.lodCount)
+                            : 0);
                     renderParams = new RenderParams(mat) {
                         layer = layer,
                         matProps = block,
@@ -972,7 +987,7 @@ namespace Metro.App.Views {
             }
         }
 
-        void SampleLodView(Camera camera) {
+        public void SampleLodView(Camera camera) {
             bool orthographic = camera.orthographic;
             var position = camera.transform.position;
             float height = orthographic ? 2f * camera.orthographicSize :
@@ -980,28 +995,36 @@ namespace Metro.App.Views {
             float near = camera.nearClipPlane;
             float bias = StationGraphicsSettings.ModelLodBias;
             int minimum = StationGraphicsSettings.MinimumModelLod;
+            int otherLevelMinimum = StationGraphicsSettings.OtherLevelModelLod;
             if (position.Equals(lodCameraPosition) && height == lodFrustumHeight &&
                 near == lodNearClip && bias == lodProfileBias && minimum == lodProfileMinimum &&
-                orthographic == lodOrthographic) return;
+                otherLevelMinimum == lodProfileOtherLevelMinimum && orthographic == lodOrthographic) return;
             lodCameraPosition = position;
             lodFrustumHeight = height;
             lodNearClip = near;
             lodProfileBias = bias;
             lodProfileMinimum = minimum;
+            lodProfileOtherLevelMinimum = otherLevelMinimum;
             lodOrthographic = orthographic;
             lodViewVersion++;
         }
 
-        int SelectMeshLod(Mesh mesh, StationInstancedSurfaceBatch batch, Bounds worldBounds, Vector3 offset) {
+        public int SelectMeshLod(Mesh mesh, StationInstancedSurfaceBatch batch, Bounds worldBounds, Vector3 offset) {
             if (batch.Matrices.Length == 0) return 0;
-            if (batch.LastLodViewVersion == lodViewVersion && offset.Equals(batch.LastLodOffset))
+            var target = batch.ResolveVisibilityTarget();
+            bool otherLevel = target != null && target.OtherLevelLod;
+            if (batch.LastLodViewVersion == lodViewVersion &&
+                batch.LastLodOtherLevel == otherLevel &&
+                offset.Equals(batch.LastLodOffset))
                 return batch.LastMeshLod;
             float size = StationPrefabMeshTemplate.TransformBounds(mesh.bounds, batch.Matrices[0]).size.magnitude;
             float viewHeight = lodOrthographic ? lodFrustumHeight : lodFrustumHeight *
                 Mathf.Max(lodNearClip, Mathf.Sqrt(worldBounds.SqrDistance(lodCameraPosition)));
+            int previous = batch.LastLodOtherLevel == otherLevel ? batch.LastMeshLod : -1;
             batch.LastMeshLod = StationGraphicsSettings.SelectTier(
-                size / Mathf.Max(.01f, viewHeight), batch.LastMeshLod, mesh.lodCount);
+                size / Mathf.Max(.01f, viewHeight), previous, mesh.lodCount, otherLevel);
             batch.LastLodViewVersion = lodViewVersion;
+            batch.LastLodOtherLevel = otherLevel;
             batch.LastLodOffset = offset;
             return batch.LastMeshLod;
         }

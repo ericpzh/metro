@@ -376,6 +376,8 @@ namespace Metro.App.Views {
         internal Material[] FullMaterials = Array.Empty<Material>();
         internal Mesh FullMesh;
         internal int MeshTier = -1;
+        internal bool LastOtherLevelLod;
+        internal PassengerDetail LastPoseDetail;
 
         public Vector3 Position => Root != null ? Root.transform.position : Vector3.zero;
         public Quaternion Rotation => Root != null ? Root.transform.rotation : Quaternion.identity;
@@ -503,8 +505,7 @@ namespace Metro.App.Views {
                     if (!pose.Visible) { Hide(pose.SimId); continue; }
                     var actor = GetOrSpawn(pose);
                     if (actor == null) continue;
-                    SelectActorMesh(actor, pose, lodCamera, followId);
-                    Pose(actor, pose, hasCam, camPos, followId);
+                    Pose(actor, pose, hasCam, camPos, followId, lodCamera);
                 }
             }
             // The feed publishes a complete frame: an actor that left the frame is
@@ -547,6 +548,8 @@ namespace Metro.App.Views {
                 pooled.LastSecondBand = int.MinValue;
                 pooled.LastGradeOwned = false;
                 pooled.LastToneMode = (StationDrawMode)(-1);
+                pooled.LastOtherLevelLod = false;
+                pooled.MeshTier = -1;
                 ClearToneBlock(pooled);
                 if (pooled.Root != null) pooled.Root.name = "passenger " + pose.SimId + " " + entry.recipe;
                 actors[pose.SimId] = pooled;
@@ -609,35 +612,42 @@ namespace Metro.App.Views {
             return actor;
         }
 
-        void SelectActorMesh(PassengerCrowdActor actor, PassengerPose pose, Camera camera, int followId) {
+        void SelectActorMesh(PassengerCrowdActor actor, PassengerDetail detail, Camera camera, int followId) {
             var reduced = actor.Entry.reducedMesh;
             var simplified = actor.Entry.simplifiedMesh;
             if (reduced == null && simplified == null) return;
+            bool otherLevel = actor.Target != null && actor.Target.OtherLevelLod;
             int desired = 0;
             if (actor.SimId != followId) {
-                if (pose.Detail == PassengerDetail.Low) desired = 2;
+                if (detail == PassengerDetail.Low) desired = 2;
                 else if (camera != null) {
                     float depth = Vector3.Distance(actor.Position, camera.transform.position);
                     float viewHeight = camera.orthographic ? 2f * camera.orthographicSize :
                         2f * Mathf.Max(camera.nearClipPlane, depth) *
                             Mathf.Tan(camera.fieldOfView * Mathf.Deg2Rad * .5f);
+                    int previous = actor.LastOtherLevelLod == otherLevel ? actor.MeshTier : -1;
                     desired = StationGraphicsSettings.SelectTier(
-                        (float)actor.Look.Height / Mathf.Max(.01f, viewHeight), actor.MeshTier, 3);
+                        (float)actor.Look.Height / Mathf.Max(.01f, viewHeight), previous, 3, otherLevel);
+                } else if (otherLevel) {
+                    desired = StationGraphicsSettings.OtherLevelTier(3);
                 }
             }
             var chosen = desired == 2 ? simplified ?? reduced : desired == 1 ? reduced : null;
             var mesh = chosen?.mesh ?? actor.FullMesh;
             actor.MeshTier = desired;
+            actor.LastOtherLevelLod = otherLevel;
             if (actor.Skin.sharedMesh == mesh) return;
             ClearToneBlock(actor);
             actor.OriginalMaterials = chosen?.materials ?? actor.FullMaterials;
             actor.Skin.sharedMesh = mesh;
             actor.Skin.sharedMaterials = actor.OriginalMaterials;
             actor.Target?.Recapture(actor.Skin);
+            SyncActorTone(actor, actor.Target != null ? actor.Target.LastMode : StationDrawMode.Base);
         }
 
-        void Pose(PassengerCrowdActor actor, PassengerPose pose, bool hasCam, Vector3 camPos, int followId) {
+        void Pose(PassengerCrowdActor actor, PassengerPose pose, bool hasCam, Vector3 camPos, int followId, Camera lodCamera) {
             seen.Add(actor.SimId);
+            actor.LastPoseDetail = pose.Detail;
 
             int band = 0;
             int secondBand = 0;
@@ -726,6 +736,8 @@ namespace Metro.App.Views {
                 return;
             }
 
+            SelectActorMesh(actor, pose.Detail, lodCamera, followId);
+
             double activityTime = pose.ActivitySeconds;
             if (pose.RideSeconds > 0 &&
                 (pose.Activity == PassengerActivity.Escalator || pose.Activity == PassengerActivity.EscalatorLeft))
@@ -783,6 +795,14 @@ namespace Metro.App.Views {
         void OnActorModeApplied(PassengerCrowdActor actor, StationDrawMode mode) {
             if (actor == null) return;
             actor.Visible = actor.ActiveInFrame && mode != StationDrawMode.Hidden;
+            if (actor.Visible) {
+                var rig = StationViewFeature.Active;
+                var cam = rig != null && rig.viewCamera != null ? rig.viewCamera : Camera.main;
+                var lodCamera = StationExplodedView.IsStandaloneActive
+                    ? StationViewFeature.ActiveExploded?.ViewerCamera : cam;
+                int followId = rig?.Visibility != null ? rig.Visibility.State.FollowPassenger : 0;
+                SelectActorMesh(actor, actor.LastPoseDetail, lodCamera, followId);
+            }
             SyncActorTone(actor, mode);
         }
 

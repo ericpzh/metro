@@ -391,7 +391,12 @@ geometry for equipment, trains, passengers and station chunks. Hide UI puts all
 storeys into the presentation view and disables storey-based LOD, but must not
 override Low quality to High. Keep the policy in `render/detailPolicy.ts`,
 `CrowdSystem`, `TrainSystem` and `LevelSystem`; `graphics-quality`,
-`geometry-detail`, `floor-geometry` and `passenger-lod` pin it.
+`geometry-detail`, `floor-geometry` and `passenger-lod` pin it. In the Unity
+port (`metro-unity`), non-active storeys step down one tier of the 3-level LOD
+system (`High → Medium / LOD1`, `Balanced`/`Low → Low / LOD2`) across
+`StationVisibilityTarget`, `StationInstancedSurfaceDrawer` and live/paused
+`PassengerCrowdView` (`HideUi`, `Cutaway`, exploded trays, placement previews
+and followed passengers keep normal detail), pinned by `StationModelLodTests`.
 
 City visual identities (Guangzhou, Shenzhen, Shanghai, Beijing, Chengdu, Chongqing, Wuhan, Nanjing) own their
 geometry, layout, artwork and fit contracts in `metro-game` →

@@ -162,6 +162,13 @@ namespace Metro.View {
     public static class StationVisibilityRules {
         public const int DenseStationModules = 20000;
 
+        /// <summary>
+        /// Target mesh LOD tier for objects on non-active storeys when storey-based LOD is active.
+        /// Mirrors web's non-active low-LOD rule stepped down by one Unity LOD tier:
+        /// High profile → Medium (1), Balanced/Low profiles → Low (2).
+        /// </summary>
+        public static int OtherLevelMeshLod = 1;
+
         public static bool IsDense(int moduleCount) => moduleCount >= DenseStationModules;
 
         /// <summary>The side of the active storey a piece occupies, by its true level span.</summary>
@@ -428,6 +435,7 @@ namespace Metro.View {
 
         internal bool SectionClipping;
         internal Vector4 SectionPlane;
+        internal int OtherLevelMeshLod = StationVisibilityRules.OtherLevelMeshLod;
 
         internal Material SectionMaterial(Material source, StationPartRole role) {
             if (!source || source.HasProperty("_SectionPlane")) return source;
@@ -631,6 +639,7 @@ namespace Metro.View {
         public bool gradeOwned;
 
         Renderer[] renderers;
+        MeshFilter[] meshFilters;
         Collider[] colliders;
         Material[][] baseMaterials;
         Material[][] ghostMaterials;
@@ -646,12 +655,15 @@ namespace Metro.View {
         byte[] appliedSectionPlaneValid;
         bool[] appliedSectionPlaneClip;
         Vector4[] appliedSectionPlaneVec;
+        byte[] appliedMeshLodValid;
+        short[] appliedForceMeshLod;
         bool collected;
         bool hasApplied;
         StationDrawMode lastMode = StationDrawMode.Base;
         StationVisibilityPalette lastPalette;
         int cachedPaletteGeneration = -1;
         MaterialPropertyBlock sectionBlock;
+        public bool OtherLevelLod { get; private set; }
         public bool SectionShaderActive { get; private set; }
         public int LastRendererWrites { get; private set; }
         public int LastColliderWrites { get; private set; }
@@ -745,6 +757,7 @@ namespace Metro.View {
             renderers = GetComponentsInChildren<Renderer>(true);
             colliders = GetComponentsInChildren<Collider>(true);
             int rCount = renderers.Length;
+            meshFilters = new MeshFilter[rCount];
             baseMaterials = new Material[rCount][];
             ghostMaterials = null;
             clearMaterials = null;
@@ -759,11 +772,14 @@ namespace Metro.View {
             appliedSectionPlaneValid = new byte[rCount];
             appliedSectionPlaneClip = new bool[rCount];
             appliedSectionPlaneVec = new Vector4[rCount];
+            appliedMeshLodValid = new byte[rCount];
+            appliedForceMeshLod = new short[rCount];
             cachedPaletteGeneration = -1;
             hasApplied = false;
             for (int i = 0; i < rCount; i++) {
                 var renderer = renderers[i];
                 baseMaterials[i] = renderer ? renderer.sharedMaterials : Array.Empty<Material>();
+                meshFilters[i] = renderer is MeshRenderer ? renderer.GetComponent<MeshFilter>() : null;
                 // First sight only: a renderer already switched off by its builder is retired
                 // for good, and one the visibility walk itself switched off keeps its authored
                 // eligibility because it was captured while the part was still drawable.
@@ -848,19 +864,25 @@ namespace Metro.View {
         bool Eligible(Collider collider) =>
             !eligibleColliders.TryGetValue(collider, out bool eligible) || eligible;
 
-        public void Apply(StationDrawMode mode, StationVisibilityPalette palette) {
+        public void Apply(StationDrawMode mode, StationVisibilityPalette palette) =>
+            Apply(mode, palette, mode == StationDrawMode.Ghost);
+
+        internal void Apply(StationDrawMode mode, StationVisibilityPalette palette, bool otherLevelLod) {
             Collect();
             EnsurePaletteCache(palette);
             LastRendererWrites = 0;
             LastColliderWrites = 0;
             LastMaterialWrites = 0;
             if (hasApplied && lastMode == StationDrawMode.Hidden && mode == StationDrawMode.Hidden) {
+                OtherLevelLod = false;
                 SectionShaderActive = false;
                 ModeApplied?.Invoke(mode);
                 return;
             }
             SectionShaderActive = false;
             bool visible = mode != StationDrawMode.Hidden;
+            OtherLevelLod = visible && otherLevelLod;
+            int otherLevelTier = palette != null ? palette.OtherLevelMeshLod : StationVisibilityRules.OtherLevelMeshLod;
             // A part that was drawable after the last pass and is now off was retired by its
             // owner since then: record that as authored and never switch it back on.
             bool wasVisible = hasApplied ? lastMode != StationDrawMode.Hidden : true;
@@ -879,7 +901,9 @@ namespace Metro.View {
                     renderer.enabled = wantEnabled;
                     LastRendererWrites++;
                 }
-                if (!wantEnabled || palette == null) continue;
+                if (!wantEnabled) continue;
+                ApplyRendererMeshLod(i, renderer, OtherLevelLod, otherLevelTier);
+                if (palette == null) continue;
                 var bases = baseMaterials[i];
                 if (bases == null || bases.Length == 0) continue;
                 ApplyRendererMaterials(i, renderer, bases, mode, palette);
@@ -897,6 +921,19 @@ namespace Metro.View {
                 }
             }
             ModeApplied?.Invoke(mode);
+        }
+
+        void ApplyRendererMeshLod(int index, Renderer renderer, bool otherLevelLod, int otherLevelTier) {
+            var filter = meshFilters != null && index < meshFilters.Length ? meshFilters[index] : null;
+            var mesh = filter != null ? filter.sharedMesh : null;
+            if (mesh == null || mesh.lodCount <= 1) return;
+            short want = otherLevelLod
+                ? (short)Mathf.Clamp(otherLevelTier, 0, mesh.lodCount - 1)
+                : (short)-1;
+            if (appliedMeshLodValid[index] != 0 && appliedForceMeshLod[index] == want) return;
+            renderer.forceMeshLod = want;
+            appliedMeshLodValid[index] = 1;
+            appliedForceMeshLod[index] = want;
         }
 
         void ApplyRendererMaterials(int index, Renderer renderer, Material[] bases, StationDrawMode mode, StationVisibilityPalette palette) {
@@ -1178,6 +1215,7 @@ namespace Metro.View {
             public int LevelBase;
             public int StoreyHeight;
             public bool SectionClipping;
+            public int OtherLevelMeshLod;
 
             public static GlobalPolicySnapshot Capture(StationVisibilityState state, bool sectionClipping) => new GlobalPolicySnapshot {
                 ShowLevels = state.ShowLevels,
@@ -1191,6 +1229,7 @@ namespace Metro.View {
                 LevelBase = state.LevelBase,
                 StoreyHeight = state.StoreyHeight,
                 SectionClipping = sectionClipping,
+                OtherLevelMeshLod = StationVisibilityRules.OtherLevelMeshLod,
             };
 
             public bool Equals(in GlobalPolicySnapshot other) =>
@@ -1204,7 +1243,8 @@ namespace Metro.View {
                 Dense == other.Dense &&
                 LevelBase == other.LevelBase &&
                 StoreyHeight == other.StoreyHeight &&
-                SectionClipping == other.SectionClipping;
+                SectionClipping == other.SectionClipping &&
+                OtherLevelMeshLod == other.OtherLevelMeshLod;
         }
 
         readonly List<IStationVisibilityTarget> targets = new List<IStationVisibilityTarget>();
@@ -1410,9 +1450,27 @@ namespace Metro.View {
 
         void SyncPaletteSection() {
             palette.SectionClipping = SectionClipping;
+            palette.OtherLevelMeshLod = StationVisibilityRules.OtherLevelMeshLod;
             var normal = StationCameraSpace.ToWorld(Section.Normal);
             var point = StationCameraSpace.ToWorld(Section.Point);
             palette.SectionPlane = new Vector4(normal.x, normal.y, normal.z, -Vector3.Dot(normal, point));
+        }
+
+        bool IsOtherLevelLod(IStationVisibilityTarget target, StationDrawMode mode) {
+            if (mode == StationDrawMode.Hidden || State.HideUi || State.Cutaway) return false;
+            var role = target.Role;
+            if (role == StationPartRole.Grid || role == StationPartRole.Cursor || role == StationPartRole.Overlay)
+                return false;
+            if (mode == StationDrawMode.Ghost) return true;
+            return StationVisibilityRules.LevelSide(target.LevelZs, State.ActiveLevel) != StationLevelSide.Active;
+        }
+
+        void ApplyMode(IStationVisibilityTarget target, StationDrawMode mode) {
+            if (target is StationVisibilityTarget concrete) {
+                concrete.Apply(mode, palette, IsOtherLevelLod(target, mode));
+            } else {
+                target.Apply(mode, palette);
+            }
         }
 
         public bool RefreshActiveBuilt() {
@@ -1433,7 +1491,7 @@ namespace Metro.View {
             var slice = StationVisibilityRules.SliceOptions(State.ShowLevels, State.AutoCeiling, State.HideUi, State.Cutaway, ActiveBuilt);
             SubtractSummary(target);
             var mode = Decide(target, slice);
-            target.Apply(mode, palette);
+            ApplyMode(target, mode);
             if (targetSet.Contains(target)) RecordSummary(target, mode);
             return mode;
         }
@@ -1448,7 +1506,7 @@ namespace Metro.View {
                 if (target is UnityEngine.Object unityObject && unityObject == null) continue;
                 SubtractSummary(target);
                 var mode = Decide(target, slice);
-                target.Apply(mode, palette);
+                ApplyMode(target, mode);
                 if (targetSet.Contains(target)) RecordSummary(target, mode);
             }
             Applied?.Invoke();
@@ -1487,11 +1545,11 @@ namespace Metro.View {
                 bool modeChanged = !hadPrev || prevSummary.Mode != mode;
                 if (modeChanged) LastApplyChangedTargets++;
                 if (!modeChanged && !SectionClipping && mode == StationDrawMode.Hidden && target is StationVisibilityTarget hiddenConcrete) {
-                    hiddenConcrete.Apply(mode, palette);
+                    hiddenConcrete.Apply(mode, palette, otherLevelLod: false);
                     continue;
                 }
                 SubtractSummary(target);
-                target.Apply(mode, palette);
+                ApplyMode(target, mode);
                 if (target is StationVisibilityTarget concrete) {
                     LastApplyRendererWrites += concrete.LastRendererWrites;
                     LastApplyColliderWrites += concrete.LastColliderWrites;
@@ -1600,7 +1658,7 @@ namespace Metro.View {
                 bool hadPrev = appliedSummaries.TryGetValue(target, out var prevSummary);
                 var mode = Decide(target, slice);
                 if (!hadPrev || prevSummary.Mode != mode) LastApplyChangedTargets++;
-                target.Apply(mode, palette);
+                ApplyMode(target, mode);
                 if (target is StationVisibilityTarget concrete) {
                     LastApplyRendererWrites += concrete.LastRendererWrites;
                     LastApplyColliderWrites += concrete.LastColliderWrites;

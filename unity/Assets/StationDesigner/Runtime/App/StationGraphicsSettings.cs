@@ -11,6 +11,7 @@ namespace Metro.App {
         string upscaling;
         internal static float ModelLodBias { get; private set; } = 1f;
         internal static int MinimumModelLod { get; private set; }
+        internal static int OtherLevelModelLod { get; private set; } = 1;
         internal static float FullThreshold { get; private set; } = .12f;
         internal static float ReducedThreshold { get; private set; } = .05f;
         internal static float Hysteresis { get; private set; } = .1f;
@@ -73,10 +74,12 @@ namespace Metro.App {
                     requestedUpscaling = value;
                 }
                 bool changed = false;
+                bool profileChanged = false;
                 if (requestedProfile != profile) {
                     profile = requestedProfile;
                     PlayerPrefs.SetString(Preference, profile);
                     changed = true;
+                    profileChanged = true;
                 }
                 if (requestedUpscaling != upscaling) {
                     upscaling = requestedUpscaling;
@@ -84,7 +87,7 @@ namespace Metro.App {
                     changed = true;
                 }
                 if (changed) {
-                    Apply();
+                    Apply(profileChanged);
                     PlayerPrefs.Save();
                 }
             }
@@ -97,7 +100,13 @@ namespace Metro.App {
 
         static bool Valid(string value) => value == "high" || value == "balanced" || value == "low";
 
-        internal static int SelectTier(float screenHeight, int previous, int availableTiers) {
+        internal static int OtherLevelTier(int availableTiers) {
+            int last = Mathf.Max(0, availableTiers - 1);
+            int floor = Mathf.Max(MinimumModelLod, OtherLevelModelLod);
+            return Mathf.Clamp(floor, 0, last);
+        }
+
+        internal static int SelectTier(float screenHeight, int previous, int availableTiers, bool otherLevel = false) {
             float ratio = screenHeight * ModelLodBias;
             float full = FullThreshold *
                 (previous == 0 ? 1f - Hysteresis : previous < 0 ? 1f : 1f + Hysteresis);
@@ -105,14 +114,18 @@ namespace Metro.App {
                 (previous == 2 ? 1f + Hysteresis : previous < 0 ? 1f : 1f - Hysteresis);
             int tier = ratio >= full ? 0 : ratio >= reduced ? 1 : 2;
             int last = Mathf.Max(0, availableTiers - 1);
-            return Mathf.Clamp(tier, Mathf.Min(last, MinimumModelLod), last);
+            int floor = otherLevel ? Mathf.Max(MinimumModelLod, OtherLevelModelLod) : MinimumModelLod;
+            return Mathf.Clamp(tier, Mathf.Min(last, floor), last);
         }
 
-        void Apply() {
+        void Apply(bool reapplyVisibility = false) {
             ModelLodBias = profile == "high" ? 1f : profile == "balanced" ? config.BalancedBias : config.LowBias;
             MinimumModelLod = profile == "low" ? 1 : 0;
+            OtherLevelModelLod = profile == "high" ? 1 : 2;
+            StationVisibilityRules.OtherLevelMeshLod = OtherLevelModelLod;
             QualitySettings.meshLodThreshold = config.NativeThreshold / ModelLodBias;
             StationFsrUpscaler.Apply(upscaling);
+            if (reapplyVisibility) StationViewFeature.Active?.Visibility?.Apply();
         }
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
