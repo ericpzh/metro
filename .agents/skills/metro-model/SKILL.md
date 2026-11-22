@@ -1,228 +1,132 @@
 ---
 name: metro-model
-description: Work on the metro repository model/ character library, reviewed hair and bag variants, silhouette and strap cleanup, walking clips, GLB exports, the soft-human motion-study preview, and shared game crowd atlas. Use for model/ or tools/bake-soft-passengers.mjs changes. Route game renderer/simulation work through metro-game and test work through metro-game-test.
+description: Work on the model/ soft-human character library, wardrobe/bag/skirt/activity pipeline, GLB exports, offline crowd atlas bake (tools/bake-soft-passengers.mjs), sound audition studio (model/sounds.html), and passenger concept-art refresh. Use for model/ or passenger/audio baking changes; route game runtime to metro-game or metro-game-render.
 ---
 
-# Metro model library
+# Metro Model Library & Sound Studio
 
-## Selected soft-human model and game promotion
+`model/` is a standalone Vite + Three.js lab hosting two entry points
+(`model/vite.config.js`, dev port `5175`, preview port `4175`, started separately
+from `npm start` via `npm run dev:model`):
 
-**Selected-base update:** the user explicitly selected the new
-`public/human-candidates/human-fall-flat/HumanBody_Alt.fbx` as the base for the preview and game crowd. This supersedes the historical
-procedural-only and preview-isolation restrictions below. `src/soft-human/imported-base.js` preserves its skin, source weights and
-smooth normals, rebases its 15 source bones plus a Hips root, and exposes measured
-limb/wardrobe coordinates to the existing clothing, bag and activity layers.
-`main.js` and `scripts/export-soft-human.mjs` use this selected base. Keep the
-procedural constructor as a historical fixture; the old tests still cover it.
-Add regressions against the actual FBX in `soft-human-imported.test.mjs`.
-`wardrobe.js` owns `SEXES` and `outfitsForSex`: twenty wearable outfits in each
-male/female category on the same body. Pink `trail`, `tee-skirt` and
-`blouse-skirt` are female-only; `beach` (Summer stripes), `sport-shorts` and
-`casual-shirt` are male-only. `plain` is an exportable fixture outside the twenty
-wearables. Cotton tees and polos have perpendicular upper-arm sleeve cuts and
-clean shorts hems. Category changes preserve shared outfits, bag, age and
-animation, falling back to `commuter` when needed. Run `soft-human-casual.test.mjs`
-and `tools/check-soft-human-casual.mjs` for categories, boundaries and both ages.
-`skirt.js` now edits the selected source body: preserve the waist, hips and outer
-legs, replace the central inner-thigh/crotch patch below 0.50 m with smooth front
-and back connections, and close the remaining gap at the hem. Paint this single
-skin like trousers. This user-approved construction supersedes separate skirt
-shells, superellipse flares, waist rims and extra cap thickness. Connector edges
-must conform to the source cuts and share weights/normals, avoiding posed
-T-junctions. Sum duplicate padded skin IDs rather than overwriting a real
-bone-zero hip influence. `soft-human-skirt.test.mjs` pins protected source vertices, one-skin
-waist colors, filled front/back gaps, leg weights, activities and GLB round trips.
-Eight shared color/cut combinations plus two male and two female additions bring
-both categories to twenty. New skirts are `blue-navy-skirt` and
-`rose-slate-skirt`; keep Pink trail and Summer stripes eligibility unchanged.
-The game bake must retain source smooth normals across color boundaries; never
-recompute each material region's normals independently. The front strap envelope
-retains its mathematical clearance; no per-frame geometry fitting is introduced.
-`export-soft-human.mjs --sex=...` validates category and adds it to filenames;
-legacy example filenames remain stable without the option.
-Restore bind joint positions and age width when leaving narrow activity poses.
-The selected base's outward A-pose is baked into its bind geometry. Walking
-retains that spread and its existing swing. Idle standing and **every station
-activity** use the accepted escalator relaxed-arm stance for each unused hand:
-a modest spread outside the torso, natural downward reach, and no lap placement.
-In side view, the elbow sits behind the shoulder and the forearm angles forward
-toward the hand. Preserve the accepted frontal elbow spacing and wrist location
-when correcting that bend; never reverse the elbow into a forward bulge.
-`relaxed-arms.js` owns this shared rig-frame pose for `character.js` idle and
-`activities.js`. Active equipment hands blend out of it; zero-contact hands,
-approach and release return to the same relaxed stance. Keep active screen,
-reader, basin and door targets unchanged, and preserve hand-owned bag precedence.
-The standing frame of the walking atlas also uses this idle pose: waits and
-queues intentionally render that cheaper atlas path instead of the activity rig.
-Keep all 72 walking frames unchanged, and pin both actual standing vertices and
-baked activity palettes in `passenger-activity-assets`. Identify skin regions by
-bone ownership: lowered hands are not thighs, and sleeve occlusion is not torso
-strap penetration. The relaxed arms may intersect equipment; retain those scans
-as diagnostics without reshaping the accepted stance.
-The escalator holding arm keeps its comfortable bend and lifts forward 30 degrees
-at the shoulder in side view. Preserve its sideways spacing, elbow bend and torso;
-apply this rigid shoulder pitch before independent appearance scaling.
-**Natural posture comes before escalator geometry.** Never twist the chest or
-pull an elbow across the body to reach a belt. Do not squeeze arms into the
-torso, drop the free hand against the knee, compress body width, or change the
-default stance to clear the equipment. Rail penetration and imperfect hand
-contact are explicitly allowed. The escalator arm pose depends on the rig and
-chosen hand, not belt position. Active hands in other actions keep their existing contact rules.
-`check-soft-escalator-pose.mjs` pins natural arm placement and zero chest turn for
-both ages/hands throughout the ride. Escalator collision scans retain diagnostic
-reports but must not reject this pose or drive corrective contortions.
-`activities.js` accepts `anchors.hand` (`default`, `right`, `left`). A hand-owned
-purse/handbag reserves its carrying hand when no explicit bake mode is supplied.
-Screen and handle targets stay fixed between hand modes. On escalators, either
-chosen hand uses the comfortable reach on its own side, even when the belt is
-opposite; never twist across the chest to touch it. A held bag allows only the
-free hand to wash. The game bake stores all three hand modes per height fit.
-Pin target identity and natural arms in `soft-human-handedness`, and the actual
-GPU palettes in `passenger-activity-assets`.
-For non-escalator equipment, reach clearance uses joint lengths in the IK rig frame, including independent
-height scaling; a small chest turn must bring the target within reach before
-solving the elbow. World-space lengths would miss short/tall opposite-hand reaches.
-The selected base uses `mathematical-strap.js`: authored Bezier shoulder arcs,
-an analytic torso profile, and a level superellipse for the backpack lower return
-in `torso-fit.js`. User feedback explicitly rejected geometry-fitted straps.
-Do not project either edge or the centreline to triangles, borrow arm weights, or
-add per-frame surface corrections. Keep constant width, parallel-transport frames
-and Chest ownership shared with the bag; pin continuity and pose stability in
-`soft-human-fit.test.mjs`. `strap-fit.js` is only for the historical procedural
-fixture. Necklines use the measured narrow neck; long sleeves split at a plane
-perpendicular to each forearm (`anatomy.cuffs`), including a separate formal cuff.
-Both left/right shoulder and crossbody straps share that mathematical builder;
-their front/back endpoints come from the actual bag anchors in bind space.
-Backpack upper endpoints likewise use the actual bag attachment. Keep the pack's
-body-facing surface behind the torso so that an attached end is not occluded by
-the back. Do not restore arm-influenced strap weights or adaptive surface fitting.
-Preserve the source readme and hash in export provenance: it describes a game
-extract and supplies no redistribution license. Do not describe the selected FBX
-as original procedural geometry. The user has explicitly promoted this model into the game.
-`catalog.js` derives 440 recipes (twenty outfits/category × eleven bags), all
-eligible at both ages. `npm run bake:passengers` runs
-`tools/bake-soft-passengers.mjs`, consuming the exact preview constructors to
-produce walking and activity atlases. Record source and recipe input hashes.
-The selected 16-bone rig has Hips index 15 and arms 9–14; preserve explicit rig
-metadata and update GPU/camera assumptions with it. Keep one draw per visible
-LOD and no live passenger skeleton. Offline tooling may import model code;
-game runtime consumes only generated assets. Game people use fully opaque, depth-writing materials at both LODs. This
-supersedes the legacy 70%/45% policy below; source atlases do not need rebaking
-for this render-only setting. The integrated skirt is already the body exterior, including its leg bridge. Do
-not strip the lower body or apply the old shell drape in the game shader. Ordinary
-source skinning owns walking and seating. GLB downloads include this same geometry. See `game/src/assets/PASSENGERS.md`.
+- `model/soft-human.html` — review, scrub, and export the soft-human passenger
+  character library (base mesh, outfits, bags, age scaling, walks, and station
+  activities).
+- `model/sounds.html` — audition the six selected interaction cues, camera-aware
+  spatial ambience + simulation-speed lab, and eight background music excerpts.
 
-`model/soft-human.html` is the editing/review surface for the active game base.
-Historical procedural constructors and the older 232-export viewer remain
-available as fixtures; they no longer own the game's crowd catalogue.
+Read [`references/soft-human-pipeline.md`](references/soft-human-pipeline.md),
+[`model/README.md`](../../../model/README.md), and
+[`game/src/assets/PASSENGERS.md`](../../../game/src/assets/PASSENGERS.md) before
+changing character geometry, posture, or crowd atlas schemas.
 
-- `src/soft-human/character.js` owns the original implicit sculpt. One marching-
-  cubes field produces the continuous skin (skull, torso, mitten hands, legs),
-  weighted from point-to-segment distances across an eleven-bone rig. The cap and
-  clothing/accessories are separate meshes. This constructor is a historical
-  fixture; the active page uses the selected FBX adapter described above. The motion layer is fixed-step damped angular springs following
-  procedural targets; it is pose-following lag/overshoot, not an active ragdoll
-  with contacts, balance, grabbing or soft-body volume. Feet are not contact-solved.
-  `state.softness` changes stiffness/damping; keep the timestep and frame clamp so
-  tab resumption stays bounded.
-- `src/soft-human/wardrobe.js` splits the actual skinned triangles into eight
-  opaque material regions at garment/lapel/tie/shoe boundaries, so clothes survive
-  GLB export without a shader. Preserve skin area, winding and per-vertex weights
-  when adding outfits. `OUTFITS`/`outfitsForSex` and `BACKPACKS` drive the selectors; twenty wearable
-  outfits per category include the formal suits, and the pack list adds eight carried-bag variants.
-  The plain/base rig must remain exportable.
-- `carried-bags.js` adapts hip, shoulder/crossbody and hand-held shapes to this
-  rig. `bag-shell.js` owns the fabric envelope; selected-base straps use the
-  mathematical builder and fixed bag anchors. `strap-fit.js` retains the old
-  procedural fixture's surface-fitting implementation only. Keep selected-base
-  ribbons torso-owned, with exact endpoint attachment and no surface fitting.
-- `src/soft-human/activities.js` derives `SOFT_ACTIONS` from
-  `game/src/sim/activities.ts` (20 actions: three walks, every non-walk activity
-  including left-hand escalator, plus idle/reach/float) and adapts the production
-  interaction poses/IK to the soft rig. Reuse `interaction-equipment.js`; keep
-  preview construction isolated from station documents. The selected FBX keeps
-  free arms in the shared relaxed stance for all station actions. Walking alone
-  retains its outward bind spread. Escalator contact and resting-arm clearance
-  are subordinate to natural posture; do not turn the chest toward a rail. The legacy procedural fixture retains its older tucking
-  behavior for other narrow equipment. Seat, basin, rail, door-threshold
-  and lift-floor heights come from the actual equipment anchors. Children use a
-  sized step, shorter rail reach and a visible wash step; adult equipment stays
-  adult-sized.
-- `scripts/export-soft-human.mjs` round-trips GLBs and writes
-  `public/soft-human/` plus per-export provenance/hash JSON. Regenerate every
-  named example after changing a source it lists, and never hand-edit those files.
-  `npm run build:model` must include `soft-human.html` in the Vite inputs.
+## Hard Isolation & Provenance Rules
 
-The page exports the current pose, clothing, pack and cap visibility, but no
-procedural clips or equipment. Keep the model-app isolation: never import
-`src/soft-human/` from game runtime. The offline bake owns game promotion.
+- **Strict runtime boundary:** Offline tooling (`tools/bake-soft-passengers.mjs`,
+  `tools/prepare-game-audio.mjs`, `tools/unity-assets/export-crowd.mjs`) may
+  import `model/src/` directly. Game runtime (`game/src/`) NEVER imports `model/`
+  or FBX loaders — it consumes only baked assets in `game/src/assets/` and
+  `game/public/audio/`.
+- **FBX provenance:** The active base is
+  `model/public/human-candidates/human-fall-flat/HumanBody_Alt.fbx` (`1.7` m
+  normalized, `26,544` vertices, `16`-bone rig with `Hips` at index `15` and arms
+  at `9..14`). Preserve `human-fall-flat/readme.txt` and record its SHA-256 in
+  manifests; do not label it as original procedural or CC0 geometry.
+- **No hand-edited outputs:** Never hand-edit generated GLBs/JSONs under
+  `model/public/soft-human/` or baked atlases under `game/src/assets/`
+  (`passenger-approved.json`, `passenger-activities.json`,
+  `passenger-source-lf.json`).
 
-### Soft-human validation
+## Soft-Human Architecture (`model/src/soft-human/`)
 
-Run `node --test model/test/soft-human*.test.mjs`, then
-`node model/node_modules/vite/bin/vite.js build model`, then the browser checks:
-`node tools/check-soft-human.mjs` (motion modes, nudge recovery, shader compile,
-four views, all outfits/packs and carried bags at both ages, compact layout),
-`node tools/check-soft-human-activities.mjs` (all 20 actions × 2 ages × 4 timeline
-samples, equipment visibility, timeline scrubbing), `node tools/check-soft-human-clearance.mjs`
-(`--all` for every station timeline, `--seated` for sit/stand at 0.125 s,
-`--escalators`), and `node tools/check-soft-arm-poses.mjs` (neutral/ticket/wash
-elbows from front, oblique and back). Captures go under ignored
-`.preview/soft-human/`. Tests pin catalogue completeness, deterministic scrubbing,
-seat/foot support, basin/rail contact, lane containment, elbow posture, skin
-weights, all wardrobe combinations, carried-bag anchoring and a posed GLB
-round-trip. A failing activity assertion can be a real pose regression: the
-legacy procedural free-arm lane check caught a hardcoded `narrow=0`. That
-historical lane constraint does not apply to the selected escalator pose: use
-the natural-posture rule above, even when collision scans report overlap.
+| Module | Ownership |
+| --- | --- |
+| `imported-base.js` | Loads/normalizes `HumanBody_Alt.fbx`, rebinds `16` bones in A-pose, exposes `anatomy`, `metrics`, `cap`, `setAge`, `resetPose`. |
+| `wardrobe.js` | `SEXES`, `outfitsForSex` (`20` wearable outfits/category + `baseOnly` `plain`), `BACKPACKS` (`11` options), `8`-region triangle-split `clothingGeometry`. |
+| `skirt.js` | One-skin `skirtBodyGeometry` (`source-body-bridge`): replaces only the central inner-thigh patch below `0.50` m with smooth front/back bridges and hem cap; zero extra waist shells. |
+| `torso-fit.js`, `mathematical-strap.js`, `bag-connectors.js` | Measured narrow neckline + authored Bezier/superellipse constant-width straps (`100%` `Chest`-owned, parallel-transport frames, exact bind-space bag anchors; no surface fitting). |
+| `bag-shell.js`, `carried-bags.js` | Tapered fabric shells (`softBagGeometry`) and `8` carried bags (`shoulder`/`crossbody` on `Chest`; `handbag`/`purse` on wrist anchor with vertical counter-rotation). |
+| `character.js`, `relaxed-arms.js` | `120` Hz damped-spring `createMotion` for walks/studies; shared rig-frame relaxed-arm stance (`poseRelaxedArm`) for `idle` and all unused station-activity arms. |
+| `activities.js`, `../interaction-equipment.js` | `20` `SOFT_ACTIONS` (`3` walks, `14` non-walk game activities, `idle`/`reach`/`float`), two-bone IK (`../animation/interactions.js`), production equipment preview props. |
+| `catalog.js`, `main.js` | `SOFT_MODEL_LIBRARY` (`440` recipes, adult + child eligible) and interactive preview UI with current-pose GLB download. |
 
-## Sound studio
+### Key Character & Bake Contracts
 
-This skill also owns the isolated `/sounds.html` audition page at model port
-5175: `src/sound-preview/`, `scripts/collect-sounds.py` and
-`scripts/make-soft-sounds.py`. Source/author/license/download records and hashes
-live in `public/sounds/manifest.json`; original procedural cues have a separate
-`soft-manifest.json`. Preserve provenance when collecting or deriving sounds.
+- **Posture first:** Walking retains its outward A-pose spread. `idle`, `wait`,
+  `queue`, standing atlas frame `0`, and every unused station arm share
+  `relaxed-arms.js` (elbow angled back, forearm forward in side view). Escalator
+  holding arms lift forward `30°` at the shoulder on their own side with zero
+  chest turn, independent of belt position; equipment overlap is allowed.
+- **Handedness:** `activities.js` accepts `anchors.hand` (`default`, `right`,
+  `left`). Hand-held `purse`/`handbag` bags reserve their carrying hand when no
+  explicit override is passed. Screen/reader/handle targets stay fixed.
+- **Normals & LODs:** `tools/bake-soft-passengers.mjs` preserves smooth source
+  normals across color cuts, locks soles during simplification, packs `73`
+  walking frames + `24`-sample activity palettes across `8` height fits × `3`
+  hand modes, and generates `≤ 10%` Low-LOD topologies via
+  `tools/passenger-low-topology.mjs`. Always follow a direct baker run with
+  `node tools/passenger-source-lf.mjs` (bundled in `npm run bake:passengers`).
 
-`src/sound-preview/effects.js` contains the selected six cues and their tuning;
-the user removed candidate menus after selection. Keep the page focused on that
-set unless new alternatives are requested. Place and felt selection have deliberate
-level boosts, and delete uses a wooden/brush texture instead of the old mechanical
-step-back click. Listening feedback supersedes uniform RMS targets. The studio's
-full mixer is for audition; the game exposes only Sound effects and Ambient sound.
+See [`references/soft-human-pipeline.md`](references/soft-human-pipeline.md) for
+exact outfit lists, bone indices, skirt/strap geometry rules, and bake formats.
 
-For sound-only changes, build both model entries without re-exporting characters:
-`node model/node_modules/vite/bin/vite.js build model`. Run focused
-`node --test model/test/sound-*.test.mjs` and `node tools/check-sound-preview.mjs`.
-The browser check measures actual shaped-buffer levels, pitch, playback/mute,
-cancellation, persistence and responsive layout. After approval, use
-`node tools/prepare-game-audio.mjs` to bake the selected set for the game; route
-game runtime edits through `metro-game`. This workflow does not require character
-exports, passenger atlas regeneration or a model-art refresh.
+## Sound Studio (`model/sounds.html` & `model/src/sound-preview/`)
 
-Work from the metro root. Read `model/README.md` and
-`game/src/assets/PASSENGERS.md`. For a new character reconstruction also use
-`stylized-3d-character`. This skill owns the existing reviewed character pipeline.
+- **Interaction cues (`effects.js`):** Six selected cues (`Place`, `Pick`, `Move`,
+  `Select`, `Delete`, `Refused`) with cached filter/envelope/pitch/RMS tuning
+  (`TUNING`, `shapeEffect`). Keep the UI focused on this six-cue set without
+  alternative-candidate dropdowns.
+- **Spatial ambience & speed lab (`ambient.js`, `spatial.js`, `audio.js`):**
+  Three CC0 loops (`crowd.mp3`, `train.mp3`, `traffic.mp3`), `4` camera
+  scenarios, moving train pass (`48` s pass + `16` s gap), and `1×`/`4×`/`16×`/`64×`
+  tactics (`natural`, `cap2`, `rate`, `skip`, `mute`) with soloing. Imports
+  `ambientTactic` and `AmbientVoice` directly from
+  `game/src/app/ambientPlayback.ts` so defaults match the game policy.
+- **Music auditions (`music.js`):** Eight local `90`-second excerpts with `3` s
+  fade-outs (`public/sounds/music/manifest.json`), audition-only (not shipped in
+  game soundtrack).
+- **Source provenance & game audio bake:**
+  - Refresh CC0 samples/licenses (`public/sounds/manifest.json`):
+    `python model/scripts/collect-sounds.py`
+  - Regenerate procedural soft WAVs (`public/sounds/soft-manifest.json`):
+    `python model/scripts/make-soft-sounds.py`
+  - Regenerate music excerpts: `python model/scripts/collect-music.py`
+  - Bake approved cues + ambient MP3s into `game/public/audio/`:
+    `node tools/prepare-game-audio.mjs`
+- Sound-only changes do not require GLB exports, passenger atlas bakes, or
+  `npm run art:models`.
 
-## Refreshing concept art
+## Commands & Validation
 
-Apply `metro-web`, then run `npm run art:models` at the root after model approval.
-This regenerates exports/atlas, builds the game, captures every adult catalogue entry
-and every eligible child template at its smaller size and the shared game opacity
-with bounded model/camera/heading batches, refreshes bilingual sheet 07 UI
-captures, updates sheets 01/02/07/12/13 in both
-languages, checks gait, renders previews and builds/syncs the site. It never
-deploys. `-- --from-game` skips only the export/bake for art-only refreshes.
+Run from the repository root:
 
-`tools/passenger-capture-plan.mjs` validates adult/child standing and complete walk coverage
-and source hashes before regeneration; `manifest.json` in ignored
-`.preview/model-art/passenger-cards/` records provenance. Static sprite pools derive their
-size from captures. Never restore fixed variant counts or skip catalogue entries.
-Keep `passenger-art-pipeline` and `capture-passengers` tests passing when extending
-the capture format or adding models. Captured stride includes the identity's depth
-scale. Static and moving sheet figures use stable 20/80 age selection and cannot
-use age-ineligible or bald child cards. Approved small/crossbody child bags remain
-valid. Inspect `.preview/sheets/` at frozen time 8 s.
+| Task | Command |
+| --- | --- |
+| Install / run / build `model/` | `npm run setup:model` · `npm run dev:model` · `npm run build:model` · `npm run preview:model` |
+| Run all `model/` unit tests | `npm --prefix model test` (focused: `node --test model/test/soft-human*.test.mjs` or `sound-*.test.mjs`) |
+| Export bind-pose GLB example | `node model/scripts/export-soft-human.mjs [--sex=male\|female] [--outfit=<id>] [--backpack=<id>] [--age=adult\|child]` |
+| Soft-human browser checks (need `build:model`) | `node tools/check-soft-human.mjs` · `check-soft-human-activities.mjs` · `check-soft-human-casual.mjs` · `check-soft-human-clearance.mjs --all` (`--seated` / `--escalators` / `--wash`) · `check-soft-arm-poses.mjs` · `check-soft-escalator-pose.mjs` |
+| Sound studio browser check (needs `build:model`) | `node tools/check-sound-preview.mjs` |
+| Bake game crowd atlases + LF record | `npm run bake:passengers` (inspect sizes: `node tools/measure-passenger-assets.mjs`) |
+| Verify baked game crowd (need `game` build) | `node --test game/test/passenger-*.test.mjs` · `npm run check:passenger-lod` · `node tools/check-game-passenger-library.mjs` · `check-game-passenger-activities.mjs` · `check-game-passenger-handedness.mjs` · `check-game-ramp-animation.mjs` |
+| Refresh concept-art sheets (no deploy) | `npm run art:models` (add `-- --from-game` to skip `bake:passengers`) |
 
-The model-art command uses dedicated `.preview/model-art/` captures and free
-browser ports, so it can coexist with other local previews.
+All browser captures write to ignored `.preview/` paths. `npm run art:models`
+uses dedicated `.preview/model-art/` folders and ephemeral free ports, so it
+coexists with local dev servers; inspect rendered previews under
+`.preview/sheets/` at `8` s.
+
+## Sibling Skill Routing
+
+- [`metro-game`](../metro-game/SKILL.md) — game audio runtime (`game/src/app/`),
+  app shell, and asset/save contracts outside `model/`.
+- [`metro-game-render`](../metro-game-render/SKILL.md) — Three.js crowd shaders,
+  instanced LOD rendering, and `CrowdSystem` / `passengerModel.ts`.
+- [`metro-game-test`](../metro-game-test/SKILL.md) — `game/test/` suite and
+  game browser verification harness.
+- [`metro-unity-assets`](../metro-unity-assets/SKILL.md) — Unity soft-human
+  crowd GLB export (`tools/unity-assets/export-crowd.mjs`) and prefab imports.
+- [`metro-web`](../metro-web/SKILL.md) — concept-art sheet generation (`art/`,
+  `tools/gen-art.mjs`) and site deployment after `npm run art:models`.
+- [`metro-repo`](../metro-repo/SKILL.md) — top-level layout, root scripts, and
+  shared performance inventory.

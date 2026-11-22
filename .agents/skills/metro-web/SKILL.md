@@ -1,299 +1,150 @@
 ---
 name: metro-web
-description: Work in web/ or art/ of the ericpzh/metro repo — the React + Vite concept-art site and the generated SVG concept sheets. Use for the site's components, copy and routing, the art generator and drawing kit (tools/gen-art.mjs, tools/iso.mjs, the sheet modules), the headless-Chrome passes that photograph the game into the sheets, or the `metro` Worker deploy.
+description: Work on the Station Designer concept-art site (`web/`), `metro` Worker (`worker/`, root `wrangler.jsonc`), and generated bilingual concept sheets (`art/`, `png/`). Use for site components, copy, bilingual routing, demo picker, brand icons, `tools/gen-art.mjs` / `tools/iso.mjs` sheets, Chrome captures, or deploys.
 ---
 
-# The concept-art site (`web/`) and the sheets (`art/`)
+# Concept-Art Site (`web/`) and Sheets (`art/`, `png/`)
 
-Two things on one pipeline:
+This area covers the public showcase site and the generated bilingual concept
+sheets behind it:
 
-* `art/*.svg` — the generated concept sheets. The source of truth, **never
-  hand-edited**.
-* `web/` — the React + Vite gallery that shows them, deployed as Worker `metro`
-  at `https://stationdesigner.com/` (English `/en/`).
+* `web/` — React 19 + Vite 8 gallery deployed as Cloudflare Worker `metro` at
+  `https://stationdesigner.com/` (Chinese default `/`, English `/en/`). It has
+  its own `package.json`, imports nothing from `game/`, and couples to sibling
+  apps strictly through URLs and build-time asset copies.
+* `art/*.svg` — generated bilingual concept sheets (11 sheets × 2 locales:
+  `01`–`07`, `09`, `11`–`13` plus `*-en.svg`).
+* `png/*.png` — 300-DPI static PNG exports rasterised from `art/*.svg` via
+  `tools/svg-to-png.mjs`.
 
-`web/` is its own app (its own `package.json`) and imports nothing from `game/`.
-The only coupling is a URL. The game's own skill is `metro-game`.
+**Core invariant:** never hand-edit `art/*.svg`, `png/*.png`, `web/public/art/`,
+or `web/public/stations/`. Regenerate sheets through `tools/gen-art.mjs` (and
+print PNGs through `tools/svg-to-png.mjs`), and let `web`'s sync scripts copy
+published assets into `web/public/`.
 
 ## Commands
 
-From the repo root:
+Run from the repo root (PowerShell):
 
 ```powershell
-npm run setup          # install web/ deps
-npm run dev            # site dev server at http://localhost:5173
-npm run build          # build the site into web/dist
+npm run setup          # npm --prefix web ci
+npm run dev            # Vite dev server at http://localhost:5173
+npm run build          # npm --prefix web ci && build into web/dist
+npm run preview        # build + wrangler dev
+npm run preview:local  # tools/preview.mjs — built web/ and game/ on one origin (port 4173)
 npm run deploy         # build + wrangler deploy (Worker `metro`)
-npm run preview:local  # tools/preview.mjs — the built site and game on one origin
+npm run check:demos    # build web + game, verify picker & demo routes in headless Chrome
+npm run art:models     # refresh passenger/model captures, sheets 01/02/07/12/13, previews & web build
+npm run audit:i18n     # AST check for inline player-facing copy in game/src and web/src
 ```
 
-The root `build` runs `npm ci` in `web/`, which deletes `web/node_modules`. Stop a
-running dev server before building, or npm fails with `EPERM` on the native
-rolldown binding and leaves that dev server serving from a broken install. Run
-`npm --prefix web install` to repair it.
+Build and sync rules:
 
-`web/package.json`'s own `sync-art` and `sync-stations` scripts run automatically as
-`prestart` / `predev` / `prebuild`, so a build can never serve a stale sheet or a
-stale station preview.
+* Root `npm run build` runs `npm --prefix web ci`, which deletes
+  `web/node_modules`. Stop any running `web` dev server first or Windows fails
+  with `EPERM` on native bindings; repair an interrupted install with
+  `npm --prefix web install`.
+* `web/package.json` runs `sync-art` and `sync-stations` automatically on
+  `prestart`, `predev`, and `prebuild`.
+  * `web/scripts/sync-art.mjs` copies every `art/*.svg` except `_*` drafts and
+    `*-zoom.svg` into `web/public/art/` and rejects any file `>= 25 MiB`
+    (Cloudflare Workers asset cap).
+  * `web/scripts/sync-stations.mjs` copies `game/src/assets/stations/*.webp`
+    into `web/public/stations/` with the same `< 25 MiB` guard.
+* `web/vite.config.js` sets `base: './'`, `outDir: 'dist'`, and
+  `assetsInlineLimit: 0` so builds stay portable across paths.
 
-## The site
+## Site Architecture (`web/src/`)
 
-Follow the [repo translation rule](../metro-repo/SKILL.md#repo-rule-translations-use-the-existing-i18n-infrastructure).
-Keep translations in the existing site/art catalogues, including language-switch
-labels and capture-tool output. Use the game's `tForLanguage` in capture tools
-instead of hand-formatting translated templates; use `sheetText` from
-`tools/sheet-i18n.mjs` before drawing when English width affects layout. An
-English-copy change must preserve the Chinese catalogue and default captures.
+Follow the repository i18n rule in [metro-repo](../metro-repo/SKILL.md): keep
+all site chrome in `web/src/i18n.js` and sheet metadata in `web/src/artworks.js`
+(never inline copy in JSX), preserve Chinese wording when editing English copy,
+and run `npm run audit:i18n` afterward.
 
-* `web/src/App.jsx` + `web/src/components/` — `Nav`, `Hero`, `Sheet`, `Rail`,
-  `Section`, `Footer`, `DemoPicker`. One component per region; the gallery is
-  data-driven. The left-side `Rail` tracks the current sheet and links to four
-  reading sections. Sheets render at full width with their short introduction
-  above the image; the gallery does not open a lightbox. `DemoPicker` is the
-  shared demo-station dialog: the nav button left of 看图 and the hero button
-  between 开始游戏 and 浏览概念图 both open it, Escape/backdrop/× close it, and a
-  card is a link to the game's own route (`/game/zoo`, `/game/en/tanwei`,
-  `/game/tianhe`). `Hero`'s right column embeds the Bilibili gameplay demo in
-  place of the old first-sheet peek: muted autoplay, then a timer swap to a
-  player paused at 0:01 after the 1:10 clip. The cross-origin player exposes no
-  ended/seek API, so keep `demoSeconds` in `Hero.jsx` in step with the video;
-  the caption link opens the original Bilibili page.
-* `web/src/artworks.js` — the sheets as data: spec id, title, player-facing
-  introduction, alt text, section and order. The four paths are the station
-  (01, 02, 13), trains and boarding (11, 05, 12), building (03, 04, 09), and
-  passenger flow and interface (06, 07). Section notes introduce each group.
-* `web/src/stations.js` — the three example stations the game ships (ids and
-  preview files) and `demoPath(lang, id)`; its copy lives in `i18n.js` under
-  `demos`, keyed by station id, with the authored names (动物园 / 坦尾 / 天河公园)
-  kept.
-* `web/src/site.js` — repo / spec / art links, `sheet(file)` (Vite
-  `BASE_URL`-aware), `stationPreview(file)`, the Bilibili `demoVideoUrl` /
-  `demoVideoEmbed` / `demoVideoPausedEmbed`, and the game URLs: `gameRoot` =
-  `VITE_GAME_URL`, else the dev server `http://localhost:5174/`, else `/game/`,
-  with `gameHref(lang)` appending `en/` for English and `demoHref(lang, id)`
-  appending the station (`en/zoo`) for a demo. The game is its own Worker at
-  `stationdesigner.com/game/` (`/game/en/` for English), so the site's 游戏 and
-  Play links point straight at it — there is no iframe tab. `statsRoot` /
-  `statsHref(lang)` do the same for the stats Worker (`VITE_STATS_URL`, else
-  `127.0.0.1:5176/stats/` in development, else `/stats/`); the footer's 文档 list
-  carries its 全球统计 / Global stats link in both languages.
-* `web/public/art/` is **generated** at build time by `web/scripts/sync-art.mjs`,
-  which copies every `art/*.svg` except `_*` drafts and `*-zoom.svg`. Never edit
-  files there, and never add a sheet to the site by hand.
-* `web/public/stations/` is **generated** the same way by
-  `web/scripts/sync-stations.mjs` from `game/src/assets/stations/*.webp` — the
-  game's own preview renders. The site copies the pictures; it never imports game
-  code. `npm run check:demos` pins the whole path in a production browser.
-* `web/vite.config.js` — `base: './'` so the build is portable, `assetsInlineLimit: 0`.
-* The site Worker is not a server: root `wrangler.jsonc` (route
-  `stationdesigner.com/*`, assets from `web/dist`) plus `worker/index.js`, which
-  only pins `/en` → `/en/` and serves the document for the language route. Route
-  gotchas and the two-Worker table are in `metro-repo` and the root `README.md`.
+* **Components (`web/src/App.jsx`, `web/src/components/`):**
+  * `Nav`, `Hero`, `Rail`, `Section`, `Sheet`, `Footer`, `DemoPicker`, and
+    `BrandMark` (`Lightbox.jsx` is kept unused; sheets render inline at full
+    width).
+  * `Rail` tracks the visible sheet via `IntersectionObserver` across four
+    reading sections.
+  * `Sheet` renders sheet `06` inside `<object type="image/svg+xml">` (with an
+    `<img>` fallback) so its interactive demand-curve sliders run; all other
+    sheets render via `<img>`.
+  * `DemoPicker` is the shared modal opened by both the nav and hero demo
+    buttons (closes via Escape, backdrop, or `×`). Each card links straight to
+    the game's own demo route (`/game/zoo`, `/game/en/tanwei`, `/game/tianhe`).
+  * `Hero` embeds the gameplay demo video (`demoVideoEmbed(lang)`: Bilibili for
+    `zh`, YouTube for `en`) with muted autoplay, then swaps after
+    `demoSeconds` (`71` s in `Hero.jsx`) to `demoVideoPausedEmbed(lang)` paused
+    at `0:01` because the cross-origin players expose no ended/seek callback.
+    Keep `demoSeconds` synchronized with the video duration.
+* **Data and URL builders:**
+  * `web/src/artworks.js` — bilingual (`zh` / `en`) sheet catalogue grouped into
+    four sections: `overview` (`01`, `02`, `13`), `trains` (`11`, `05`, `12`),
+    `building` (`03`, `04`, `09`), and `simulation` (`06`, `07`).
+  * `web/src/stations.js` — the three shipped demo IDs (`zoo`, `tanwei`,
+    `tianhe`), their `.webp` previews, and `demoPath(lang, id)`. Display names
+    live in `web/src/i18n.js` under `demos` (`动物园 / 坦尾 / 天河公园` in `zh`;
+    `Zoo / Tanwei / Tianhe Park` in `en`).
+  * `web/src/i18n.js` — site chrome (`ui.zh`, `ui.en`), demo-video strings
+    (`ui.<lang>.video` and `videoText`, shared with [metro-video](../metro-video/SKILL.md)),
+    and URL language helpers (`detectLang`, `canonicalPath`, `isLangHash`).
+  * `web/src/site.js` — `sheet(file)`, `stationPreview(file)`, `demoVideo*`,
+    `gameHref(lang)`, `demoHref(lang, id)`, `benchmarkHref(lang)`, and
+    `statsHref(lang)`. `gameRoot` uses `VITE_GAME_URL` (dev
+    `http://localhost:5174/`, prod `/game/`); `statsRoot` uses `VITE_STATS_URL`
+    (dev `http://127.0.0.1:5176/stats/`, prod `/stats/`). `Footer` links to the
+    GitHub spec/art/repo, `/game/benchmark` (`/game/benchmark/en`), and
+    `/stats/` (`/stats/en/`).
+* **Brand assets (`web/src/assets/brand/`):** `station-designer-mark.png`,
+  `favicon.png`, and `apple-touch-icon.png` are generated from
+  `design/icon/station-designer-blue-bold.png` by
+  `node tools/prepare-brand-icon.mjs` (which also updates `game/src/assets/brand/`
+  and `stats/{brand-mark,favicon}.js`).
 
-## The sheets (`art/`, and the `tools/` that draw them)
+## Routing & Cloudflare Worker (`worker/index.js`, `wrangler.jsonc`)
 
-After character, size or crowd-material changes, use `metro-model` and run
-`npm run art:models`. It captures every eligible adult and child template
-(currently 440 appearances, all eligible at both ages) with fully opaque game
-materials, including twenty outfits per male/female category.
-Playback checks require newly clothed figures in both
-age groups. The pipeline validates complete strides and source
-hashes, refreshes bilingual sheets 01/02/07/12/13 and renders previews at 8 s.
-The sheet figure helpers use stable 20/80 child/adult selection. Explicit
-catalogue age flags determine both pools; the selected soft-human catalogue
-supports every bag at both ages. Gait duration uses the captured stride after depth scaling.
-Keep `.preview/model-art/` captures separate from other running previews and
-retain `capture-passengers` / `passenger-art-pipeline` coverage when changing formats.
-On a local GPU, `$env:METRO_BROWSER_GPU='hardware'` opts browser tools into
-hardware rendering; the default remains software rendering for reproducibility.
-Use the same GPU mode across captures and playback validation.
-Full-resolution interface shots default to software even in that mode: Windows
-hardware rendering can time out on the supersampled station screenshot.
-`METRO_UI_BROWSER_GPU=hardware` explicitly opts only those screenshots in.
-Passenger batches reuse one GPU atlas across their bounded calls and explicitly
-dispose it at completion; retain both the batch bound and final disposal.
-Static sprite definitions reuse identical positioned bitmap nodes while keeping
-all `human-*` IDs and transforms. Keep this deduplication as the catalogue grows;
-`sync-art.mjs` rejects sheets at or above the strict 25 MiB Worker asset limit.
-`passenger-art-pipeline` checks sprite identity/placement and actual sheet sizes.
+* Root `wrangler.jsonc` deploys Worker `metro` on `stationdesigner.com/*` with
+  `web/dist` bound as `ASSETS` (`not_found_handling: "none"`).
+* `worker/index.js` only handles the English language pin: `/en` and
+  `/en/index.html` 308-redirect to `/en/`, and `/en/*` strips `/en` before
+  fetching from `ASSETS` so relative `./assets/...` paths resolve at the root.
+  Missing files return a real 404.
+* Language selection is strictly URL-driven (no `Accept-Language` or storage
+  redirects): `/` stays Chinese; `?lang=en` and `#en` normalize to `/en/` on the
+  client.
+* More specific Cloudflare routes on the same zone hand sibling paths to their
+  own Workers:
+  * `metro-game`: `stationdesigner.com/game` and `/game/*`
+  * `metro-unity`: `stationdesigner.com/game/unity` and `/game/unity/*`
+  * `metro-stats`: `stationdesigner.com/stats` and `/stats/*`
+* `tools/preview.mjs` (`npm run preview:local`) serves built `web/dist` at `/`
+  and `game/dist` at `/game/` with the same 308 language/trailing-slash rules
+  and powers `npm run check:demos`.
 
-`node tools/gen-art.mjs [nn …]` rewrites every sheet from its own `SHEETS` table,
-or only the ones named by leading number / file name
-(`node tools/gen-art.mjs 01 13`), one module per sheet, drawn with `tools/iso.mjs`,
-the **true isometric** projection kit — equal foreshortening on all three axes
-(`TW` / `TH` / `ZU`), which is what lets a rendered piece stand in a drawing
-undistorted — with its box / quad / face / ramp primitives, the depth-sorting
-`Scene()`, `bboxOf` / `fitToRect` for framing a composed drawing, and the sheet
-furniture: `title`, `legend`, `callout`, `chart`, and the motion CSS.
-`node tools/gen-art.mjs --en` (or `node tools/gen-art.mjs 02 --en`) writes a
-`*-en.svg` English sidecar beside each sheet by swapping the Chinese strings in
-the built SVG via `tools/sheet-i18n.mjs` — `<text>` contents, sheet 06's slider
-`aria-label`s and its live-readout script literals; numbers from `sim/` are
-untouched. Bake problems fail the run (missing strings, unescaped markup).
-English is wider than Chinese, so keep translations terse and check the fit with
-`node tools/sheet-png.mjs <name>-en.svg`; `{ t, size }` table values pull a long
-label's font-size down. Exact UI labels use `game/src/sim/i18n/messages.ts`; keep
-sheet-only explanatory copy in the art table. Use `sheetText(key, language)` for
-any label measured before drawing (e.g. sheet 09's key chips). Sheets 06, 07 and 09 must embed
-captures in the sheet's locale: run `node tools/render-ui-shots.mjs --lang en`
-and `node tools/render-view-shots.mjs --lang en` for English, then
-`node tools/gen-art.mjs 06 07 09 --en-only` to refresh only English sidecars.
-Default captures stay Chinese. English captures live in `.preview/ui-shots-en/`
-and `.preview/view-shots-en/` (`UI_SHOTS_EN_DIR` / `VIEW_SHOTS_EN_DIR` overrides).
-Check the animated demand overlay as well as screenshots for clipped labels. The site's `/en/` route shows the sidecars
-(`sync-art.mjs` copies them like any other sheet).
+## Concept-Sheet Pipeline (Overview)
 
-Sheets 01, 02, 12 and 13 place PNG captures of the game's actual passenger mesh.
-After changing the approved model library or crowd material, run
-`npm run art:models` from the root. This regenerates approved exports and atlas,
-builds the game, captures every variant and bilingual interface screenshots, regenerates sheets 01/02/07/12/13 in both
-languages, checks gait playback, renders PNG previews and builds/syncs the site.
-For art-only updates use `npm run art:models -- --from-game` to reuse the game
-atlas. Neither command deploys. `metro-model` owns model editing and the bake.
-The capture manifest records source hashes; validation rejects stale builds,
-missing variants and incomplete walks. Static sprite pools and bounded capture
-batches grow automatically with the catalogue.
-The capture pass freezes four samples per outfit in isometric, elevation and plan
-views: three are mid-stride and one is idle. It applies `passengerAppearance` for
-the same outfit, height, build, heading and grey-tone variation the crowd uses.
-Check the resulting sheets with `node tools/sheet-png.mjs 01`, `02`, `12` and `13`;
-the figures should remain foot-anchored and varied, with most shown walking.
-The same capture pass also writes `walking-index.json`: complete 24-frame strides
-for every catalogue entry in plan, elevation (two headings) and isometric (eight
-headings) views. The driver captures each camera/heading in a bounded batch;
-keep that batching for both stills and walks when extending the pass so the CDP
-response stays within its message and timeout limits. Movers in sheets 01, 02,
-12 and 13 must cycle these poses
-rather than slide a frozen human. `mover` selects the camera, heading and gait speed for
-human sprites; use `walkView: 'elevation'` for sections. Short loops fade out
-before resetting, so figures never walk backward to their starting point.
-Use `walkingHeading` for camera-relative facing: the isometric camera projects
-+X left/down and +Y right/down, opposite the drawing's horizontal axes. Its
-capture heading swaps the drawing's world X/Y. Keep the eight-direction
-`art-passenger-heading` projection test passing; gait playback alone cannot
-detect people walking sideways.
-In sheet 12-A, queue figures must use idle poses
-with varied headings. Boarding and alighting figures cycle these strides facing
-toward and away from the train, respectively. `walkingDefinitions` embeds each
-used bitmap once per sheet; `walkingSprite` and `walkingPlanSprite` phase the gait
-at the path's speed. Keep
-movers confined to the doors-open interval. Check live SVG playback as an image,
-and frozen previews at multiple times; `sheet-png --at` must preserve frame delays.
-Run `node tools/test-passenger-animation.mjs` after regeneration: it checks for
-missing or overlapping frames and real gait changes in SVG images for all cameras.
-In 12-B, draw the foreground platform after the train so it hides the wheels.
-In 12-C, use the `gate-single` elevation capture, which hides the spare gate leaf
-using the game's `hideSecondGateDoor` capture option.
-Sheet 13's near platform screen door is the inside-facing model and sorts in front
-of the crowd, so its printed face is hidden from the cutaway camera.
-For layout-only corrections, reuse `.preview/model-art/passenger-cards` through
-`PASSENGER_CARDS_DIR`; do not repeat the full catalogue capture. Adjacent figure
-identities use a stable hash to spread clothing colours. Sheet 12-A's queue uses
-standing captures with subtle idle motion, independent of the boarding clock.
-Hero/interchange ramp captures explicitly use 4 m rise / 7 m run through the
-capture-only `PieceView.ramp` option. Their lower landings must match the authored
-upper edges (01: y=17 to y=10; 13: x=31 to x=38). Regenerate hero piece views after
-changing these dimensions. Section 02 uses the same explicit rise/run in its
-elevation pass, cropped at the walk-surface datum; keep both runs inside its core.
-Sheet 13 paints the landing apron over the runs to hide their underside, and
-masks them against the near PSD's alpha; do not move the whole PSD band over the
-train. Sheet 07's played capture disables `ghostOtherLevels` in both locales.
-`tools/sheet-plan.mjs` is the **panel plan for the older photograph pass**
-(`tools/shots.mjs`): one entry per sheet that pass still composes, naming the spec
-id, the file and the camera each panel is shot from. Sheets 08 and 10 are retired
-(`DROPPED`), and 02, 03, 04, 05, 06, 07, 11, 12 and 13 do not go through it at all
-— they are the ones that carry the game's own renders.
+`node tools/gen-art.mjs [nn …] [--en|--en-only]` builds sheets synchronously
+from `tools/sheet-*.mjs` / `tools/sheets-*.mjs` using the true-isometric drawing
+kit `tools/iso.mjs`, swaps strings into `*-en.svg` sidecars via
+`tools/sheet-i18n.mjs`, prunes unused passenger sprites, and embeds game-rendered
+PNGs captured ahead of time into `.preview/*` plus live simulation constants
+imported from `game/src/sim/*.ts`.
 
-| Sheet | Module |
-|---|---|
-| 01 isometric cutaway | `sheet-01-hero-banded.mjs` |
-| 02 vertical section | `sheets-a.mjs` (`artSection`) |
-| 03 block system | `sheet-03-blocks.mjs` |
-| 04 module catalogue | `sheet-04-modules.mjs` |
-| 05 trains and track | `sheet-05-trains.mjs` |
-| 06 crowd demand | `sheet-06-demand.mjs` |
-| 07 interface | `sheet-07-interface.mjs` |
-| 09 camera and views | `sheets-c.mjs` (`artViews`) |
-| 11 rolling stock 3D | `sheet-11-trains3d.mjs` |
-| 12 platform doors and flow | `sheets-e.mjs` (`artPlatformFlow`) |
-| 13 two-line interchange | `sheet-13-two-line.mjs` |
+See [references/concept-sheets.md](references/concept-sheets.md) for:
 
-Eleven sheets embed game-rendered PNGs: 01, 02, 03, 04, 05, 06, 07, 09, 11, 12 and 13.
-A sheet builds *synchronously* and only reads files, so captures must exist first;
-the browser passes need Chrome plus a built `game/dist`:
+* Complete sheet module map and capture-script dependency table
+* Environment variable overrides and software/hardware GPU flags
+* Bilingual sidecar generation and locale-matched UI/view captures
+* End-to-end passenger (`npm run art:models`) and train artwork refresh runs
+* Sheet-specific layout invariants, browser animation checks, and preview tools
 
-| Sheet | Capture | Reads from |
-|---|---|---|
-| 02 | `tools/render-train-cards.mjs` + `tools/render-piece-elevations.mjs` | `.preview/train-cards/`, `.preview/piece-elevations/` |
-| 03 | `tools/render-block-cards.mjs` | `.preview/block-cards/` |
-| 04 | `tools/render-module-cards.mjs` | `.preview/module-cards/` |
-| 05, 11, 12, 13 | `tools/render-train-cards.mjs` | `.preview/train-cards/` |
-| 13 | `tools/render-piece-views.mjs` | `.preview/piece-views/` |
-| 06, 07 | `tools/render-ui-shots.mjs` | `.preview/ui-shots/` |
-| 09 | `tools/render-view-shots.mjs` | `.preview/view-shots/` |
-| 01, 02, 12, 13 | `tools/render-passenger-cards.mjs` | `.preview/passenger-cards/` |
+## Related Skills
 
-A **car** goes into a drawing at its own scale (`train-cards.mjs` `carImage` /
-`trainCard`); a **run** is scaled to reach the floors it joins, which is the
-`piece-views.mjs` `runImage` job, so 02's section takes the pieces square-on
-(`piece-elevations`) and 13's volume takes the same pieces on the drawing kit's
-own isometric axes (`piece-views`).
-
-(`TRAIN_CARDS_DIR` / `PIECE_ELEVATIONS_DIR` / `PIECE_VIEWS_DIR` / `UI_SHOTS_DIR`
-override those directories.) The captures are the game's — a sheet adds the
-numbered key and the reading, and **nothing about a
-piece's geometry, camera, label or throughput is stated on it**. Several sheets
-also read their numbers out of `sim/` **by import** (`stock.ts`, `constants.ts`,
-`finishes.ts`, `demand.ts`, `clock.ts`), so a retuned value moves the sheet's text
-as well as its pictures.
-
-### Refreshing train artwork
-
-Train-model changes affect sheets **01, 02, 05, 11, 12 and 13**. Rebuild the game,
-then run `node tools/render-train-cards.mjs` and
-`node tools/render-train-animation.mjs` sequentially. The latter supplies the real
-door/headlight poses embedded by sheets 05 and 11; refreshing stills alone leaves
-their animated trains stale. `captureTrains.ts` seeds catalogue frame power from
-`STOCK[show.scene.stock].power` (A/D overhead wire, B/C/L third rail); a frame's
-explicit `power` overrides it for variant reviews, and animation frames retain
-their base frame's power. Preserve all five classes and the shared stock order.
-Pantograph cars and elbow directions come from the game's formation layout, so
-both still and animated overhead-wire specimens pick up geometry changes.
-
-Before generation, select the reviewed passenger captures: set `PASSENGER_CARDS_DIR` to
-`.preview/model-art/passenger-cards` when using the latest `art:models` output
-(the older default `.preview/passenger-cards` may lack children). Reuse these
-existing captures for a train-only refresh; do not regenerate character assets.
-Run `node tools/gen-art.mjs 01 02 05 11 12 13 --en`, then preview both locales with
-`tools/sheet-png.mjs --at 8` in `.preview/sheets/`. Refresh the tracked 300-DPI
-static exports (about 6667 px wide) using
-`node tools/svg-to-png.mjs 01 02 05 11 12 13`. The numeric filters include both
-locales and avoid rewriting unrelated exports. Browser previews and playback
-checks verify the animations; the print rasterizer retains their initial poses.
-Inspect the result for model/cab details, contact collectors,
-door alignment and clipped labels. Run `train-art-pipeline`, the full game suite,
-and the web build (which syncs `art/` into `web/public/art/`). Do not hand-edit SVGs
-or commit ignored capture directories.
-
-### Previewing sheets
-
-```powershell
-node tools/sheet-png.mjs 03      # rasterise one sheet (--at <s> freezes animation)
-node tools/serve.mjs             # the static sheet viewer
-node tools/render-view-shots.mjs # the demo station through the game's own camera presets
-```
-
-`tools/render-sign-panel.mjs` and `tools/render-tv-plate.mjs` do the same for the
-sign and TV draw functions alone. `tools/zoom.mjs` crops a detail out of a sheet
-and writes a `*-zoom.svg` beside it (which `sync-art.mjs` then skips). The
-pictogram asset prep (`prep-sign-icons.py`, `sign-icons-sheet.py`) is game-owned —
-see `metro-game`. The rest of `tools/` is indexed in `metro-repo`.
-
-Two traps:
-
-* **Do not hand-edit `art/*.svg`** — `gen-art.mjs` rewrites them, and the site
-  copies them.
-* `tools/shots.mjs` is a **leftover from a reverted experiment** that photographed
-  whole sheets as screenshots. Its header still claims it replaced
-  `gen-art.mjs`; it did not — the sheets are drawings again, and `gen-art.mjs` is
-  the generator.
+* [metro-repo](../metro-repo/SKILL.md) — repo layout, shared i18n rules, and full `tools/` index
+* [metro-game](../metro-game/SKILL.md) — Three.js game app, `sim/` constants, and `metro-game` Worker
+* [metro-game-test](../metro-game-test/SKILL.md) — `game/test/` regressions (including art-pipeline tests)
+* [metro-model](../metro-model/SKILL.md) — soft-human passenger library and `bake:passengers`
+* [metro-stats](../metro-stats/SKILL.md) — `metro-stats` Worker linked from the site footer
+* [metro-unity-web](../metro-unity-web/SKILL.md) — `metro-unity` Worker on `/game/unity/`
+* [metro-video](../metro-video/SKILL.md) — demo video pipeline consuming `web/src/i18n.js` (`video`)

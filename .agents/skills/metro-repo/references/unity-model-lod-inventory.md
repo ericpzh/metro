@@ -1,6 +1,6 @@
 # Unity per-model LOD geometry inventory
 
-Measured triangle counts for Unity `6000.6.8f1` native 3-tier Mesh LODs (`LOD0` High / full, `LOD1` Balanced / reduced, `LOD2` Low / simplified). Counts are per-model geometry inventory across all triangle submeshes, not station totals, draw-call counts, or FPS estimates. See [performance.md](performance.md#unity-native-mesh-lod-generation) for methodology, frame-rate captures, and open gates, and [editor-action-matrix.md](editor-action-matrix.md) for the web editor action matrix.
+Measured triangle counts for Unity `6000.6.8f1` native 3-tier Mesh LODs (`LOD0` High / full, `LOD1` Balanced / reduced, `LOD2` Low / simplified). Counts are per-model geometry inventory across all triangle submeshes, not station totals, draw-call counts, or FPS estimates. See [performance.md](performance.md#unity-native-mesh-lod-generation) for methodology, frame-rate captures, and open gates, and [perf-benchmarks.md](perf-benchmarks.md) for benchmark and profiling commands.
 
 Summary: **236 rigid prefabs** (78 with `LOD2 < LOD0`, 361 / 6372 distinct meshes carrying 3 baked tiers), **5 procedural LOD probes**, **50 runtime compacted train formations**, **2 public stand-in passenger assets**, and **440 local soft-human passenger variants**.
 

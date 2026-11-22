@@ -1,126 +1,126 @@
 ---
 name: metro-video
-description: Generate, regenerate, edit and verify the Station Designer gameplay demo video using tools/demo-video and the user-authored station save. Use for scene planning, real game recordings, camera moves, Chinese Studio graphics, audio mixes and video retakes in the metro repository.
+description: Generate, edit, retake, and verify the Station Designer gameplay demo video using tools/demo-video and video/. Use for scene planning, real browser recordings, camera choreography, Studio graphics, audio mixes, or video retakes.
 ---
 
-# Station Designer video
+# Station Designer Demo Video
 
-Run from the repository root. Read [the video runbook](../../../tools/demo-video/README.md)
-for commands, outputs and capture requirements. For editing or partial regeneration,
-read [editing and retakes](references/editing.md) before choosing what to reuse.
-Use `metro-game` for changes to game runtime and `metro-web` for changes to the
-site's translation infrastructure; this skill owns the video pipeline.
+Own the repeatable gameplay demo pipeline in `tools/demo-video.mjs`, `tools/demo-video/`,
+and `video/`. Run all commands from the repository root. Read
+[editing and retakes](references/editing.md) for partial regeneration and cache rules, and
+[the demo-video runbook](../../../tools/demo-video/README.md) for the Chinese runbook.
+Route game runtime/renderer changes to [metro-game](../metro-game/SKILL.md), website copy
+or brand asset changes to [metro-web](../metro-web/SKILL.md), and repo-wide conventions to
+[metro-repo](../metro-repo/SKILL.md).
 
-## Accepted baseline
+## Film Contract
 
-The current film is 70.2 seconds, 2560 × 1440, 30 fps, H.264/AAC. All editorial copy
-is Chinese with designed Studio cards and navigation. Actual editor controls use
-the default Blueprint theme. Music is **Sunset Plains by Yoiyami**, from the
-game's approved music manifest, with credit in the ending and exported credits.
-Keep these choices unless the user changes the brief.
+The default deliverable is **70.2 s**, **2560 × 1440**, **30 fps**, H.264 (`yuv420p`,
+BT.709) / AAC (`--lang zh` default; `--lang en` supported). Editorial overlays use the
+light Studio theme while recorded editor UI keeps the default Blueprint theme at High /
+native quality.
 
-The main tour follows the website's four sections and uses Zoo, Tanwei and
-Tianhe Park. Tianhe Park has the sole moving section, a 4-second Line 11
-platform fly-through and a 4.1-second concourse fly-through. Record both at 1×
-simulation with a quarter-speed camera path, then retime by 4× and interpolate
-for delivery. The population-flow shot keeps the −5 m concourse walls and
-waits until 06:34:00 or later. Record it at 1× for 12 seconds and retime by 4×:
-the crowd reads at 4× in the film, while the chart knob is preview-only so the
-population is not rebuilt mid-drag. The perspective cube shot keeps the
-station walls and hides ghosted levels.
-Immediately before the ending: one continuous 22.5-second build at 8×, eight
-cities at 0.4 seconds each, then five train types at 0.8 seconds each. The build
-opens at its 1-second mark, when the first 1 m wall course is rising, and ends
-as the camera completes; there is no hold on the finished frame.
-City cuts share a continuous 180° orbit; train cuts share a continuous 50°
-front-3/4 orbit (10° per type), with the train running at 0.18× simulation so it
-does not whip past the chase point. Trains really
-run on a 1200 m bridge in an empty map, in Guangzhou line 1–5 colours. A/B/C
-use third rail and D/L use overhead wires. The city head-house fixture holds two
-down escalators in its wellways. City
-entrances say 动物园 / Zoo. Exploded views retain the walls and tighten the
-framing. Hide the −5 m and 0 m levels at Zoo and the −5 m level at Tanwei.
+- **Main tour (`plan.mjs`):** Follows the website's four sections across Tanwei, Zoo, and
+  Tianhe Park — exterior reveal, Zoo & Tanwei exploded views (walls kept; hides −5/0 m at
+  Zoo and −5 m at Tanwei), Zoo/Tanwei platform boarding, Tianhe Line 11 platform (`4 s`,
+  `-10`) and concourse (`4.1 s`, `-5`) fly-throughs (`1×` sim retimed `4×` with FFmpeg MCI
+  interpolation), sole moving cutaway (`08-section-tianhe`, `6 s` at `4×`), perspective
+  ViewCube drag (`08-cube`, walls kept, no ghosted levels), and demand preview
+  (`09-demand`, waits for `06:34:00` and ≥ 45 concourse passengers, records `8.8 s` at
+  `1×`, retimes `4×`, slider drag is preview-only).
+- **Closing montages & outro:** One continuous build (`montage-placement`, `22.5 s` at
+  `8×`, `180 s` raw capture, `trimStart: 1`), 8 city styles (`city-*`, `0.4 s` each,
+  continuous 180° sweep on a Zoo entrance head-house with two down escalators), 5 rolling
+  stock classes (`stock-A/B/C/D/L`, `0.8 s` each, continuous 50° front-3/4 nose-tracking
+  sweep on a 1200 m bridge at `0.18×` sim speed, Guangzhou line 1–5 colours, third rail
+  for A/B/C and catenary for D/L), and a `3.6 s` CTA outro (`10-play`) crediting music.
 
-The build starts with the user's station frame. The native Wall tool (G) draws
-full-storey runs and carves openings. All equipment rows drag at the same
-speed per block. Then the build places the roadside fences,
-tactile paths and gates. Drag in the ticket-machine row before closing the
-concourse with glass fences. The low camera moves continuously from P1
-(east/south exterior looking west) to P2
-(west/south interior looking east). No roof; AC outdoors; retain indoor/outdoor
-separation. Drag continuous paving, railings and tactile paths; extend the same
-lift upward rather than placing separate shafts. The approved save currently
-has 1303 cells and 309 modules; these counts describe this revision, not a limit
-on future user edits.
+## Architecture & Source of Truth
 
-## Source of truth
+- **`tools/demo-video.mjs`:** CLI orchestrator — builds `game/dist`, serves locally,
+  records isolated Chrome CDP screencast takes (`record.mjs`), composites graphics and
+  audio, validates delivery, and writes `manifest.json`, `review.html`, `poster.jpg`, and
+  `contact-sheet.jpg`.
+- **`tools/demo-video/plan.mjs` & `plan.test.mjs`:** Bilingual timeline (`VIDEO_SECONDS =
+  70.2`, 30 fps aligned), sweep angles, and contract tests for schedule, replay, fixtures,
+  copy, and closing credits.
+- **`video/demo-station.metro.json` & `video/demo-camera.json`:** User-owned working save
+  and low-angle P1→P2 camera/timing config (`fov: 30`, `frameSeconds: 48`,
+  `endingHoldSeconds: 16`). Recording writes its own snapshot and never overwrites an
+  existing working save.
+- **`tools/demo-video/authored-layout.mjs` & `authored-shot.mjs`:** Drives
+  `montage-placement` directly from the working save — validates with
+  `checkModulePlacements`, builds the frame (Wall tool `G` runs + right-click openings,
+  single-drag exterior paving + lawn overrides), places grouped equipment
+  (`roadside-fence`, `tactile`, `gate`, east equipment, `tvm`, interior glass `fence`,
+  west equipment), and performs native two-stage lift extension. Do not edit
+  `interior.mjs`, `check-save.mjs`, or `video/demo-station-layout.json` for active
+  placement work.
+- **`tools/demo-video/capture.mjs`, `tianhe.mjs`, `views.mjs`, `fixtures.mjs`,
+  `montage.mjs`:** Scene setup, native gestures, exploded framing, bridge nose tracking,
+  and `verifyBridgeCuts` continuity enforcement.
+- **`tools/demo-video/design.mjs`:** Renders transparent Studio overlays, route rail, and
+  placement phase cards using `web/src/i18n.js` (`video`),
+  `web/src/assets/brand/station-designer-mark.png`, and game i18n labels; outputs
+  `graphics/layout-audit.json`.
+- **`tools/demo-video/audio.mjs` & `media.mjs`:** Selects `sunset-plains` (**Sunset
+  Plains** by Yoiyami, CC0) from `game/public/audio/music/manifest.json`, mixes ambient
+  beds (`crowd.mp3`, `train.mp3`) and pitch-preserved cues (`place.wav`, `select.wav`),
+  encodes MP4, exports `CREDITS.md` and `audio-credits.json`, and validates output specs.
+- **`tools/demo-video/catalogue.mjs`:** Parses the `| Equipment / decor model name |`
+  table in [performance.md](../metro-repo/references/performance.md) (`inventorySource`)
+  and `game/src/app/store/catalog.ts` to sort showcase items by High-LOD triangle count.
+  `tools/demo-video.mjs` also hashes `performance.md` into `sourceHash`, so preserve that
+  table header and column format when updating performance docs.
+- **Outputs in `video/`:** Git tracks `demo-station.metro.json`, `demo-camera.json`,
+  `station-designer-thumbnail-zh.jpg`, and `station-designer-thumbnail-en.jpg`. Rendered
+  `*.mp4` deliverables and `.preview/` directories are gitignored.
 
-- `video/demo-station.metro.json` is the editable native working save. Preserve
-  the user's IDs, coordinates, rotations, variants, materials, signs and posters.
-  Replace it only when the user supplies or authorizes a revised working save;
-  keep a backup under `.preview/`. Rendering exports its own snapshot and must
-  not overwrite an existing working save.
-- `video/demo-camera.json` holds P1/P2 poses, lens, westward pan and frame/hold
-  durations. Those durations are raw recording seconds (188 seconds at present),
-  not the delivered 22.5 seconds. Do not depend on clipboard screenshots remaining
-  available: the numeric camera endpoints are committed here.
-- `authored-layout.mjs` reads the native save, groups consecutive runs, bundles
-  booth children/signs, separates the frame and sorts the remaining equipment east to west.
-  It paves the full outside footprint in one drag and then restores the authored
-  lawn finishes. The roadside fences go first. Place the ticket-machine row
-  before the interior glass fencing to keep the native drag targets exposed.
-  The frame is silent and equipment cues follow actual placement.
-- `authored-shot.mjs` performs the build, real gestures and continuous camera.
-  Do not copy new object positions into legacy `interior.mjs` or the old
-  `demo-station-layout.json`; they are not the current authoring source.
-- `plan.mjs` owns durations/order; `capture.mjs`, `montage.mjs` and `views.mjs`
-  own framing and native interactions. `fixtures.mjs` owns independent stages.
-  In `capture.mjs`, the exploded-view offsets are viewport-relative native
-  floor drags. Tianhe Park's demand shot waits for visible concourse passengers,
-  records at 1× for 12 seconds and retimes 4×; its chart edit is preview-only.
-  Re-record the five bridge takes together when changing their staging or pace.
-  The camera tracks the rendered nose and the next take starts at the prior cut.
-  Pantograph placement comes from the shared game builder. A roof geometry
-  refresh requires retakes wherever affected trains are visible, including the
-  D and L bridge takes. Keep all five bridge takes together for continuity.
-- `design.mjs` owns Studio layouts; copy stays in `web/src/i18n.js` under `video`.
-  `audio.mjs` selects music; `media.mjs` composes picture and mixes audio.
+## Commands
 
-## Generate and verify
-
-Need Node with native TypeScript loading (tested on Node 24), Chrome/Edge,
-FFmpeg/FFprobe on PATH, and installed game/web dependencies. Keep hardware GPU
-capture for the delivered footage; software mode is for diagnostics.
+Requires Node with native TypeScript loading, Chrome/Edge, `ffmpeg` and `ffprobe` on
+`PATH`, and installed `game/` and `web/` dependencies. Keep `--gpu hardware` (default) for
+delivered footage; `--gpu software` is diagnostic only.
 
 ```powershell
+# Inspect current schedule (writes storyboard.md and timeline.json, then exits)
 npm run video:plan
+
+# Run schedule, authored-save replay, fixture, copy, and credit contract tests
 node --test tools/demo-video/plan.test.mjs
-npm run video:demo -- --output .preview/demo-video/my-revision
-node tools/demo-video/check-playback.mjs .preview/demo-video/my-revision
+
+# Full build, capture, graphics, audio mix, and delivery checks in a clean folder
+npm run video:demo -- --output .preview/demo-video/<run>
+
+# After save/camera edits (with current game/dist): native load, P1/mid/P2 stills, gestures
+node tools/demo-video/check-authored.mjs --gestures
+
+# Decode the delivered MP4 in Chrome and seek every scene midpoint
+node tools/demo-video/check-playback.mjs .preview/demo-video/<run>
+
+# Standalone native save serialize/parse round-trip check
+node tools/demo-video/export-save.mjs .preview/demo-video/<run>
 ```
 
-Normal generation builds the current game, records isolated browser scenes,
-renders transparent graphics, mixes audio and validates the final file. Start a
-new output directory for a new revision so the accepted film remains reviewable.
-The historical default is `.preview/demo-video/zh-studio-2k-v6`; pass `--output`
-explicitly when revising it. MP4s, browser profiles, frame caches and reports live
-under ignored `.preview/`, not in Git. A fresh checkout needs a full recording;
-edit-only mode cannot recreate missing footage.
+**CLI flags (`tools/demo-video.mjs`):** `--plan`, `--lang zh|en`, `--output <dir>`,
+`--width <even, ≥ 640>` (default `2560`), `--height <even, ≥ 360>` (default `1440`),
+`--gpu hardware|software`, `--scene <id[,id...]>`, `--stills`, `--capture-only`,
+`--skip-build`, `--resume`, `--edit-only`, `--design-only`. Always pass `--output`
+explicitly for new revisions rather than relying on the built-in default path.
 
-After a save/camera change, build the game and run
-`node tools/demo-video/check-authored.mjs --gestures`. This opens the native file
-input and writes P1/middle/P2 stills and gesture checks in the default v6 folder.
-Inspect them; fixed-angle checks do not replace a full moving-camera take.
-`check-save.mjs` is a legacy v5 diagnostic, not the current check.
+## Verification & Delivery
 
-Inspect the actual final film, build start/middle/end, all city/train cuts,
-contact sheet and `graphics/layout-audit.json`. Check no caption overlap or
-overflow, visible objects, smooth camera continuity, rapid cuts and readable
-credits. The renderer checks 70.2 seconds, 2K/30 fps, 8-bit yuv420p, H.264/AAC,
-approximately −18 LUFS and true peak ≤ −1 dBTP. Playback must decode and seek
-all scenes. Verify `after-stage.json` matches the working save and inspect
-`take.json` for real gestures, lift extension, east-to-west actions and no errors.
-
-Deliver the MP4 with an absolute local media path, plus the editable save or
-review page when useful. Commit source, skill and authored inputs when requested;
-keep unrelated work out. This workflow does not publish or deploy the website.
+- **Automated checks:** `validateVideo` (`media.mjs`) checks `70.2 s` (±0.08 s),
+  configured dimensions and `30 fps`, H.264 `yuv420p` + AAC, integrated loudness
+  `−18 ± 2 LUFS`, and true peak `≤ −1 dBTP`. `verifyBridgeCuts` (`montage.mjs`) enforces
+  locked nose tracking and cut continuity across `stock-A`–`stock-L`. `renderGraphics`
+  rejects any overflow or broken image in `graphics/layout-audit.json` during full/edit
+  runs, and `captureOne` aborts on any `window.__videoErrors`.
+- **Manual review:** Inspect the final MP4, `review.html`, and `contact-sheet.jpg` for
+  build start/middle/end, all city/train cuts, camera continuity, zero caption overlap,
+  and readable credits. Verify `takes/montage-placement/after-stage.json` matches
+  `video/demo-station.metro.json` and `take.json` records clean native gestures and lift
+  extension.
+- **Boundaries:** Deliver the local MP4 path (plus save/review page when helpful). Never
+  overwrite an existing `video/demo-station.metro.json` and never publish or deploy the
+  website from this workflow.

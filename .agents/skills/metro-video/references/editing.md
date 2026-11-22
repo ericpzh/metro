@@ -1,85 +1,88 @@
-# Editing and retakes
+# Editing, Retakes & Cache Rules
 
-Read from the repo root. Existing scene IDs come from
-`tools/demo-video/plan.mjs`; use `npm run video:plan` to inspect the current plan.
-Use an explicit output directory below; examples target the accepted local cache.
+Run all commands from the repo root. Active scene IDs live in `tools/demo-video/plan.mjs`
+(`npm run video:plan` prints the current schedule): `01-reveal`, `02-underground`,
+`03-interchange`, `04-boarding`, `05-rolling`, `05-tianhe-flythrough`,
+`05-tianhe-concourse`, `08-section-tianhe`, `08-cube`, `09-demand`, `montage-placement`,
+`city-*`, `stock-A/B/C/D/L`, `10-play`.
 
-## Choose the smallest complete workflow
+## Choosing the Smallest Complete Workflow
 
-| Change | Work needed |
+| Change | Required Work |
 |---|---|
-| New game geometry, models or simulation | Build and record affected footage; full generation is the safe default |
-| User-edited working save or build camera | Validate replay, review reference poses/gestures, retake `montage-placement`, then edit |
-| Studio copy, colours, card layout, music or mix levels | Recompose existing compatible takes using `--edit-only` |
-| Scene duration, playback rate, stage, orbit arc, resolution or language | Retake affected scenes; the editor rejects incompatible cached takes |
-| Reorder unchanged shots | Review compatibility, preserve each take's provenance, recompose |
+| Game geometry, models, or sim | Rebuild and retake affected scenes (or run full capture); roof/train changes need all visible train takes including all 5 bridge cuts. |
+| `video/demo-station.metro.json` or `demo-camera.json` | Run `plan.test.mjs`, verify with `check-authored.mjs --gestures`, retake `montage-placement`, then run `--edit-only`. |
+| Copy, Studio graphics, music, or mix | Recompose compatible cached takes with `--edit-only`. |
+| Duration, rate, stage, level, spin, size, or lang | Retake affected scenes; `--edit-only` rejects mismatched takes. |
+| Scene reorder with unchanged takes | Verify compatibility, preserve `take.json` / `sources/*.json`, run `--edit-only`. |
+
+## Partial Regeneration Recipes
 
 ```powershell
-# An individual take; this stops after recording, without rebuilding the movie.
-npm run video:demo -- --scene montage-placement --output .preview/demo-video/zh-studio-2k-v6
+# Retake specific scenes (exits after recording; does not compose the MP4)
+npm run video:demo -- --scene montage-placement --output .preview/demo-video/<run>
 
-# Then compose ALL required takes, graphics, audio and checks in that directory.
-npm run video:demo -- --edit-only --output .preview/demo-video/zh-studio-2k-v6
-node tools/demo-video/check-playback.mjs .preview/demo-video/zh-studio-2k-v6
+# Always retake all 5 bridge cuts together in order so nose cut points carry forward
+npm run video:demo -- --scene stock-A,stock-B,stock-C,stock-D,stock-L --output .preview/demo-video/<run>
 
-# Preview graphics against existing before.png stills, without a full encode.
-npm run video:demo -- --design-only --output .preview/demo-video/zh-studio-2k-v6
+# Recompose all takes, Studio graphics, audio mix, and delivery checks
+npm run video:demo -- --edit-only --output .preview/demo-video/<run>
+node tools/demo-video/check-playback.mjs .preview/demo-video/<run>
 
-# Resume an interrupted full generation if fingerprints still match.
-npm run video:demo -- --resume --output .preview/demo-video/my-revision
+# Preview Studio overlays on existing takes/*/before.png without full encode
+npm run video:demo -- --design-only --output .preview/demo-video/<run>
+
+# Resume an interrupted capture while fingerprints match
+npm run video:demo -- --resume --output .preview/demo-video/<run>
 ```
 
-`--scene` accepts comma-separated IDs. `--stills` captures preparation frames;
-the placement preparation is intentionally empty, so use `check-authored.mjs`
-for a separate full-layout camera preview. `--capture-only` records without editing.
-`--skip-build` is appropriate only when `game/dist` already matches the intended
-game build. `--design-only` is a review mode; inspect audit failures because it
-does not reject them as a final render does.
+- `--stills` captures `before.png` prep frames and exits. Because `montage-placement`
+  starts empty, use `check-authored.mjs` for P1/middle/P2 full-layout stills.
+- `--capture-only` records takes without running `editVideo` or `validateVideo`.
+- `--skip-build` skips `npm --prefix game run build`; use only when `game/dist` is
+  already current.
+- `--design-only` runs `renderGraphics` in review mode (`review: true`), so it does not
+  throw on audit errors — inspect `graphics/layout-audit.json` manually.
 
-`--resume` compares a broad fingerprint including game distribution, video tools,
-working save, camera and copy. Changing any of these can invalidate all cache
-keys. `--edit-only` explicitly reuses takes despite changed source fingerprints,
-but still checks duration/rate/stage/orbit/panels/language/theme/resolution.
-It does not prove footage matches new geometry or a new placement camera: decide
-which scenes require retakes first. Never rewrite cache keys to bypass a failure.
-Keep `take.json`, `sources/*.json` and `manifest.json` so mixed retakes remain
-attributable. A new output directory has no footage; generate it fully, or copy
-only reviewed, compatible complete take directories and their source records.
+## Cache Fingerprints (`--resume` vs `--edit-only`)
 
-## Save, camera and timing edits
+`tools/demo-video.mjs` builds `sourceHash` from `game/dist/`, `tools/demo-video/`,
+`tools/demo-video.mjs`, `video/demo-station.metro.json`, `video/demo-camera.json`,
+`web/src/artworks.js`, `web/src/i18n.js`, the three demo station JSONs
+(`demo-station.json`, `tanwei-station.json`, `tianhe-station.json`), and
+`.agents/skills/metro-repo/references/performance.md`.
 
-Copy an explicitly supplied edited native save to `video/demo-station.metro.json`
-after backing up the previous revision. Run the replay tests and review any
-assertions about the old approved layout (materials, roof, AC zone, lift height).
-Update intentional design assertions when the brief changes; never disable exact
-save fidelity, native placement validation or east-to-west ordering to pass a test.
-New model families may need frame classification or grouping support in
-`authored-layout.mjs`; do not silently drop them.
+- `--resume` reuses a take only when `takes/<id>/take.json` has an identical `key`
+  (`sourceHash` + `settings` + `shot`) and passes compatibility checks. Any edit to the
+  hashed files invalidates `--resume`.
+- `--edit-only` skips the game build, browser launch, and `sourceHash` check while still
+  enforcing `seconds`, `playbackRate`, `stage`, `simSpeed`, `level`, `spin`, `panels`,
+  `language`, `theme`, `width`, and `height`. It cannot detect stale game visuals —
+  retake affected scenes first.
+- Never forge cache keys. Keep `take.json`, `sources/*.json`, and `manifest.json` so
+  mixed retakes stay attributable. A fresh `--output` directory has no footage; record it
+  fully or copy complete, reviewed `takes/<id>/` folders and their `sources/*.json`.
 
-Timing uses `seconds` for the movie and `captureSeconds = seconds * playbackRate`
-for recording. Changing total duration also requires `VIDEO_SECONDS`, the plan
-validation/tests, locale-owned storyboard copy and build frame/hold scheduling
-to agree. Keep shots aligned to the 30 fps grid. City/train sweep endpoints must
-carry forward between cuts rather than restart at one angle.
+## Save, Camera, Timing & Audio Rules
 
-The native lens stops at 30°. Frame by moving the camera/target, not by pretending
-the lens changed below its native limit. The build uses Z-up world coordinates;
-a floor cell at z is picked at physical top z+1. A low moving camera can hide a
-drag endpoint behind a fence or wall. Keep native picking, a visible starting
-anchor and the tool's dominant-axis snapping; verify the committed run matches
-every expected cell before restoring authored IDs/configuration. A lift's visible
-top is above its `to.z` anchor. Recompute pointer targets as the camera moves.
-Do not fix a missed gesture by inserting models and claiming a native drag.
-
-## Sound and provenance
-
-Changing `audio.mjs` music selection must also preserve the ending credit driven
-from that selection and exported `CREDITS.md` / `audio-credits.json`. Keep the
-approved game audio files/manifests as sources. Action cues use actual event
-timestamps divided by playback rate, so an 8× build retains normal sound pitch.
-Rerun the final mix/validation after audio changes.
-
-Preview commits must remain separate from document commits: never inject train
-poses, substitute a staged completed image for a placement take, or overwrite
-the user's working save with a generated snapshot. Record failures should stop
-the take; diagnose, retake and inspect the actual movie before delivery.
+- **Working save edits:** Back up `video/demo-station.metro.json` under `.preview/`
+  before replacing it with a user-supplied native save. Run `plan.test.mjs`,
+  `export-save.mjs`, and `check-authored.mjs --gestures`. Update intentional design
+  assertions in `plan.test.mjs` if the brief changes, but never weaken save fidelity,
+  `checkModulePlacements`, or east-to-west ordering. New module families may need
+  `isFrameModule` or grouping support in `authored-layout.mjs`.
+- **Timing & sweeps:** Delivery length is `seconds`; raw capture length is
+  `captureSeconds = seconds * playbackRate`. Keep every scene on the `30 fps` grid
+  (`seconds * 30` integer). Total-length edits must keep `VIDEO_SECONDS`, `plan.test.mjs`,
+  `web/src/i18n.js`, and `video/demo-camera.json` (`frameSeconds`/`endingHoldSeconds`) in
+  sync. City and train `montageSweep` angles must carry forward continuously.
+- **Native picking & camera limits:** Native FOV floors at `30°`; frame tighter by moving
+  camera/target. Coordinates are Z-up (floor cell `z` picks at top `z + 1`; lift top sits
+  above `to.z`). Recompute pointer targets as the camera moves and never fake a missed
+  gesture by injecting modules.
+- **Audio & provenance:** `audio.mjs` selects one manifest track driving the mix, closing
+  card, `CREDITS.md`, and `audio-credits.json`. Event cues (`place.wav`, `select.wav`)
+  use `sourceAt / playbackRate` minus `trimStart` so retimed scenes keep normal pitch;
+  ambient beds (`crowd.mp3`, `train.mp3`) also stay at normal pitch. Keep preview commits
+  separate from document commits — never inject train poses, swap stills for placement
+  takes, or overwrite the user's working save.
