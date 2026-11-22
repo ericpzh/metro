@@ -4,6 +4,7 @@ using System.IO;
 using Metro.App;
 using Metro.View;
 using UnityEditor;
+using UnityEditor.Build;
 using UnityEditor.Build.Reporting;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -62,6 +63,8 @@ namespace Metro.Editor {
                 throw new Exception("Windows build did not succeed");
         }
 
+        const string AppIconAssetPath = "Assets/StationDesigner/Editor/StationDesignerIcon.png";
+
         static BuildReport BuildWithDeferredTrains(BuildPlayerOptions options, string scenePath) {
             // Keep the authoring scene and catalogue intact. In the Windows player, eager
             // scene references integrate all formation hierarchies before the first frame.
@@ -70,7 +73,15 @@ namespace Metro.Editor {
             if (string.IsNullOrEmpty(AssetDatabase.CreateFolder("Assets", stagingName)))
                 throw new IOException("Could not create Windows build staging folder");
             var previousScenes = EditorSceneManager.GetSceneManagerSetup();
+            var previousIcons = PlayerSettings.GetIcons(NamedBuildTarget.Standalone, IconKind.Any);
             try {
+                var appIcon = AssetDatabase.LoadAssetAtPath<Texture2D>(AppIconAssetPath);
+                if (appIcon != null) {
+                    int[] iconSizes = PlayerSettings.GetIconSizes(NamedBuildTarget.Standalone, IconKind.Any);
+                    var icons = new Texture2D[Math.Max(1, iconSizes.Length)];
+                    for (int i = 0; i < icons.Length; i++) icons[i] = appIcon;
+                    PlayerSettings.SetIcons(NamedBuildTarget.Standalone, icons, IconKind.Any);
+                }
                 string stagedScenePath = stagingPath + "/" + Path.GetFileName(scenePath);
                 if (!AssetDatabase.CopyAsset(scenePath, stagedScenePath))
                     throw new IOException("Could not copy Windows player scene");
@@ -83,6 +94,7 @@ namespace Metro.Editor {
                 options.scenes = new[] { stagedScenePath };
                 return BuildPipeline.BuildPlayer(options);
             } finally {
+                PlayerSettings.SetIcons(NamedBuildTarget.Standalone, previousIcons, IconKind.Any);
                 try {
                     if (Array.Exists(previousScenes, setup => setup.isActive))
                         EditorSceneManager.RestoreSceneManagerSetup(previousScenes);
