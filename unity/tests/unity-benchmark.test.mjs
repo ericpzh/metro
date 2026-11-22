@@ -122,6 +122,19 @@ test('UnityBenchmarkRoute and wrangler config wire Unity LOD, FSR 1.0, and WebGL
   assert.equal(existsSync(join(repo, 'unity/Assets/StationDesigner/Resources/StationFsr1.shader.meta')), true, 'WebGL2 FSR 1.0 shader has paired .meta')
   assert.equal(existsSync(join(repo, 'unity/Assets/StationDesigner/Runtime/App/StationFsrUpscaler.cs')), true, 'StationFsrUpscaler exists')
   assert.equal(existsSync(join(repo, 'unity/Assets/StationDesigner/Runtime/App/StationFsrUpscaler.cs.meta')), true, 'StationFsrUpscaler has paired .meta')
+  assert.equal(existsSync(join(repo, 'unity/Assets/StationDesigner/Runtime/App/StationBenchmarkRecorder.cs')), true, 'StationBenchmarkRecorder exists')
+  assert.equal(existsSync(join(repo, 'unity/Assets/StationDesigner/Runtime/App/StationBenchmarkRecorder.cs.meta')), true, 'StationBenchmarkRecorder has paired .meta')
+
+  assert.match(routeSource, /stationBridge\.request<\{ recording\?: boolean \}>\('benchmark\.start', \{\}\)/, 'starts C# native frame recorder')
+  assert.match(routeSource, /stationBridge\.request<NativeBenchmarkStop>\('benchmark\.stop', \{\}\)/, 'collects C# native frames and hardware telemetry')
+  assert.match(routeSource, /function fpsCeilingFor\(/, 'scales FPS chart ceiling above 60 FPS for native desktop players')
+
+  const presenterCs = readFileSync(join(repo, 'unity/Assets/StationDesigner/Runtime/App/StationDesktopUiPresenter.cs'), 'utf8')
+  assert.match(presenterCs, /ParseCommandLineRoute/, 'desktop presenter parses -benchmark / -metroRoute CLI flags')
+  const overlayCs = readFileSync(join(repo, 'tools/unity-editor-ui/Program.cs'), 'utf8')
+  assert.match(overlayCs, /window\.__metroDesktopOverlay = true;/, 'WebView2 host identifies desktop overlay mode')
+  assert.match(overlayCs, /window\.metroUnityInstance = bridgeShim;/, 'WebView2 host exposes metroUnityInstance bridge shim')
+  assert.match(overlayCs, /bool isBenchmark = cleanRequestPath\.EndsWith\("\/benchmark"/, 'WebView2 host hides #game-loading on benchmark routes')
 
   const wranglerText = readFileSync(join(repo, 'unity/wrangler.jsonc'), 'utf8')
   assert.match(wranglerText, /"stationdesigner\.com\/game\/unity"/)

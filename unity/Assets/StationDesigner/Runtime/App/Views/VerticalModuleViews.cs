@@ -415,6 +415,8 @@ namespace Metro.App.Views {
         internal static void ConfigurePaletteMaterial(Material material, int palette) {
             if (!material) return;
             if (palette == PaletteGlass) {
+                if (material.HasProperty("_BaseColor")) material.SetColor("_BaseColor", StationGlass.DefaultTint);
+                if (material.HasProperty("_Color")) material.SetColor("_Color", StationGlass.DefaultTint);
                 StationGlass.MakeTransparent(material, .26f);
                 return;
             }
@@ -435,8 +437,10 @@ namespace Metro.App.Views {
             palette = Mathf.Clamp(palette, 0, Palette.Length - 1);
             if (DefaultMaterials.TryGetValue(palette, out var existing) && existing) return existing;
             if (!defaultShader) defaultShader = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Unlit/Color") ?? Shader.Find("Sprites/Default");
-            var material = new Material(defaultShader) { color = Palette[palette], name = "Vertical " + palette };
-            ConfigurePaletteMaterial(material, palette);
+            var material = palette == PaletteGlass
+                ? StationGlass.Create(defaultShader, "Vertical " + palette, StationGlass.DefaultTint, .26f)
+                : new Material(defaultShader) { color = Palette[palette], name = "Vertical " + palette };
+            if (palette != PaletteGlass) ConfigurePaletteMaterial(material, palette);
             DefaultMaterials[palette] = material;
             return material;
         }
@@ -3152,8 +3156,12 @@ namespace Metro.App.Views {
                 if (shader == null || Materials != null) return;
                 Materials = new Material[VerticalModuleViews.Palette.Length];
                 for (int i = 0; i < Materials.Length; i++) {
-                    Materials[i] = new Material(shader) { color = VerticalModuleViews.Palette[i], name = "Vertical " + i };
-                    VerticalModuleViews.ConfigurePaletteMaterial(Materials[i], i);
+                    if (i == VerticalModuleViews.PaletteGlass) {
+                        Materials[i] = StationGlass.Create(shader, "Vertical " + i, StationGlass.DefaultTint, .26f);
+                    } else {
+                        Materials[i] = new Material(shader) { color = VerticalModuleViews.Palette[i], name = "Vertical " + i };
+                        VerticalModuleViews.ConfigurePaletteMaterial(Materials[i], i);
+                    }
                 }
                 MaterialFor = palette => Materials[Mathf.Clamp(palette, 0, Materials.Length - 1)];
             }

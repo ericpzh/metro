@@ -1641,8 +1641,12 @@ internal sealed class OffscreenWebViewHost : NativeWindow, IDisposable {
             throw new InvalidOperationException("Manifest did not contain entry or css for src/unity-web/main.tsx.");
         }
 
+        string cleanRequestPath = requestPath.TrimEnd('/');
+        bool isBenchmark = cleanRequestPath.EndsWith("/benchmark", StringComparison.OrdinalIgnoreCase)
+            || cleanRequestPath.EndsWith("/benchmark/en", StringComparison.OrdinalIgnoreCase);
         bool isEn = Array.Exists(requestPath.Split('/', StringSplitOptions.RemoveEmptyEntries), s => s == "en");
         string lang = isEn ? "en" : "zh-CN";
+        string loadingHiddenAttr = isBenchmark ? " hidden" : "";
         const string assetBase = "/game/_unity/UI";
 
         return $$"""
@@ -1697,7 +1701,7 @@ internal sealed class OffscreenWebViewHost : NativeWindow, IDisposable {
     </style>
   </head>
   <body>
-    <div id="game-loading" role="status" aria-live="polite">
+    <div id="game-loading" role="status" aria-live="polite"{{loadingHiddenAttr}}>
       <div class="loading-card">
         <div class="loading-brand">Station Designer</div>
         <h1 id="loading-title">正在准备车站</h1>
@@ -1711,11 +1715,16 @@ internal sealed class OffscreenWebViewHost : NativeWindow, IDisposable {
     <script>
       (() => {
         const path = location.pathname.replace(/\/+$/, '');
+        const isBenchmark = path.endsWith('/benchmark') || path.endsWith('/benchmark/en');
+        if (isBenchmark) {
+          const loading = document.getElementById('game-loading');
+          if (loading) loading.hidden = true;
+        }
         let theme, language;
         const route = path.split('/').includes('en') || document.documentElement.lang === 'en' ? 'en' : 'zh-CN';
         try {
           theme = localStorage.getItem('metro-game.ui-theme');
-          language = localStorage.getItem('metro-game.language.' + route);
+          if (!isBenchmark) language = localStorage.getItem('metro-game.language.' + route);
         } catch {}
         document.documentElement.dataset.uiTheme = theme === 'studio' || theme === 'site' ? theme : 'blueprint';
         const resolvedLanguage = language === 'en' || language === 'zh-CN' ? language : route;
@@ -1750,6 +1759,7 @@ internal sealed class OffscreenWebViewHost : NativeWindow, IDisposable {
       window.addEventListener('animationstart', notifyDirty, true);
       window.addEventListener('scroll', notifyDirty, true);
 
+      window.__metroDesktopOverlay = true;
       window.metroUnityUiBase = '{{assetBase}}/';
       window.metroUnityAudioBase = '/audio/';
       const ui = await import('{{assetBase}}/{{entryFile}}');
@@ -1763,13 +1773,15 @@ internal sealed class OffscreenWebViewHost : NativeWindow, IDisposable {
         notifyDirty();
       });
 
-      const unmount = ui.mountUnityUI(host, document.querySelector('#unity-canvas'));
-      ui.stationBridge.register({
+      const bridgeShim = {
         SendMessage(_objectName, _methodName, value = '') {
           window.chrome.webview.postMessage(String(value));
           notifyDirty();
         }
-      });
+      };
+      window.metroUnityInstance = bridgeShim;
+      const unmount = ui.mountUnityUI(host, document.querySelector('#unity-canvas'));
+      ui.stationBridge.register(bridgeShim);
       window.chrome.webview.postMessage('__metro_overlay_ready__');
 
       window.addEventListener('pagehide', () => {

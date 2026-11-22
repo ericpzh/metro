@@ -1,4 +1,4 @@
-import { useEffect, useState, type MouseEvent } from 'react'
+import { useEffect, useLayoutEffect, useState, type MouseEvent } from 'react'
 import * as THREE from 'three'
 import type { UpscalingMode } from '../../render/upscaling.ts'
 import type { Language } from '../../sim/i18n.ts'
@@ -172,6 +172,15 @@ export function BenchmarkRoute(): React.ReactElement {
   const [result, setResult] = useState<Result | null>(null)
   const [error, setError] = useState('')
   const controlsLocked = phase === 'preparing' || phase === 'running'
+
+  useLayoutEffect(() => {
+    document.body.dataset.metroBenchmarkActive = 'true'
+    window.dispatchEvent(new CustomEvent('metro:benchmark-mode', { detail: { active: true } }))
+    return () => {
+      delete document.body.dataset.metroBenchmarkActive
+      window.dispatchEvent(new CustomEvent('metro:benchmark-mode', { detail: { active: false } }))
+    }
+  }, [])
 
   useEffect(() => {
     if (!controlsLocked) {

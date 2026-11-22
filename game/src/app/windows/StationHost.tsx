@@ -18,6 +18,8 @@ export interface StationHost {
   save(): void
   modelDetail?(profile?: ModelDetailProfile): Promise<ModelDetailProfile>
   upscaling?(mode?: UpscalingMode): Promise<UpscalingMode>
+  /** Desktop Unity player hook to open the interactive benchmark route in-place. */
+  openBenchmark?(): void
   /** An edit the host does not implement yet: shown, not attempted. */
   unsupported?(feature: string): void
 }

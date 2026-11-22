@@ -7,9 +7,9 @@
   background: #f3f6f8;
   font-family: var(--font);
 }
-.benchmarkLocale { position: fixed; z-index: 1201; top: 18px; right: 22px; }
-.benchmarkLocale a { padding: 8px 11px; border: 1px solid #c9d2d9; border-radius: 8px; color: #38515f; background: #fff; text-decoration: none; font-size: 13px; }
-.benchmarkLocale a:hover { border-color: #087c91; color: #075b6b; }
+.benchmarkLocale { position: fixed; z-index: 1201; top: 18px; right: 22px; display: flex; gap: 8px; align-items: center; }
+.benchmarkLocale a, .benchmarkLocale button { padding: 8px 11px; border: 1px solid #c9d2d9; border-radius: 8px; color: #38515f; background: #fff; text-decoration: none; font: inherit; font-size: 13px; cursor: pointer; }
+.benchmarkLocale a:hover, .benchmarkLocale button:hover { border-color: #087c91; color: #075b6b; }
 .benchmarkSetup {
   box-sizing: border-box;
   width: min(560px, calc(100vw - 32px));

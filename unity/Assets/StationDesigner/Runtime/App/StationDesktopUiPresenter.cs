@@ -76,6 +76,55 @@ namespace Metro.App {
             set => startupRoute = string.IsNullOrWhiteSpace(value) ? "/game/zoo" : value;
         }
 
+        public static bool IsBenchmarkRoute(string route) {
+            if (string.IsNullOrWhiteSpace(route)) return false;
+            string clean = route.Trim().TrimEnd('/');
+            return clean.EndsWith("/benchmark", StringComparison.OrdinalIgnoreCase)
+                || clean.EndsWith("/benchmark/en", StringComparison.OrdinalIgnoreCase);
+        }
+
+        public static string ParseCommandLineRoute(string[] args) {
+            if (args == null || args.Length == 0) return null;
+            for (int i = 0; i < args.Length; i++) {
+                string arg = args[i];
+                if (string.Equals(arg, "-metroRoute", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length) {
+                    string val = args[i + 1]?.Trim();
+                    if (!string.IsNullOrEmpty(val)) {
+                        return val.StartsWith("/", StringComparison.Ordinal) ? val : "/" + val;
+                    }
+                }
+            }
+            bool benchmark = false;
+            bool english = false;
+            for (int i = 0; i < args.Length; i++) {
+                string arg = args[i];
+                if (string.Equals(arg, "-benchmark", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(arg, "--benchmark", StringComparison.OrdinalIgnoreCase)) {
+                    benchmark = true;
+                } else if (string.Equals(arg, "--en", StringComparison.OrdinalIgnoreCase) ||
+                           string.Equals(arg, "-en", StringComparison.OrdinalIgnoreCase)) {
+                    english = true;
+                } else if (string.Equals(arg, "-lang", StringComparison.OrdinalIgnoreCase) &&
+                           i + 1 < args.Length &&
+                           string.Equals(args[i + 1], "en", StringComparison.OrdinalIgnoreCase)) {
+                    english = true;
+                }
+            }
+            if (benchmark) return english ? "/game/benchmark/en" : "/game/benchmark";
+            return null;
+        }
+
+        static bool HasBenchmarkOutputArg(string[] args) {
+            if (args == null) return false;
+            for (int i = 0; i < args.Length; i++) {
+                if (string.Equals(args[i], "-metroBenchOut", StringComparison.OrdinalIgnoreCase)) return true;
+            }
+            return false;
+        }
+
+        public static string StandaloneAutosavePath() =>
+            Path.Combine(Application.persistentDataPath, "autosave.metro.json");
+
         public static StationDesktopUiPresenter Active => activeInstance;
         public static bool IsSupportedPlatform {
             get {
@@ -116,6 +165,10 @@ namespace Metro.App {
         string currentShmPath = "";
         bool webReady;
         bool startAttempted;
+        bool launchedInBenchmarkMode;
+        int lastAutosavedRevision = -1;
+        int preBenchmarkRevision = -1;
+        double nextAutosaveAt;
         long lastUploadedSequence;
         int presentedFrames;
         int lastSentWidth;
@@ -213,6 +266,7 @@ namespace Metro.App {
         }
 
         void OnDestroy() {
+            TryWriteStandaloneAutosave(boundHost, force: true);
             InputSystem.onEvent -= OnMouseButtonEvent;
             UnsubscribeKeyboardText();
             StopWorker();
@@ -228,6 +282,7 @@ namespace Metro.App {
         }
 
         void OnApplicationQuit() {
+            TryWriteStandaloneAutosave(boundHost, force: true);
             StopWorker();
         }
 
@@ -318,6 +373,10 @@ namespace Metro.App {
                 ForwardKeyboardButtons();
             }
             UploadLatestSharedFrame();
+            if (Time.unscaledTimeAsDouble >= nextAutosaveAt) {
+                nextAutosaveAt = Time.unscaledTimeAsDouble + 15.0;
+                TryWriteStandaloneAutosave(boundHost, force: false);
+            }
         }
 
         void LateUpdate() {
@@ -388,7 +447,17 @@ namespace Metro.App {
             var token = sessionCts.Token;
             _ = Task.Run(() => RunServerLoopAsync(listener, token));
 
-            string route = host.IsLoaded ? "/game/" : startupRoute;
+            string[] cliArgs = Environment.GetCommandLineArgs();
+            string cliRoute = ParseCommandLineRoute(cliArgs);
+            launchedInBenchmarkMode = IsBenchmarkRoute(cliRoute) || HasBenchmarkOutputArg(cliArgs);
+            if (!Application.isEditor && !Application.isBatchMode &&
+                !launchedInBenchmarkMode && string.IsNullOrEmpty(cliRoute) &&
+                !IsBenchmarkRoute(startupRoute) && !host.IsLoaded) {
+                TryRestoreStandaloneAutosave(host);
+            }
+            string route = !string.IsNullOrEmpty(cliRoute)
+                ? cliRoute
+                : (host.IsLoaded && !IsBenchmarkRoute(startupRoute) ? "/game/" : startupRoute);
             var startInfo = new ProcessStartInfo {
                 FileName = exePath,
                 Arguments =
@@ -429,6 +498,48 @@ namespace Metro.App {
             startAttempted = false;
         }
 
+        bool TryRestoreStandaloneAutosave(StationGameHost host) {
+            if (host == null) return false;
+            try {
+                string path = StandaloneAutosavePath();
+                if (!File.Exists(path)) return false;
+                string json = File.ReadAllText(path, Encoding.UTF8);
+                if (string.IsNullOrWhiteSpace(json)) return false;
+                var result = host.OpenDocument(json, "autosave");
+                if (result != null && result.Accepted) {
+                    lastAutosavedRevision = host.CurrentRevision;
+                    UnityEngine.Debug.Log($"[ReactUI] Restored standalone station autosave ({path}, rev={lastAutosavedRevision}).");
+                    return true;
+                }
+            } catch (Exception ex) {
+                UnityEngine.Debug.LogWarning("[ReactUI] Could not restore standalone autosave: " + ex.Message);
+            }
+            return false;
+        }
+
+        void TryWriteStandaloneAutosave(StationGameHost host, bool force) {
+            if (Application.isEditor || Application.isBatchMode) return;
+            if (launchedInBenchmarkMode || StationBenchmarkRecorder.InBenchmarkUi || StationBenchmarkRecorder.IsRecordingAny) return;
+            if (host == null || !host.IsLoaded || host.Document == null) return;
+            int rev = host.CurrentRevision;
+            if (!force && rev == lastAutosavedRevision) return;
+            if (force && rev == lastAutosavedRevision && File.Exists(StandaloneAutosavePath())) return;
+            try {
+                string json = host.SaveDocument();
+                if (string.IsNullOrWhiteSpace(json)) return;
+                string path = StandaloneAutosavePath();
+                string dir = Path.GetDirectoryName(path);
+                if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+                string tmp = path + ".tmp";
+                File.WriteAllText(tmp, json, new UTF8Encoding(false));
+                File.Copy(tmp, path, overwrite: true);
+                try { File.Delete(tmp); } catch { }
+                lastAutosavedRevision = rev;
+            } catch (Exception ex) {
+                UnityEngine.Debug.LogWarning("[ReactUI] Could not write standalone autosave: " + ex.Message);
+            }
+        }
+
         public void StopWorker(bool clearHost = true) {
             if (boundHost != null) {
                 boundHost.ReplyPublished -= OnHostReplyPublished;
@@ -444,17 +555,33 @@ namespace Metro.App {
             while (incomingCommands.TryDequeue(out _)) { }
             while (outgoingLines.TryDequeue(out _)) { }
 
+            var proc = workerProcess;
+            workerProcess = null;
+            var client = activeClient;
+            activeClient = null;
+
+            // Ask WebView2 to shut down cleanly first so Chromium flushes localStorage
+            // (settings, theme, audio, tutorial dismissal) to disk before exit.
+            if (proc != null && !proc.HasExited) {
+                if (client != null && client.Connected) {
+                    try {
+                        byte[] quitMsg = Encoding.UTF8.GetBytes("{\"kind\":\"quit\"}\n");
+                        var stream = client.GetStream();
+                        stream.Write(quitMsg, 0, quitMsg.Length);
+                        stream.Flush();
+                    } catch { }
+                }
+                try { proc.WaitForExit(1000); } catch { }
+            }
+
             try { sessionCts?.Cancel(); } catch { }
             sessionCts = null;
 
-            try { activeClient?.Close(); } catch { }
-            activeClient = null;
+            try { client?.Close(); } catch { }
 
             try { listener?.Stop(); } catch { }
             listener = null;
 
-            var proc = workerProcess;
-            workerProcess = null;
             if (proc != null) {
                 try { if (!proc.HasExited) proc.Kill(); } catch { }
                 try { proc.Dispose(); } catch { }
@@ -923,7 +1050,21 @@ namespace Metro.App {
             while (safety++ < 64 && incomingCommands.TryDequeue(out string cmdJson)) {
                 if (string.IsNullOrEmpty(cmdJson)) continue;
                 try {
+                    bool wasInBenchmark = StationBenchmarkRecorder.InBenchmarkUi;
+                    if (!wasInBenchmark && cmdJson.IndexOf("\"benchmark.mode\"", StringComparison.Ordinal) >= 0) {
+                        TryWriteStandaloneAutosave(host, force: false);
+                        preBenchmarkRevision = host.IsLoaded ? host.CurrentRevision : -1;
+                    }
                     host.BrowserCommand(cmdJson);
+                    if (wasInBenchmark && !StationBenchmarkRecorder.InBenchmarkUi && !launchedInBenchmarkMode) {
+                        if (!Application.isEditor && !Application.isBatchMode &&
+                            preBenchmarkRevision >= 0 && host.CurrentRevision != preBenchmarkRevision) {
+                            if (TryRestoreStandaloneAutosave(host)) {
+                                host.BrowserCommand("{\"type\":\"station.resync\",\"payload\":{}}");
+                            }
+                        }
+                        preBenchmarkRevision = -1;
+                    }
                 } catch (Exception ex) {
                     UnityEngine.Debug.LogException(ex);
                 }

@@ -1,0 +1,7 @@
+<Project>
+  <PropertyGroup>
+    <BaseIntermediateOutputPath>$(MSBuildThisFileDirectory)..\..\.preview\unity\win-workspace\launcher\obj\</BaseIntermediateOutputPath>
+    <MSBuildProjectExtensionsPath>$(BaseIntermediateOutputPath)</MSBuildProjectExtensionsPath>
+    <OutputPath>$(MSBuildThisFileDirectory)..\..\.preview\unity\win-workspace\launcher\bin\</OutputPath>
+  </PropertyGroup>
+</Project>

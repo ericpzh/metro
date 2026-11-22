@@ -18,6 +18,20 @@ export function benchmarkLanguagePath(pathname: string, language: Language): str
 }
 
 /**
+ * Target benchmark route for the current game path and UI language:
+ * - `/game/unity/*` -> `/game/unity/benchmark` (or `/game/unity/benchmark/en`)
+ * - `/game/*`       -> `/game/benchmark` (or `/game/benchmark/en`)
+ * - dev root `/`    -> `/benchmark` (or `/benchmark/en`)
+ */
+export function benchmarkHrefFor(pathname: string, language: Language): string {
+  const segments = pathname.split('/').filter(Boolean)
+  let base = '/benchmark'
+  if (segments[0] === 'game' && segments[1] === 'unity') base = '/game/unity/benchmark'
+  else if (segments[0] === 'game') base = '/game/benchmark'
+  return language === 'en' ? `${base}/en` : base
+}
+
+/**
  * The URL sets the initial language; a deliberate toggle in the game is remembered
  * per route on reload. Benchmark routes stay isolated from the game's saved
  * preference so external links (`/benchmark` vs `/benchmark/en`) always open in

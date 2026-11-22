@@ -20,6 +20,7 @@ namespace Metro.View {
             public string power = "";
             public GameObject prefab;
             public string prefabPath = "";
+            public string resourcePath = "";
             /// <summary>Model scale baked into the promoted prefab (1 when none).</summary>
             public float bakedScale = 1;
         }
@@ -43,7 +44,10 @@ namespace Metro.View {
         public bool TryGet(string key, out Entry entry) {
             entry = null;
             EnsureIndex();
-            return !string.IsNullOrEmpty(key) && index.TryGetValue(key, out entry);
+            if (string.IsNullOrEmpty(key) || !index.TryGetValue(key, out entry)) return false;
+            if (!entry.prefab && !string.IsNullOrEmpty(entry.resourcePath))
+                entry.prefab = Resources.Load<GameObject>(entry.resourcePath);
+            return true;
         }
 
         public GameObject Prefab(string key) => TryGet(key, out var entry) ? entry.prefab : null;

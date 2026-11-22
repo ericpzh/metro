@@ -22,6 +22,17 @@ namespace Metro.App {
         /// <summary>The transparent render queue URP's own Lit material uses.</summary>
         public const int TransparentQueue = (int)RenderQueue.Transparent;
 
+        /// <summary>
+        /// Serialized URP/Lit transparent reference material in <c>Resources/</c> so Unity's
+        /// player build pipeline never strips <c>_SURFACE_TYPE_TRANSPARENT</c> from URP/Lit.
+        /// </summary>
+        public const string RefResourcePath = "StationGlassRef";
+
+        /// <summary>Shared sky-glass sRGB tint matching Three.js <c>PieceBuilder.glass</c> (<c>0xa8d8e6</c>).</summary>
+        public static readonly Color32 DefaultTint = new Color32(168, 216, 230, 255);
+
+        static Material cachedRef;
+
         /// <summary>Whether a material is already configured for the transparent surface.</summary>
         public static bool IsTransparent(Material material) =>
             material && material.HasProperty("_Surface") && material.GetFloat("_Surface") > 0.5f;
@@ -34,7 +45,14 @@ namespace Metro.App {
         public static Material Create(Shader shader, string name, Color tint, float opacity,
             float smoothness = 0.94f, float metallic = 0f, bool doubleSided = true) {
             if (!shader) throw new System.ArgumentNullException(nameof(shader));
-            var material = new Material(shader) { name = name };
+            Material material;
+            if (shader.name == "Universal Render Pipeline/Lit") {
+                if (!cachedRef) cachedRef = Resources.Load<Material>(RefResourcePath);
+                material = cachedRef ? new Material(cachedRef) : new Material(shader);
+                material.name = name;
+            } else {
+                material = new Material(shader) { name = name };
+            }
             Apply(material, tint.linear, opacity, smoothness, metallic, doubleSided);
             return material;
         }

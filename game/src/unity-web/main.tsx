@@ -5,7 +5,7 @@
 // The legacy Zoo slice keeps its own entry (`zooUi.tsx`) so the old
 // `ZooPlayable` scene and its recorded smoke stay reproducible during the
 // transition; `tools/unity-web/pack.mjs` attaches the entry for the built scene.
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { App } from '../app/windows/AppShell.tsx'
 import { ViewCube } from '../app/ViewCube.tsx'
@@ -75,6 +75,42 @@ function UnityApp({ canvas, host, adapter }: { canvas: HTMLCanvasElement; host: 
       <UnityExplodedView canvas={canvas} />
     </>
   )
+}
+
+function UnityShellRoot({
+  canvas,
+  host,
+  adapter,
+  desktop,
+  initialBenchmark,
+  registerToggle,
+}: {
+  canvas: HTMLCanvasElement
+  host: StationHost
+  adapter: ViewCubeAdapter
+  desktop: boolean
+  initialBenchmark: boolean
+  registerToggle: (open: () => void) => void
+}): React.ReactElement {
+  const [benchmarkMode, setBenchmarkMode] = useState(initialBenchmark)
+  useEffect(() => {
+    registerToggle(() => {
+      document.body.dataset.metroBenchmarkActive = 'true'
+      window.dispatchEvent(new CustomEvent('metro:benchmark-mode', { detail: { active: true } }))
+      setBenchmarkMode(true)
+    })
+  }, [registerToggle])
+  const unityApp = <UnityApp canvas={canvas} host={host} adapter={adapter} />
+  if (!benchmarkMode) return unityApp
+  const exitBenchmark = (): void => {
+    delete document.body.dataset.metroBenchmarkActive
+    window.dispatchEvent(new CustomEvent('metro:benchmark-mode', { detail: { active: false } }))
+    setBenchmarkMode(false)
+    if (useStore.getState().station.cells.length === 0) {
+      host.openDemo('zoo')
+    }
+  }
+  return <UnityBenchmarkRoute canvas={canvas} app={unityApp} desktop={desktop} onExit={desktop ? exitBenchmark : undefined} />
 }
 
 let loadingToken = 0
@@ -197,9 +233,13 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
     try { previous.unmount() } catch { /* the old tree may already be detaching */ }
   }
   const isBenchmark = isBenchmarkPath(location.pathname)
+  if (isBenchmark) document.body.dataset.metroBenchmarkActive = 'true'
+  else delete document.body.dataset.metroBenchmarkActive
+  const desktopOverlay = Boolean((window as unknown as { __metroDesktopOverlay?: boolean }).__metroDesktopOverlay) ||
+    document.documentElement.classList.contains('metro-overlay')
   initLanguage()
-  if (!isBenchmark) initUiTheme()
-  const unmountAudio = isBenchmark ? () => {} : mountUnityAudio()
+  if (!isBenchmark || desktopOverlay) initUiTheme()
+  const unmountAudio = isBenchmark && !desktopOverlay ? () => {} : mountUnityAudio()
   // C# answers through one WebGL bridge call that dispatches this event with the
   // reply JSON; the transport stays outside the reducer so it can be tested.
   // Sign artwork requests travel on the same event and are answered here, so a
@@ -221,7 +261,9 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
     stationBridge.receive(detail)
   }
   window.addEventListener('metro:station-state', onState)
+  let openDesktopBenchmark: (() => void) | null = null
   const host: StationHost = {
+    openBenchmark: desktopOverlay ? () => { openDesktopBenchmark?.() } : undefined,
     modelDetail: async profile => {
       const result = profile === undefined
         ? await stationBridge.request('graphics.get')
@@ -572,8 +614,16 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
   })
 
   const root = createRoot(element)
-  const unityApp = <UnityApp canvas={canvas} host={host} adapter={cameraAdapter} />
-  root.render(isBenchmark ? <UnityBenchmarkRoute canvas={canvas} app={unityApp} /> : unityApp)
+  root.render(
+    <UnityShellRoot
+      canvas={canvas}
+      host={host}
+      adapter={cameraAdapter}
+      desktop={desktopOverlay}
+      initialBenchmark={isBenchmark}
+      registerToggle={open => { openDesktopBenchmark = open }}
+    />,
+  )
   // The committed snapshot is the player's public state; a browser check reads it
   // instead of scraping the DOM, and can drive the station through the same port
   // the UI uses (`verify-station-game.mjs`).

@@ -133,6 +133,27 @@ public class StationRenderTests {
     }
 
     [Test]
+    public void SerializedGlassReferenceKeepsUrpTransparentVariantAndLiftGlassUsesSkyTint() {
+        var refMat = Resources.Load<Material>(StationGlass.RefResourcePath);
+        Assert.IsNotNull(refMat, "Resources/" + StationGlass.RefResourcePath + ".mat must exist so player builds keep _SURFACE_TYPE_TRANSPARENT");
+        Assert.AreEqual("Universal Render Pipeline/Lit", refMat.shader.name);
+        Assert.IsTrue(refMat.IsKeywordEnabled("_SURFACE_TYPE_TRANSPARENT"),
+            "serialized reference material must enable _SURFACE_TYPE_TRANSPARENT");
+        Assert.AreEqual(1f, refMat.GetFloat("_Surface"));
+        Assert.AreEqual(StationGlass.TransparentQueue, refMat.renderQueue);
+
+        var liftGlass = Metro.App.Views.VerticalModuleViews.DefaultMaterial(Metro.App.Views.VerticalModuleViews.PaletteGlass);
+        Assert.IsTrue(StationGlass.IsTransparent(liftGlass), "lift shaft glass must use the transparent surface");
+        Assert.IsTrue(liftGlass.IsKeywordEnabled("_SURFACE_TYPE_TRANSPARENT"));
+        var baseColor = liftGlass.GetColor("_BaseColor");
+        var expected = ((Color)StationGlass.DefaultTint).linear;
+        Assert.AreEqual(expected.r, baseColor.r, 0.02f, "lift glass must use the light sky tint, not dark teal");
+        Assert.AreEqual(expected.g, baseColor.g, 0.02f);
+        Assert.AreEqual(expected.b, baseColor.b, 0.02f);
+        Assert.AreEqual(.26f, baseColor.a, 1e-4f);
+    }
+
+    [Test]
     public void TheGhostOfGlassFadesFromItsOwnOpacityAndKeepsAlphaCutout() {
         var shader = Shader.Find(StationFinishLibrary.DefaultShaderName);
         Assert.IsNotNull(shader);

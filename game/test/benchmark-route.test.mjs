@@ -1,10 +1,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
-import { benchmarkLanguagePath, initialLanguageForRoute, isBenchmarkPath, LANGUAGE_STORAGE_KEY } from '../src/app/languageRoute.ts'
+import { benchmarkHrefFor, benchmarkLanguagePath, initialLanguageForRoute, isBenchmarkPath, LANGUAGE_STORAGE_KEY } from '../src/app/languageRoute.ts'
 
 const source = await readFile(new URL('../src/app/benchmark/BenchmarkRoute.tsx', import.meta.url), 'utf8')
 const styles = await readFile(new URL('../src/app/benchmark/benchmark.css', import.meta.url), 'utf8')
+const settingsMenu = await readFile(new URL('../src/app/windows/topbar/SettingsMenu.tsx', import.meta.url), 'utf8')
 
 test('the benchmark-selected graphics quality controls the renderer without changing the saved game preference', () => {
   const applyQuality = source.indexOf('useStore.setState({ graphicsQuality: quality, upscalingMode })')
@@ -69,4 +70,31 @@ test('benchmark language toggle switches in place, keeps URL synced, and compute
     'toggling updates the URL in place so reloads preserve the chosen language')
   assert.match(source, /<a href=\{languagePath\} onClick=\{toggleLanguage\}>\{copy\.language\}<\/a>/,
     'the locale link handles in-place toggling while keeping its href for new-tab navigation')
+})
+
+test('settings heading exposes a PiSpeedometerBold benchmark action linking web routes and calling host hook on desktop', () => {
+  assert.equal(benchmarkHrefFor('/game/', 'zh-CN'), '/game/benchmark')
+  assert.equal(benchmarkHrefFor('/game/en/', 'en'), '/game/benchmark/en')
+  assert.equal(benchmarkHrefFor('/game/zoo', 'en'), '/game/benchmark/en')
+  assert.equal(benchmarkHrefFor('/game/unity/', 'zh-CN'), '/game/unity/benchmark')
+  assert.equal(benchmarkHrefFor('/game/unity/en/', 'en'), '/game/unity/benchmark/en')
+  assert.equal(benchmarkHrefFor('/game/unity/tianhe', 'zh-CN'), '/game/unity/benchmark')
+  assert.equal(benchmarkHrefFor('/', 'zh-CN'), '/benchmark')
+  assert.equal(benchmarkHrefFor('/en/', 'en'), '/benchmark/en')
+
+  assert.match(settingsMenu, /import \{[^}]*PiSpeedometerBold[^}]*\} from 'react-icons\/pi'/)
+  assert.match(settingsMenu, /stationHost\?\.openBenchmark/)
+  assert.match(settingsMenu, /<PiSpeedometerBold aria-hidden="true" \/>/)
+  assert.match(settingsMenu, /href=\{benchmarkHrefFor\(/)
+})
+
+test('tutorial stays suppressed whenever benchmark mode is active on web or desktop in-place overlay', async () => {
+  const tutorial = await readFile(new URL('../src/app/windows/tutorial/Tutorial.tsx', import.meta.url), 'utf8')
+  const unityBenchmark = await readFile(new URL('../src/unity-web/UnityBenchmarkRoute.tsx', import.meta.url), 'utf8')
+  assert.match(tutorial, /metroBenchmarkActive/)
+  assert.match(tutorial, /metro:benchmark-mode/)
+  assert.match(tutorial, /if \(!visible\) return null/)
+  assert.match(source, /document\.body\.dataset\.metroBenchmarkActive = 'true'/)
+  assert.match(unityBenchmark, /document\.body\.dataset\.metroBenchmarkActive = 'true'/)
+  assert.match(unityBenchmark, /stationBridge\.send\('benchmark\.mode', \{ active: true \}\)/)
 })

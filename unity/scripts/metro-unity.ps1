@@ -83,7 +83,8 @@ switch ($Task) {
     'build-windows' {
         $build = Join-Path $out "windows-$Configuration"
         if (Test-Path $build) { throw 'Build output already exists; choose a fresh output directory.' }
-        $argsList += @('-quit','-buildTarget','Win64','-executeMethod','Metro.Editor.BuildWindows.Run','-metroOut',('"'+$build+'"'),'-metroConfiguration',$Configuration,'-metroScene',$Scene)
+        $sceneArg = if ($ScenePath) { $ScenePath } else { $Scene }
+        $argsList += @('-quit','-buildTarget','Win64','-executeMethod','Metro.Editor.BuildWindows.Run','-metroOut',('"'+$build+'"'),'-metroConfiguration',$Configuration,'-metroScene',$sceneArg)
     }
 }
 function Get-RelativePath([string]$basePath, [string]$targetPath) {

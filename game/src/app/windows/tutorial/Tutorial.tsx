@@ -10,17 +10,24 @@ import { readTutorialPreference, TUTORIAL_STEPS, tutorialAutoDisabled, writeTuto
 import './tutorial.css'
 
 interface Box { x: number; y: number; width: number; height: number }
+function isBenchmarkActive(): boolean {
+  if (typeof window === 'undefined') return false
+  if (tutorialAutoDisabled(window.location.pathname)) return true
+  const dataset = document.body?.dataset
+  return dataset?.metroBenchmarkActive === 'true' || dataset?.metroBenchmarkLocked === 'true'
+}
 function initialPreference() {
   const preference = (() => {
     try { return readTutorialPreference(window.localStorage) } catch { return { step: 0, hidden: false } }
   })()
-  return tutorialAutoDisabled(window.location.pathname) ? { ...preference, hidden: true } : preference
+  return isBenchmarkActive() ? { ...preference, hidden: true } : preference
 }
 
 export function Tutorial({ reveal }: { reveal: () => void }): React.ReactElement | null {
   const language = useLanguage()
   const [preference, setPreference] = useState(initialPreference)
-  const [open, setOpen] = useState(() => !preference.hidden)
+  const [suppressed, setSuppressed] = useState(isBenchmarkActive)
+  const [open, setOpen] = useState(() => !preference.hidden && !isBenchmarkActive())
   const [boxes, setBoxes] = useState<Box[]>([])
   const [position, setPosition] = useState({ left: 24, top: 90 })
   const [practiceSelected, setPracticeSelected] = useState(false)
@@ -28,14 +35,15 @@ export function Tutorial({ reveal }: { reveal: () => void }): React.ReactElement
   const card = useRef<HTMLElement>(null)
   const next = useRef<HTMLButtonElement>(null)
   const step = TUTORIAL_STEPS[preference.step]
-  const tutorialLineId = useStore((state) => open && step.title === 'tutorial_line' ? state.station.lines.at(-1)?.id : undefined)
+  const visible = open && !suppressed && !isBenchmarkActive()
+  const tutorialLineId = useStore((state) => visible && step.title === 'tutorial_line' ? state.station.lines.at(-1)?.id : undefined)
   const practice = step.practice
   const practiceActive = useStore((state) => state.tool === practice?.tool)
-  const showBuildArea = open && practiceSelected && practiceActive
+  const showBuildArea = visible && practiceSelected && practiceActive
 
   useLayoutEffect(() => {
     setPracticeSelected(false)
-    if (!open || !practice) return
+    if (!visible || !practice) return
     let current = true
     // An earlier step may have left the tool active. Require the player's own
     // selection in this step before revealing the construction area.
@@ -58,28 +66,38 @@ export function Tutorial({ reveal }: { reveal: () => void }): React.ReactElement
       window.removeEventListener('keydown', onKey)
       window.removeEventListener('click', onClick)
     }
-  }, [open, step, practice])
+  }, [visible, step, practice])
 
   useEffect(() => {
-    if (open) next.current?.focus({ preventScroll: true })
-  }, [open, step])
+    if (visible) next.current?.focus({ preventScroll: true })
+  }, [visible, step])
 
   useEffect(() => {
-    if (tutorialAutoDisabled(window.location.pathname)) return
+    if (isBenchmarkActive()) return
     try { writeTutorialPreference(window.localStorage, preference) } catch { /* Private browsing. */ }
   }, [preference])
 
   useEffect(() => {
     const show = (): void => {
+      if (isBenchmarkActive()) return
       setPreference((prev) => ({ ...prev, step: 0 }))
       setOpen(true)
     }
+    const onBenchmarkMode = (event: Event): void => {
+      const active = Boolean((event as CustomEvent<{ active?: boolean }>).detail?.active) || isBenchmarkActive()
+      setSuppressed(active)
+      if (active) setOpen(false)
+    }
     window.addEventListener('metro:tutorial', show)
-    return () => window.removeEventListener('metro:tutorial', show)
+    window.addEventListener('metro:benchmark-mode', onBenchmarkMode)
+    return () => {
+      window.removeEventListener('metro:tutorial', show)
+      window.removeEventListener('metro:benchmark-mode', onBenchmarkMode)
+    }
   }, [])
 
   useEffect(() => {
-    if (!open) return
+    if (!visible) return
     const previousFocus = document.activeElement as HTMLElement | null
     next.current?.focus()
     const onKey = (event: KeyboardEvent): void => {
@@ -103,10 +121,10 @@ export function Tutorial({ reveal }: { reveal: () => void }): React.ReactElement
       window.removeEventListener('keydown', onKey, true)
       previousFocus?.focus()
     }
-  }, [open])
+  }, [visible])
 
   useLayoutEffect(() => {
-    if (!open) return
+    if (!visible) return
     reveal()
     window.dispatchEvent(new CustomEvent('metro:tutorial-folders', { detail: { open: step.folders ?? [], close: step.closedFolders ?? [] } }))
     // A reopened tour may follow a collapsed navigation cube.
@@ -184,9 +202,9 @@ export function Tutorial({ reveal }: { reveal: () => void }): React.ReactElement
       document.removeEventListener('transitionend', schedule, true)
       document.removeEventListener('click', onFolderClick)
     }
-  }, [open, step, language, reveal, tutorialLineId, showBuildArea])
+  }, [visible, step, language, reveal, tutorialLineId, showBuildArea])
 
-  if (!open) return null
+  if (!visible) return null
   const last = preference.step === TUTORIAL_STEPS.length - 1
   return createPortal(
     <div className="tutorialOverlay" onContextMenu={(event) => event.preventDefault()}>

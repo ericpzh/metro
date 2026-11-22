@@ -2591,6 +2591,34 @@ minutes. Neither session produced a valid 16× timing. The raw reports are under
 `.preview/unity/model-lod-tianhe-cold-16x-high/` and
 `.preview/unity/model-lod-tianhe-cold-16x-low/`.
 
+### Windows standalone startup
+
+The Windows Release player on Unity `6000.6.8f1` and the RTX 4080 SUPER could
+show a grey window and register as unresponsive before the WebView2 worker
+started. The reported fullscreen run took about 97 seconds from player start
+to worker launch. A windowed 960 × 540 Direct3D 12 retry took about 52 seconds.
+Native main-thread samples placed the stall in
+`PersistentManager::RegisterPartiallyLoadedObjectInternal`, called from the
+first scene's synchronous preload. Direct3D 11 also stalled before UI startup.
+
+In a matched build-time scene-load ablation, removing the train catalogue
+reference dropped asset integration from 21.47 seconds to 0.28 seconds and
+loaded objects from roughly 916,000 to 38,000. The diagnostic player omitted
+trains and reached the UI in 12.91 seconds. The Windows build now stages a
+catalogue with resource paths so each formation loads when a station uses it.
+The authoring scene and WebGL catalogue retain their serialized references.
+
+The rebuilt single-file Release package included all 50 promoted formations.
+With a fresh extraction cache per launch, the 960 × 540 windowed build mounted
+the Zoo UI in 9.71 seconds and the 2560 × 1440 fullscreen build in 9.33 seconds
+from launcher start. Windows reported no hung window during either run. The
+windowed run also accepted Play/Pause input and rendered a train in motion.
+These runs used the existing WebView2 user profile. Rebuild with
+`npm run build:unity:windows` and use `measure-startup.ps1` with a fresh cache
+to sample the Windows hung-window signal and the player log's React UI marker.
+The probe, build provenance, executable hashes, timings, and native stack samples
+are in `.preview/unity/windows-hang/`.
+
 ### Windows Release playback by model detail profile
 
 The standalone benchmark completed all 18 samples using the Windows Release

@@ -5,12 +5,13 @@ import {getAudioVolumes, subscribeAudioVolumes, setAudioVolume} from '../../audi
 import { FaGear } from 'react-icons/fa6'
 import { FaBug } from 'react-icons/fa'
 import { IoLanguageSharp } from 'react-icons/io5'
-import { PiHighDefinition, PiGraphicsCard } from 'react-icons/pi'
+import { PiHighDefinition, PiGraphicsCard, PiSpeedometerBold } from 'react-icons/pi'
 import { CgScrollV } from 'react-icons/cg'
 import { TbWorldUpload } from 'react-icons/tb'
 import { FaPalette } from 'react-icons/fa6'
 import { getUiTheme, setUiTheme, subscribeUiTheme, uiThemes } from '../../uiTheme.ts'
 import { getLanguage, setLanguage, useLanguage } from '../../i18n.ts'
+import { benchmarkHrefFor } from '../../languageRoute.ts'
 import { t } from '../../../sim/i18n.ts'
 import { useStore } from '../../store.ts'
 import { reportIssueHrefFor } from '../../reportIssueRoute.ts'
@@ -223,7 +224,33 @@ export function SettingsMenu(): React.ReactElement {
   }}>
     <summary className="ghost iconBtn" aria-label={t('settings')} title={t('settings')}><FaGear aria-hidden="true" /></summary>
     <div className="settingsDropdown" role="group" aria-label={t('settings')}>
-      <div className="settingsHeading"><FaGear aria-hidden="true" /><span>{t('settings')}</span></div>
+      <div className="settingsHeading">
+        <FaGear aria-hidden="true" />
+        <span>{t('settings')}</span>
+        {stationHost?.openBenchmark ? (
+          <button
+            type="button"
+            className="ghost iconBtn settingsHeadingAction"
+            onClick={() => { if (root.current) root.current.open = false; stationHost.openBenchmark?.() }}
+            title={t('benchmark')}
+            aria-label={t('benchmark')}
+            data-setting="benchmark"
+          >
+            <PiSpeedometerBold aria-hidden="true" />
+          </button>
+        ) : (
+          <a
+            className="ghost iconBtn settingsHeadingAction"
+            href={benchmarkHrefFor(typeof location !== 'undefined' ? location.pathname : '/game/', language)}
+            onClick={() => { if (root.current) root.current.open = false }}
+            title={t('benchmark')}
+            aria-label={t('benchmark')}
+            data-setting="benchmark"
+          >
+            <PiSpeedometerBold aria-hidden="true" />
+          </a>
+        )}
+      </div>
       <div className="settingsAudioGrid">
       <label className="settingsAudio"><span>{t('master_volume')}<output>{Math.round(volumes.master*100)}%</output></span><Slider min={0} max={100} step="1" value={Math.round(volumes.master*100)} aria-label={t('master_volume')} onChange={event=>setAudioVolume('master',Number(event.target.value)/100)}/></label>
       <label className="settingsAudio"><span>{t('sound_effects')}<output>{Math.round(volumes.effects*100)}%</output></span><Slider min={0} max={100} step="1" value={Math.round(volumes.effects*100)} aria-label={t('sound_effects')} onChange={event=>setAudioVolume('effects',Number(event.target.value)/100)}/></label>
