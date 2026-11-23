@@ -14,8 +14,11 @@ public class StationSaveV1Tests {
         Assert.NotNull(dir); var evidence=Path.Combine(dir.FullName,".preview/unity/save-parity"); Directory.CreateDirectory(evidence); File.WriteAllText(Path.Combine(evidence,"cs-simple.json"),output);
         Assert.DoesNotThrow(()=>StationSaveV1.Read(output));
     }
-    [Test] public void DoesNotCommitAnUnportedSign() {
-        const string input="{\"format\":\"metro-save\",\"static\":{\"cells\":[],\"modules\":[{\"type\":\"sign\",\"x\":0,\"y\":0,\"z\":0,\"cfg\":{}}],\"lines\":[]}}";
-        Assert.Throws<NotSupportedException>(()=>StationSaveV1.Read(input));
+    [Test] public void NormalizesPortedSignAndRejectsUnsupportedFormatVersion() {
+        const string signInput="{\"format\":\"metro-save\",\"formatVersion\":1,\"static\":{\"cells\":[],\"modules\":[{\"type\":\"sign\",\"x\":0,\"y\":0,\"z\":0,\"cfg\":{}}],\"lines\":[]}}";
+        var save=StationSaveV1.Read(signInput);
+        Assert.AreEqual(1,save.ModuleCount);
+        const string badFormat="{\"format\":\"metro-save\",\"formatVersion\":99,\"static\":{\"cells\":[],\"modules\":[],\"lines\":[]}}";
+        Assert.Throws<FormatException>(()=>StationSaveV1.Read(badFormat));
     }
 }

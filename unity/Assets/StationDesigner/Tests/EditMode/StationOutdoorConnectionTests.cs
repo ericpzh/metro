@@ -729,6 +729,17 @@ public class StationOutdoorConnectionTests {
             if (!mesh) continue;
             vertices.AddRange(mesh.vertices);
         }
+        var root = renderer.Current.World?.Root;
+        if (root != null) {
+            foreach (var batch in root.GetComponentsInChildren<StationInstancedSurfaceBatch>(true)) {
+                if (batch == null || batch.SharedMesh == null || batch.Matrices == null || batch.Matrices.Length == 0) continue;
+                var localVerts = batch.SharedMesh.vertices;
+                for (int m = 0; m < batch.Matrices.Length; m++) {
+                    var matrix = batch.Matrices[m];
+                    for (int v = 0; v < localVerts.Length; v++) vertices.Add(matrix.MultiplyPoint3x4(localVerts[v]));
+                }
+            }
+        }
         return vertices;
     }
 
@@ -738,6 +749,13 @@ public class StationOutdoorConnectionTests {
         foreach (var mesh in renderer.Current.Meshes) {
             if (!mesh) continue;
             for (int subMesh = 0; subMesh < mesh.subMeshCount; subMesh++) triangles += (int)mesh.GetIndexCount(subMesh) / 3;
+        }
+        var root = renderer.Current.World?.Root;
+        if (root != null) {
+            foreach (var batch in root.GetComponentsInChildren<StationInstancedSurfaceBatch>(true)) {
+                if (batch == null || batch.SharedMesh == null || batch.Matrices == null || batch.Matrices.Length == 0) continue;
+                triangles += ((int)batch.SharedMesh.GetIndexCount(batch.SubmeshIndex) / 3) * batch.Matrices.Length;
+            }
         }
         return triangles;
     }

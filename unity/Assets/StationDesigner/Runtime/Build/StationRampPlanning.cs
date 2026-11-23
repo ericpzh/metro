@@ -144,9 +144,28 @@ namespace Metro.Build {
             bool diagonal = m.From.Value.X != m.To.Value.X && m.From.Value.Y != m.To.Value.Y;
             int width = (m.Type == "escalator" || m.Type == "walkway") ? Width(m) : 1;
             double half = width > 1 ? width / 2.0 : Math.Max(0.5, BodyHalf(m));
-            double ax = m.From.Value.X + 0.5, ay = m.From.Value.Y + 0.5;
-            double bx = m.To.Value.X + 0.5, by = m.To.Value.Y + 0.5;
+            double shiftX = 0, shiftY = 0;
             bool wide = (m.Type == "escalator" || m.Type == "walkway") && width > 1;
+            if (wide) {
+                // Port of `sim/escalators.ts:escalatorRun`: centre wide escalators/walkways across
+                // their plan blocks from low->high order so 2- and 3-block pieces align with the grid.
+                bool lowerFirst = m.From.Value.Z != m.To.Value.Z
+                    ? m.From.Value.Z < m.To.Value.Z
+                    : m.From.Value.X != m.To.Value.X
+                        ? m.From.Value.X < m.To.Value.X
+                        : m.From.Value.Y < m.To.Value.Y;
+                var lower = lowerFirst ? m.From.Value : m.To.Value;
+                var upper = lowerFirst ? m.To.Value : m.From.Value;
+                double ux = upper.X - lower.X, uy = upper.Y - lower.Y;
+                double len = Math.Sqrt(ux * ux + uy * uy);
+                if (len > 0) {
+                    double k = (width - 1) * 0.5 / len;
+                    shiftX = uy * k;
+                    shiftY = -ux * k;
+                }
+            }
+            double ax = m.From.Value.X + 0.5 + shiftX, ay = m.From.Value.Y + 0.5 + shiftY;
+            double bx = m.To.Value.X + 0.5 + shiftX, by = m.To.Value.Y + 0.5 + shiftY;
             double hx = diagonal ? half : (wide && m.From.Value.X != m.To.Value.X ? 0.5 : half);
             double hy = diagonal ? half : (wide && m.From.Value.Y != m.To.Value.Y ? 0.5 : half);
             double lo = Math.Min(m.From.Value.Z, m.To.Value.Z);

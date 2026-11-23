@@ -57,6 +57,8 @@ test('sim/ never touches the DOM, three or react', () => {
       assert.ok(!spec.includes('three') && !spec.includes('react'), `${file} imports ${spec}`)
     }
     const text = fs.readFileSync(new URL(file, SRC), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/\/\/[^\n]*/g, '')
     for (const banned of ['document.', 'window.', 'requestAnimationFrame']) {
       assert.ok(!text.includes(banned), `${file} references ${banned}`)
     }

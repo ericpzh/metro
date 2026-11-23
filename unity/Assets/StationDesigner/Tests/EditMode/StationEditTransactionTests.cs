@@ -138,16 +138,13 @@ namespace Metro.EditModeTests {
 
         [Test]
         public void UnsupportedFamiliesAreRefusedBeforeACommitCanSeeThem() {
-            // A 屋顶 roof plate's envelope lives in `sim/structures.ts` and is still outside the
-            // ported families (plan 16 §5 has since added the head-house, the straight
-            // stair/escalator pair, the 自动步道, the 电梯 and the 楼梯块).
             var plan = StationModulePlacement.Resolve(index, new StationPlacementRequest {
-                ToolType = "billboard",
+                ToolType = "unported-future-family",
                 Rotation = 0,
                 Hit = new StationPlacementHit(0, 0, 0, 0, 0, 1, true, new StationPoint(0.5, 0.5, 1), 1),
             });
             Assert.AreEqual("unsupported-family", plan.Reason);
-            Assert.IsNull(plan.Candidate, "no candidate is invented for a family the port has not reached");
+            Assert.IsNull(plan.Candidate, "no candidate is invented for an unknown or unported family");
         }
 
         [Test]
@@ -157,7 +154,8 @@ namespace Metro.EditModeTests {
                 Rotation = 0,
                 Hit = new StationPlacementHit(0, 0, 0, 0, 0, 1, true, new StationPoint(0.5, 0.5, 1), 1),
             });
-            Assert.AreEqual("unsupported-family", plan.Reason);
+            Assert.IsFalse(plan.Ok);
+            Assert.AreEqual("wall", plan.Reason);
         }
     }
 

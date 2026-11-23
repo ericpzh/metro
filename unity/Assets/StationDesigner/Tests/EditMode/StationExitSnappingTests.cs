@@ -897,10 +897,10 @@ public class StationExitSnappingTests {
         Assert.AreEqual(new StationPoint(10, 2, -5), stair.Candidate.From.Value);
         Assert.AreEqual(new StationPoint(10, 10, 0), stair.Candidate.To.Value);
         StringAssert.Contains("\"from\"", stair.Candidate.Text("flights"), "the single flight is authored");
-        // The corridor envelope is not ported, so the resolver refuses to commit the run
-        // rather than validate it with a guessed box.
-        Assert.AreEqual("ramp-corridor-unported", stair.Reason,
-            "a ramp's collision check cannot run until rampEnvelope is ported");
+        // Plan 27 ported StationRampCarve corridor validation; this single-storey fixture has
+        // no floor at z = -5, so the snapped stair is refused for missing lower landing floor.
+        Assert.AreEqual("floor", stair.Reason,
+            "a snapped ramp without a lower-storey floor at z = -5 is refused with floor");
 
         // The escalator's own 30° rung: 9 cells of run, the same 5 m rise.
         var escalator = StationModulePlacement.Resolve(index, new StationPlacementRequest {

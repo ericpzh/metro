@@ -94,10 +94,10 @@ namespace Metro.EditModeTests {
         [Test]
         public void AWideEscalatorWidensAcrossItsRun() {
             Assert.IsTrue(StationFootprints.TryClearance(Module("escalator-1"), out var box, out var unsupported), unsupported);
-            // A two-lane escalator runs along +y, so the extra lane widens it across x: its
-            // corridor is a metre either side of the centre, while y keeps its own tile.
-            Assert.AreEqual(9.5, box.X0, 0.001);
-            Assert.AreEqual(11.5, box.X1, 0.001);
+            // A two-lane escalator runs along +y, centred across cells x=10 and x=11 via
+            // `escalatorRun` (+0.5 m shift on +x), so its 2 m corridor spans [10, 12] on x.
+            Assert.AreEqual(10.0, box.X0, 0.001);
+            Assert.AreEqual(12.0, box.X1, 0.001);
             Assert.AreEqual(4, box.Y0, 0.001);
             Assert.AreEqual(13, box.Y1, 0.001);
         }

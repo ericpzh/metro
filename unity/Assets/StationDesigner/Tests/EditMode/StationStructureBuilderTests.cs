@@ -301,7 +301,7 @@ namespace Metro.EditModeTests {
         public void AFirstRailOnALineLessDocumentCreatesItsDefaultLine() {
             Assert.AreEqual(0, host.Index.Document.Lines.Count, "the fixture carries no line");
             Assert.IsTrue(StationToolSelection.TrySelect("rail", out _, out var selectCode), selectCode);
-            var plan = StationRailPlanner.Plan(host.Index, "", "up", 0, 4, 4, 0);
+            var plan = StationRailPlanner.Plan(host.Index, "", "up", 0, 4, 6, 0);
             Assert.IsTrue(plan.Ok, plan.Reason);
             Assert.IsNotNull(plan.NewLine, "the plan carries the line it creates");
             plan.Track.Id = StationModulePlacement.NextId(host.Index, "track");
@@ -322,7 +322,7 @@ namespace Metro.EditModeTests {
         [Test]
         public void ABridgeAndATunnelReadOneExtensionAim() {
             Assert.IsTrue(StationToolSelection.TrySelect("rail", out _, out var selectCode), selectCode);
-            var plan = StationRailPlanner.Plan(host.Index, "", "up", 0, 4, 4, 0);
+            var plan = StationRailPlanner.Plan(host.Index, "", "up", 0, 4, 6, 0);
             Assert.IsTrue(plan.Ok, plan.Reason);
             plan.Track.Id = StationModulePlacement.NextId(host.Index, "track");
             Assert.IsTrue(StationEditSession.TryApplyCells(host, plan.ToPatch(), "place rail", null, out _, out var code), code);

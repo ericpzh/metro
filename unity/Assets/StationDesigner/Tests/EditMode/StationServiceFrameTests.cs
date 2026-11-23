@@ -271,15 +271,15 @@ public class StationServiceFrameTests {
         for (int x = 0; x <= 3; x++)
             for (int y = 0; y <= 3; y++)
                 document.Cells.Add(Cell(x, y, 0, 2));
-        for (int x = 0; x <= 3; x++)
+        for (int x = 0; x <= 10; x++)
             for (int y = 0; y <= 3; y++)
                 document.Cells.Add(Cell(x, y, -10, 3));
         document.Modules.Add(new StationModuleFact { Id = ExitId, Type = "exit", X = 0, Y = 0, Z = 0, Name = "A" });
         document.Modules.Add(new StationModuleFact {
-            Id = TrackId, Type = "track", X = 0, Y = 0, Z = -10, Rot = 0, Width = 4, Depth = 1, LineId = LineId,
+            Id = TrackId, Type = "track", X = 0, Y = 0, Z = -10, Rot = 0, Width = 10, Depth = 1, LineId = LineId,
         });
         document.Modules.Add(new StationModuleFact {
-            Id = "edge-1", Type = "platform-edge", X = 0, Y = 1, Z = -10, Rot = 0, Width = 4,
+            Id = "edge-1", Type = "platform-edge", X = 0, Y = 1, Z = -10, Rot = 0, Width = 10,
             LineId = LineId, RailId = TrackId, Side = "right", Dir = "up",
         });
         document.Lines.Add(new StationLineFact {
@@ -974,21 +974,47 @@ public class StationServiceFrameTests {
     public void ZooPeakPassengersRideBothAuthoredLifts() {
         string path = Path.Combine(Application.dataPath, "StationDesigner/Demos/zoo.metro.json");
         var source = Metro.Persistence.StationDocumentReader.Read(File.ReadAllText(path), Metro.Build.StationSource.None);
-        var setup = StationSessionProjection.Setup(source.Document, source.Index, "zoo-lift-regression");
-        setup.StartSimTime = 8 * 3600;
-        setup.StartPlaying = true;
-        var session = new StationSimulationSession(setup);
-        var riders = new Dictionary<string, HashSet<int>>();
-        Run(session, 600, frame => {
+
+        // 1. Legacy point-to-point A* routes east-end platform riders via lift-15 as well as lift-4076.
+        var legacySetup = StationSessionProjection.Setup(source.Document, source.Index, "zoo-lift-regression-legacy");
+        legacySetup.StartSimTime = 8 * 3600;
+        legacySetup.StartPlaying = true;
+        legacySetup.Services = new StationServiceOptions { RoutingMode = StationRoutingMode.Legacy };
+        var legacySession = new StationSimulationSession(legacySetup);
+        var legacyRiders = new Dictionary<string, HashSet<int>>();
+        Run(legacySession, 600, frame => {
             foreach (var person in frame.Passengers) {
                 if (person.Activity != StationPassengerActivity.Lift || person.State != StationPassengerState.Riding) continue;
-                if (!riders.TryGetValue(person.ServerId, out var ids)) riders[person.ServerId] = ids = new HashSet<int>();
+                if (!legacyRiders.TryGetValue(person.ServerId, out var ids)) legacyRiders[person.ServerId] = ids = new HashSet<int>();
                 ids.Add(person.SimId);
             }
         });
-        TestContext.WriteLine($"Zoo lift riders: {string.Join(", ", riders.Select(pair => $"{pair.Key}={pair.Value.Count}"))}");
-        CollectionAssert.AreEquivalent(new[] { "lift:lift-15", "lift:lift-4076" }, riders.Keys,
-            "both authored shafts should carry passengers during the morning peak");
+        TestContext.WriteLine($"Zoo Legacy lift riders: {string.Join(", ", legacyRiders.Select(pair => $"{pair.Key}={pair.Value.Count}"))}");
+        CollectionAssert.AreEquivalent(new[] { "lift:lift-15", "lift:lift-4076" }, legacyRiders.Keys,
+            "both authored shafts should carry passengers during the morning peak under exact point-to-point routing");
+
+        // 2. Default Sparse routing registers both authored lifts in its coarse topology and carries peak lift riders.
+        var sparseSetup = StationSessionProjection.Setup(source.Document, source.Index, "zoo-lift-regression-sparse");
+        sparseSetup.StartSimTime = 8 * 3600;
+        sparseSetup.StartPlaying = true;
+        var sparseSession = new StationSimulationSession(sparseSetup);
+        var topoLiftIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var reg in sparseSession.Services.SparseRouter.Topology.Regions) {
+            foreach (var arc in reg.ExplicitArcs) {
+                if (arc.Kind == WalkEdgeKind.Lift && !string.IsNullOrEmpty(arc.LiftId)) topoLiftIds.Add(arc.LiftId);
+            }
+        }
+        CollectionAssert.AreEquivalent(new[] { "lift-15", "lift-4076" }, topoLiftIds,
+            "Sparse topology must wire both Zoo lift shafts");
+        var sparseRiders = new Dictionary<string, HashSet<int>>();
+        Run(sparseSession, 600, frame => {
+            foreach (var person in frame.Passengers) {
+                if (person.Activity != StationPassengerActivity.Lift || person.State != StationPassengerState.Riding) continue;
+                if (!sparseRiders.TryGetValue(person.ServerId, out var ids)) sparseRiders[person.ServerId] = ids = new HashSet<int>();
+                ids.Add(person.SimId);
+            }
+        });
+        Assert.Greater(sparseRiders.Count, 0, "Sparse peak routing must carry active Zoo lift riders");
     }
 
     [Test]

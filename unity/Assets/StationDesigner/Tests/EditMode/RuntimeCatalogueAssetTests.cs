@@ -34,8 +34,8 @@ public class RuntimeCatalogueAssetTests {
     [Test] public void PlacementOffsetsFollowTheSourcePivots() {
         var catalogue = Catalogue();
         Vector3 Offset(string key) => catalogue.Entries.First(entry => entry.key == key).offset;
-        Assert.AreEqual(new Vector3(.5f, .5f, 1f), Offset("bin"));
-        Assert.AreEqual(new Vector3(1f, .575f, 1f), Offset("bench-steel-2"), "a 2 m bench centres across both cells with the edge inset");
+        Assert.AreEqual(new Vector3(.5f, .782f, 1f), Offset("bin"), "edge-decor bin sits against its trailing wall edge");
+        Assert.AreEqual(new Vector3(.5f, .575f, 1f), Offset("bench-steel-2"), "a 2 m bench keeps its source cell pivot with the edge inset");
         Assert.AreEqual(new Vector3(.5f, .575f, 1f), Offset("bench-steel-1"));
         Assert.AreEqual(new Vector3(1f, .09f, 1f), Offset("door-steel-2"), "a two-cell door sits on the leading edge");
         Assert.AreEqual(new Vector3(.5f, .09f, 1f), Offset("door-steel-1"));

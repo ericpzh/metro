@@ -209,12 +209,26 @@ namespace Metro.EditModeTests {
                         continue;
                     }
                     var values = (JArray)expectedClearance;
-                    Assert.AreEqual((double)values[0], box.X0, Tolerance, id + "/" + moduleId + " box x0");
-                    Assert.AreEqual((double)values[1], box.Y0, Tolerance, id + "/" + moduleId + " box y0");
-                    Assert.AreEqual((double)values[2], box.Z0, Tolerance, id + "/" + moduleId + " box z0");
-                    Assert.AreEqual((double)values[3], box.X1, Tolerance, id + "/" + moduleId + " box x1");
-                    Assert.AreEqual((double)values[4], box.Y1, Tolerance, id + "/" + moduleId + " box y1");
-                    Assert.AreEqual((double)values[5], box.Z1, Tolerance, id + "/" + moduleId + " box z1");
+                    if (type == "glass" && StationFootprints.GlassStandsOnFloor(module.Config)) {
+                        // Plan 22 §2 intentionally narrowed floor-standing curtain walls from the
+                        // pre-Plan-22 0.25 m WallPanelBox band to the rendered 0.10 m leading-edge
+                        // glass frame (`StationGlassPanelTests.AFloorStandingCurtainReservesItsRotatedEdgeStrip`).
+                        Assert.AreEqual((double)values[2], box.Z0, Tolerance, id + "/" + moduleId + " curtain z0");
+                        Assert.AreEqual((double)values[5], box.Z1, Tolerance, id + "/" + moduleId + " curtain z1");
+                        Assert.GreaterOrEqual(box.X0, (double)values[0] - Tolerance, id + "/" + moduleId + " curtain x0 within edge band");
+                        Assert.LessOrEqual(box.X1, (double)values[3] + Tolerance, id + "/" + moduleId + " curtain x1 within edge band");
+                        Assert.GreaterOrEqual(box.Y0, (double)values[1] - Tolerance, id + "/" + moduleId + " curtain y0 within edge band");
+                        Assert.LessOrEqual(box.Y1, (double)values[4] + Tolerance, id + "/" + moduleId + " curtain y1 within edge band");
+                        double thinSpan = Math.Min(box.X1 - box.X0, box.Y1 - box.Y0);
+                        Assert.AreEqual(0.10, thinSpan, Tolerance, id + "/" + moduleId + " curtain frame thickness");
+                    } else {
+                        Assert.AreEqual((double)values[0], box.X0, Tolerance, id + "/" + moduleId + " box x0");
+                        Assert.AreEqual((double)values[1], box.Y0, Tolerance, id + "/" + moduleId + " box y0");
+                        Assert.AreEqual((double)values[2], box.Z0, Tolerance, id + "/" + moduleId + " box z0");
+                        Assert.AreEqual((double)values[3], box.X1, Tolerance, id + "/" + moduleId + " box x1");
+                        Assert.AreEqual((double)values[4], box.Y1, Tolerance, id + "/" + moduleId + " box y1");
+                        Assert.AreEqual((double)values[5], box.Z1, Tolerance, id + "/" + moduleId + " box z1");
+                    }
                     if (PortedClearance.Contains(type)) {
                         comparedTypes.TryGetValue(type, out var count);
                         comparedTypes[type] = count + 1;

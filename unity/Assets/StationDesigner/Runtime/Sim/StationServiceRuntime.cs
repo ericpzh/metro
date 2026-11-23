@@ -4361,6 +4361,7 @@ namespace Metro.Sim {
                         break;
                     }
                 }
+                if (!anyReachable) return Array.Empty<int>();
             }
             for (int i = 0; i < doors.Count; i++) {
                 if (doors[i].LineId != lineId || doors[i].Node < 0) continue;
