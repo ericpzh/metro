@@ -859,5 +859,249 @@ namespace Metro.Tests {
                 StationRoadLayout.JunctionSides(liveView.Network).Count,
                 stage + " JunctionSides");
         }
+
+        // =====================================================================
+        // Plan 40 §3: Revalidate a parked move before confirming it
+        // =====================================================================
+
+        [Test]
+        public void Plan40_Item3_ParkedMoveRevalidatesRotationLightPositionInterveningEditAndZeroPicks() {
+            var cells = new JArray();
+            for (int x = 0; x < 10; x++) {
+                for (int y = 0; y < 6; y++) {
+                    cells.Add(new JObject { ["x"] = x, ["y"] = y, ["z"] = -5, ["fill"] = "solid", ["zone"] = "unpaid" });
+                    cells.Add(new JObject { ["x"] = x, ["y"] = y, ["z"] = -1, ["fill"] = "solid", ["tags"] = new JArray("ceiling") });
+                }
+            }
+            var modules = new JArray {
+                new JObject { ["id"] = "bench-1", ["type"] = "bench", ["x"] = 2, ["y"] = 2, ["z"] = -5, ["rot"] = 0, ["w"] = 1, ["h"] = 1, ["d"] = 1 },
+                new JObject { ["id"] = "bench-2", ["type"] = "bench", ["x"] = 1, ["y"] = 1, ["z"] = -5, ["rot"] = 0, ["w"] = 1, ["h"] = 1, ["d"] = 1 },
+                new JObject {
+                    ["id"] = "light-1", ["type"] = "light", ["x"] = 3, ["y"] = 3, ["z"] = -1, ["rot"] = 0, ["w"] = 1, ["h"] = 1, ["d"] = 1,
+                    ["cfg"] = new JObject { ["variant"] = "rectangular", ["position"] = 0 },
+                },
+            };
+            var save = new JObject {
+                ["format"] = "metro-save", ["formatVersion"] = 1, ["name"] = "ParkedMoveRevalidate",
+                ["city"] = "guangzhou", ["seed"] = 1, ["levelBase"] = 0, ["storeyHeight"] = 5,
+                ["static"] = new JObject { ["cells"] = cells, ["modules"] = modules, ["lines"] = new JArray() },
+            }.ToString(Newtonsoft.Json.Formatting.None);
+
+            var host = CreateHost(save, "plan40-parked", withEditHandler: true);
+            var router = host.Router;
+
+            // 1. Promoted rotation probe: start move, aim at (6, 2, -5), leave canvas, press R (delta=1), confirm!
+            int revBefore = host.CurrentRevision;
+            router.Handle(MakeCommand("p40-start-1", "s-1", "edit.move.start", new JObject { ["moduleId"] = "bench-1" }));
+            Assert.IsTrue(host.Index.TryGetModule("bench-1", out var benchMod));
+            var aimHit = new StationPlacementHit(6, 2, -5, 6, 2, -5, true, new StationPoint(6.5, 2.5, -4), -4, new StationPoint(0, 0, 1));
+            StationEditSession.Plan = StationModulePlacement.Resolve(host.Index, new StationPlacementRequest {
+                Carried = benchMod, Rotation = 0, Hit = aimHit, ModulePoint = aimHit.Point,
+            });
+            Assert.IsTrue(StationEditSession.Plan.Ok);
+            Assert.AreEqual(0, StationEditSession.Plan.Candidate.Rotation);
+
+            router.Handle(MakeCommand("p40-leave-1", "s-1", "pointer.leave", new JObject()));
+            Assert.IsFalse(StationEditSession.HasPointer);
+            Assert.IsTrue(StationEditSession.ParkedMoveAim.HasValue);
+
+            int picksBeforeRotate = StationScenePicker.PickCount;
+            var rotateReply = JObject.Parse(router.Handle(MakeCommand("p40-rot-1", "s-1", "edit.rotate", new JObject { ["delta"] = 1 })));
+            Assert.AreEqual(picksBeforeRotate, StationScenePicker.PickCount, "off-canvas rotate must perform zero scene picks");
+            Assert.AreEqual(1, StationEditSession.CarriedRotation);
+            Assert.IsNotNull(StationEditSession.Plan);
+            Assert.IsTrue(StationEditSession.Plan.Ok);
+            Assert.AreEqual(1, StationEditSession.Plan.Candidate.Rotation, "parked plan must re-resolve with rotated setting");
+            Assert.AreEqual(1, (int)rotateReply["payload"]?["edit"]?["plan"]?["candidate"]?["rot"]);
+
+            int picksBeforeConfirm = StationScenePicker.PickCount;
+            var confirmReply = JObject.Parse(router.Handle(MakeCommand("p40-confirm-1", "s-1", "edit.move.confirm", new JObject())));
+            Assert.AreEqual(picksBeforeConfirm, StationScenePicker.PickCount, "off-canvas confirm must perform zero scene picks");
+            Assert.AreEqual("commit", (string)confirmReply["kind"]);
+            Assert.AreEqual(revBefore + 1, host.CurrentRevision);
+            Assert.IsFalse(StationEditSession.HasCarried);
+            Assert.IsFalse(StationEditSession.ParkedMoveAim.HasValue, "confirmed drop must clear parked aim input");
+            Assert.IsTrue(host.Index.TryGetModule("bench-1", out var movedBench));
+            Assert.AreEqual(6, movedBench.X);
+            Assert.AreEqual(2, movedBench.Y);
+            Assert.AreEqual(1, movedBench.Rotation, "Parked confirmation must apply the rotation requested after leaving the canvas");
+
+            // Single undo restores (2, 2, -5) rot=0; single redo restores (6, 2, -5) rot=1.
+            Assert.IsTrue(StationEditSession.TryUndo(host, out _, out var u1), u1);
+            Assert.IsTrue(host.Index.TryGetModule("bench-1", out var undoneBench));
+            Assert.AreEqual(2, undoneBench.X);
+            Assert.AreEqual(0, undoneBench.Rotation);
+
+            Assert.IsTrue(StationEditSession.TryRedo(host, out _, out var r1), r1);
+            Assert.IsTrue(host.Index.TryGetModule("bench-1", out var redoneBench));
+            Assert.AreEqual(6, redoneBench.X);
+            Assert.AreEqual(1, redoneBench.Rotation);
+
+            // 2. Rectangular light: cycle light position off-canvas and confirm commits updated position.
+            router.Handle(MakeCommand("p40-light-start", "s-1", "edit.move.start", new JObject { ["moduleId"] = "light-1" }));
+            Assert.IsTrue(host.Index.TryGetModule("light-1", out var lightMod));
+            var lightHit = new StationPlacementHit(5, 3, -1, 5, 3, -1, true, new StationPoint(5.5, 3.5, -1), -1, new StationPoint(0, 0, -1));
+            StationEditSession.Plan = StationModulePlacement.Resolve(host.Index, new StationPlacementRequest {
+                Carried = lightMod, Rotation = 0, LightPosition = 0, Hit = lightHit, ModulePoint = lightHit.Point,
+            });
+            router.Handle(MakeCommand("p40-light-leave", "s-1", "pointer.leave", new JObject()));
+            router.Handle(MakeCommand("p40-light-pos", "s-1", "edit.move.lightPosition", new JObject()));
+            Assert.AreEqual(1, StationEditSession.CarriedLightPosition);
+            Assert.AreEqual("1", StationEditSession.Plan.Candidate.Text("position"));
+            var lightConfirm = JObject.Parse(router.Handle(MakeCommand("p40-light-confirm", "s-1", "edit.move.confirm", new JObject())));
+            Assert.AreEqual("commit", (string)lightConfirm["kind"]);
+            Assert.IsTrue(host.Index.TryGetModule("light-1", out var movedLight));
+            Assert.AreEqual(5, movedLight.X);
+            Assert.AreEqual(1, movedLight.Config.Int("position", -1), "parked light confirmation must apply updated lightPosition");
+
+            // 3. Intervening edit occupies the parked target: confirmation must fail cleanly, preserve carry, show reason, and leave revision unchanged!
+            router.Handle(MakeCommand("p40-occ-start", "s-1", "edit.move.start", new JObject { ["moduleId"] = "bench-1" }));
+            Assert.IsTrue(host.Index.TryGetModule("bench-1", out var benchForOcc));
+            var targetHit = new StationPlacementHit(7, 2, -5, 7, 2, -5, true, new StationPoint(7.5, 2.5, -4), -4, new StationPoint(0, 0, 1));
+            StationEditSession.Plan = StationModulePlacement.Resolve(host.Index, new StationPlacementRequest {
+                Carried = benchForOcc, Rotation = 1, Hit = targetHit, ModulePoint = targetHit.Point,
+            });
+            Assert.IsTrue(StationEditSession.Plan.Ok);
+            router.Handle(MakeCommand("p40-occ-leave", "s-1", "pointer.leave", new JObject()));
+
+            // Place a blocker bench at (7, 2, -5) while bench-1 is parked over it.
+            var blockerDraft = new StationEditDraft { Id = "bench-blocker-new", Type = "bench", X = 7, Y = 2, Z = -5, Width = 1, Height = 1, Depth = 1, Rotation = 0 };
+            Assert.IsTrue(StationEditSession.TryApply(host, StationModuleEditMode.Add, blockerDraft, null, "add-blocker", null, out _, out var addCode), addCode);
+
+            // Revalidation ran immediately on commit so InfoCard already sees blocked status!
+            Assert.IsTrue(StationEditSession.HasCarried, "intervening edit must preserve carry");
+            Assert.IsNotNull(StationEditSession.Plan);
+            Assert.IsFalse(StationEditSession.Plan.Ok, "parked target occupied by intervening edit must invalidate plan");
+            Assert.AreEqual("occupied", StationEditSession.Plan.Reason);
+            Assert.AreEqual("occupied", StationEditSession.MoveReason);
+
+            int revBeforeBlockedConfirm = host.CurrentRevision;
+            int picksBeforeBlockedConfirm = StationScenePicker.PickCount;
+            var blockedReply = JObject.Parse(router.Handle(MakeCommand("p40-occ-confirm", "s-1", "edit.move.confirm", new JObject())));
+            Assert.AreEqual(picksBeforeBlockedConfirm, StationScenePicker.PickCount, "blocked off-canvas confirm must perform zero scene picks");
+            Assert.AreEqual("ack", (string)blockedReply["kind"], "blocked confirm must not commit");
+            Assert.AreEqual(revBeforeBlockedConfirm, host.CurrentRevision, "blocked confirm must leave committed revision unchanged");
+            Assert.IsTrue(StationEditSession.HasCarried, "blocked confirm must preserve carry");
+            Assert.AreEqual("bench-1", StationEditSession.CarriedId);
+            Assert.AreEqual("occupied", StationEditSession.MoveReason);
+            Assert.AreEqual(false, (bool)blockedReply["payload"]?["edit"]?["plan"]?["ok"]);
+            Assert.AreEqual("occupied", (string)blockedReply["payload"]?["edit"]?["moveReason"]);
+
+            // Switching to a different carried piece replaces parked aim cleanly; cancel clears it with zero revision changes.
+            router.Handle(MakeCommand("p40-switch", "s-1", "edit.move.start", new JObject { ["moduleId"] = "bench-2" }));
+            Assert.AreEqual("bench-2", StationEditSession.CarriedId);
+            Assert.AreEqual(1, StationEditSession.ParkedMoveAim.Hit.X, "switching carried piece must reset parked aim to new module");
+            router.Handle(MakeCommand("p40-cancel", "s-1", "edit.cancel", new JObject()));
+            Assert.AreEqual(revBeforeBlockedConfirm, host.CurrentRevision, "cancel must leave committed revision unchanged");
+            Assert.IsFalse(StationEditSession.HasCarried);
+            Assert.IsFalse(StationEditSession.ParkedMoveAim.HasValue);
+        }
+
+        // =====================================================================
+        // Plan 40 §2 & Plan 41 §1: Host commit delta preserves opaque metadata,
+        // own __proto__, >53-bit integer tokens, extra fields, and exact order
+        // =====================================================================
+
+        [Test]
+        public void Plan40_Item2_HostCommitDeltaPreservesOpaqueMetadataAndExtraRecordFieldsAcrossEditUndoRedo() {
+            const string rawSave =
+                "{\"format\":\"metro-save\",\"formatVersion\":1,\"name\":\"DeltaLossless\"," +
+                "\"city\":\"guangzhou\",\"seed\":1,\"levelBase\":0,\"storeyHeight\":5," +
+                "\"__proto__\":{\"ownProto\":true,\"tag\":\"keep-root\"}," +
+                "\"authorMetadata\":{\"description\":\"review metadata\",\"version\":2,\"bigId\":9007199254740993}," +
+                "\"static\":{\"cells\":[" +
+                "{\"x\":0,\"y\":0,\"z\":-5,\"fill\":\"solid\",\"zone\":\"unpaid\",\"bigCellId\":9007199254740995,\"customCellMeta\":{\"note\":\"keep-cell\"}}," +
+                "{\"x\":1,\"y\":0,\"z\":-5,\"fill\":\"solid\",\"zone\":\"unpaid\"}," +
+                "{\"x\":2,\"y\":0,\"z\":-5,\"fill\":\"solid\",\"zone\":\"unpaid\"}" +
+                "],\"modules\":[" +
+                "{\"id\":\"bench-1\",\"type\":\"bench\",\"x\":0,\"y\":0,\"z\":-5,\"rot\":0,\"w\":1,\"h\":1,\"d\":1,\"bigModId\":9007199254740997,\"customModMeta\":\"keep-mod\",\"cfg\":{\"variant\":\"steel-1\",\"customCfg\":42}}," +
+                "{\"id\":\"bench-2\",\"type\":\"bench\",\"x\":1,\"y\":0,\"z\":-5,\"rot\":0,\"w\":1,\"h\":1,\"d\":1,\"cfg\":{\"variant\":\"steel-1\"}}," +
+                "{\"id\":\"bench-3\",\"type\":\"bench\",\"x\":2,\"y\":0,\"z\":-5,\"rot\":0,\"w\":1,\"h\":1,\"d\":1,\"cfg\":{\"variant\":\"steel-1\"}}" +
+                "],\"lines\":[" +
+                "{\"id\":\"1\",\"name\":\"1号线\",\"colour\":\"#f3d03e\",\"stock\":\"A\",\"cars\":6,\"direction\":\"up\",\"bigLineId\":9007199254740999,\"customLineTag\":\"keep-line\"}" +
+                "]}}";
+
+            var host = CreateHost(rawSave, "plan40-delta", withEditHandler: true);
+            var router = host.Router;
+
+            // 1. Add Line 2 (local delta): verify delta carries linesJson (no duplicate lines array) with Line 1's bigLineId & customLineTag.
+            var addLineReply = JObject.Parse(router.Handle(MakeCommand("d-1", "s-1", "edit.line.add", new JObject { ["direction"] = "up" })));
+            Assert.AreEqual("commit", (string)addLineReply["kind"]);
+            var addDelta = addLineReply["payload"]?["delta"] as JObject;
+            Assert.IsNotNull(addDelta, "edit.line.add must emit a local delta");
+            Assert.IsNull(addDelta["lines"], "wire delta must not send duplicate parsed lines array alongside linesJson");
+            var line0Raw = (string)addDelta["linesJson"]?[0];
+            StringAssert.Contains("\"customLineTag\":\"keep-line\"", line0Raw);
+            StringAssert.Contains("\"bigLineId\":9007199254740999", line0Raw);
+
+            // 2. Label cell (0,0,-5) room="store" (local delta): verify changedCellsJson + changedCellIndices preserve bigCellId & customCellMeta.
+            var labelPatch = new StationCellPatch();
+            labelPatch.Writes.Add(StationCellWrite.Labels(new StationCellKey(0, 0, -5), "unpaid", "store"));
+            Assert.IsTrue(StationEditSession.TryApplyCells(host, labelPatch, "label", null, out _, out var lblCode), lblCode);
+            var labelCommit = JObject.Parse(host.BuildCommitPayload().ToString(Newtonsoft.Json.Formatting.None));
+            var labelDelta = labelCommit["delta"] as JObject;
+            Assert.IsNotNull(labelDelta);
+            Assert.IsNull(labelDelta["changedCells"], "wire delta must not duplicate changedCells object bodies");
+            Assert.AreEqual(0, (int)labelDelta["changedCellIndices"]?[0]);
+            var cell0Raw = (string)labelDelta["changedCellsJson"]?[0];
+            StringAssert.Contains("\"note\":\"keep-cell\"", cell0Raw);
+            StringAssert.Contains("\"bigCellId\":9007199254740995", cell0Raw);
+
+            // 3. Delete first of three modules (bench-1), then undo -> undo delta MUST carry changedModuleIndices=[0] & exact bigModId!
+            Assert.IsTrue(StationEditSession.TryApply(host, StationModuleEditMode.Remove, null, "bench-1", "remove", null, out _, out var rmCode), rmCode);
+            var rmDelta = JObject.Parse(host.BuildCommitPayload().ToString(Newtonsoft.Json.Formatting.None))["delta"] as JObject;
+            Assert.IsNotNull(rmDelta);
+            Assert.AreEqual("bench-1", (string)rmDelta["removedModules"]?[0]);
+
+            var undoModReply = JObject.Parse(router.Handle(MakeCommand("d-undo-mod", "s-1", "edit.undo", new JObject())));
+            Assert.AreEqual("commit", (string)undoModReply["kind"]);
+            var undoModDelta = undoModReply["payload"]?["delta"] as JObject;
+            Assert.IsNotNull(undoModDelta);
+            Assert.IsNull(undoModDelta["changedModules"], "wire delta must not duplicate changedModules object bodies");
+            Assert.AreEqual(0, (int)undoModDelta["changedModuleIndices"]?[0], "undo of deleting first bench must carry target index 0");
+            var mod0Raw = (string)undoModDelta["changedModulesJson"]?[0];
+            StringAssert.Contains("\"customModMeta\":\"keep-mod\"", mod0Raw);
+            StringAssert.Contains("\"customCfg\":42", mod0Raw);
+            StringAssert.Contains("\"bigModId\":9007199254740997", mod0Raw);
+
+            // Redo deleting bench-1, then undo again to keep all 3 benches in order.
+            var redoModReply = JObject.Parse(router.Handle(MakeCommand("d-redo-mod", "s-1", "edit.redo", new JObject())));
+            Assert.AreEqual("commit", (string)redoModReply["kind"]);
+            Assert.AreEqual("bench-1", (string)redoModReply["payload"]?["delta"]?["removedModules"]?[0]);
+            router.Handle(MakeCommand("d-undo-mod-2", "s-1", "edit.undo", new JObject()));
+
+            // 4. Delete first cell (0,0,-5) (after removing bench-1 first or deleting cell (2,0,-5) / bench-1) -> delete (0,0,-5) via patch + undo!
+            var rmCellPatch = new StationCellPatch();
+            rmCellPatch.Writes.Add(StationCellWrite.Drop(new StationCellKey(0, 0, -5)));
+            rmCellPatch.RemoveModuleIds.Add("bench-1");
+            Assert.IsTrue(StationEditSession.TryApplyCells(host, rmCellPatch, "rm-cell-0", null, out _, out var rmcCode), rmcCode);
+            var undoCellReply = JObject.Parse(router.Handle(MakeCommand("d-undo-cell", "s-1", "edit.undo", new JObject())));
+            Assert.AreEqual("commit", (string)undoCellReply["kind"]);
+            var undoCellDelta = undoCellReply["payload"]?["delta"] as JObject;
+            Assert.IsNotNull(undoCellDelta);
+            Assert.AreEqual(0, (int)undoCellDelta["changedCellIndices"]?[0], "undo of deleting first cell must carry target index 0");
+            StringAssert.Contains("\"bigCellId\":9007199254740995", (string)undoCellDelta["changedCellsJson"]?[0]);
+            Assert.AreEqual(0, (int)undoCellDelta["changedModuleIndices"]?[0], "undo of cascade-removed first module must carry target index 0");
+
+            // 5. Exported save preserves __proto__, every >53-bit integer token, extra fields, and exact array order!
+            var exportedRaw = host.SaveDocument();
+            StringAssert.Contains("\"__proto__\":{\"ownProto\":true,\"tag\":\"keep-root\"}", exportedRaw);
+            StringAssert.Contains("\"bigId\":9007199254740993", exportedRaw);
+            StringAssert.Contains("\"bigCellId\":9007199254740995", exportedRaw);
+            StringAssert.Contains("\"bigModId\":9007199254740997", exportedRaw);
+            StringAssert.Contains("\"bigLineId\":9007199254740999", exportedRaw);
+            var exported = JObject.Parse(exportedRaw);
+            Assert.AreEqual("bench-1", (string)exported["static"]?["modules"]?[0]?["id"]);
+            Assert.AreEqual("bench-2", (string)exported["static"]?["modules"]?[1]?["id"]);
+            Assert.AreEqual("bench-3", (string)exported["static"]?["modules"]?[2]?["id"]);
+            Assert.AreEqual(0, (int)exported["static"]?["cells"]?[0]?["x"]);
+
+            // 6. CanRepresentHeaderInDelta refuses delta emission if an unrepresentable root metadata field differs.
+            var headerA = new JObject { ["name"] = "A", ["city"] = "guangzhou", ["authorMetadata"] = new JObject { ["v"] = 1 } };
+            var headerB = new JObject { ["name"] = "B", ["city"] = "shanghai", ["authorMetadata"] = new JObject { ["v"] = 1 } };
+            var headerC = new JObject { ["name"] = "B", ["city"] = "shanghai", ["authorMetadata"] = new JObject { ["v"] = 2 } };
+            Assert.IsTrue(StationLocalEdit.CanRepresentHeaderInDelta(headerA, headerB));
+            Assert.IsFalse(StationLocalEdit.CanRepresentHeaderInDelta(headerA, headerC));
+        }
     }
 }

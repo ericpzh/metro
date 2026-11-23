@@ -41,6 +41,20 @@ namespace Metro.Build {
         public ReadOnlySpan<T> PageSpan(int pageId) =>
             (uint)pageId < (uint)pages.Length ? pages[pageId] : ReadOnlySpan<T>.Empty;
 
+        /// <summary>
+        /// Return the 0-based global sequence index of the first record matching
+        /// <paramref name="match"/> inside <paramref name="pageId"/>, or -1 if absent.
+        /// Runs in O(page size) using <c>prefixCounts</c> without scanning earlier pages.
+        /// </summary>
+        public int IndexOfInPage(int pageId, Predicate<T> match) {
+            if ((uint)pageId >= (uint)pages.Length || match == null) return -1;
+            var page = pages[pageId];
+            for (int i = 0; i < page.Length; i++) {
+                if (match(page[i])) return prefixCounts[pageId] + i;
+            }
+            return -1;
+        }
+
         internal T[] RawPage(int pageId) => pages[pageId];
 
         int FindPageForIndex(int index) {

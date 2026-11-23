@@ -64,8 +64,19 @@ namespace Metro.App {
         public static int CarriedRotation;
         public static int? CarriedLightPosition;
         public static string MoveReason = "";
+        /// <summary>The last valid aim input for the carried piece so off-canvas rotation/settings/confirm revalidate cleanly (plan 40 §3).</summary>
+        public static StationPlacementAimInput ParkedMoveAim;
+        static StationPlacementPlan currentPlan;
         /// <summary>The last resolved plan, for the state snapshot and the verifier.</summary>
-        public static StationPlacementPlan Plan;
+        public static StationPlacementPlan Plan {
+            get => currentPlan;
+            set {
+                currentPlan = value;
+                if (value != null && value.IsMove && value.AimInput.HasValue && HasCarried) {
+                    ParkedMoveAim = value.AimInput;
+                }
+            }
+        }
         /// <summary>
         /// The cell tool's last aimed preview (accepted/refused cells, the ring, the badge).
         /// It is a **preview**: publishing it never touches the document, the revision or the
@@ -172,6 +183,7 @@ namespace Metro.App {
             CarriedId = module?.Id ?? "";
             CarriedRotation = module?.Rotation ?? 0;
             CarriedLightPosition = null;
+            ParkedMoveAim = default;
         }
 
         public static void Reset() {

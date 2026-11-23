@@ -40,6 +40,18 @@ namespace Metro.Build {
 
         public readonly Dictionary<StationCellKey, int> CellPageIds = new Dictionary<StationCellKey, int>();
         public readonly Dictionary<string, int> ModulePageIds = new Dictionary<string, int>(StringComparer.Ordinal);
+        /// <summary>
+        /// Existing cell keys that were removed and re-appended in the same local patch (e.g.
+        /// digging a grade cell replaces a solid cell at its old slot with a void cell at the
+        /// tail). Included in wire <c>removedCells</c> alongside <c>changedCellsJson</c> +
+        /// <c>changedCellIndices</c> so delta autosave moves them to their exact target index.
+        /// </summary>
+        public readonly List<StationCellKey> ReorderedCells = new List<StationCellKey>();
+        /// <summary>
+        /// True when a local edit changed the relative order of surviving records in a way not
+        /// described by <see cref="ReorderedCells"/>, requiring a full commit envelope.
+        /// </summary>
+        public bool HasReorderedRecords;
     }
 
     /// <summary>

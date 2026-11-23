@@ -135,6 +135,19 @@ for measurement rules and [perf-benchmarks.md](perf-benchmarks.md) for commands.
   *(Remaining ~3 ms gap on Tianhe Regular to reach ≥ 60 FPS is driven by the ~18k individual
   non-readable glTFast `MeshRenderer`s across `openings`/`vertical`/`equipment`/`displays`/`signs`,
   which require renderer-level GPU instancing rather than runtime `StaticBatchingUtility`, or Win64 IL2CPP.)*
+- **Measured Unity WebGL results on the same Plan 38 changes (`b8e8773b`, `pack-20261123184339044`,
+  `.preview/perf/plan38-bench-pass3/`, Chrome hardware GPU RTX 4080 SUPER, `1600×900`, 16×, `native` FSR,
+  474–479 ticks/30 s; excludes `#if !UNITY_WEBGL` background sim worker, desktop URP tuning, and interior
+  shadow-caster toggles):**
+  - `zoo` Low Regular: **40.80 → 47.58 FPS** (+16.6%, 1% low 18.72 → 9.89, worst 62 → 206.6 ms, Chrome OS WS 3,562 → 3,198 MB)
+  - `tanwei` Low Regular: **26.69 → 35.31 FPS** (+32.3%, 1% low 8.99 → 4.49, worst 143 → 322.1 ms, Chrome OS WS 4,209 → 3,854 MB)
+  - `tianhe` Low Regular: **7.78 → 9.07 FPS** (+16.6%, 1% low 3.15 → 2.66, worst 394 → 379.3 ms, Chrome OS WS 5,279 → 5,543 MB)
+  - `tianhe` High Regular: **7.74 → 9.03 FPS** (+16.7%, 1% low 3.57 → 2.69, worst 282 → 380.5 ms, Chrome OS WS 5,244 → 5,545 MB)
+  - `tianhe` Low Exploded: **10.86 → 16.06 FPS** (+47.9%, 1% low 3.41 → 3.29, worst 313 → 353.7 ms, Chrome OS WS 6,141 → 6,270 MB)
+  - `tianhe` High Exploded: **10.97 → 15.90 FPS** (+44.9%, 1% low 3.49 → 3.45, worst 303 → 349.3 ms, Chrome OS WS 5,988 → 6,260 MB)
+  *(Note: `zoo` and `tanwei` WebGL runs showed ~8–10 intermittent 100–320 ms frame spikes lowering 1% low
+  despite the +17–32% average FPS gain; needs follow-up isolation between `StationTvPlatePainter.PaintRuntime`
+  WebGL `RenderTexture` churn and concurrent Plan 39 changes in `b8e8773b`.)*
 - **Exploded view (`StationExplodedTrayBuilder.cs`, `StationExplodedView.cs`)**:
   Borrows the active `StationFinishLibrary`, builds only service-track consists
   using `CompactConsistInstance`, keeps `StationInstancedSurfaceBatch` props
@@ -165,21 +178,60 @@ for measurement rules and [perf-benchmarks.md](perf-benchmarks.md) for commands.
   world build from `946 → 341 MiB`, and after simulation stage from `1,141 → 504 MiB`,
   passing all 30/30 Tianhe WebGL benchmark combinations (`regular` + `explode`, all
   3 detail tiers × 5 FSR modes) on attempt 1.
-- **Coalesced WebGL autosave (`game/src/unity-web/webglAutosave.ts`)**: Local
-  delta commits (`face.paint`, block/module edits, undo/redo) never call
-  `serialize(station)` synchronously inside `adopt()` / `noteCommit()`; encoding
-  reuses full host `documentText` when present or coalesces outside the input
-  path via `requestIdleCallback`/`setTimeout` fenced on `(sessionId,
-  stationEpoch, revision)`, while `pagehide`, `visibilitychange(hidden)`,
-  `beforeunload`, and interval timers still flush synchronously without waiting
-  for bridge replies. Replacement commits (`demo.load`, `station.load`,
-  `station.new`) invalidate `AUTOSAVE_KEY` before writing so quota failures
-  never resurrect a stale station on reload. On packaged Tianhe Park WebGL
-  (headless Chrome SwiftShader, 1 warmup + 6 local delta `face.paint`/undo/redo
-  edits + `pagehide` flush), moving encoding out of commit adoption cuts JS
-  adopt dispatch median from `73.20 ms → 1.65 ms` (44.4×, max `82.70 → 2.00 ms`)
-  and end-to-end edit-to-adopt median from `362.45 ms → 275.85 ms` (`-86.60 ms`),
-  with separate unload-time `pagehide` flush completing in `108.90 ms`.
+- **Lossless raw-JSON coalesced WebGL autosave (`game/src/unity-web/webglAutosave.ts`, `StationGameHost.cs`)**:
+  Splits the complete host `documentText` directly into raw JSON root values
+  and ordered raw JSON slices for `cells`, `modules`, and `lines` (never passing
+  untouched metadata or records through JS `JSON.parse`/`Number`), and applies
+  raw sequential host commit deltas (`changedCellsJson`, `changedCellIndices`,
+  `changedModulesJson`, `changedModuleIndices`, `linesJson`, plus editable
+  header fields, omitting duplicate parsed record bodies on the wire) while
+  gating `CanBuildDeltaCommitPayload()` on
+  `StationLocalEdit.CanRepresentHeaderInDelta` and
+  `!HasReorderedRecords`. Preserves own root `__proto__` properties, >53-bit
+  integer tokens, host-preserved extra fields, and exact host array order across
+  additions, in-place edits, deletions, undo, and redo (`ReorderedCells`
+  handles grade-hole remove+append in O(|delta|)). Enforces
+  `(sessionId, stationEpoch, baseRevision)` sequence coherence and final-sequence
+  target-index validation after removals and insertions for both existing and
+  inserted raw cell/module records (rejecting impossible, wrong in-range,
+  conflicting, or missing indices, discarding failed reconstructions before
+  writing, and recovering via `station.resync`).
+  Local delta commits never scan or encode synchronously inside `adopt()` /
+  `noteCommit()`: full host envelopes are reused directly, delta encoding
+  coalesces outside input handling via `requestIdleCallback`/`setTimeout`, and
+  `pagehide`, `visibilitychange(hidden)`, `beforeunload`, and interval timers
+  retain a synchronous unload-safe fallback without a bridge round trip.
+  Replacement commands (`station.openDemo`, `station.open`, `station.new`)
+  register intent via `stationBridge.send(..., { beforeSend })` and invalidate
+  `AUTOSAVE_KEY` before writing so quota failures never resurrect a stale
+  station on reload. On packaged Tianhe Park WebGL (`151,852` cells,
+  `16,805,093 B` envelope, headless Chrome SwiftShader, idle machine, 1 warmup
+  + 6 local delta `face.paint`/undo/redo edits, 5 cold + 5 prepared `pagehide`
+  trials per pack, `writesDuringBurst = 0` across all runs):
+  - Plan 39 (`pack-20261123184339044`, UI-projected lossy `serialize(station)`):
+    `editToAdopt` median `137.55 ms` (`115.2–212.2`), JS `adopt` median
+    `0.80 ms` (max `1.4`), cold `pagehide` median `53.30 ms` (`51.1–89.1`),
+    prepared `pagehide` median `12.40 ms` (`8.8–15.2`).
+  - Plan 40 (`pack-20261123190031490`, `JSON.parse`/`stringify` envelope):
+    `editToAdopt` median `128.35 ms` (`112.5–167.0`), JS `adopt` median
+    `0.70 ms` (max `6.9`), cold `pagehide` median `104.70 ms` (`101.8–119.9`),
+    prepared `pagehide` median `11.80 ms` (`9.7–14.7`).
+  - Plan 41 (`pack-20261123211811350`, raw-JSON lossless + exact host order):
+    `editToAdopt` median `115.65 ms` (`110.1–139.7`, vs `362.45 ms` synchronous
+    pre-Plan-39 baseline), JS `adopt` median `0.70 ms` (max `5.6`, vs `73.20 ms`
+    synchronous baseline), cold `pagehide` median `116.80 ms` (`114.9–118.6`),
+    prepared `pagehide` median `10.70 ms` (`10.5–11.1`).
+  - Plan 42 (`pack-20261123220057312`, raw-JSON lossless + final-position
+    validation + FIFO adoption-gated queue): `editToAdopt` median `116.65 ms`
+    (`110.2–160.4`), JS `adopt` median `0.70 ms` (max `1.3`), cold `pagehide`
+    median `110.00 ms` (`108.6–115.4`), prepared `pagehide` median `9.70 ms`
+    (`9.3–10.5`).
+  - Quota outcome (separate from successful persistence): all `10/10` Tianhe
+    flushes per pack generated valid `16.8 MB` envelopes (`16,805,127 B` on
+    Plan 41 & Plan 42) and hit Chrome's 5 MB `localStorage` `QuotaExceededError`
+    cleanly (`0/10` persisted, no uncaught error); successful persistence, quota
+    retry, invalid-position rejection + resync recovery, and byte-identical
+    reload were verified separately on the smaller `Plan42Fixture` station.
 - **Brotli deploy bundles** (`tools/unity-web/stage-deploy.mjs`,
   `local-worker.mjs`, `unity/wrangler.jsonc`): Stages only public
   `StationGameLocal.unity` packs (rejecting local-only `StationGameLocalWeb*`

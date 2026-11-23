@@ -120,13 +120,13 @@ namespace Metro.Tests {
             Assert.AreEqual("春熙路", host.Document.Name);
             Assert.AreEqual("Chunxi Rd", host.Document.NameEn);
 
-            // Add line picks Chengdu palette for line 2 and emits delta.lines.
+            // Add line picks Chengdu palette for line 2 and emits delta.linesJson.
             string addReply = host.Router.Handle(Envelope("c-add", "edit.line.add", new JObject { ["direction"] = "down" }, host.CurrentRevision));
             var addObj = JObject.Parse(addReply);
             Assert.AreEqual("commit", (string)addObj["kind"]);
             Assert.AreEqual(2, host.Document.Lines.Count);
             Assert.AreEqual(StationCityStyles.LineColourFor("2", "chengdu"), host.Document.Lines[1].Colour);
-            Assert.IsNotNull(addObj["payload"]?["delta"]?["lines"]);
+            Assert.IsNotNull(addObj["payload"]?["delta"]?["linesJson"]);
 
             // Update line 2 colour + headway.
             string updReply = host.Router.Handle(Envelope("c-upd", "edit.line.update",

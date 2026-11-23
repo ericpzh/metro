@@ -8,8 +8,10 @@ and the Unity bridge/presenter classes in `unity/Assets/StationDesigner/`.
 | File | Responsibility |
 | --- | --- |
 | `main.tsx` | Single-tree shell entry (`mountUnityUI`), registers `StationHost` (including authoritative `undo`/`redo`/`getHistory`/`subscribeHistory`) + `stationHostCommit`, intercepts all 5 artwork streams before `stationBridge.receive`, syncs UI theme (`view.set { key: "theme" }`), runs WebGL autosave, mounts `UnityApp` / `UnityShellRoot` / `UnityExplodedView` / `UnityBenchmarkRoute`, wires `#game-loading`, `.metro-measure-chip`, audio, eye drag, and reject notices. Exposes `window.__metroStationBridge`. |
-| `stationBridge.ts` | Bridge v2 transport (`SCHEMA_VERSION = 2`), pre-registration command queue, `sessionId` fencing, pure `reduce()` (tracking `stationEpoch` + `readHostHistory`), `onCommit`, out-of-reducer `onCameraPose` & `onAudio`, correlated `request<TPayload>()` (`BridgeRequestError`, 5 s default timeout), `readCommittedDocument()`, and `resync()`. |
+| `stationBridge.ts` | Bridge v2 transport (`SCHEMA_VERSION = 2`), FIFO station-load queue (at most one active load), dependent-edit `targetLoadId` + revision/epoch binding, `beforeSend`/`beforeDispatch`/`onCancel` hooks, shell adoption gating (`noteAdopted` / `noteAdoptionFailed`), `sessionId` fencing, pure `reduce()` (tracking `stationEpoch`, `readHostHistory`, and raw delta `*Json`/`*Indices`), `onCommit`, out-of-reducer `onCameraPose` & `onAudio`, correlated `request<TPayload>()` (`BridgeRequestError`, 5 s default timeout), `readCommittedDocument()`, and `resync()`. |
 | `stationDelta.ts` | O(\|delta\|) in-place application of `StationCommitDelta` (`STATION_DELTA_SCHEMA_VERSION = 1`, including `lines`) via `WeakMap`-cached cell index (`seedStationCellIndex`, `applyStationDelta`) preserving untouched object identities. |
+| `lineSelection.ts` | Authoritative rail-line selection tracker (`createLineSelectionTracker`: `reserveAdd`, `bindAdd`, `trackAdd`, `noteReject`, `syncFence`, `reconcile`) activating newly created host lines on correlated `edit.line.add` commits and falling back cleanly on remove/undo/redo/replacement. |
+| `carriedMoveAdapter.ts` | Memoized carried-move state bridge (`createCarriedMoveAdapter`, `readHostCarriedMove`) exposing host `state.edit.{carried,plan,moveReason}` and localized refusal strings to `InfoCard.tsx` for Confirm/Cancel controls. |
 | `cameraAdapter.ts` | `createStationCameraPort`, `createUnityViewCubeAdapter` (rAF-coalesced `camera.orbit` & sequenced `onCameraPose`), `attachViewStateBridge` (`view.set`), and `attachCanvasCameraGestures` (middle orbit, unclaimed right pan, wheel zoom, build-button chord guard). |
 | `pointerButtons.ts` | Canonical DOM mouse button (`0`/`1`/`2`) to `MouseEvent.buttons` bit (`1`/`4`/`2`) table, `MOVE_BUTTON = -1` sentinel, `holdsButton`, `hasBuildChord`. |
 | `pointerInput.ts` | Canvas tool pointer stream (`pointer.down`, rAF-coalesced `pointer.move`, `pointer.up`, `pointer.rightTap`, `pointer.cancel`, `pointer.leave`), build-button chord cancel, and full-swapchain coordinate normalization under `html.metro-overlay`. |
@@ -26,7 +28,7 @@ and the Unity bridge/presenter classes in `unity/Assets/StationDesigner/`.
 | `exitFaceProvider.ts` | `exitFaceRequest` → `exitHeaderCanvas` / `guideFace` / `guideEnglishFace` / `guideExitLetterFace` → `exit.faceChunk` + `exit.faceReady`; pushes `exit.locale` on boot and language switches. |
 | `calligraphyFaceProvider.ts` | `calligraphyRequest` → `drawCalligraphyPanel` (`sim/calligraphyFonts.ts` manifest + DOM font advance probe, UV orientation `mirrorU`/`flipV`) → `calligraphy.faceChunk` + `calligraphy.faceReady`. |
 | `trainMarkProvider.ts` | `trainMarkRequest` → city cab emblems, Chongqing line-numbered cab badge, and Nanjing side mark → `train.markChunk` + `train.markReady`. |
-| `webglAutosave.ts` | WebGL `localStorage` autosave (`metro-game.autosave.v1`, 5-minute interval + synchronous `pagehide`/`visibilitychange` flush, `stationEpoch` clear-before-write, demo/explicit-open startup precedence; disabled on desktop overlay & `/benchmark`). |
+| `webglAutosave.ts` | Lossless raw-JSON WebGL `localStorage` autosave (`metro-game.autosave.v1`): O(1) `noteCommit`, coalesced idle encoding, synchronous `pagehide`/`visibilitychange`/`beforeunload`/5-minute interval flush, raw root/record slicing preserving own `__proto__` and >53-bit integer tokens, final-sequence target-index validation after removals/insertions (`onSequenceBroken` → `station.resync` without overwriting coherent storage), correlated `stationEpoch` clear-before-write replacement, and demo/explicit-open startup precedence (disabled on desktop overlay & `/benchmark`). |
 | `unityAudio.ts` | Mounts shared `gameAudio` & `gameMusic` on `stationBridge.onAudio` for edit cues (`place`, `select`, `pick`, `delete`, `move`, `refused`) and camera-relative crowd/train/traffic ambience frames. |
 | `unity-ui.css` | Full-viewport layout, hides `#unity-loading-container`/`#unity-footer`, layers `.explodedViewer[data-unity-host="true"]`, hides `.app` when `html.metro-overlay body:has(.explodedViewer[open])`, styles `.metro-measure-chip`. |
 | `bridge.ts` / `zooUi.tsx` | Legacy `ZooPlayable` vertical-slice bridge (`zooBridge`, `metro:zoo-state`) kept for slice verification. |
@@ -38,7 +40,7 @@ including optional `undo`/`redo`/`getHistory`/`subscribeHistory`),
 `commitUpdateLine`, `commitLiftDoorSide`, `commitSwitchRunDirection`,
 `commitSwitchRoadDirection`, `commitRegenRail`, `startMove`, `undo`, `redo`,
 `deleteSelection`, `cancelGesture`, `confirmMove`, `rotateCarried`,
-`cycleCarriedLightPosition`), `pointerDrag.ts` (`beginPointerDrag` +
+`cycleCarriedLightPosition`, `getCarriedMove`, `subscribeCarriedMove`), `pointerDrag.ts` (`beginPointerDrag` +
 `attachScrollbarDragFallback`), `ViewCubeAdapter.ts`, `windows/ExplodedViewShell.tsx`,
 `windows/topbar/SettingsMenu.tsx`, `windows/tutorial/Tutorial.tsx`, and `languageRoute.ts`.
 
@@ -64,8 +66,10 @@ producing one stylesheet shared by the player and benchmark route.
   `{ schemaVersion: 2, kind, id, sessionId, revision, accepted, code, payload }`:
   - `commit`: Carries `document` + `documentRevision` + `sourceId` + `sourceHash` +
     `sourceHashRevision` + `capabilities` + state on full opens/new/resync, or `delta`
-    (`schemaVersion: 1`, `baseRevision`, `revision`, `removedCells`, `changedCells`,
-    `removedModules`, `changedModules`, metadata) on sequential local edits and undo/redo.
+    (`schemaVersion: 1`, `baseRevision`, `revision`, `removedCells`, `changedCellsJson`,
+    `changedCellIndices`, `removedModules`, `changedModulesJson`, `changedModuleIndices`,
+    `linesJson`, editable header fields; gated on `StationLocalEdit.CanRepresentHeaderInDelta`
+    and `!HasReorderedRecords`) on sequential local edits and undo/redo.
   - `state`: Coalesced runtime snapshot published on `StationGameHost.stateIntervalSeconds`
     (`0.1 s` default, immediate on `sim.*`), never carrying `document` or
     `stats.history.values`. Merges `level`, `name`, `speed`, `playing`, `tool`,

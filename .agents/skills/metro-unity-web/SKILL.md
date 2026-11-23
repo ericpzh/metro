@@ -88,14 +88,25 @@ npm run build:unity:windows
 
 ### 1. Bridge v2, correlation & single-layer invariants
 
-- **Envelope & fencing:** Every JS → C# command uses
+- **Envelope, FIFO load queue & adoption gating:** Every JS → C# command uses
   `{ schemaVersion: 2, id: "c-<n>", sessionId, expectedRevision?, type, payload }`.
-  `stationBridge.register` mints a fresh `sessionId` and flushes queued startup commands;
-  replies from stale sessions are dropped.
+  `stationBridge.register` mints a fresh `sessionId` and drains queued startup commands;
+  replies from stale sessions are dropped. Station loads (`station.open`, `station.openDemo`,
+  `station.new`, `station.resync`) drain strictly FIFO with at most one active load; dependent
+  document edits (`edit.*`, `face.*`, `road.*`, `sign.*`) retain their target load ID,
+  wait until the shell signals matching `(commandId, sessionId, stationEpoch, revision)`
+  adoption via `stationBridge.noteAdopted` (or cancel only that load's dependents on
+  `noteAdoptionFailed`/reject), and bind intent + revision guard right before `SendMessage`
+  via `beforeSend`/`beforeDispatch`/`onCancel` hooks while preserving caller `expectedRevision`
+  verbatim on edits authored against an already loaded document.
 - **Commits vs deltas:** `commit` replies carry full v1 `document` JSON on open, new, and
   resync, and a versioned `delta` (`schemaVersion: 1`) on sequential local edits and
-  undo/redo, applied in place by `stationDelta.ts` (`applyStationDelta`). Any `baseRevision`
-  gap triggers an automatic `station.resync`; file export calls
+  undo/redo carrying verbatim host raw JSON (`changedCellsJson`, `changedModulesJson`,
+  `linesJson`) and target indices (`changedCellIndices`, `changedModuleIndices`, omitting
+  duplicate parsed record bodies). `stationBridge` parses records for `stationDelta.ts`
+  (`applyStationDelta`) while preserving raw strings/indices for lossless `webglAutosave.ts`
+  folding and final-sequence position validation. Any `baseRevision` gap or invalid delta
+  triggers an automatic `station.resync`; file export calls
   `stationBridge.readCommittedDocument()` (`station.save { includeDocument: true }` on demand).
 - **Correlated `request` & side channels:** `stationBridge.request<TPayload>` matches
   non-commit `ack`/`reject` replies by `id` (cancelling cleanly on session change or timeout
@@ -113,13 +124,16 @@ npm run build:unity:windows
   `trainMarkRequest`) must publish via `StationGameHost.PublishOutbound` — never WebGL-only
   `StationWebBridge.Publish` — so both WebGL and WebView2 receive them. `main.tsx` intercepts
   all five streams before `stationBridge.receive` so PNG chunks never enter the state reducer.
-- **Authoritative history, theme sync, WebGL autosave & WebView2 links:** `StationGameHost`
-  publishes `canUndo`, `canRedo`, and monotonic `stationEpoch` (cleared unconditionally on
-  non-edit station loads) so `TopBar.tsx` undo/redo buttons stay authoritative; `main.tsx`
-  syncs `view.set { key: "theme" }` into `StationSkySystem`, runs synchronous WebGL autosave
-  (`webglAutosave.ts`, disabled on desktop overlay and `/benchmark`), and `MetroEditorWebView`
-  forwards only allowlisted `/stats/report` & `/stats/en/report` popups (`NewWindowRequested`)
-  to the system browser.
+- **Authoritative history, line selection, carried moves, theme sync, WebGL autosave & WebView2 links:**
+  `StationGameHost` publishes `canUndo`, `canRedo`, and monotonic `stationEpoch` (cleared
+  unconditionally on non-edit station loads) so `TopBar.tsx` undo/redo buttons stay
+  authoritative; `lineSelection.ts` activates host-created lines (`reserveAdd`/`bindAdd`/`trackAdd`)
+  and reconciles fallback selection on removal/undo/replacement; `carriedMoveAdapter.ts`
+  surfaces carried-move targets and localized refusal reasons to `InfoCard.tsx`; `main.tsx`
+  syncs `view.set { key: "theme" }` into `StationSkySystem`, runs lossless raw-JSON coalesced
+  WebGL autosave (`webglAutosave.ts`, validating final record positions and disabling itself on
+  desktop overlay and `/benchmark`), and `MetroEditorWebView` forwards only allowlisted
+  `/stats/report` & `/stats/en/report` popups (`NewWindowRequested`) to the system browser.
 - **Artwork recapture:** Whenever runtime code binds or swaps textures/materials after world
   registration (signs, PSD headers, street exits, calligraphy, billboards, TVs, line maps,
   digital clocks, road signals), it must call `world.RecaptureArtwork(renderer)`

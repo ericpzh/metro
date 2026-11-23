@@ -771,8 +771,10 @@ namespace Metro.App {
                    previousRead != null &&
                    ReferenceEquals(committedRead.LocalParent, previousRead) &&
                    committedRead.LocalDelta != null &&
+                   !committedRead.LocalDelta.HasReorderedRecords &&
                    coordinator.PreviousCommittedRevision >= 0 &&
-                   coordinator.PreviousCommittedRevision < CurrentRevision;
+                   coordinator.PreviousCommittedRevision < CurrentRevision &&
+                   StationLocalEdit.CanRepresentHeaderInDelta(previousRead.Envelope, committedRead.Envelope);
         }
 
         internal JObject BuildFullCommitPayloadWithoutDocument(bool useRawJsonCache = false) {
@@ -796,67 +798,105 @@ namespace Metro.App {
 
             if (canSendDelta) {
                 var delta = committedRead.LocalDelta;
-                string peekHash = coordinator.PeekSourceHash() ?? "";
-                int hashRev = coordinator.HasCurrentSourceHash ? coordinator.SourceHashRevision : -1;
+                var doc = Document;
+                var idx = Index;
+                bool deltaComplete = doc != null && idx != null;
 
                 var removedCells = new JArray();
+                var emittedRemovedCells = delta.ReorderedCells.Count > 0 ? new HashSet<StationCellKey>() : null;
                 for (int i = 0; i < delta.RemovedCells.Count; i++) {
                     var k = delta.RemovedCells[i];
+                    if (emittedRemovedCells != null && !emittedRemovedCells.Add(k)) continue;
                     removedCells.Add(new JArray(k.X, k.Y, k.Z));
                 }
-                var changedCells = new JArray();
-                for (int i = 0; i < delta.ChangedCells.Count; i++) {
-                    var rawCell = delta.ChangedCells[i].RawJson;
-                    if (!string.IsNullOrEmpty(rawCell)) changedCells.Add(new JRaw(rawCell));
+                for (int i = 0; i < delta.ReorderedCells.Count; i++) {
+                    var k = delta.ReorderedCells[i];
+                    if (emittedRemovedCells.Add(k)) removedCells.Add(new JArray(k.X, k.Y, k.Z));
+                }
+                var changedCellsJson = new JArray();
+                var changedCellIndices = new JArray();
+                for (int i = 0; deltaComplete && i < delta.ChangedCells.Count; i++) {
+                    var rec = delta.ChangedCells[i];
+                    var rawCell = rec?.RawJson;
+                    if (string.IsNullOrEmpty(rawCell)) { deltaComplete = false; break; }
+                    if (!delta.CellPageIds.TryGetValue(rec.Key, out int pageId) &&
+                        !idx.TryGetCellPage(rec.Key, out _, out pageId)) {
+                        deltaComplete = false;
+                        break;
+                    }
+                    int targetIndex = doc.CellPages.IndexOfInPage(pageId, c => c.Key == rec.Key);
+                    if (targetIndex < 0) { deltaComplete = false; break; }
+                    changedCellsJson.Add(rawCell);
+                    changedCellIndices.Add(targetIndex);
                 }
                 var removedModules = new JArray();
                 for (int i = 0; i < delta.RemovedModules.Count; i++) {
                     removedModules.Add(delta.RemovedModules[i]);
                 }
-                var changedModules = new JArray();
-                for (int i = 0; i < delta.ChangedModules.Count; i++) {
-                    var rawMod = delta.ChangedModules[i].RawJson;
-                    if (!string.IsNullOrEmpty(rawMod)) changedModules.Add(new JRaw(rawMod));
-                }
-
-                var deltaObj = new JObject {
-                    ["schemaVersion"] = CommitDeltaSchemaVersion,
-                    ["baseRevision"] = coordinator.PreviousCommittedRevision,
-                    ["revision"] = CurrentRevision,
-                    ["savedAt"] = Document?.SavedAt ?? "",
-                    ["name"] = Document?.Name ?? "",
-                    ["nameEn"] = Document?.NameEn ?? "",
-                    ["city"] = Document?.City ?? "",
-                    ["levelBase"] = Document?.LevelBase ?? 0,
-                    ["storeyHeight"] = Document?.StoreyHeight ?? 5,
-                    ["removedCells"] = removedCells,
-                    ["changedCells"] = changedCells,
-                    ["removedModules"] = removedModules,
-                    ["changedModules"] = changedModules,
-                    ["sourceHash"] = peekHash,
-                    ["sourceHashRevision"] = hashRev,
-                };
-                var previousRead = coordinator.PreviousCommittedRead;
-                if (Document != null && previousRead?.Document != null &&
-                    !StationHostEdits.SameLineList(previousRead.Document.Lines, Document.Lines)) {
-                    var linesArr = new JArray();
-                    for (int i = 0; i < Document.Lines.Count; i++) {
-                        var rawLine = Document.Lines[i]?.RawJson;
-                        if (!string.IsNullOrEmpty(rawLine)) linesArr.Add(new JRaw(rawLine));
+                var changedModulesJson = new JArray();
+                var changedModuleIndices = new JArray();
+                for (int i = 0; deltaComplete && i < delta.ChangedModules.Count; i++) {
+                    var rec = delta.ChangedModules[i];
+                    var rawMod = rec?.RawJson;
+                    if (string.IsNullOrEmpty(rawMod)) { deltaComplete = false; break; }
+                    if (!delta.ModulePageIds.TryGetValue(rec.Id, out int pageId) &&
+                        !idx.TryGetModulePage(rec.Id, out _, out pageId)) {
+                        deltaComplete = false;
+                        break;
                     }
-                    deltaObj["lines"] = linesArr;
+                    int targetIndex = doc.ModulePages.IndexOfInPage(pageId, m => string.Equals(m.Id, rec.Id, StringComparison.Ordinal));
+                    if (targetIndex < 0) { deltaComplete = false; break; }
+                    changedModulesJson.Add(rawMod);
+                    changedModuleIndices.Add(targetIndex);
                 }
-                StationEditTrace.NoteDeltaPayload();
 
-                var deltaPayload = new JObject {
-                    ["delta"] = deltaObj,
-                    ["sourceId"] = CurrentSourceId,
-                    ["sourceHash"] = peekHash,
-                    ["sourceHashRevision"] = hashRev,
-                    ["capabilities"] = router.BuildCapabilities(),
-                };
-                MergeState(deltaPayload, useRawJsonCache);
-                return deltaPayload;
+                JArray linesJson = null;
+                var previousRead = coordinator.PreviousCommittedRead;
+                if (deltaComplete && previousRead?.Document != null &&
+                    !StationHostEdits.SameLineList(previousRead.Document.Lines, doc.Lines)) {
+                    linesJson = new JArray();
+                    for (int i = 0; i < doc.Lines.Count; i++) {
+                        var rawLine = doc.Lines[i]?.RawJson;
+                        if (string.IsNullOrEmpty(rawLine)) { deltaComplete = false; break; }
+                        linesJson.Add(rawLine);
+                    }
+                }
+
+                if (deltaComplete) {
+                    string peekHash = coordinator.PeekSourceHash() ?? "";
+                    int hashRev = coordinator.HasCurrentSourceHash ? coordinator.SourceHashRevision : -1;
+                    var deltaObj = new JObject {
+                        ["schemaVersion"] = CommitDeltaSchemaVersion,
+                        ["baseRevision"] = coordinator.PreviousCommittedRevision,
+                        ["revision"] = CurrentRevision,
+                        ["savedAt"] = doc.SavedAt ?? "",
+                        ["name"] = doc.Name ?? "",
+                        ["nameEn"] = doc.NameEn ?? "",
+                        ["city"] = doc.City ?? "",
+                        ["levelBase"] = doc.LevelBase,
+                        ["storeyHeight"] = doc.StoreyHeight,
+                        ["removedCells"] = removedCells,
+                        ["changedCellsJson"] = changedCellsJson,
+                        ["changedCellIndices"] = changedCellIndices,
+                        ["removedModules"] = removedModules,
+                        ["changedModulesJson"] = changedModulesJson,
+                        ["changedModuleIndices"] = changedModuleIndices,
+                        ["sourceHash"] = peekHash,
+                        ["sourceHashRevision"] = hashRev,
+                    };
+                    if (linesJson != null) deltaObj["linesJson"] = linesJson;
+                    StationEditTrace.NoteDeltaPayload();
+
+                    var deltaPayload = new JObject {
+                        ["delta"] = deltaObj,
+                        ["sourceId"] = CurrentSourceId,
+                        ["sourceHash"] = peekHash,
+                        ["sourceHashRevision"] = hashRev,
+                        ["capabilities"] = router.BuildCapabilities(),
+                    };
+                    MergeState(deltaPayload, useRawJsonCache);
+                    return deltaPayload;
+                }
             }
 
             string fullHash = CurrentSourceHash;
@@ -1102,6 +1142,8 @@ namespace Metro.App {
                 StationEditSession.ClearHistory();
                 activeLevel = info.Document == null ? 0 : info.Document.OpeningLevel;
                 if (frameCameraOnCommit && stationCamera != null && !info.CameraBounds.IsEmpty) FrameCamera(info.CameraBounds);
+            } else if (StationEditSession.HasCarried && !StationEditSession.HasPointer && !StationPointerRouter.CommittingMove) {
+                StationPointerRouter.RevalidateParkedMove(this, StationEditHost.Ensure(), out _, out _);
             }
             // The commit reply is published by StationCommandRouter for the command that
             // caused it. Publishing a second, unsolicited commit here would make the

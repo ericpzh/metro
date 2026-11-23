@@ -741,11 +741,19 @@ namespace Metro.App {
                 return false;
             }
             if (!StationEditSession.HasPointer) {
+                if (StationEditSession.HasCarried) {
+                    return RevalidateParkedMove(host, editHost, out _, out _);
+                }
                 // The shell parked the pointer (a rail click, a leave): only the cell tool can
                 // still re-plan its cached cell, and it draws nothing until the pointer returns.
                 return StationCellTool.RefreshHover(host);
             }
-            if (camera == null) return false;
+            if (camera == null) {
+                if (StationEditSession.HasCarried) {
+                    return RevalidateParkedMove(host, editHost, out _, out _);
+                }
+                return false;
+            }
             var world = host.Coordinator?.World;
             var ray = camera.ScreenPointToRay(StationEditSession.PointerScreen());
             var hit = StationEditScene.PickRay(host, world, camera, ray, activeLevel, visibility,
@@ -1708,6 +1716,49 @@ namespace Metro.App {
             CommitResolvedMove(host, editHost, module, plan, out code, out reason);
         }
 
+        /// <summary>True while <see cref="CommitResolvedMove"/> is committing the move itself.</summary>
+        internal static bool CommittingMove { get; private set; }
+
+        /// <summary>
+        /// Re-resolve the cached off-canvas aim input for the carried piece against the current
+        /// station index and carried rotation/light position without performing a scene pick
+        /// (plan 40 §3). Updates <see cref="StationEditSession.Plan"/>, <see cref="StationEditSession.MoveReason"/>,
+        /// and the preview ghost so both InfoCard and confirmation observe the live verdict.
+        /// </summary>
+        public static bool RevalidateParkedMove(StationGameHost host, StationEditHost editHost,
+            out StationModuleRecord module, out StationPlacementPlan plan) {
+            module = null;
+            plan = null;
+            if (!StationEditSession.HasCarried) return false;
+            if (host?.Index == null || !host.Index.TryGetModule(StationEditSession.CarriedId, out module)) {
+                CancelMove(host, editHost);
+                StationEditSession.MoveReason = "not-found";
+                return false;
+            }
+            var aim = StationEditSession.ParkedMoveAim;
+            if (!aim.HasValue) {
+                StationEditSession.Plan = null;
+                StationEditSession.MoveReason = "no-hit";
+                editHost?.Bind(host);
+                editHost?.Preview?.ClearGhost();
+                return false;
+            }
+            plan = StationModulePlacement.Resolve(host.Index, new StationPlacementRequest {
+                Carried = module,
+                Rotation = StationEditSession.CarriedRotation,
+                LightPosition = StationEditSession.CarriedLightPosition,
+                Hit = aim.Hit,
+                TargetModuleId = aim.TargetModuleId,
+                ModulePoint = aim.ModulePoint,
+                CurtainHeight = aim.CurtainHeight > 0 ? aim.CurtainHeight : StationToolSelection.SettingInt("curtainHeight", 4),
+            });
+            StationEditSession.Plan = plan;
+            StationEditSession.MoveReason = plan.Reason;
+            editHost?.Bind(host);
+            editHost?.Preview?.Show(plan);
+            return true;
+        }
+
         static void CommitResolvedMove(StationGameHost host, StationEditHost editHost, StationModuleRecord module,
             StationPlacementPlan plan, out string code, out string reason) {
             code = null; reason = null;
@@ -1721,45 +1772,62 @@ namespace Metro.App {
                 host.PublishStateNow();
                 return;
             }
-            if (StationModuleFamilies.IsRamp(plan.Candidate.Type) && !plan.Candidate.Bool("block")) {
-                var patch = StationRampCarve.PlanRampMove(host.Index, module, plan.Candidate);
-                if (!StationEditSession.TryApplyCells(host, patch, "move", null, out _, out code)) {
+            CommittingMove = true;
+            try {
+                if (StationModuleFamilies.IsRamp(plan.Candidate.Type) && !plan.Candidate.Bool("block")) {
+                    var patch = StationRampCarve.PlanRampMove(host.Index, module, plan.Candidate);
+                    if (!StationEditSession.TryApplyCells(host, patch, "move", null, out _, out code)) {
+                        reason = code;
+                        return;
+                    }
+                    AfterCommit(host, editHost, module.Id);
+                    return;
+                }
+                if (!StationEditSession.TryApply(host, StationModuleEditMode.Replace, plan.Candidate, null, "move", null, out _, out code)) {
                     reason = code;
                     return;
                 }
                 AfterCommit(host, editHost, module.Id);
-                return;
+            } finally {
+                CommittingMove = false;
             }
-            if (!StationEditSession.TryApply(host, StationModuleEditMode.Replace, plan.Candidate, null, "move", null, out _, out code)) {
-                reason = code;
-                return;
-            }
-            AfterCommit(host, editHost, module.Id);
         }
 
         internal static bool ConfirmMove(StationGameHost host, JObject payload, out string code, out string reason) {
             code = reason = null;
             if (!StationEditSession.HasCarried) return true;
+            var editHost = StationEditHost.Ensure();
             if (host?.Index == null || !host.Index.TryGetModule(StationEditSession.CarriedId, out var module)) {
-                CancelMove(host, StationEditHost.Ensure());
+                CancelMove(host, editHost);
                 host?.PublishStateNow();
                 reason = "not-found";
+                if (payload != null) payload["edit"] = StationEditSession.ToJson();
                 return true;
             }
-            var parked = StationEditSession.Plan;
-            if (parked != null && parked.IsMove) {
-                CommitResolvedMove(host, StationEditHost.Ensure(), module, parked, out code, out reason);
+            StationEditScene.ResolveView(host, out _, out var camera, out var activeLevel, out var visibility);
+            if (!StationEditSession.HasPointer || camera == null) {
+                RevalidateParkedMove(host, editHost, out module, out var revalidated);
+                if (module == null) {
+                    host?.PublishStateNow();
+                    reason = "not-found";
+                    if (payload != null) payload["edit"] = StationEditSession.ToJson();
+                    return true;
+                }
+                CommitResolvedMove(host, editHost, module, revalidated, out code, out reason);
+                if (payload != null) payload["edit"] = StationEditSession.ToJson();
                 return string.IsNullOrEmpty(code);
             }
-            if (!StationEditSession.HasPointer) return true;
-            StationEditScene.ResolveView(host, out _, out var camera, out var activeLevel, out var visibility);
-            if (camera == null) return true;
             var world = host.Coordinator?.World;
             var ray = camera.ScreenPointToRay(StationEditSession.PointerScreen());
             var hit = StationEditScene.PickRay(host, world, camera, ray, activeLevel, visibility,
                 true, out var pickContext, out _);
-            if (hit == null) return true;
-            CommitMove(host, StationEditHost.Ensure(), world, ray, pickContext, hit, payload, out code, out reason);
+            if (hit == null) {
+                CommitResolvedMove(host, editHost, module, null, out code, out reason);
+                if (payload != null) payload["edit"] = StationEditSession.ToJson();
+                return true;
+            }
+            CommitMove(host, editHost, world, ray, pickContext, hit, payload, out code, out reason);
+            if (payload != null) payload["edit"] = StationEditSession.ToJson();
             return string.IsNullOrEmpty(code);
         }
 
@@ -2054,9 +2122,10 @@ namespace Metro.App {
                 case "edit.rotate": {
                     if (!StationEditSession.HasCarried) { rejectCode = "no-draft"; rejectReason = "No piece is being moved."; return false; }
                     StationPointerRouter.RotateCarried(host, Int(payload, "delta", 1));
-                    // A rotation is a setting change under a still pointer: redraw in place rather
-                    // than waiting for the next move (`MoveController` / `equipment.rotate`).
+                    // A rotation is a setting change under a still or parked pointer: revalidate
+                    // in place rather than waiting for the next move (`MoveController` / plan 40 §3).
                     StationPointerRouter.RefreshHover(host);
+                    payload["edit"] = StationEditSession.ToJson();
                     host.PublishStateNow();
                     return true;
                 }
@@ -2066,6 +2135,7 @@ namespace Metro.App {
                     int position = StationEditSession.CarriedLightPosition ?? light.Config.Int("position", 0);
                     StationEditSession.CarriedLightPosition = ((position % 9) + 10) % 9;
                     StationPointerRouter.RefreshHover(host);
+                    payload["edit"] = StationEditSession.ToJson();
                     host.PublishStateNow();
                     return true;
                 }

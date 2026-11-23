@@ -263,6 +263,23 @@ namespace Metro.Build {
     }
 
     /// <summary>One immutable answer: the candidate, its support, its collisions and a stable reason code.</summary>
+    /// <summary>Cached aim input for a carried move so off-canvas rotation/light-position changes and confirmation can revalidate without a new scene pick (plan 40 §3).</summary>
+    public readonly struct StationPlacementAimInput {
+        public readonly bool HasValue;
+        public readonly StationPlacementHit Hit;
+        public readonly string TargetModuleId;
+        public readonly StationPoint? ModulePoint;
+        public readonly int CurtainHeight;
+
+        public StationPlacementAimInput(StationPlacementHit hit, string targetModuleId, StationPoint? modulePoint, int curtainHeight) {
+            HasValue = hit.HasCell || !string.IsNullOrEmpty(targetModuleId);
+            Hit = hit;
+            TargetModuleId = targetModuleId ?? "";
+            ModulePoint = modulePoint;
+            CurtainHeight = curtainHeight;
+        }
+    }
+
     public sealed class StationPlacementPlan {
         public bool Ok => string.IsNullOrEmpty(Reason);
         /// <summary>The normalized candidate, or null when the request never produced a piece.</summary>
@@ -283,6 +300,8 @@ namespace Metro.Build {
         public int CellX, CellY, CellZ;
         /// <summary>True when the plan came from a carried record rather than a fresh type.</summary>
         public bool IsMove;
+        /// <summary>The aim input that produced this move plan, used for off-canvas revalidation.</summary>
+        public StationPlacementAimInput AimInput;
         public override string ToString() =>
             (Ok ? "ok" : Reason) + " " + (Candidate == null ? "(no candidate)" : Candidate.ToString());
     }
@@ -1048,9 +1067,10 @@ namespace Metro.Build {
             if (request == null) { plan.Reason = "bad-request"; return plan; }
             StationEditDraft candidate;
             if (request.Carried != null) {
+                plan.IsMove = true;
+                plan.AimInput = new StationPlacementAimInput(request.Hit, request.TargetModuleId, request.ModulePoint, request.CurtainHeight);
                 candidate = MoveCandidate(index, request, out var moveReason);
                 if (candidate == null) { plan.Reason = moveReason; return plan; }
-                plan.IsMove = true;
             } else {
                 // §5.2(b): a fresh ramp dropped inside a head-house's plate lands in the bay
                 // under the pointer, not on the street cell the pointer hit (`exitRunSnap`).

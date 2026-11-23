@@ -328,7 +328,12 @@ namespace Metro.Persistence {
         public static StationIndexDelta BuildInverseDelta(StationIndex beforeIndex, StationIndex afterIndex,
             StationIndexDelta forwardDelta) {
             if (beforeIndex == null || afterIndex == null || forwardDelta == null) return null;
-            var inverse = new StationIndexDelta();
+            var inverse = new StationIndexDelta {
+                HasReorderedRecords = forwardDelta.HasReorderedRecords,
+            };
+            for (int i = 0; i < forwardDelta.ReorderedCells.Count; i++) {
+                inverse.ReorderedCells.Add(forwardDelta.ReorderedCells[i]);
+            }
             var seenCells = new HashSet<StationCellKey>();
 
             for (int i = 0; i < forwardDelta.RemovedCells.Count; i++) {
@@ -506,6 +511,10 @@ namespace Metro.Persistence {
                                       string.Equals(state.OriginalRecord.RawJson, finalRecord.RawJson, StringComparison.Ordinal);
                 if (sameAsOriginal) {
                     continue;
+                }
+
+                if (state.OriginalRecord != null && !ReferenceEquals(state.Placeholder, state.OriginalRecord)) {
+                    delta.ReorderedCells.Add(key);
                 }
 
                 var targetPlaceholder = state.Placeholder;
@@ -770,17 +779,30 @@ namespace Metro.Persistence {
             }
         }
 
-        static bool SameHeaderMetadata(JObject a, JObject b) {
+        /// <summary>
+        /// True when every root-envelope property outside the fields carried by a Bridge v2
+        /// commit delta (<c>savedAt</c>, <c>name</c>, <c>nameEn</c>, <c>city</c>,
+        /// <c>levelBase</c>, <c>storeyHeight</c>, and <c>static.{cells,modules,lines}</c>)
+        /// is identical between <paramref name="a"/> and <paramref name="b"/>. When false,
+        /// the host must publish a complete v1 envelope rather than a delta (plan 40 §2).
+        /// </summary>
+        public static bool CanRepresentHeaderInDelta(JObject a, JObject b) {
+            if (a == null || b == null) return false;
+            return SameHeaderMetadata(a, b, allowLevelAndStorey: true);
+        }
+
+        static bool SameHeaderMetadata(JObject a, JObject b, bool allowLevelAndStorey = false) {
+            bool Ignored(string name) =>
+                name == "savedAt" || name == "static" ||
+                name == "name" || name == "nameEn" ||
+                name == "city" || name == "cityStyle" ||
+                (allowLevelAndStorey && (name == "levelBase" || name == "storeyHeight"));
             foreach (var prop in a.Properties()) {
-                if (prop.Name == "savedAt" || prop.Name == "static" ||
-                    prop.Name == "name" || prop.Name == "nameEn" ||
-                    prop.Name == "city" || prop.Name == "cityStyle") continue;
+                if (Ignored(prop.Name)) continue;
                 if (!JToken.DeepEquals(prop.Value, b[prop.Name])) return false;
             }
             foreach (var prop in b.Properties()) {
-                if (prop.Name == "savedAt" || prop.Name == "static" ||
-                    prop.Name == "name" || prop.Name == "nameEn" ||
-                    prop.Name == "city" || prop.Name == "cityStyle") continue;
+                if (Ignored(prop.Name)) continue;
                 if (!JToken.DeepEquals(a[prop.Name], prop.Value)) return false;
             }
             if (a["static"] is JObject sa && b["static"] is JObject sb) {
@@ -798,21 +820,37 @@ namespace Metro.Persistence {
 
         static StationIndexDelta ComputeDeltaBetween(StationIndex current, StationIndex target) {
             var delta = new StationIndexDelta();
+            var currentCellOrder = new Dictionary<StationCellKey, int>(current.Document.CellCount);
+            int cellOrd = 0;
             foreach (var cell in current.Document.CellPages) {
+                currentCellOrder[cell.Key] = cellOrd++;
                 if (target.GetCell(cell.Key) == null) delta.RemovedCells.Add(cell.Key);
             }
+            int lastSurvivingCellOrd = -1;
             foreach (var cell in target.Document.CellPages) {
                 var prior = current.GetCell(cell.Key);
+                if (prior != null && currentCellOrder.TryGetValue(cell.Key, out int prevOrd)) {
+                    if (prevOrd < lastSurvivingCellOrd) delta.HasReorderedRecords = true;
+                    lastSurvivingCellOrd = prevOrd;
+                }
                 if (prior == null || !string.Equals(prior.RawJson, cell.RawJson, StringComparison.Ordinal)) {
                     delta.ChangedCells.Add(cell);
                     if (target.TryGetCellPage(cell.Key, out _, out int p)) delta.CellPageIds[cell.Key] = p;
                 }
             }
+            var currentModOrder = new Dictionary<string, int>(current.Document.ModuleCount, StringComparer.Ordinal);
+            int modOrd = 0;
             foreach (var mod in current.Document.ModulePages) {
+                currentModOrder[mod.Id] = modOrd++;
                 if (target.GetModule(mod.Id) == null) delta.RemovedModules.Add(mod.Id);
             }
+            int lastSurvivingModOrd = -1;
             foreach (var mod in target.Document.ModulePages) {
                 var prior = current.GetModule(mod.Id);
+                if (prior != null && currentModOrder.TryGetValue(mod.Id, out int prevOrd)) {
+                    if (prevOrd < lastSurvivingModOrd) delta.HasReorderedRecords = true;
+                    lastSurvivingModOrd = prevOrd;
+                }
                 if (prior == null || !string.Equals(prior.RawJson, mod.RawJson, StringComparison.Ordinal)) {
                     delta.ChangedModules.Add(mod);
                     if (target.TryGetModulePage(mod.Id, out _, out int p)) delta.ModulePageIds[mod.Id] = p;

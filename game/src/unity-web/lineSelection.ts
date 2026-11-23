@@ -25,45 +25,87 @@ export interface LineReconcileResult {
 }
 
 export interface LineSelectionTracker {
+  /** Reserve a queued add-line command ID before it is bound to a session/epoch at host dispatch (plan 41 §2). */
+  reserveAdd(commandId: string): void
+  /** Bind a previously reserved queued add-line command ID to the active session and station epoch right before dispatch. */
+  bindAdd(commandId: string, sessionId: string, stationEpoch: number): boolean
+  /** Immediately register and bind an add-line command ID right before host dispatch. */
   trackAdd(commandId: string, sessionId: string, stationEpoch: number): void
   noteReject(commandId: string): void
+  /** Clear pending add intents whenever the host session or station epoch changes (or disconnects). */
+  syncFence(sessionId: string, stationEpoch: number): void
   reconcile(input: LineReconcileInput): LineReconcileResult
   clear(): void
 }
 
+interface PendingAddIntent {
+  bound: boolean
+  sessionId: string
+  stationEpoch: number
+}
+
 export function createLineSelectionTracker(): LineSelectionTracker {
-  const pendingAdds = new Map<string, { sessionId: string; stationEpoch: number }>()
+  const pendingAdds = new Map<string, PendingAddIntent>()
   let lastSessionId = ''
   let lastEpoch = -1
 
+  const pruneForFence = (sessionId: string, stationEpoch: number): void => {
+    if (!sessionId) {
+      // Only wipe intents on an actual disconnect from a connected session;
+      // pre-register startup syncs with empty sessionId keep reserved startup adds.
+      if (lastSessionId !== '') {
+        pendingAdds.clear()
+        lastSessionId = ''
+        lastEpoch = -1
+      }
+      return
+    }
+    const sessionChanged = lastSessionId !== '' && sessionId !== lastSessionId
+    const epochChanged = lastEpoch >= 0 && stationEpoch !== lastEpoch
+    if (sessionChanged) {
+      pendingAdds.clear()
+    } else if (epochChanged) {
+      for (const [id, entry] of pendingAdds) {
+        if (entry.bound && (entry.sessionId !== sessionId || entry.stationEpoch !== stationEpoch)) {
+          pendingAdds.delete(id)
+        }
+      }
+    }
+    lastSessionId = sessionId
+    lastEpoch = stationEpoch
+  }
+
   return {
-    trackAdd(commandId, sessionId, stationEpoch) {
+    reserveAdd(commandId) {
       if (!commandId) return
-      pendingAdds.set(commandId, { sessionId, stationEpoch })
+      pendingAdds.set(commandId, { bound: false, sessionId: '', stationEpoch: -1 })
+    },
+    bindAdd(commandId, sessionId, stationEpoch) {
+      if (!commandId || !sessionId) return false
+      pruneForFence(sessionId, stationEpoch)
+      if (!pendingAdds.has(commandId)) return false
+      pendingAdds.set(commandId, { bound: true, sessionId, stationEpoch })
+      return true
+    },
+    trackAdd(commandId, sessionId, stationEpoch) {
+      if (!commandId || !sessionId) return
+      pruneForFence(sessionId, stationEpoch)
+      pendingAdds.set(commandId, { bound: true, sessionId, stationEpoch })
     },
     noteReject(commandId) {
       if (!commandId) return
       pendingAdds.delete(commandId)
     },
+    syncFence(sessionId, stationEpoch) {
+      pruneForFence(sessionId, stationEpoch)
+    },
     reconcile({ sessionId, stationEpoch, commitId, createdLineId, lines, currentRailLineId }) {
-      const epochOrSessionChanged =
-        (lastSessionId !== '' && sessionId !== lastSessionId) ||
-        (lastEpoch >= 0 && stationEpoch !== lastEpoch)
-      if (epochOrSessionChanged) {
-        // Drop any pending add requests from an earlier session or replaced station.
-        for (const [id, entry] of pendingAdds) {
-          if (entry.sessionId !== sessionId || entry.stationEpoch !== stationEpoch) {
-            pendingAdds.delete(id)
-          }
-        }
-      }
-      lastSessionId = sessionId
-      lastEpoch = stationEpoch
+      pruneForFence(sessionId, stationEpoch)
 
       let createdLine: LineDef | null = null
       if (commitId) {
         const pending = pendingAdds.get(commitId)
-        if (pending) {
+        if (pending && pending.bound) {
           pendingAdds.delete(commitId)
           if (pending.sessionId === sessionId && pending.stationEpoch === stationEpoch && createdLineId) {
             createdLine = lines.find(l => l.id === createdLineId) ?? null

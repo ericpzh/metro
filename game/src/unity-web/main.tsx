@@ -197,12 +197,21 @@ function reconcileRailLineSelection(snapshot: StationSnapshot, lines: ReturnType
 function adopt(snapshot: StationSnapshot): void {
   if (snapshot.resyncNeeded) return
   const t0 = typeof performance !== 'undefined' ? performance.now() : Date.now()
-  if (snapshot.document && snapshot.documentRevision === snapshot.revision) {
+  const adoptionTarget = {
+    commandId: snapshot.lastCommitId ?? '',
+    sessionId: snapshot.sessionId,
+    stationEpoch: snapshot.stationEpoch,
+  }
+  if (typeof snapshot.document === 'string' && snapshot.documentRevision === snapshot.revision) {
     const parsed = parse(snapshot.document)
     if (!parsed.ok) {
       loadingToken += 1
       showGameLoading(false)
       useStore.getState().setNotice(document.documentElement.lang === 'en' ? 'Could not read the committed station.' : '无法读取已提交的车站。')
+      stationBridge.noteAdoptionFailed({
+        ...adoptionTarget,
+        revision: snapshot.revision,
+      }, 'invalid-document')
       return
     }
     seedStationCellIndex(parsed.state.cells)
@@ -221,10 +230,7 @@ function adopt(snapshot: StationSnapshot): void {
       sourceId: snapshot.sourceId,
       commandId: snapshot.lastCommitId ?? null,
       documentText: snapshot.document,
-      station: parsed.state,
     })
-    const t1 = typeof performance !== 'undefined' ? performance.now() : Date.now()
-    stationBridge.noteAdopted(snapshot.revision, t1 - t0)
     // A demo link is a start, not a location: once the document is committed the
     // URL becomes the plain game path so a reload restores the player's station
     // (`app/demoRoute.ts`). Applied only after a successful commit.
@@ -234,13 +240,18 @@ function adopt(snapshot: StationSnapshot): void {
       window.history.replaceState(null, '', url)
     }
     dismissGameLoadingSoon()
+    const t1 = typeof performance !== 'undefined' ? performance.now() : Date.now()
+    stationBridge.noteAdopted(snapshot.revision, t1 - t0, adoptionTarget)
     return
   }
 
   const delta = snapshot.delta
   if (delta && delta.revision === snapshot.revision) {
     if (adoptedStoreSession !== snapshot.sessionId || adoptedStoreRevision !== delta.baseRevision) {
-      stationBridge.resync()
+      stationBridge.resync({
+        beforeSend: ({ id }) => activeAutosave?.trackCommand(id, 'resync'),
+        onCancel: id => activeAutosave?.noteReject(id),
+      })
       return
     }
     const prevStation = useStore.getState().station
@@ -259,10 +270,18 @@ function adopt(snapshot: StationSnapshot): void {
       sourceId: snapshot.sourceId,
       commandId: snapshot.lastCommitId ?? null,
       documentText: null,
-      station: nextStation,
+      delta,
     })
     const t1 = typeof performance !== 'undefined' ? performance.now() : Date.now()
-    stationBridge.noteAdopted(snapshot.revision, t1 - t0)
+    stationBridge.noteAdopted(snapshot.revision, t1 - t0, adoptionTarget)
+    return
+  }
+
+  if (adoptionTarget.commandId) {
+    stationBridge.noteAdoptionFailed({
+      ...adoptionTarget,
+      revision: snapshot.revision,
+    }, 'missing-document')
   }
 }
 
@@ -320,6 +339,12 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
   const autosave = createWebGlAutosave({
     enabled: !desktopOverlay && !isBenchmark,
     storage: webglStorage,
+    onSequenceBroken: () => {
+      stationBridge.resync({
+        beforeSend: ({ id }) => autosave.trackCommand(id, 'resync'),
+        onCancel: id => autosave.noteReject(id),
+      })
+    },
   })
   activeAutosave = autosave
   const lineSelection = createLineSelectionTracker()
@@ -360,8 +385,10 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
     },
     newStation: () => {
       startupCancelled = true
-      const id = stationBridge.send('station.new')
-      autosave.trackCommand(id, 'replace')
+      stationBridge.send('station.new', undefined, {
+        beforeSend: ({ id }) => autosave.trackCommand(id, 'replace'),
+        onCancel: id => autosave.noteReject(id),
+      })
     },
     openDemo: id => {
       startupCancelled = true
@@ -371,8 +398,10 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
         '正在构建示例车站，请稍候。',
         'Building the example station. Please wait.',
         () => {
-          const cmdId = stationBridge.send('station.openDemo', { id })
-          autosave.trackCommand(cmdId, 'replace')
+          stationBridge.send('station.openDemo', { id }, {
+            beforeSend: ({ id: cmdId }) => autosave.trackCommand(cmdId, 'replace'),
+            onCancel: cmdId => autosave.noteReject(cmdId),
+          })
         },
       )
     },
@@ -384,8 +413,10 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
         '正在打开存档并构建车站，请稍候。',
         'Opening your save and building the station. Please wait.',
         () => {
-          const cmdId = stationBridge.send('station.open', { document: documentText })
-          autosave.trackCommand(cmdId, 'replace')
+          stationBridge.send('station.open', { document: documentText }, {
+            beforeSend: ({ id: cmdId }) => autosave.trackCommand(cmdId, 'replace'),
+            onCancel: cmdId => autosave.noteReject(cmdId),
+          })
         },
       )
     },
@@ -434,7 +465,9 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
   const stopAdopting = stationBridge.onCommit(adopt)
   let lastReject = stationBridge.getSnapshot().rejects.at(-1)
   const unsubscribeRejects = stationBridge.subscribe(() => {
-    const latest = stationBridge.getSnapshot().rejects.at(-1)
+    const currentSnap = stationBridge.getSnapshot()
+    lineSelection.syncFence(currentSnap.sessionId, currentSnap.stationEpoch)
+    const latest = currentSnap.rejects.at(-1)
     if (!latest || latest === lastReject) return
     lastReject = latest
     autosave.noteReject(latest.id)
@@ -456,7 +489,10 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
         ? `The simulation refused that command (${latest.code}).`
         : `仿真拒绝了该操作（${latest.code}）。`)
     } else if (latest.code === 'revision-mismatch' || latest.code === 'stale-revision') {
-      stationBridge.resync()
+      stationBridge.resync({
+        beforeSend: ({ id }) => autosave.trackCommand(id, 'resync'),
+        onCancel: id => autosave.noteReject(id),
+      })
     } else if (latest.reason && /^(sign\.|road\.|face\.|tool\.|edit\.)/.test(latest.type)) {
       // An edit verb the player drove was refused, and the host said why: surface its
       // sentence rather than leaving the control that sent it looking inert. Camera and
@@ -733,14 +769,20 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
     if (startupAction.kind === 'benchmark') {
       stationBridge.send('benchmark.mode', { active: true })
     } else if (startupAction.kind === 'openDemo') {
-      const cmdId = stationBridge.send('station.openDemo', { id: startupAction.id })
-      autosave.trackCommand(cmdId, 'replace')
+      stationBridge.send('station.openDemo', { id: startupAction.id }, {
+        beforeSend: ({ id }) => autosave.trackCommand(id, 'replace'),
+        onCancel: id => autosave.noteReject(id),
+      })
     } else if (startupAction.kind === 'openAutosave') {
-      const cmdId = stationBridge.send('station.open', { document: startupAction.document, sourceId: 'autosave' })
-      autosave.trackCommand(cmdId, 'restore')
+      stationBridge.send('station.open', { document: startupAction.document, sourceId: 'autosave' }, {
+        beforeSend: ({ id }) => autosave.trackCommand(id, 'restore'),
+        onCancel: id => autosave.noteReject(id),
+      })
     } else {
-      const cmdId = stationBridge.send('station.resync')
-      autosave.trackCommand(cmdId, 'resync')
+      stationBridge.send('station.resync', undefined, {
+        beforeSend: ({ id }) => autosave.trackCommand(id, 'resync'),
+        onCancel: id => autosave.noteReject(id),
+      })
     }
   })
 
@@ -782,8 +824,25 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
     commitStationName: (name, nameEn) => sendRevisionedEdit('edit.rename', { name, nameEn }),
     commitAddLine: direction => {
       const snap = stationBridge.getSnapshot()
-      const cmdId = stationBridge.send('edit.line.add', direction ? { direction } : {}, snap.revision >= 0 ? { expectedRevision: snap.revision } : {})
-      if (cmdId) lineSelection.trackAdd(cmdId, snap.sessionId, snap.stationEpoch)
+      let queuedAdd = false
+      stationBridge.send(
+        'edit.line.add',
+        direction ? { direction } : {},
+        {
+          ...(snap.revision >= 0 ? { expectedRevision: snap.revision } : {}),
+          beforeSend: ({ id, queued }) => {
+            queuedAdd = queued
+            if (queued) lineSelection.reserveAdd(id)
+          },
+          beforeDispatch: ({ id, sessionId, stationEpoch }) => {
+            if (queuedAdd) lineSelection.bindAdd(id, sessionId, stationEpoch)
+            else lineSelection.trackAdd(id, sessionId, stationEpoch)
+          },
+          onCancel: id => {
+            lineSelection.noteReject(id)
+          },
+        },
+      )
       return true
     },
     commitRemoveLine: lineId => sendRevisionedEdit('edit.line.remove', { lineId }),

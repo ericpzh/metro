@@ -53,9 +53,19 @@ export interface StationCommitDelta {
   storeyHeight?: number
   removedCells: [number, number, number][]
   changedCells: Record<string, unknown>[]
+  /** Exact host JSON text for each changed cell record, preserving large integers & `__proto__` (plan 41 §1). */
+  changedCellsJson?: string[]
+  /** Target 0-based index in `static.cells` for each changed cell record (plan 41 §1). */
+  changedCellIndices?: number[]
   removedModules: string[]
   changedModules: Record<string, unknown>[]
+  /** Exact host JSON text for each changed module record, preserving large integers & `__proto__` (plan 41 §1). */
+  changedModulesJson?: string[]
+  /** Target 0-based index in `static.modules` for each changed module record (plan 41 §1). */
+  changedModuleIndices?: number[]
   lines?: Record<string, unknown>[]
+  /** Exact host JSON text for the full `static.lines` list when lines changed (plan 41 §1). */
+  linesJson?: string[]
   sourceHash?: string | null
   sourceHashRevision?: number
 }
@@ -92,6 +102,50 @@ export interface StationSnapshot {
 
 export interface UnityPlayer {
   SendMessage(object: string, method: string, value?: string): void
+}
+
+export interface SendIntent {
+  id: string
+  type: string
+  sessionId: string
+  stationEpoch: number
+  revision: number
+  queued: boolean
+}
+
+export interface SendOptions {
+  id?: string
+  expectedRevision?: number
+  /**
+   * Invoked synchronously with the reserved command ID when `send()` accepts the command
+   * (either queued before player registration/load or dispatched immediately).
+   */
+  beforeSend?: (intent: SendIntent) => void
+  /**
+   * Invoked immediately before `player.SendMessage` with the live `(sessionId, stationEpoch, revision)`
+   * that the command is actually dispatched against (after any queued station load it targets
+   * has been accepted and adopted). Ensures synchronous WebGL replies and queued startup drains
+   * share the same registration ordering (plan 41 §2, plan 42 §1 & §2).
+   */
+  beforeDispatch?: (intent: SendIntent) => void
+  /**
+   * Invoked if a queued command is cancelled before host dispatch (e.g. player disconnect,
+   * rejected target station load, failed shell adoption, or superseded by a station replacement).
+   */
+  onCancel?: (id: string, reason: string) => void
+}
+
+export interface AdoptionTarget {
+  commandId?: string
+  sessionId?: string
+  stationEpoch?: number
+}
+
+export interface AdoptionFailureTarget {
+  commandId: string
+  sessionId: string
+  stationEpoch: number
+  revision: number
 }
 
 export interface RequestOptions {
@@ -183,10 +237,176 @@ const pending = new Map<string, { type: string; at: number }>()
 const pendingRequests = new Map<string, PendingRequest>()
 const retiredRequestIds = new Set<string>()
 const commitListeners = new Set<(snapshot: StationSnapshot) => void>()
-// The shell mounts before Unity finishes booting, so the first demo open is sent
-// into this queue and flushed once the player registers. Nothing is dropped and
-// no command is replayed twice: the queue holds only commands, not documents.
-const queue: { id: string; type: string; payload?: unknown; expectedRevision?: number }[] = []
+interface QueuedCommand {
+  id: string
+  type: string
+  payload?: unknown
+  expectedRevision?: number
+  targetLoadId: string | null
+  beforeDispatch?: (intent: SendIntent) => void
+  onCancel?: (id: string, reason: string) => void
+}
+
+const STATION_LOAD_TYPES = new Set(['station.open', 'station.openDemo', 'station.new', 'station.resync'])
+function isStationLoadType(type: string): boolean {
+  return STATION_LOAD_TYPES.has(type)
+}
+
+function targetsStationDocument(type: string): boolean {
+  return type.startsWith('edit.') || type.startsWith('face.') || type.startsWith('road.') || type.startsWith('sign.')
+}
+
+interface ActiveQueuedLoad {
+  id: string
+  sessionId: string
+  type: string
+  /** Populated only once the host's matching commit for this load is accepted by `reduce()`. */
+  committed: {
+    sessionId: string
+    stationEpoch: number
+    revision: number
+  } | null
+}
+
+interface DependentDispatchGuard {
+  loadId: string
+  sessionId: string
+  stationEpoch: number
+  revision: number
+}
+
+// The shell mounts before Unity finishes booting, so startup commands wait in
+// this queue and flush once the player registers. Station loads drain strictly
+// FIFO with at most one active load at a time; dependent document edits wait
+// until their target load completes shell adoption so their intent and revision
+// guard bind to the resulting session, stationEpoch, and revision (plan 41 §2, plan 42 §1 & §2).
+const queue: QueuedCommand[] = []
+let activeQueuedLoad: ActiveQueuedLoad | null = null
+let lastAdoptedLoadId: string | null = null
+let lastDependentGuard: DependentDispatchGuard | null = null
+let drainingQueue = false
+let deliverDepth = 0
+let pendingDrainAfterDeliver = false
+
+function cancelQueuedCommands(predicate: (cmd: QueuedCommand) => boolean, reason: string): void {
+  const cancelled: QueuedCommand[] = []
+  let write = 0
+  for (let i = 0; i < queue.length; i++) {
+    const cmd = queue[i]
+    if (predicate(cmd)) {
+      cancelled.push(cmd)
+    } else {
+      queue[write++] = cmd
+    }
+  }
+  queue.length = write
+  for (const cmd of cancelled) {
+    try { cmd.onCancel?.(cmd.id, reason) } catch { /* caller cleanup must not break bridge */ }
+  }
+}
+
+function findLatestLoadId(): string | null {
+  for (let i = queue.length - 1; i >= 0; i--) {
+    if (isStationLoadType(queue[i].type)) return queue[i].id
+  }
+  return activeQueuedLoad ? activeQueuedLoad.id : null
+}
+
+function hasQueuedLoadOrDependent(): boolean {
+  for (let i = 0; i < queue.length; i++) {
+    if (isStationLoadType(queue[i].type) || queue[i].targetLoadId !== null) return true
+  }
+  return false
+}
+
+function resolveDispatchExpectedRevision(cmd: { expectedRevision?: number; targetLoadId: string | null }): number | undefined {
+  // Preserve caller-supplied revision guard verbatim for edits authored against an already loaded document.
+  if (cmd.targetLoadId === null) return cmd.expectedRevision
+  if (snapshot.revision < 0) return undefined
+  const alreadyGuardedAtRevision =
+    lastDependentGuard !== null &&
+    lastDependentGuard.loadId === cmd.targetLoadId &&
+    lastDependentGuard.sessionId === snapshot.sessionId &&
+    lastDependentGuard.stationEpoch === snapshot.stationEpoch &&
+    lastDependentGuard.revision === snapshot.revision
+  if (alreadyGuardedAtRevision) return undefined
+  lastDependentGuard = {
+    loadId: cmd.targetLoadId,
+    sessionId: snapshot.sessionId,
+    stationEpoch: snapshot.stationEpoch,
+    revision: snapshot.revision,
+  }
+  return snapshot.revision
+}
+
+function dispatchToPlayer(cmd: {
+  id: string
+  type: string
+  payload?: unknown
+  expectedRevision?: number
+  targetLoadId: string | null
+  beforeDispatch?: (intent: SendIntent) => void
+}): void {
+  if (!player) return
+  const dispatchSession = snapshot.sessionId
+  const effectiveExpectedRevision = resolveDispatchExpectedRevision(cmd)
+  cmd.beforeDispatch?.({
+    id: cmd.id,
+    type: cmd.type,
+    sessionId: snapshot.sessionId,
+    stationEpoch: snapshot.stationEpoch,
+    revision: snapshot.revision,
+    queued: false,
+  })
+  if (!player || snapshot.sessionId !== dispatchSession) return
+  const message = envelope(cmd.type, cmd.payload, {
+    id: cmd.id,
+    sessionId: dispatchSession,
+    expectedRevision: effectiveExpectedRevision,
+  })
+  pending.set(message.id, { type: cmd.type, at: Date.now() })
+  player.SendMessage(objectName, 'BrowserCommand', JSON.stringify(message))
+}
+
+function scheduleDrain(): void {
+  if (deliverDepth > 0) {
+    pendingDrainAfterDeliver = true
+    return
+  }
+  drainQueue()
+}
+
+function drainQueue(): void {
+  if (drainingQueue || !player) return
+  drainingQueue = true
+  try {
+    while (player && queue.length > 0) {
+      if (activeQueuedLoad !== null) {
+        break
+      }
+      const next = queue[0]
+      if (next.targetLoadId !== null && next.targetLoadId !== lastAdoptedLoadId) {
+        queue.shift()
+        try { next.onCancel?.(next.id, 'load-mismatch') } catch { /* caller cleanup must not break bridge */ }
+        continue
+      }
+      queue.shift()
+      if (isStationLoadType(next.type)) {
+        activeQueuedLoad = {
+          id: next.id,
+          sessionId: snapshot.sessionId,
+          type: next.type,
+          committed: null,
+        }
+        lastAdoptedLoadId = null
+        lastDependentGuard = null
+      }
+      dispatchToPlayer(next)
+    }
+  } finally {
+    drainingQueue = false
+  }
+}
 
 function retireRequestId(id: string): void {
   retiredRequestIds.add(id)
@@ -214,16 +434,96 @@ function newSessionId(): string {
   return `s-${Date.now().toString(36)}-${counter}`
 }
 
+function parseJsonObjectArray(rawArr: unknown): { raws: string[]; objects: Record<string, unknown>[] } | null {
+  if (!Array.isArray(rawArr)) return null
+  const raws: string[] = []
+  const objects: Record<string, unknown>[] = []
+  for (let i = 0; i < rawArr.length; i++) {
+    const item = rawArr[i]
+    if (typeof item !== 'string' || item.length === 0) return null
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(item)
+    } catch {
+      return null
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
+    raws.push(item)
+    objects.push(parsed as Record<string, unknown>)
+  }
+  return { raws, objects }
+}
+
+function parseNonNegativeIntArray(rawArr: unknown, expectedLength: number): number[] | null {
+  if (!Array.isArray(rawArr) || rawArr.length !== expectedLength) return null
+  const out: number[] = []
+  for (let i = 0; i < rawArr.length; i++) {
+    const v = rawArr[i]
+    if (typeof v !== 'number' || !Number.isInteger(v) || v < 0) return null
+    out.push(v)
+  }
+  return out
+}
+
 function parseCommitDelta(raw: unknown): StationCommitDelta | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
   const r = raw as Record<string, unknown>
   if (r.schemaVersion !== STATION_DELTA_SCHEMA_VERSION) return null
   if (typeof r.baseRevision !== 'number' || !Number.isInteger(r.baseRevision)) return null
   if (typeof r.revision !== 'number' || !Number.isInteger(r.revision)) return null
-  if (!Array.isArray(r.removedCells) || !Array.isArray(r.changedCells) ||
-      !Array.isArray(r.removedModules) || !Array.isArray(r.changedModules)) {
+  if (!Array.isArray(r.removedCells) || !Array.isArray(r.removedModules)) {
     return null
   }
+
+  let changedCells: Record<string, unknown>[]
+  let changedCellsJson: string[] | undefined
+  if (r.changedCellsJson !== undefined) {
+    const parsed = parseJsonObjectArray(r.changedCellsJson)
+    if (!parsed) return null
+    changedCells = parsed.objects
+    changedCellsJson = parsed.raws
+  } else if (Array.isArray(r.changedCells)) {
+    changedCells = r.changedCells as Record<string, unknown>[]
+  } else {
+    return null
+  }
+  let changedCellIndices: number[] | undefined
+  if (r.changedCellIndices !== undefined) {
+    const parsed = parseNonNegativeIntArray(r.changedCellIndices, changedCells.length)
+    if (!parsed) return null
+    changedCellIndices = parsed
+  }
+
+  let changedModules: Record<string, unknown>[]
+  let changedModulesJson: string[] | undefined
+  if (r.changedModulesJson !== undefined) {
+    const parsed = parseJsonObjectArray(r.changedModulesJson)
+    if (!parsed) return null
+    changedModules = parsed.objects
+    changedModulesJson = parsed.raws
+  } else if (Array.isArray(r.changedModules)) {
+    changedModules = r.changedModules as Record<string, unknown>[]
+  } else {
+    return null
+  }
+  let changedModuleIndices: number[] | undefined
+  if (r.changedModuleIndices !== undefined) {
+    const parsed = parseNonNegativeIntArray(r.changedModuleIndices, changedModules.length)
+    if (!parsed) return null
+    changedModuleIndices = parsed
+  }
+
+  let lines: Record<string, unknown>[] | undefined
+  let linesJson: string[] | undefined
+  if (r.linesJson !== undefined) {
+    const parsed = parseJsonObjectArray(r.linesJson)
+    if (!parsed) return null
+    lines = parsed.objects
+    linesJson = parsed.raws
+  } else if (Array.isArray(r.lines)) {
+    lines = r.lines as Record<string, unknown>[]
+  }
+
   return {
     schemaVersion: r.schemaVersion,
     baseRevision: r.baseRevision,
@@ -235,10 +535,15 @@ function parseCommitDelta(raw: unknown): StationCommitDelta | null {
     levelBase: typeof r.levelBase === 'number' && Number.isFinite(r.levelBase) ? r.levelBase : undefined,
     storeyHeight: typeof r.storeyHeight === 'number' && Number.isFinite(r.storeyHeight) ? r.storeyHeight : undefined,
     removedCells: r.removedCells as [number, number, number][],
-    changedCells: r.changedCells as Record<string, unknown>[],
+    changedCells,
+    changedCellsJson,
+    changedCellIndices,
     removedModules: r.removedModules.filter((id): id is string => typeof id === 'string'),
-    changedModules: r.changedModules as Record<string, unknown>[],
-    lines: Array.isArray(r.lines) ? r.lines as Record<string, unknown>[] : undefined,
+    changedModules,
+    changedModulesJson,
+    changedModuleIndices,
+    lines,
+    linesJson,
     sourceHash: typeof r.sourceHash === 'string' && r.sourceHash.length > 0 ? r.sourceHash : null,
     sourceHashRevision: typeof r.sourceHashRevision === 'number' && Number.isInteger(r.sourceHashRevision) ? r.sourceHashRevision : -1,
   }
@@ -270,6 +575,13 @@ export function reduce(current: StationSnapshot, reply: Reply): StationSnapshot 
     const hasDelta = !hasDocument && payload.delta !== undefined
     if (hasDocument) {
       if (revision < current.revision) return current
+      const isDuplicateDocCommit =
+        revision === current.revision &&
+        stationEpoch === current.stationEpoch &&
+        current.documentRevision === revision &&
+        !current.resyncNeeded &&
+        (commitId === '' || commitId === (current.lastCommitId ?? ''))
+      if (isDuplicateDocCommit) return current
       const document = payload.document as string
       const rawHash = typeof payload.sourceHash === 'string' ? payload.sourceHash : null
       const sourceHash = rawHash !== null ? (rawHash.length > 0 ? rawHash : null) : current.sourceHash
@@ -440,6 +752,9 @@ function deliver(text: string): void {
     listeners.forEach(listener => listener())
   }
   if (reply.kind === 'commit') {
+    if (next === before) {
+      return
+    }
     if (next.resyncNeeded) {
       if (!resyncInFlight) {
         resyncInFlight = true
@@ -447,9 +762,47 @@ function deliver(text: string): void {
       }
       return
     }
-    if (next !== before) {
-      commitListeners.forEach(listener => listener(next))
+    let supersededLoadId: string | null = null
+    if (activeQueuedLoad && activeQueuedLoad.sessionId === next.sessionId) {
+      if (replyId === activeQueuedLoad.id && activeQueuedLoad.committed === null) {
+        activeQueuedLoad.committed = {
+          sessionId: next.sessionId,
+          stationEpoch: next.stationEpoch,
+          revision: next.revision,
+        }
+      } else if (replyId !== activeQueuedLoad.id && next.stationEpoch !== before.stationEpoch) {
+        supersededLoadId = activeQueuedLoad.id
+      }
     }
+    deliverDepth += 1
+    try {
+      commitListeners.forEach(listener => listener(next))
+      if (supersededLoadId !== null && activeQueuedLoad !== null && activeQueuedLoad.id === supersededLoadId) {
+        activeQueuedLoad = null
+        lastAdoptedLoadId = null
+        lastDependentGuard = null
+        cancelQueuedCommands(cmd => cmd.targetLoadId === supersededLoadId, 'station-replaced')
+        pendingDrainAfterDeliver = true
+      }
+    } finally {
+      deliverDepth -= 1
+    }
+    if (deliverDepth === 0 && pendingDrainAfterDeliver) {
+      pendingDrainAfterDeliver = false
+      drainQueue()
+    }
+    return
+  }
+  if (reply.kind === 'reject' && activeQueuedLoad &&
+      activeQueuedLoad.committed === null &&
+      replyId === activeQueuedLoad.id &&
+      (!replySession || replySession === activeQueuedLoad.sessionId)) {
+    const failedLoadId = activeQueuedLoad.id
+    activeQueuedLoad = null
+    lastAdoptedLoadId = null
+    lastDependentGuard = null
+    cancelQueuedCommands(cmd => cmd.targetLoadId === failedLoadId, 'load-rejected')
+    scheduleDrain()
   }
 }
 
@@ -475,10 +828,53 @@ export const stationBridge = {
     cameraPoseListeners.add(listener)
     return () => { cameraPoseListeners.delete(listener) }
   },
-  /** Record that the shell store adopted `revision` (full document or delta) and its adopt duration. */
-  noteAdopted(revision: number, adoptMs = 0): void {
+  /**
+   * Record that the shell store adopted `revision` (full document or delta) and its adopt duration.
+   * When `target` matches the active queued load's `(commandId, sessionId, stationEpoch, revision)`,
+   * completes that load and releases its dependent edits in FIFO order (plan 42 §2).
+   */
+  noteAdopted(revision: number, adoptMs = 0, target?: AdoptionTarget): void {
+    if (target?.sessionId !== undefined && target.sessionId !== snapshot.sessionId) return
+    if (target?.stationEpoch !== undefined && target.stationEpoch !== snapshot.stationEpoch) return
+    if (target?.commandId !== undefined && target.commandId !== (snapshot.lastCommitId ?? '')) return
     if (snapshot.revision !== revision) return
     snapshot = { ...snapshot, adoptedRevision: revision, lastAdoptMs: adoptMs }
+    if (
+      activeQueuedLoad !== null &&
+      activeQueuedLoad.committed !== null &&
+      target !== undefined &&
+      target.commandId === activeQueuedLoad.id &&
+      target.sessionId === activeQueuedLoad.committed.sessionId &&
+      target.stationEpoch === activeQueuedLoad.committed.stationEpoch &&
+      revision === activeQueuedLoad.committed.revision
+    ) {
+      const completedId = activeQueuedLoad.id
+      activeQueuedLoad = null
+      lastAdoptedLoadId = completedId
+      lastDependentGuard = null
+      scheduleDrain()
+    }
+  },
+  /**
+   * Report that the shell could not adopt a committed envelope (e.g. corrupt save JSON).
+   * Cancels only that load's dependent edits and advances the queue to any later valid load (plan 42 §2).
+   */
+  noteAdoptionFailed(target: AdoptionFailureTarget, reason = 'adoption-failed'): void {
+    if (activeQueuedLoad === null || activeQueuedLoad.committed === null) return
+    if (
+      target.commandId !== activeQueuedLoad.id ||
+      target.sessionId !== activeQueuedLoad.committed.sessionId ||
+      target.stationEpoch !== activeQueuedLoad.committed.stationEpoch ||
+      target.revision !== activeQueuedLoad.committed.revision
+    ) {
+      return
+    }
+    const failedLoadId = activeQueuedLoad.id
+    activeQueuedLoad = null
+    lastAdoptedLoadId = null
+    lastDependentGuard = null
+    cancelQueuedCommands(cmd => cmd.targetLoadId === failedLoadId, reason)
+    scheduleDrain()
   },
   /**
    * Read the authoritative v1 save text for the current committed revision. Returns
@@ -508,18 +904,31 @@ export const stationBridge = {
     return doc
   },
   register(instance: UnityPlayer, name = 'StationGame'): void {
+    const hadPlayer = player !== null
     cancelPendingRequests('session-changed', 'A new Unity player session registered.')
+    if (hadPlayer || activeQueuedLoad !== null) {
+      activeQueuedLoad = null
+      lastAdoptedLoadId = null
+      lastDependentGuard = null
+      pendingDrainAfterDeliver = false
+      cancelQueuedCommands(() => true, 'session-changed')
+    }
     player = instance
     objectName = name
     resyncInFlight = false
     pending.clear()
     snapshot = { ...EMPTY, ready: true, sessionId: newSessionId() }
     listeners.forEach(listener => listener())
-    for (const command of queue.splice(0)) stationBridge.send(command.type, command.payload, { id: command.id, expectedRevision: command.expectedRevision })
+    drainQueue()
   },
   unregister(): void {
     player = null
     resyncInFlight = false
+    activeQueuedLoad = null
+    lastAdoptedLoadId = null
+    lastDependentGuard = null
+    pendingDrainAfterDeliver = false
+    cancelQueuedCommands(() => true, 'disconnected')
     cancelPendingRequests('disconnected', 'The Unity player unregistered.')
     pending.clear()
     snapshot = EMPTY
@@ -527,16 +936,54 @@ export const stationBridge = {
   },
   /** C# calls this through the WebGL bridge; a string keeps the JS boundary trivial. */
   receive(text: string): void { deliver(text) },
-  send(type: string, payload?: unknown, options: { id?: string; expectedRevision?: number } = {}): string {
+  send(type: string, payload?: unknown, options: SendOptions = {}): string {
     const id = options.id ?? `c-${++counter}`
-    if (!player) {
-      queue.push({ id, type, payload, expectedRevision: options.expectedRevision })
+    const isLoad = isStationLoadType(type)
+    const isDocEdit = targetsStationDocument(type)
+    const targetLoadId = isDocEdit ? findLatestLoadId() : null
+    const queued =
+      !player ||
+      (isLoad && (activeQueuedLoad !== null || drainingQueue || hasQueuedLoadOrDependent())) ||
+      targetLoadId !== null
+    options.beforeSend?.({
+      id,
+      type,
+      sessionId: snapshot.sessionId,
+      stationEpoch: snapshot.stationEpoch,
+      revision: snapshot.revision,
+      queued,
+    })
+    if (queued) {
+      queue.push({
+        id,
+        type,
+        payload,
+        expectedRevision: options.expectedRevision,
+        targetLoadId,
+        beforeDispatch: options.beforeDispatch,
+        onCancel: options.onCancel,
+      })
       return id
     }
-    const message = envelope(type, payload, { ...options, id })
-    pending.set(message.id, { type, at: Date.now() })
-    player.SendMessage(objectName, 'BrowserCommand', JSON.stringify(message))
-    return message.id
+    if (isLoad) {
+      activeQueuedLoad = {
+        id,
+        sessionId: snapshot.sessionId,
+        type,
+        committed: null,
+      }
+      lastAdoptedLoadId = null
+      lastDependentGuard = null
+    }
+    dispatchToPlayer({
+      id,
+      type,
+      payload,
+      expectedRevision: options.expectedRevision,
+      targetLoadId: null,
+      beforeDispatch: options.beforeDispatch,
+    })
+    return id
   },
   /**
    * Send a one-shot correlated command and resolve with the host's ack payload.
@@ -589,7 +1036,7 @@ export const stationBridge = {
     })
   },
   /** Ask for the committed document again, e.g. after a reconnect or a dropped commit. */
-  resync(): void { stationBridge.send('station.resync') },
+  resync(options?: SendOptions): string { return stationBridge.send('station.resync', undefined, options) },
   /** Rejects still unanswered; useful for the verifier and the status bar. */
   pending(): { id: string; type: string; at: number }[] {
     return [...pending.entries()].map(([id, value]) => ({ id, ...value }))

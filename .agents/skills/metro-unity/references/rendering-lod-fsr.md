@@ -59,7 +59,10 @@ and per-model triangle counts, see
   `CancelActiveGesture` handle chord/mask-loss/Escape cancellation with zero
   picks or revisions; `ProbeBudgetFor` bounds `edit.probe` candidate walks by
   cell count (`48` at `20k+`, `96` at `8k+`, `192` otherwise); post-commit hover
-  re-aim defers to coalesced `StationGameHost.RequestHoverRefresh`.
+  re-aim defers to coalesced `StationGameHost.RequestHoverRefresh`; parked carried
+  moves record `StationEditSession.ParkedMoveAim` (`StationPlacementAimInput`) and
+  revalidate with zero scene picks via `RevalidateParkedMove` (guarded by
+  `CommittingMove`) on document commits, hover refreshes, and `ConfirmMove`.
 - **Separated preview layers & retained highlights (`StationPlacementPreview`):**
   Hover, persistent selection, carried-piece hiding (`HideCarried` /
   `RestorableInstanced`), and cell/module ghosts have separate ownership outside
