@@ -132,6 +132,10 @@ namespace Metro.Sim {
         public double RideWidth;
         /// <summary>Flight count for turning/switchback stairs (0/1 = single straight flight; matches web `stairFlights(m).length`).</summary>
         public int StairFlights;
+        /// <summary>A walled room's kind (<c>cfg.kind</c>: <c>store</c>, <c>toilet</c>, <c>office</c>).</summary>
+        public string ShopKind;
+        /// <summary>True when a <c>glass</c> module stands on the floor (for edge-decor curtain shift).</summary>
+        public bool GlassFloorStanding;
         public Dictionary<int, int> LiftDoorMasks;
         public int[] LiftRises;
     }
@@ -442,6 +446,8 @@ namespace Metro.Sim {
         public double PhaseSeconds;
         /// <summary>Door leaves' commanded position, 0 shut ... 1 fully open.</summary>
         public double DoorFraction;
+        /// <summary>Bitmask of consist door banks with an adjacent platform: bit 0 = +1 bank, bit 1 = -1 bank (0..3).</summary>
+        public int DoorBankMask;
         /// <summary>The absolute sim time the next consist dispatch is due.</summary>
         public double NextDispatchSimTime;
         /// <summary>The next three platform arrivals, seconds from the snapshot instant.</summary>
@@ -1234,6 +1240,14 @@ namespace Metro.Sim {
         }
 
         /// <summary>One service's live state, with the stable identity a consumer keys on.</summary>
+        int DoorBankMaskFor(StationLineFact line, string trackId) {
+            if (document == null || string.IsNullOrEmpty(trackId)) return 0;
+            if (StationTrainPose.TryBerth(document, line, true, trackId, StationTrainPose.DefaultScale, out var berth, out _)) {
+                return berth.DoorBankMask;
+            }
+            return 0;
+        }
+
         StationTrainFrame ServiceFrame(StationLineFact line, string trackId, TrainRun? active) {
             return new StationTrainFrame {
                 Id = ServiceKey(line.Id, trackId), LineId = line.Id, TrackId = trackId,
@@ -1242,6 +1256,7 @@ namespace Metro.Sim {
                 Phase = active?.Phase ?? TrainPhase.None,
                 PhaseSeconds = active?.T ?? 0,
                 DoorFraction = active.HasValue ? DoorFractionOf(active.Value.Phase, active.Value.T) : 0,
+                DoorBankMask = DoorBankMaskFor(line, trackId),
                 Capacity = services.CapacityFor(line.Id, trackId),
                 Onboard = services.OnboardFor(line.Id, trackId),
             };
@@ -1566,6 +1581,7 @@ namespace Metro.Sim {
                 Phase = active?.Phase ?? TrainPhase.None,
                 PhaseSeconds = active?.T ?? 0,
                 DoorFraction = active.HasValue ? DoorFractionOf(active.Value.Phase, active.Value.T) : 0,
+                DoorBankMask = DoorBankMaskFor(line, trackId),
                 NextDispatchSimTime = next,
                 ArrivalSeconds = arrivals,
                 ArrivalAtPlatform = atPlatform,
@@ -1617,10 +1633,20 @@ namespace Metro.Sim {
             var frames = new StationDoorFrame[edges.Count];
             for (int i = 0; i < edges.Count; i++) {
                 var edge = edges[i];
-                var active = ActiveTrain(edge.LineId, edge.RailId);
+                StationLineFact lineFact = default;
+                bool haveLine = false;
+                for (int l = 0; l < document.Lines.Count; l++) {
+                    if (string.Equals(document.Lines[l].Id, edge.LineId, StringComparison.Ordinal)) {
+                        lineFact = document.Lines[l];
+                        haveLine = true;
+                        break;
+                    }
+                }
+                string resolvedTrackId = StationServiceDoors.ResolveEdgeTrack(document, edge, lineFact, haveLine);
+                var active = ActiveTrain(edge.LineId, resolvedTrackId);
                 double fraction = active.HasValue ? DoorFractionOf(active.Value.Phase, active.Value.T) : 0;
                 frames[i] = new StationDoorFrame {
-                    PlatformId = edge.Id, LineId = edge.LineId, TrackId = edge.RailId,
+                    PlatformId = edge.Id, LineId = edge.LineId, TrackId = resolvedTrackId,
                     DoorFraction = fraction, TrainPhase = active?.Phase ?? TrainPhase.None,
                 };
             }

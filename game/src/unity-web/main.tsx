@@ -16,7 +16,7 @@ import { isBenchmarkPath } from '../app/languageRoute.ts'
 import { msg } from '../sim/i18n.ts'
 import { measurePosition, measureText, wantsMeasure, type CellsPayload } from './pointerMeasure.ts'
 import { showGameLoading } from '../app/gameLoading.ts'
-import { initUiTheme } from '../app/uiTheme.ts'
+import { getUiTheme, initUiTheme, subscribeUiTheme } from '../app/uiTheme.ts'
 import { demoStationForPath, gamePathFor } from '../app/demoRoute.ts'
 import type { StationHost } from '../app/windows/StationHost.tsx'
 import { openingLevel } from '../app/openingLevel.ts'
@@ -32,12 +32,14 @@ import { createSignFacePort } from './signFaceProvider.ts'
 import { createPsdHeaderPort } from './psdHeaderProvider.ts'
 import { createExitFacePort } from './exitFaceProvider.ts'
 import { createCalligraphyFacePort } from './calligraphyFaceProvider.ts'
+import { createTrainMarkPort } from './trainMarkProvider.ts'
 import { attachKeyboardNavigation } from './keyboardNavigation.ts'
 import { applyUnityClock, bindSimulationPort, createSimulationPort, receiveHostState, simulationStoreActions } from './simulationAdapter.ts'
 import { applyHostStatistics, createStatisticsAdapter } from './statisticsAdapter.ts'
-import { stationBridge } from './stationBridge.ts'
+import { readHostHistory, stationBridge } from './stationBridge.ts'
 import type { StationSnapshot } from './stationBridge.ts'
 import { applyStationDelta, seedStationCellIndex } from './stationDelta.ts'
+import { createWebGlAutosave, resolveWebGlStartupAction } from './webglAutosave.ts'
 import { commitSignBoardsToHost, unityHostOwnsStation } from './signCommitAdapter.ts'
 import { registerStationHostCommit } from '../app/stationHostBridge.ts'
 import { beginPointerDrag } from '../app/pointerDrag.ts'
@@ -161,6 +163,7 @@ function runWithGameLoading(
 
 let adoptedStoreRevision = -1
 let adoptedStoreSession = ''
+let activeAutosave: { noteCommit: (input: { revision: number; stationEpoch: number; sourceId: string | null; documentText: string | null; station?: ReturnType<typeof useStore.getState>['station'] | null }) => void } | null = null
 
 /**
  * Adopt a committed document or local delta into the shared store. The store is the
@@ -186,6 +189,13 @@ function adopt(snapshot: StationSnapshot): void {
     useStore.setState({ station: parsed.state, activeZ: level, speed, playing: running })
     adoptedStoreRevision = snapshot.revision
     adoptedStoreSession = snapshot.sessionId
+    activeAutosave?.noteCommit({
+      revision: snapshot.revision,
+      stationEpoch: snapshot.stationEpoch,
+      sourceId: snapshot.sourceId,
+      documentText: snapshot.document,
+      station: parsed.state,
+    })
     const t1 = typeof performance !== 'undefined' ? performance.now() : Date.now()
     stationBridge.noteAdopted(snapshot.revision, t1 - t0)
     // A demo link is a start, not a location: once the document is committed the
@@ -214,6 +224,13 @@ function adopt(snapshot: StationSnapshot): void {
     const running = state.playing === true || state.running === true || state.playing === 'true'
     useStore.setState({ station: nextStation, activeZ: level, speed, playing: running })
     adoptedStoreRevision = snapshot.revision
+    activeAutosave?.noteCommit({
+      revision: snapshot.revision,
+      stationEpoch: snapshot.stationEpoch,
+      sourceId: snapshot.sourceId,
+      documentText: null,
+      station: nextStation,
+    })
     const t1 = typeof performance !== 'undefined' ? performance.now() : Date.now()
     stationBridge.noteAdopted(snapshot.revision, t1 - t0)
   }
@@ -252,18 +269,37 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
   const psdHeaders = createPsdHeaderPort()
   const exitFaces = createExitFacePort()
   const calligraphyFaces = createCalligraphyFacePort()
+  const trainMarks = createTrainMarkPort()
   const onState = (event: Event): void => {
     const detail = (event as CustomEvent<string>).detail
     if (signFaces.receive(detail)) return
     if (psdHeaders.receive(detail)) return
     if (exitFaces.receive(detail)) return
     if (calligraphyFaces.receive(detail)) return
+    if (trainMarks.receive(detail)) return
     stationBridge.receive(detail)
   }
   window.addEventListener('metro:station-state', onState)
   let openDesktopBenchmark: (() => void) | null = null
+  let startupCancelled = false
+  let cachedHistory = readHostHistory(stationBridge.getSnapshot())
+  const getHostHistory = (): { canUndo: boolean; canRedo: boolean } => {
+    const next = readHostHistory(stationBridge.getSnapshot())
+    if (next.canUndo !== cachedHistory.canUndo || next.canRedo !== cachedHistory.canRedo) {
+      cachedHistory = next
+    }
+    return cachedHistory
+  }
+  const sendHistoryStep = (type: 'edit.undo' | 'edit.redo'): void => {
+    const rev = stationBridge.getSnapshot().revision
+    stationBridge.send(type, {}, rev >= 0 ? { expectedRevision: rev } : {})
+  }
   const host: StationHost = {
     openBenchmark: desktopOverlay ? () => { openDesktopBenchmark?.() } : undefined,
+    undo: () => { sendHistoryStep('edit.undo') },
+    redo: () => { sendHistoryStep('edit.redo') },
+    getHistory: getHostHistory,
+    subscribeHistory: listener => stationBridge.subscribe(listener),
     modelDetail: async profile => {
       const result = profile === undefined
         ? await stationBridge.request('graphics.get')
@@ -280,8 +316,12 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
       if (applied === 'native' || applied === 'ultra' || applied === 'quality' || applied === 'balanced' || applied === 'performance') return applied
       throw new Error('Invalid upscaling reply')
     },
-    newStation: () => { stationBridge.send('station.new') },
+    newStation: () => {
+      startupCancelled = true
+      stationBridge.send('station.new')
+    },
     openDemo: id => {
+      startupCancelled = true
       runWithGameLoading(
         '正在载入示例车站',
         'Loading example station',
@@ -291,6 +331,7 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
       )
     },
     openSave: documentText => {
+      startupCancelled = true
       runWithGameLoading(
         '正在载入存档',
         'Loading saved station',
@@ -363,7 +404,9 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
       useStore.getState().setNotice(english
         ? `The simulation refused that command (${latest.code}).`
         : `仿真拒绝了该操作（${latest.code}）。`)
-    } else if (latest.reason && /^(sign\.|road\.|face\.|tool\.)/.test(latest.type)) {
+    } else if (latest.code === 'revision-mismatch' || latest.code === 'stale-revision') {
+      stationBridge.resync()
+    } else if (latest.reason && /^(sign\.|road\.|face\.|tool\.|edit\.)/.test(latest.type)) {
       // An edit verb the player drove was refused, and the host said why: surface its
       // sentence rather than leaving the control that sent it looking inert. Camera and
       // view refusals during the first commit are the shell's own early sends, not the
@@ -614,14 +657,41 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
   const unsubscribeEdit = stationBridge.subscribe(adoptEdit)
   adoptEdit()
 
+  // WebGL autosave (plan 37 §6.3): disabled on desktop overlay (native presenter owns it)
+  // and on benchmark routes.
+  let webglStorage: Storage | null = null
+  try { webglStorage = typeof localStorage !== 'undefined' ? localStorage : null } catch { webglStorage = null }
+  const autosave = createWebGlAutosave({
+    enabled: !desktopOverlay && !isBenchmark,
+    storage: webglStorage,
+  })
+  activeAutosave = autosave
+
+  // Synchronize the active UI theme (`blueprint` / `site` / `studio`) to Unity's main
+  // viewport void colour and fog on mount and on every Settings theme switch (plan 37 §6.2).
+  const sendUiTheme = (): void => {
+    stationBridge.send('view.set', { key: 'theme', value: getUiTheme() })
+  }
+  const unsubscribeTheme = subscribeUiTheme(sendUiTheme)
+  if (!isBenchmark || desktopOverlay) sendUiTheme()
+
   // Ask the host for its station once the player registers: a demo route names
   // the document to open, benchmark routes defer loading until the user starts
-  // a run (avoiding a throwaway `new` station allocation on WebGL), and any
-  // other path resumes whatever the host commits.
+  // a run (avoiding a throwaway `new` station allocation on WebGL), a valid
+  // WebGL autosave restores before `station.resync`, and any explicit open
+  // cancels the deferred startup action.
   const demo = isBenchmark ? null : demoStationForPath(location.pathname)
+  const startupAction = resolveWebGlStartupAction({
+    isBenchmark,
+    desktopOverlay,
+    demoId: demo,
+    storage: webglStorage,
+  })
   queueMicrotask(() => {
-    if (isBenchmark && !desktopOverlay) stationBridge.send('benchmark.mode', { active: true })
-    else if (demo) stationBridge.send('station.openDemo', { id: demo })
+    if (startupCancelled) return
+    if (startupAction.kind === 'benchmark') stationBridge.send('benchmark.mode', { active: true })
+    else if (startupAction.kind === 'openDemo') stationBridge.send('station.openDemo', { id: startupAction.id })
+    else if (startupAction.kind === 'openAutosave') stationBridge.send('station.open', { document: startupAction.document, sourceId: 'autosave' })
     else stationBridge.send('station.resync')
   })
 
@@ -644,15 +714,30 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
   // the app registers no such port on its own (plan 11 F3 / `app/stationHostBridge.ts`).
   // The same port carries the document verbs whose only writer is the host (plan 27 §4), so
   // Ctrl+Z/Y, Delete and Escape reach the one edit history instead of a shadow store copy.
+  const sendRevisionedEdit = (type: string, payload: Record<string, unknown>): boolean => {
+    const rev = stationBridge.getSnapshot().revision
+    stationBridge.send(type, payload, rev >= 0 ? { expectedRevision: rev } : {})
+    return true
+  }
   registerStationHostCommit({
     ownsStation: () => unityHostOwnsStation(),
     commitSignBoards: (moduleId, boards) => commitSignBoardsToHost(moduleId, boards),
-    commitExit: (moduleId, patch) => {
-      stationBridge.send('edit.exit', { moduleId, ...patch })
+    commitExit: (moduleId, patch) => sendRevisionedEdit('edit.exit', { moduleId, ...patch }),
+    commitCityStyle: city => sendRevisionedEdit('edit.city', { city }),
+    commitStationName: (name, nameEn) => sendRevisionedEdit('edit.rename', { name, nameEn }),
+    commitAddLine: direction => sendRevisionedEdit('edit.line.add', direction ? { direction } : {}),
+    commitRemoveLine: lineId => sendRevisionedEdit('edit.line.remove', { lineId }),
+    commitUpdateLine: (lineId, patch) => sendRevisionedEdit('edit.line.update', { lineId, patch }),
+    commitLiftDoorSide: (moduleId, z, side) => sendRevisionedEdit('edit.lift.doors', { moduleId, z, side }),
+    commitSwitchRunDirection: moduleId => sendRevisionedEdit('edit.run.reverse', { moduleId }),
+    commitSwitchRoadDirection: moduleId => sendRevisionedEdit('edit.road.reverse', { moduleId }),
+    commitRegenRail: trackId => sendRevisionedEdit('edit.rail.regen', { trackId }),
+    startMove: moduleId => {
+      stationBridge.send('edit.move.start', { moduleId })
       return true
     },
-    undo: () => { stationBridge.send('edit.undo', {}); return true },
-    redo: () => { stationBridge.send('edit.redo', {}); return true },
+    undo: () => { sendHistoryStep('edit.undo'); return true },
+    redo: () => { sendHistoryStep('edit.redo'); return true },
     deleteSelection: () => {
       const state = stationBridge.getSnapshot().state
       const edit = state.edit as Record<string, unknown> | null | undefined
@@ -703,6 +788,10 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
   })
   const unmount = (): void => {
     if (activeShell !== null && activeShell.unmount === unmount) activeShell = null
+    startupCancelled = true
+    if (activeAutosave === autosave) activeAutosave = null
+    autosave.dispose()
+    unsubscribeTheme()
     registerStationHostCommit(null)
     stopAdopting()
     unmountAudio()
@@ -725,6 +814,7 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
     psdHeaders.dispose()
     exitFaces.dispose()
     calligraphyFaces.dispose()
+    trainMarks.dispose()
     detachCanvas()
     detachPointer()
     canvas.removeEventListener('pointermove', trackPointer)

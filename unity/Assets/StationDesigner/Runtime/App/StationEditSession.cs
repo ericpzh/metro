@@ -249,6 +249,20 @@ namespace Metro.App {
             if (redos.Count > 0 && !string.Equals(redos[redos.Count - 1].SourceId, sourceId, StringComparison.Ordinal)) redos.Clear();
         }
 
+        /// <summary>
+        /// Unconditionally clear both undo and redo stacks on any non-edit station load
+        /// (including reloads that share the same <c>sourceId</c>, such as New -> New or File -> File).
+        /// </summary>
+        public static void ClearHistory() {
+            undos.Clear();
+            redos.Clear();
+        }
+
+        public static int UndoCount => undos.Count;
+        public static int RedoCount => redos.Count;
+        public static bool CanUndo => undos.Count > 0;
+        public static bool CanRedo => redos.Count > 0;
+
         public static void SelectModule(StationModuleRecord module) {
             SelectionKind = "module";
             SelectionKey = module?.Id ?? "";
@@ -346,6 +360,40 @@ namespace Metro.App {
             var next = StationCellEdits.Apply(saved, patch, out code);
             if (next == null) return false;
             return TryApplyPatch(host, next, label, commandId, out result, out code);
+        }
+
+        /// <summary>
+        /// Apply an updated authored road set incrementally through the local delta path,
+        /// falling back to a full envelope rewrite only when local projection refuses.
+        /// </summary>
+        public static bool TryApplyRoads(StationGameHost host, IReadOnlyList<StationRoadRecord> nextRoads,
+            string label, string commandId, out StationLoadResult result, out string code) {
+            result = null;
+            code = null;
+            if (host == null || !host.IsLoaded) { code = "no-session"; return false; }
+            if (IsDuplicate(host, commandId, out code)) return false;
+            var beforeRead = host.Coordinator.CommittedRead;
+            var local = host.TryApplyLocalRoads(nextRoads, host.CurrentSourceId, out var localCode);
+            if (local != null) {
+                return FinishLocalEdit(host, local, beforeRead, label, commandId, out result, out code);
+            }
+            StationEditTrace.NoteDocumentFallback(localCode);
+            var saved = host.SaveDocument();
+            if (string.IsNullOrEmpty(saved)) { code = "no-document"; return false; }
+            var next = StationRoadWrites.Apply(saved, nextRoads, out code);
+            if (next == null) return false;
+            return TryApplyPatch(host, next, label, commandId, out result, out code);
+        }
+
+        public static bool TryApplyLocalRead(StationGameHost host, StationReadResult local, StationReadResult beforeRead,
+            string label, string commandId, out StationLoadResult result, out string code) {
+            result = null;
+            code = null;
+            if (host == null || !host.IsLoaded) { code = "no-session"; return false; }
+            if (local == null) { code = "no-document"; return false; }
+            if (IsDuplicate(host, commandId, out code)) return false;
+            var candidate = host.ApplyLocalHistory(local);
+            return FinishLocalEdit(host, candidate, beforeRead, label, commandId, out result, out code);
         }
 
         static bool FinishLocalEdit(StationGameHost host, StationLoadResult candidate, StationReadResult beforeRead, string label,
@@ -526,6 +574,8 @@ namespace Metro.App {
                 ["trace"] = new JArray(trace.ConvertAll(entry => entry.DeepClone())),
                 ["undoDepth"] = undos.Count,
                 ["redoDepth"] = redos.Count,
+                ["canUndo"] = undos.Count > 0,
+                ["canRedo"] = redos.Count > 0,
             };
             return edit;
         }

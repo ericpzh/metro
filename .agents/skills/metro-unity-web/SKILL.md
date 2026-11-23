@@ -109,10 +109,17 @@ npm run build:unity:windows
 ### 2. Dual-transport publishing, artwork recapture & `#game-loading`
 
 - **Dual-transport outbound publishing:** Host-initiated browser-canvas artwork requests
-  (`signRequest`, `psdHeaderRequest`, `exitFaceRequest`, `calligraphyRequest`) must publish
-  via `StationGameHost.PublishOutbound` — never WebGL-only `StationWebBridge.Publish` — so
-  both WebGL and WebView2 receive them. `main.tsx` intercepts all four streams before
-  `stationBridge.receive` so PNG chunks never enter the state reducer.
+  (`signRequest`, `psdHeaderRequest`, `exitFaceRequest`, `calligraphyRequest`,
+  `trainMarkRequest`) must publish via `StationGameHost.PublishOutbound` — never WebGL-only
+  `StationWebBridge.Publish` — so both WebGL and WebView2 receive them. `main.tsx` intercepts
+  all five streams before `stationBridge.receive` so PNG chunks never enter the state reducer.
+- **Authoritative history, theme sync, WebGL autosave & WebView2 links:** `StationGameHost`
+  publishes `canUndo`, `canRedo`, and monotonic `stationEpoch` (cleared unconditionally on
+  non-edit station loads) so `TopBar.tsx` undo/redo buttons stay authoritative; `main.tsx`
+  syncs `view.set { key: "theme" }` into `StationSkySystem`, runs synchronous WebGL autosave
+  (`webglAutosave.ts`, disabled on desktop overlay and `/benchmark`), and `MetroEditorWebView`
+  forwards only allowlisted `/stats/report` & `/stats/en/report` popups (`NewWindowRequested`)
+  to the system browser.
 - **Artwork recapture:** Whenever runtime code binds or swaps textures/materials after world
   registration (signs, PSD headers, street exits, calligraphy, billboards, TVs, line maps,
   digital clocks, road signals), it must call `world.RecaptureArtwork(renderer)`

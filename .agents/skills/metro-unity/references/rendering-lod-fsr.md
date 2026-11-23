@@ -18,10 +18,14 @@ and per-model triangle counts, see
   `StationWorldView.StageLocalWorld` / `CommitLocalWorld` updates only dirty
   geometry, affected module families (`StationEquipmentModuleRenderer`,
   `OutdoorModuleRenderer`, `OpeningModuleRenderer` for `gate`/`door`/`cubicle`,
-  zone overlay bands), and `StationScenePicker.ApplyLocalCommit`, while
+  `StationRoadRenderer` via `TryApplyRoadSet` + `TryStageLocalDelta`,
+  `StationContactShadowRenderer`, and zone overlay bands), and
+  `StationScenePicker.ApplyLocalCommit`, while
   `StationWalkGraphWorkspace.StageCellDelta` repairs walk topology in ping-pong
-  scratch buffers. Any stage failure rolls back document, view, and simulation
-  together (`StationPlan32EquivalenceAndRollbackTests`).
+  scratch buffers. `StationEditSession.ClearHistory()` unconditionally clears
+  undo/redo on every non-edit station load (`stationEpoch` bumps monotonically).
+  Any stage failure rolls back document, view, and simulation together
+  (`StationPlan32EquivalenceAndRollbackTests`, `StationShellAndRoadDeltaTests`).
 - **Retained cell chunks (`StationCellMesher`, `StationCellMeshWorkspace`):**
   Chunks mesh by `16 × 16 × storey × role × finish` across six
   `StationSurfaceRole` passes (`Cell`, `Ceiling`, `Plate`, `Ground`, `Wall`,
@@ -78,13 +82,19 @@ and per-model triangle counts, see
   `ComputeActiveBuilt` inspects non-grade station geometry only; `GradeOwned`
   separates `0 m` street furniture/surfaces/traffic for `隐藏地面` while
   preserving `0 m` head-house exit pads.
-- **Artwork recapture:** Whenever a view binds or swaps runtime textures or
-  materials after registration (signs, PSD headers, exits, calligraphy,
+- **Artwork recapture & platform/train visuals:** Whenever a view binds or swaps
+  runtime textures or materials after registration (signs, PSD headers & vinyl
+  decals, exits, calligraphy, train livery/cab marks via `TrainLiveryBinder`,
   billboards, TVs, line maps, clocks, road signals), it must call
   `world.RecaptureArtwork(renderer)` (`StationVisibilityTarget.Recapture` →
   `SyncDerived` updates `Ghost`, `Clear`, and section-shader clones in place) and
   set glTFast ShaderGraph `baseColorTexture` / `baseColorFactor` alongside URP
-  `_BaseMap`.
+  `_BaseMap`. `StationRailMeshes` builds full 5 m rigid/gantry catenary,
+  `OpeningModuleViews` emits the yellow safety line across all PSD modes plus
+  four printed vinyl decals on full-height PSDs, `TrainDoorRig` supports
+  both-bank platform doors, and `StationContactShadowRenderer` /
+  `PassengerCrowdView` draw unpickable GPU-instanced contact shadows
+  (`StationTrainAndPlatformVisualsTests`).
 - **Section-plane shaders & handle drag (`StationSectionView`, `StationSectionDrag`):**
   Per-pixel cutaway clips fragments via `_SectionPlane` / `_SectionClip` in
   `StationSectionClip.hlsl` and `StationSectionDepth.hlsl` across
@@ -105,8 +115,12 @@ and per-model triangle counts, see
   `Station Fill` `0.45/π`, global `_StationAmbient`, `_StationHemiSky`,
   `_StationHemiGround`, `reflectionIntensity = 0`, no shadows, linear fog
   `120–320 m`, dark void `(18, 26, 34)` or `StudioVoidColor` `(244, 243, 237)`).
-- **Hide UI skybox & horizon fog (`StationSkySystem`):** When `hideUi` is enabled,
-  switches the camera from `SolidColor` + void fog to a shared `512 × 512`
+- **Hide UI skybox, theme sync & horizon fog (`StationSkySystem`):**
+  `view.set { key: "theme", value }` (`blueprint` | `site` | `studio`, accepted
+  even before `rig.Configure`) updates `StationSkySystem.SetTheme` void colour
+  and linear fog immediately while `hideUi` is off, and `StationViewRig.SyncSky(force: true)`
+  restores the active theme baseline when Exploded View closes. When `hideUi` is
+  enabled, switches the camera from `SolidColor` + void fog to a shared `512 × 512`
   `R8G8B8A8_SRGB` procedural cloud cubemap on `Metro/Station Sky`
   (`Resources/StationSky.shader`), scaled by `SkyIntensity(simTime)` across
   `05:00–07:00` dawn and `17:00–19:00` dusk (`[0.015, 1.0]`), with linear-space

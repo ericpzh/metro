@@ -94,6 +94,7 @@ namespace Metro.App {
             public bool Erase;
             /// <summary>True when the drag builds a counter (`ZoneTool`'s facility branch).</summary>
             public bool Facility;
+            public string ShopCutId = "";
             public string Kind = "";
             public int Front;
             public float PressX, PressY;
@@ -117,8 +118,7 @@ namespace Metro.App {
         }
 
         static bool IsFacility(string brush) =>
-            string.Equals(brush, TicketBrush, StringComparison.Ordinal) ||
-            string.Equals(brush, InfoBrush, StringComparison.Ordinal);
+            StationFacilityRules.IsFacilityBrush(brush);
 
         /// <summary>
         /// Arm a zone gesture from one press. A press on a cell that is not floor paints nothing
@@ -185,6 +185,22 @@ namespace Metro.App {
                         StationEditSession.Zone = null;
                         return true;
                     }
+                }
+                if (room != null && string.Equals(room.Type, "shop", StringComparison.Ordinal)) {
+                    gesture = new StationZoneGesture {
+                        Anchor = new StationCellKey(x, y, room.Z),
+                        Button = 2,
+                        Paint = brush,
+                        Erase = true,
+                        ShopCutId = room.Id,
+                        Kind = room.Config.Text("kind"),
+                        PressX = pointer.X,
+                        PressY = pointer.Y,
+                        PressTimeMs = pointer.TimeMs,
+                        Revision = host.CurrentRevision,
+                    };
+                    Aim(host, hit, pointer, true);
+                    return true;
                 }
                 // Not a counter: the same 无分区 eraser the fare brushes arm.
                 var floorCell = new StationCellKey(x, y, z);
@@ -256,6 +272,36 @@ namespace Metro.App {
                 StationEditSession.Zone = preview;
                 return;
             }
+            if (!string.IsNullOrEmpty(gesture.ShopCutId)) {
+                var index = host.Index;
+                var corner = new StationCellKey(hit.Cell.X, hit.Cell.Y, gesture.Anchor.Z);
+                var rect = new StationFacilityRect(gesture.Anchor.X, gesture.Anchor.Y, corner.X, corner.Y, gesture.Anchor.Z);
+                var cutPreview = new StationZonePreview {
+                    Anchor = gesture.Anchor,
+                    Paint = gesture.Paint,
+                    Erase = true,
+                    Facility = gesture.Kind,
+                    Colour = 0xff7a7a,
+                };
+                if (index != null && index.TryGetModule(gesture.ShopCutId, out var shop) && shop != null) {
+                    if (StationFacilityRules.Covers(shop, rect)) {
+                        var own = StationFacilityRules.RectOf(shop);
+                        cutPreview.Width = own.Width;
+                        cutPreview.Height = own.Height;
+                        var roomCells = StationFacilityRules.Cells(own);
+                        cutPreview.Rect.AddRange(roomCells);
+                        cutPreview.Cells.AddRange(roomCells);
+                    } else {
+                        var openings = StationFacilityPlanner.OpeningCells(index, shop, rect);
+                        cutPreview.Width = rect.Width;
+                        cutPreview.Height = rect.Height;
+                        cutPreview.Cells.AddRange(openings);
+                    }
+                }
+                preview = cutPreview;
+                StationEditSession.Zone = preview;
+                return;
+            }
             if (gesture.Facility) {
                 var corner = new StationCellKey(hit.Cell.X, hit.Cell.Y, gesture.Anchor.Z);
                 var rect = new StationFacilityRect(gesture.Anchor.X, gesture.Anchor.Y, corner.X, corner.Y, gesture.Anchor.Z);
@@ -292,6 +338,39 @@ namespace Metro.App {
                 return false;
             }
             var target = hit != null && hit.HasCell ? hit.CellKey : current.Anchor;
+            if (!string.IsNullOrEmpty(current.ShopCutId)) {
+                var index = host.Index;
+                var rect = new StationFacilityRect(current.Anchor.X, current.Anchor.Y, target.X, target.Y, current.Anchor.Z);
+                if (index == null || !index.TryGetModule(current.ShopCutId, out var shop) || shop == null) {
+                    reason = "no-module";
+                    preview = new StationZonePreview();
+                    StationEditSession.Zone = null;
+                    return false;
+                }
+                StationFacilityPlan cutPlan;
+                string cutLabel;
+                if (StationFacilityRules.Covers(shop, rect)) {
+                    cutPlan = StationFacilityPlanner.PlanRemoval(index, shop.Id);
+                    cutLabel = "remove room";
+                } else {
+                    cutPlan = StationFacilityPlanner.PlanCarveOpenings(index, shop.Id, rect);
+                    cutLabel = "cut room opening";
+                }
+                if (!cutPlan.Ok || !cutPlan.HasWork) {
+                    reason = cutPlan.Reason.Length > 0 ? cutPlan.Reason : "nothing-to-do";
+                    preview = new StationZonePreview();
+                    StationEditSession.Zone = null;
+                    return false;
+                }
+                if (!StationEditSession.TryApplyCells(host, cutPlan.ToPatch(), cutLabel, null, out _, out code)) {
+                    reason = code;
+                    return false;
+                }
+                ForgetWorld();
+                preview = new StationZonePreview();
+                StationEditSession.Zone = null;
+                return true;
+            }
             if (current.Facility) {
                 var rect = new StationFacilityRect(current.Anchor.X, current.Anchor.Y, target.X, target.Y, current.Anchor.Z);
                 var facilityPlan = StationFacilityPlanner.Plan(host.Index, current.Kind, rect, current.Front);
@@ -303,7 +382,9 @@ namespace Metro.App {
                 }
                 var facilityLabel = string.Equals(current.Kind, TicketBrush, StringComparison.Ordinal)
                     ? "place ticket booth"
-                    : "place information desk";
+                    : string.Equals(current.Kind, InfoBrush, StringComparison.Ordinal)
+                        ? "place information desk"
+                        : "place " + current.Kind;
                 if (!StationEditSession.TryApplyCells(host, facilityPlan.ToPatch(), facilityLabel, null, out _, out code)) {
                     reason = code;
                     return false;

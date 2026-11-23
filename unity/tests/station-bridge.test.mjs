@@ -363,3 +363,63 @@ test('a revision gap on a delta commit requests one coalesced station.resync and
     stationBridge.unregister()
   }
 })
+
+test('applyStationDelta adopts city, bilingual name, and delta.lines while retaining untouched cells and modules', () => {
+  const baseDoc = JSON.stringify({
+    format: 'metro-save',
+    formatVersion: 1,
+    gameVersion: '0.2.0',
+    savedAt: '2026-01-01T00:00:00.000Z',
+    name: '体育西路',
+    nameEn: 'Tiyu Xilu',
+    city: 'guangzhou',
+    seed: 1,
+    levelBase: 0,
+    storeyHeight: 5,
+    static: {
+      cells: [{ x: 0, y: 0, z: 0, fill: 'solid', zone: 'unpaid' }],
+      modules: [],
+      lines: [{
+        id: '1', name: '1号线', nameEn: 'Line 1', colour: '#f3d03e',
+        stock: 'B', cars: 6, power: 'third-rail', psd: 'full', direction: 'up',
+        headwayProfile: { peak: 150, offpeak: 240, late: 480 }, alightPerTrain: 120,
+      }],
+    },
+  })
+  const parsed = parse(baseDoc)
+  assert.equal(parsed.ok, true)
+  seedStationCellIndex(parsed.state.cells)
+  const next = applyStationDelta(parsed.state, {
+    schemaVersion: STATION_DELTA_SCHEMA_VERSION,
+    baseRevision: 1,
+    revision: 2,
+    name: '春熙路',
+    nameEn: 'Chunxi Rd',
+    city: 'chengdu',
+    removedCells: [],
+    changedCells: [],
+    removedModules: [],
+    changedModules: [],
+    lines: [
+      {
+        id: '1', name: '1号线', nameEn: 'Line 1', colour: '#ff00aa',
+        stock: 'B', cars: 6, power: 'third-rail', psd: 'full', direction: 'up',
+        headwayProfile: { peak: 120, offpeak: 240, late: 480 }, alightPerTrain: 120,
+      },
+      {
+        id: '2', name: '2号线', nameEn: 'Line 2', colour: '#ed7d31',
+        stock: 'B', cars: 6, power: 'third-rail', psd: 'full', direction: 'down',
+        headwayProfile: { peak: 150, offpeak: 240, late: 480 }, alightPerTrain: 120,
+      },
+    ],
+  })
+  assert.equal(next.cells, parsed.state.cells)
+  assert.equal(next.modules, parsed.state.modules)
+  assert.equal(next.cityStyle, 'chengdu')
+  assert.equal(next.name, '春熙路')
+  assert.equal(next.nameEn, 'Chunxi Rd')
+  assert.equal(next.lines.length, 2)
+  assert.equal(next.lines[0].colour, '#ff00aa')
+  assert.equal(next.lines[1].id, '2')
+  assert.equal(next.lines[0].headwayProfile.peak, 120)
+})

@@ -20,6 +20,11 @@ export interface StationHost {
   upscaling?(mode?: UpscalingMode): Promise<UpscalingMode>
   /** Desktop Unity player hook to open the interactive benchmark route in-place. */
   openBenchmark?(): void
+  /** Authoritative undo/redo driven by the C# edit history when the host owns the document. */
+  undo?(): void
+  redo?(): void
+  getHistory?(): { canUndo: boolean; canRedo: boolean }
+  subscribeHistory?(listener: () => void): () => void
   /** An edit the host does not implement yet: shown, not attempted. */
   unsupported?(feature: string): void
 }

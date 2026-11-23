@@ -1925,7 +1925,7 @@ public class OpeningModuleViewTests {
                 OpeningModuleViews.SetHeaderArtwork(up,
                     OpeningModuleViews.HeaderArtworkUnported("no-slot-node", up.Headers.Count));
                 StringAssert.Contains("psd-header-artwork-unported:no-slot-node(37 slot(s))", up.Diagnostic);
-                StringAssert.Contains("decals-unported", up.Diagnostic, "the other diagnostics are preserved");
+                StringAssert.Contains("prefab-housing-unused", up.Diagnostic, "the other diagnostics are preserved");
                 int directives = up.Diagnostic.Split(';').Count(part => part.Trim().StartsWith("psd-header-artwork", StringComparison.Ordinal));
                 Assert.AreEqual(1, directives, "exactly one header-artwork diagnostic: " + up.Diagnostic);
 

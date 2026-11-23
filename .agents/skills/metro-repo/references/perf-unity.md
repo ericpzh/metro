@@ -59,8 +59,17 @@ for measurement rules and [perf-benchmarks.md](perf-benchmarks.md) for commands.
   static equipment (`StationEquipmentModuleRenderer`), straight fences/trees
   (`OutdoorModuleRenderer`), openings (`gate`, `door`, `cubicle` in
   `OpeningModuleRenderer`; `platform-edge`/`psd-end` keep conservative fallback),
-  and zone overlay bands (`StationZoneMap.FloorsAt` + `CachedZoneBand` in
-  `StationOverlayRenderer`).
+  authored road networks + ambient road traffic (`StationLocalEdit.TryApplyRoadSet`
+  + `StationRoadRenderer.TryStageLocalDelta`), equipment contact shadows
+  (`StationContactShadowRenderer`), and zone overlay bands
+  (`StationZoneMap.FloorsAt` + `CachedZoneBand` in `StationOverlayRenderer`).
+  On shipped `zoo.metro.json` (4,299 modules, 7 renderers, Unity 6000.6.8f1
+  `-nographics` EditMode `StationRoadDeltaPerfTests.MeasureRoadPreviewCommitEraseAndUndoOnZoo`,
+  1 warmup + 3 trials), moving roads from full-save rebuild to incremental local
+  delta cuts median road add from `731.97 ms → 47.84 ms` (15.3×), erase from
+  `737.57 ms → 52.04 ms` (14.2×), undo erase from `561.27 ms → 49.36 ms`
+  (11.4×), undo add from `557.75 ms → 53.33 ms` (10.5×), and preview from
+  `10.93 ms → 2.86 ms`, shifting `local_edits/full_edits` from `0/12 → 12/0`.
 - **GPU instancing & train compaction**: Grade `lawn`/`sidewalk` tiles, static
   equipment (`64 × 64 m` spatial chunks, `BatchThreshold = 6`), and straight
   fences/trees batch via `StationInstancedSurfaceBatch`

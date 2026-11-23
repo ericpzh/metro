@@ -218,7 +218,7 @@ namespace Metro.App {
         public Vector3 Size => Max - Min;
     }
 
-    /// <summary>Which printed panel a PSD header slot carries (`PsdHeader.ts`).</summary>
+    /// <summary>Which printed panel a PSD header or vinyl decal slot carries (`PsdHeader.ts` / `PsdDecals.ts`).</summary>
     public enum PsdHeaderKind {
         /// <summary>`psd-route-header`: the schematic/terminus panel over a fixed span.</summary>
         Route = 0,
@@ -226,6 +226,16 @@ namespace Metro.App {
         Station = 1,
         /// <summary>`psd-fixed-sticker`: the paired route+station print on a half-height panel.</summary>
         HalfSticker = 2,
+        /// <summary>`psd-fixed-band`: red/yellow mind-the-gap vinyl band along fixed glass panes.</summary>
+        FixedBand = 3,
+        /// <summary>`psd-door-band`: yellow/red mind-the-gap vinyl band on moving door leaves.</summary>
+        DoorBand = 4,
+        /// <summary>`psd-door-warning`: transparent yellow caution placard on moving door leaves.</summary>
+        DoorWarning = 5,
+        /// <summary>`psd-door-arrow` pointing toward local -X on the platform face.</summary>
+        DoorArrowLeft = 6,
+        /// <summary>`psd-door-arrow` pointing toward local +X on the platform face.</summary>
+        DoorArrowRight = 7,
     }
 
     /// <summary>
@@ -256,10 +266,16 @@ namespace Metro.App {
         /// </summary>
         public float Facing;
         /// <summary>
-        /// `PsdHeader.ts` canvas width for this slot: 1024 for one panel, 2048 for the
-        /// paired half-height sticker (route on the left half, station on the right).
+        /// `PsdHeader.ts` / `PsdDecals.ts` canvas width for this slot: 1024 for one panel or
+        /// fixed band, 2048 for the paired half-height sticker, 640 for door band/warning, 256 for arrows.
         /// </summary>
         public int Pixels;
+        /// <summary>Canvas pixel height (`0` defaults to `PsdHeaderPanel.PixelHeight` = 256).</summary>
+        public int PixelHeight;
+        /// <summary>Horizontal UV repeat factor (`width / 1.2` for `FixedBand`, `1` otherwise).</summary>
+        public float RepeatU;
+        /// <summary>True when the painted PNG uses alpha transparency (`DoorWarning`, arrows).</summary>
+        public bool Transparent;
         /// <summary>The artwork request key: painted data only (see <see cref="OpeningView.HeaderKey"/>).</summary>
         public string Key;
         /// <summary>An empty, correctly posed node a face provider can attach a quad to.</summary>
@@ -335,6 +351,7 @@ namespace Metro.App {
         internal readonly List<OpeningLeaf> leaves = new List<OpeningLeaf>();
         internal readonly List<OpeningPart> parts = new List<OpeningPart>();
         internal readonly List<PsdHeaderSlot> headers = new List<PsdHeaderSlot>();
+        internal readonly List<PsdHeaderSlot> decals = new List<PsdHeaderSlot>();
 
         public OpeningKind Kind;
         public string ModuleId = "";
@@ -391,8 +408,10 @@ namespace Metro.App {
         public IReadOnlyList<OpeningLeaf> Leaves => leaves;
         /// <summary>Every named, measured part of the assembly, in build order (RCA 15 §5).</summary>
         public IReadOnlyList<OpeningPart> Parts => parts;
-        /// <summary>Every platform-facing printed slot of a PSD run (RCA 15 §5 sub-item 2).</summary>
+        /// <summary>Every platform-facing printed header slot of a PSD run (RCA 15 §5 sub-item 2).</summary>
         public IReadOnlyList<PsdHeaderSlot> Headers => headers;
+        /// <summary>Every platform-facing printed vinyl safety decal slot of a full-height PSD run (`PsdDecals.ts`).</summary>
+        public IReadOnlyList<PsdHeaderSlot> Decals => decals;
         public bool Built => Instance != null;
 
         /// <summary>
@@ -1210,8 +1229,10 @@ namespace Metro.App {
         }
 
         /// <summary>The artwork request key of one slot: the painted data, then the panel kind.</summary>
-        public static string PsdHeaderKey(in PsdHeaderPlan plan, PsdHeaderKind kind) =>
-            plan.ContentKey + "\u001f" + kind;
+        public static string PsdHeaderKey(in PsdHeaderPlan plan, PsdHeaderKind kind) {
+            if (PsdHeaderVocabulary.IsDecal(kind)) return "decal:" + PsdHeaderVocabulary.Kind(kind);
+            return plan.ContentKey + "\u001f" + kind;
+        }
 
         /// <summary>The saved line record with this id, or null.</summary>
         public static StationLineRecord LineOf(StationIndex index, string lineId) {
@@ -1281,9 +1302,18 @@ namespace Metro.App {
                 ModelScale = request.ModelScale,
             };
             if (string.Equals(request.Psd, "none", StringComparison.Ordinal)) {
-                // `buildPsd` still draws the platform's safety line where the screen is absent.
+                // `buildPsd` still draws the platform's yellow safety line where the screen is absent (§5.9).
                 var bare = Holder(parent, request.ModuleId, facts, floorTop: false);
                 if (bare == null) return Fail(view, "no-holder");
+                float bareLen = Mathf.Max(1f, request.Width);
+                float bareCx = -.5f + bareLen * .5f;
+                float bareToward = string.Equals(request.Side, "right", StringComparison.Ordinal) ? 1f : -1f;
+                float bareWall = bareToward * StationRailGeometry.PsdWallOffset;
+                var bareCavity = new OpeningBuilder(bare, paint);
+                bareCavity.Part("platform-yellow-line", OpeningPartRole.Warning);
+                bareCavity.Box(OpeningColour.YellowLine, Local(bareCx, bareWall - bareToward * .16f, 1f + .003f),
+                    LocalSize(bareLen, .10f, .006f));
+                bareCavity.Finish(request.ModuleId, view);
                 view.Holder = bare;
                 view.Instance = bare.gameObject;
                 view.ViewKey = PlatformEdgeKey + ":none";
@@ -1319,8 +1349,11 @@ namespace Metro.App {
             float wall = layout.WallOffset;
             const float z0 = 1f;
 
-            // Sill, foundation, fascia and the fascia's line-colour band. Each is its own
+            // Sill, foundation, yellow safety line, fascia and the fascia's line-colour band. Each is its own
             // named part so its bounds can be compared with `PsdModel.ts` (RCA 15 §5).
+            cavity.Part("platform-yellow-line", OpeningPartRole.Warning);
+            cavity.Box(OpeningColour.YellowLine, Local(cx, wall - toward * .16f, z0 + .003f),
+                LocalSize(len, .10f, .006f));
             cavity.Part("psd-threshold", OpeningPartRole.Threshold);
             cavity.Box(OpeningColour.Black, Local(cx, layout.SillY, z0 - .01f), LocalSize(len, layout.SillDepth, .02f));
             cavity.Part("psd-concrete-foundation", OpeningPartRole.Foundation);
@@ -1373,8 +1406,24 @@ namespace Metro.App {
                 cavity.Box(OpeningColour.Black, Local(pillar, wall, layout.GlassMid),
                     LocalSize(.16f, layout.FixedFrameDepth, layout.GlassHeight));
 
-            // The moving leaves: tinted glass plus its frame, meeting frame and rails. Each
-            // opening owns two leaves, and the pair parts by exactly one door width.
+            // The moving leaves: tinted glass plus its frame, meeting frame, rails, and printed safety vinyl.
+            // Each opening owns two leaves, and the pair parts by exactly one door width.
+            float decalScale = Mathf.Min(1f, layout.GlassHeight / (2.95f - .05f - PsdHeaderHeight));
+            float decalFacing = layout.Left ? 1f : -1f;
+            if (!half) {
+                var fixedDecalRoot = OpeningBuilder.Node(holder, "psd-decals", Vector3.zero);
+                float fixedBandAcross = wall - toward * .075f;
+                float fixedBandMid = z0 + 1.12f * decalScale;
+                float fixedBandH = .15f * decalScale;
+                foreach (var panel in layout.Panels) {
+                    float panelW = panel.y - panel.x;
+                    if (panelW <= .05f) continue;
+                    AddDecalSlot(view.decals, fixedDecalRoot, PsdHeaderKind.FixedBand, -1,
+                        panel.x, panel.y, fixedBandAcross, fixedBandMid, fixedBandH,
+                        decalFacing, 1024, 128, panelW / 1.2f, false, view.Header,
+                        Local((panel.x + panel.y) * .5f, fixedBandAcross, fixedBandMid));
+                }
+            }
             foreach (var opening in layout.Openings) {
                 for (int side = 0; side < 2; side++) {
                     float sign = side == 0 ? -1f : 1f;
@@ -1397,6 +1446,33 @@ namespace Metro.App {
                             LocalSize(opening.LeafWidth, .12f, .06f));
                         parts.Box(OpeningColour.Black, Local(0f, toward * .06f, z0 + layout.DoorHeight - .03f - layout.LeafMid),
                             LocalSize(opening.LeafWidth, .12f, .06f));
+                        // Moving leaf vinyl decals sit proud of the 0.02 m glass box on the platform face
+                        // (`-toward * 0.011` / `-0.012`) and are parented to `node` so they slide with the leaf.
+                        float leafStart = leafX - opening.LeafWidth * .5f;
+                        float leafEnd = leafX + opening.LeafWidth * .5f;
+                        float doorBandLocalZ = z0 + 1.12f * decalScale - layout.LeafMid;
+                        AddDecalSlot(view.decals, node, PsdHeaderKind.DoorBand, opening.Index,
+                            leafStart, leafEnd, layout.LeafY - toward * .011f, z0 + 1.12f * decalScale,
+                            .15f * decalScale, decalFacing, 640, 128, 1f, false, view.Header,
+                            Local(0f, -toward * .011f, doorBandLocalZ));
+                        float warningW = Mathf.Min(.52f * decalScale, opening.LeafWidth - .1f);
+                        if (warningW > .05f) {
+                            float warningLocalZ = z0 + 1.88f * decalScale - layout.LeafMid;
+                            AddDecalSlot(view.decals, node, PsdHeaderKind.DoorWarning, opening.Index,
+                                leafX - warningW * .5f, leafX + warningW * .5f, layout.LeafY - toward * .012f,
+                                z0 + 1.88f * decalScale, warningW * .75f, decalFacing, 640, 480, 1f, true, view.Header,
+                                Local(0f, -toward * .012f, warningLocalZ));
+                        }
+                        float arrowSize = Mathf.Min(.24f * decalScale, opening.LeafWidth - .1f);
+                        if (arrowSize > .05f) {
+                            float arrowLocalZ = z0 + 1.48f * decalScale - layout.LeafMid;
+                            int arrowSign = (toward < 0f ? -1 : 1) * (sign < 0f ? -1 : 1);
+                            var arrowKind = arrowSign < 0 ? PsdHeaderKind.DoorArrowLeft : PsdHeaderKind.DoorArrowRight;
+                            AddDecalSlot(view.decals, node, arrowKind, opening.Index,
+                                leafX - arrowSize * .5f, leafX + arrowSize * .5f, layout.LeafY - toward * .012f,
+                                z0 + 1.48f * decalScale, arrowSize, decalFacing, 256, 256, 1f, true, view.Header,
+                                Local(0f, -toward * .012f, arrowLocalZ));
+                        }
                     }
                     parts.Finish(request.ModuleId + " leaf");
                     view.leaves.Add(new OpeningLeaf {
@@ -1418,8 +1494,7 @@ namespace Metro.App {
             cavity.Finish(request.ModuleId, view);
             view.Instance = holder.gameObject;
             view.Movable = view.leaves.Count > 0;
-            view.Diagnostic = Append(diagnostic, "decals-unported:sign-face-engine");
-            view.Diagnostic = Append(view.Diagnostic, "prefab-housing-unused:run-exceeds-fixture");
+            view.Diagnostic = Append(diagnostic, "prefab-housing-unused:run-exceeds-fixture");
             // RCA 15 §5: the slots carry pose, span and key. A direct `BuildAll` (an EditMode
             // test, a bare verifier) has no face provider, so the run names that truth; the
             // renderer replaces this token with `served`/`pending` once it has bound the
@@ -1531,6 +1606,37 @@ namespace Metro.App {
                 if (node) {
                     // The slot's forward is the printed face normal — toward the platform, so a
                     // quad attached here reads from the platform and is culled from the track.
+                    node.localRotation = Quaternion.LookRotation(new Vector3(0f, 0f, facing), Vector3.up);
+                    slot.Node = node;
+                }
+            }
+            slots.Add(slot);
+        }
+
+        static void AddDecalSlot(List<PsdHeaderSlot> slots, Transform parent, PsdHeaderKind kind, int opening,
+            float start, float end, float across, float mid, float height, float facing,
+            int pixels, int pixelHeight, float repeatU, bool transparent, in PsdHeaderPlan plan, Vector3 localPos) {
+            float width = end - start;
+            if (width < .05f || height < .02f) return;
+            var slot = new PsdHeaderSlot {
+                Kind = kind,
+                OpeningIndex = opening,
+                Start = start,
+                End = end,
+                Across = across,
+                Mid = mid,
+                Height = height,
+                Facing = facing,
+                Pixels = pixels,
+                PixelHeight = pixelHeight,
+                RepeatU = repeatU,
+                Transparent = transparent,
+                Key = PsdHeaderKey(plan, kind),
+            };
+            if (parent) {
+                var node = OpeningBuilder.Node(parent, "psd-decal-" + PsdHeaderVocabulary.Kind(kind) + "-" +
+                    slots.Count.ToString("00", CultureInfo.InvariantCulture), localPos);
+                if (node) {
                     node.localRotation = Quaternion.LookRotation(new Vector3(0f, 0f, facing), Vector3.up);
                     slot.Node = node;
                 }
@@ -2484,7 +2590,8 @@ namespace Metro.App {
         public const int Red = 5;
         public const int Concrete = 6;
         public const int Line = 7;
-        public const int Count = 8;
+        public const int YellowLine = 8;
+        public const int Count = 9;
 
         public static readonly Color[] Values = {
             new Color(.92f, .92f, .9f),          // white fascia
@@ -2495,6 +2602,7 @@ namespace Metro.App {
             new Color(.78f, .12f, .10f),         // gate red / threshold
             new Color(.55f, .57f, .60f),         // concrete foundation
             new Color(.78f, .02f, .25f),         // line colour band
+            new Color(1f, .773f, .180f),         // platform yellow safety line (#ffc52e)
         };
 
         /// <summary>The stable name of one palette slot, for a part's material note or a test.</summary>
@@ -2508,6 +2616,7 @@ namespace Metro.App {
                 case Red: return "red";
                 case Concrete: return "concrete";
                 case Line: return "line";
+                case YellowLine: return "yellow-line";
                 default: return "slot-" + colour.ToString(CultureInfo.InvariantCulture);
             }
         }
@@ -2888,16 +2997,20 @@ namespace Metro.App {
             string.Equals(type, "gate", StringComparison.Ordinal);
 
         sealed class StagedOpeningDelta : IStationLocalRendererStage {
+            readonly OpeningModuleRenderer owner;
             readonly WorldState state;
             readonly HashSet<string> retiredIds;
             readonly List<(StationModuleRecord Module, OpeningView View)> stagedViews;
+            readonly bool rebuildHeaders;
             bool committed;
 
-            public StagedOpeningDelta(WorldState state, HashSet<string> retiredIds,
-                List<(StationModuleRecord Module, OpeningView View)> stagedViews) {
+            public StagedOpeningDelta(OpeningModuleRenderer owner, WorldState state, HashSet<string> retiredIds,
+                List<(StationModuleRecord Module, OpeningView View)> stagedViews, bool rebuildHeaders) {
+                this.owner = owner;
                 this.state = state;
                 this.retiredIds = retiredIds;
                 this.stagedViews = stagedViews;
+                this.rebuildHeaders = rebuildHeaders;
             }
 
             public void Commit(StationWorldView world, StationLocalViewCommit commit) {
@@ -2912,8 +3025,8 @@ namespace Metro.App {
                         }
                     }
                 }
+                var roleRoot = world.RoleRoot(RoleName);
                 if (stagedViews != null && stagedViews.Count > 0) {
-                    var roleRoot = world.RoleRoot(RoleName);
                     for (int i = 0; i < stagedViews.Count; i++) {
                         var (mod, view) = stagedViews[i];
                         if (view?.Holder != null && roleRoot != null) {
@@ -2926,6 +3039,17 @@ namespace Metro.App {
                             if (world.Records.Count > beforeCount) commit.AddedRecords.Add(world.Records[world.Records.Count - 1]);
                         }
                     }
+                }
+                if (rebuildHeaders && owner != null && roleRoot != null) {
+                    if (state.Headers != null) {
+                        PsdHeaderArtwork.ReleaseScope(state.Headers);
+                        state.Headers = null;
+                    }
+                    for (int i = roleRoot.childCount - 1; i >= 0; i--) {
+                        var child = roleRoot.GetChild(i);
+                        if (child != null && child.name == "psd header pump") OpeningModuleViews.SafeDestroy(child.gameObject);
+                    }
+                    owner.BuildHeaders(null, state, roleRoot);
                 }
             }
 
@@ -3005,6 +3129,21 @@ namespace Metro.App {
                 }
             }
 
+            bool rebuildHeaders = false;
+            if (context.CityChanged || context.NameChanged || context.VisualChangedLineIds.Count > 0) {
+                var edges = context.NextIndex.ModulesOfType("platform-edge");
+                for (int i = 0; i < edges.Count; i++) {
+                    var edge = edges[i];
+                    if (edge == null || retiredIds.Contains(edge.Id)) continue;
+                    string lineId = edge.Config.Text("line");
+                    if (context.CityChanged || context.NameChanged || context.VisualChangedLineIds.Contains(lineId)) {
+                        retiredIds.Add(edge.Id);
+                        dirtyIds.Add(edge.Id);
+                        rebuildHeaders = true;
+                    }
+                }
+            }
+
             if (retiredIds.Count == 0 && dirtyIds.Count == 0) return true;
 
             var catalogue = context.World.Catalogue;
@@ -3027,17 +3166,19 @@ namespace Metro.App {
             var stagedViews = new List<(StationModuleRecord Module, OpeningView View)>(dirtyIds.Count);
             try {
                 foreach (var id in dirtyIds) {
-                    if (!context.NextIndex.TryGetModule(id, out var mod) || mod == null || !IsLocalOpeningType(mod.Type)) continue;
+                    if (!context.NextIndex.TryGetModule(id, out var mod) || mod == null) continue;
+                    bool isPsd = string.Equals(mod.Type, "platform-edge", StringComparison.Ordinal);
+                    if (!isPsd && !IsLocalOpeningType(mod.Type)) continue;
                     var request = OpeningModuleViews.RequestFor(mod, context.NextIndex);
                     if (OpeningModuleViews.TryBuild(request, mod.Facts, stationFacts, catalogue, context.StagingRoot, state.Palette, out var view)) {
-                        StationRigidModelLods.Apply(view.Instance, System.IO.Path.GetFileNameWithoutExtension(view.PrefabPath));
+                        if (!isPsd) StationRigidModelLods.Apply(view.Instance, System.IO.Path.GetFileNameWithoutExtension(view.PrefabPath));
                         stagedViews.Add((mod, view));
                         StationEditTrace.AddInstantiatedPrefab();
                     } else {
                         context.ReportUnresolved("opening", mod.Type, mod.Id, view.Diagnostic);
                     }
                 }
-                stage = new StagedOpeningDelta(state, retiredIds, stagedViews);
+                stage = new StagedOpeningDelta(this, state, retiredIds, stagedViews, rebuildHeaders);
                 return true;
             } catch {
                 for (int i = 0; i < stagedViews.Count; i++) {
@@ -3145,7 +3286,7 @@ namespace Metro.App {
                 foreach (var view in views)
                     OpeningModuleViews.SetHeaderArtwork(view,
                         OpeningModuleViews.HeaderArtworkUnported("no-station-material", view.Headers.Count));
-                context.ReportUnresolved("psd-header-material", "opening", views[0].ModuleId,
+                context?.ReportUnresolved("psd-header-material", "opening", views[0].ModuleId,
                     "No station shader/material for the printed PSD header band; " + views.Count +
                     " run(s) keep their header slots unpainted.");
                 return;
@@ -3164,6 +3305,12 @@ namespace Metro.App {
                     if (binding == null) continue;
                     scope.Bindings.Add(binding);
                     bound++;
+                }
+                var decalSlots = view.Decals;
+                for (int i = 0; i < decalSlots.Count; i++) {
+                    var binding = scope.Cache.Bind(view, decalSlots[i]);
+                    if (binding == null) continue;
+                    scope.Bindings.Add(binding);
                 }
                 if (bound == 0)
                     OpeningModuleViews.SetHeaderArtwork(view,

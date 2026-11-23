@@ -7,9 +7,9 @@ and the Unity bridge/presenter classes in `unity/Assets/StationDesigner/`.
 
 | File | Responsibility |
 | --- | --- |
-| `main.tsx` | Single-tree shell entry (`mountUnityUI`), registers `StationHost` + `stationHostCommit`, intercepts artwork streams before `stationBridge.receive`, mounts `UnityApp` / `UnityShellRoot` / `UnityExplodedView` / `UnityBenchmarkRoute`, wires `#game-loading`, `.metro-measure-chip`, audio, eye drag, and reject notices. Exposes `window.__metroStationBridge`. |
-| `stationBridge.ts` | Bridge v2 transport (`SCHEMA_VERSION = 2`), pre-registration command queue, `sessionId` fencing, pure `reduce()`, `onCommit`, out-of-reducer `onCameraPose` & `onAudio`, correlated `request<TPayload>()` (`BridgeRequestError`, 5 s default timeout), `readCommittedDocument()`, and `resync()`. |
-| `stationDelta.ts` | O(\|delta\|) in-place application of `StationCommitDelta` (`STATION_DELTA_SCHEMA_VERSION = 1`) via `WeakMap`-cached cell index (`seedStationCellIndex`, `applyStationDelta`) preserving untouched object identities. |
+| `main.tsx` | Single-tree shell entry (`mountUnityUI`), registers `StationHost` (including authoritative `undo`/`redo`/`getHistory`/`subscribeHistory`) + `stationHostCommit`, intercepts all 5 artwork streams before `stationBridge.receive`, syncs UI theme (`view.set { key: "theme" }`), runs WebGL autosave, mounts `UnityApp` / `UnityShellRoot` / `UnityExplodedView` / `UnityBenchmarkRoute`, wires `#game-loading`, `.metro-measure-chip`, audio, eye drag, and reject notices. Exposes `window.__metroStationBridge`. |
+| `stationBridge.ts` | Bridge v2 transport (`SCHEMA_VERSION = 2`), pre-registration command queue, `sessionId` fencing, pure `reduce()` (tracking `stationEpoch` + `readHostHistory`), `onCommit`, out-of-reducer `onCameraPose` & `onAudio`, correlated `request<TPayload>()` (`BridgeRequestError`, 5 s default timeout), `readCommittedDocument()`, and `resync()`. |
+| `stationDelta.ts` | O(\|delta\|) in-place application of `StationCommitDelta` (`STATION_DELTA_SCHEMA_VERSION = 1`, including `lines`) via `WeakMap`-cached cell index (`seedStationCellIndex`, `applyStationDelta`) preserving untouched object identities. |
 | `cameraAdapter.ts` | `createStationCameraPort`, `createUnityViewCubeAdapter` (rAF-coalesced `camera.orbit` & sequenced `onCameraPose`), `attachViewStateBridge` (`view.set`), and `attachCanvasCameraGestures` (middle orbit, unclaimed right pan, wheel zoom, build-button chord guard). |
 | `pointerButtons.ts` | Canonical DOM mouse button (`0`/`1`/`2`) to `MouseEvent.buttons` bit (`1`/`4`/`2`) table, `MOVE_BUTTON = -1` sentinel, `holdsButton`, `hasBuildChord`. |
 | `pointerInput.ts` | Canvas tool pointer stream (`pointer.down`, rAF-coalesced `pointer.move`, `pointer.up`, `pointer.rightTap`, `pointer.cancel`, `pointer.leave`), build-button chord cancel, and full-swapchain coordinate normalization under `html.metro-overlay`. |
@@ -22,16 +22,22 @@ and the Unity bridge/presenter classes in `unity/Assets/StationDesigner/`.
 | `UnityExplodedView.tsx` / `explodedInput.ts` | Reparents `#unity-canvas` into `ExplodedViewShell` over Layer 8 `ExplodedViewerCamera`, handles `exploded.*` commands, generation-fenced open/close sync, tray drag, camera gestures, and floating floor panel clamping. |
 | `UnityBenchmarkRoute.tsx` | Interactive 30 s 16× benchmark route (`/game/unity/benchmark[/en]` and in-place desktop mode), LOD/FSR selection, `benchmark.{mode,start,stop}`, FPS and resource charts. |
 | `signFaceProvider.ts` / `signCommitAdapter.ts` | `signRequest` → `drawSignPanel` (`512 px/m`) → `sign.faceChunk` + `sign.faceReady`; `sign.commit` with `expectedRevision`. |
-| `psdHeaderProvider.ts` | `psdHeaderRequest` → `drawPsdHeader` (`1024`/`2048 × PSD_HEADER_PIXELS`) → `psd.headerChunk` + `psd.headerReady`. |
+| `psdHeaderProvider.ts` | `psdHeaderRequest` → `drawPsdHeader` (`1024`/`2048 × PSD_HEADER_PIXELS`) and 4 vinyl decal painters (`PsdDecals.ts`) → `psd.headerChunk` + `psd.headerReady`. |
 | `exitFaceProvider.ts` | `exitFaceRequest` → `exitHeaderCanvas` / `guideFace` / `guideEnglishFace` / `guideExitLetterFace` → `exit.faceChunk` + `exit.faceReady`; pushes `exit.locale` on boot and language switches. |
 | `calligraphyFaceProvider.ts` | `calligraphyRequest` → `drawCalligraphyPanel` (`sim/calligraphyFonts.ts` manifest + DOM font advance probe, UV orientation `mirrorU`/`flipV`) → `calligraphy.faceChunk` + `calligraphy.faceReady`. |
+| `trainMarkProvider.ts` | `trainMarkRequest` → city cab emblems, Chongqing line-numbered cab badge, and Nanjing side mark → `train.markChunk` + `train.markReady`. |
+| `webglAutosave.ts` | WebGL `localStorage` autosave (`metro-game.autosave.v1`, 5-minute interval + synchronous `pagehide`/`visibilitychange` flush, `stationEpoch` clear-before-write, demo/explicit-open startup precedence; disabled on desktop overlay & `/benchmark`). |
 | `unityAudio.ts` | Mounts shared `gameAudio` & `gameMusic` on `stationBridge.onAudio` for edit cues (`place`, `select`, `pick`, `delete`, `move`, `refused`) and camera-relative crowd/train/traffic ambience frames. |
 | `unity-ui.css` | Full-viewport layout, hides `#unity-loading-container`/`#unity-footer`, layers `.explodedViewer[data-unity-host="true"]`, hides `.app` when `html.metro-overlay body:has(.explodedViewer[open])`, styles `.metro-measure-chip`. |
 | `bridge.ts` / `zooUi.tsx` | Legacy `ZooPlayable` vertical-slice bridge (`zooBridge`, `metro:zoo-state`) kept for slice verification. |
 
-Key shared seams in `game/src/app/`: `windows/StationHost.tsx` (`StationHost` context),
+Key shared seams in `game/src/app/`: `windows/StationHost.tsx` (`StationHost` context
+including optional `undo`/`redo`/`getHistory`/`subscribeHistory`),
 `stationHostBridge.ts` (`registerStationHostCommit` for `commitSignBoards`, `commitExit`,
-`undo`, `redo`, `deleteSelection`, `cancelGesture`, `confirmMove`, `rotateCarried`,
+`commitCityStyle`, `commitStationName`, `commitAddLine`, `commitRemoveLine`,
+`commitUpdateLine`, `commitLiftDoorSide`, `commitSwitchRunDirection`,
+`commitSwitchRoadDirection`, `commitRegenRail`, `startMove`, `undo`, `redo`,
+`deleteSelection`, `cancelGesture`, `confirmMove`, `rotateCarried`,
 `cycleCarriedLightPosition`), `pointerDrag.ts` (`beginPointerDrag` +
 `attachScrollbarDragFallback`), `ViewCubeAdapter.ts`, `windows/ExplodedViewShell.tsx`,
 `windows/topbar/SettingsMenu.tsx`, `windows/tutorial/Tutorial.tsx`, and `languageRoute.ts`.
@@ -110,12 +116,12 @@ producing one stylesheet shared by the player and benchmark route.
   outgoing world, firing `BeforePreviousDispose` immediately before old-world teardown (used
   by `StationExplodedView` to close cleanly on station switches while staying open on rejected
   opens).
-- **Four out-of-band PNG artwork streams:** Host requests (`signRequest`, `psdHeaderRequest`,
-  `exitFaceRequest`, `calligraphyRequest`) must publish via `StationGameHost.PublishOutbound`
-  so both WebGL and WebView2 receive them. Each provider caps batches at `32` keys, chunks PNG
-  base64 at `48 KiB`, fences by `sessionId` + `revision`, gates on browser font/pictogram
-  readiness (returning `pending` with `reason: "font" | "pictogram"` rather than blank
-  plates), and never touches the snapshot reducer.
+- **Five out-of-band PNG artwork streams:** Host requests (`signRequest`, `psdHeaderRequest`,
+  `exitFaceRequest`, `calligraphyRequest`, `trainMarkRequest`) must publish via
+  `StationGameHost.PublishOutbound` so both WebGL and WebView2 receive them. Each provider caps
+  batches at `32` keys, chunks PNG base64 at `48 KiB`, fences by `sessionId` + `revision`, gates
+  on browser font/pictogram readiness (returning `pending` with `reason: "font" | "pictogram"`
+  rather than blank plates), and never touches the snapshot reducer.
 - **Artwork recapture:** After binding or replacing any runtime texture/material
   (`StationSignView`, `PsdHeaderArtwork`, `StationExitArtwork`,
   `StationCalligraphyArtwork`/`FaceCache`, `StationDisplayArtwork`, `StationDisplayTvArtwork`,
@@ -139,10 +145,12 @@ producing one stylesheet shared by the player and benchmark route.
   sequences into a `Texture2D(BGRA32)` via `LoadRawTextureData(IntPtr, int)` on a UV-flipped
   (`(0, 1, 1, -1)`) `RawImage` inside `StationDesktopUiCanvas` (`ScreenSpaceOverlay`,
   `sortingOrder = 32000`, `pixelPerfect = true`).
-- **Virtual origin & overlay CSS:** Intercepts `https://app.metro.local/*`
+- **Virtual origin, feedback links & overlay CSS:** Intercepts `https://app.metro.local/*`
   (`WebResourceRequested`) serving `dist-unity-ui` at `/game/_unity/UI/`,
   `public/module-thumbnails/` at `/game/_unity/UI/module-thumbnails/`, and `public/audio/` at
-  `/audio/` and `/game/audio/`. Injects `<html class="metro-overlay">` with transparent
+  `/audio/` and `/game/audio/`. Handles `NewWindowRequested` by setting `e.Handled = true` and
+  launching only allowlisted `/stats/report` and `/stats/en/report` URLs on
+  `https://stationdesigner.com` in the user's system browser. Injects `<html class="metro-overlay">` with transparent
   `.stage`/`#unity-canvas`/`.explodedViewer[data-ready="true"]` and sets
   `window.__metroDesktopOverlay = true` + `window.metroUnityAudioBase = '/audio/'`.
 - **Loopback TCP IPC & input forwarding:** JSON lines over `127.0.0.1` ephemeral port

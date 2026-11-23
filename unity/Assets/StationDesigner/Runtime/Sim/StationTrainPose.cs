@@ -26,6 +26,8 @@ namespace Metro.Sim {
         public int DirectionSign;
         public double HalfLength, ApproachRun, DepartRun;
         public bool HasPlatform;
+        /// <summary>Bitmask of active consist door banks: bit 0 = local +1 bank, bit 1 = local -1 bank (0..3).</summary>
+        public int DoorBankMask;
         public double PlatformX, PlatformY, PlatformZ;
         /// <summary>The car floor in document elevation (`at.z + CABIN_FLOOR_Z · scale`).</summary>
         public double CabinFloorZ;
@@ -109,6 +111,36 @@ namespace Metro.Sim {
                 if (string.Equals(module.Dir, direction, StringComparison.Ordinal)) byDirection = i;
             }
             return byDirection;
+        }
+
+        /// <summary>
+        /// Bitmask of track-local sides with bound <c>platform-edge</c> runs: bit 0 = track +y (<c>left</c>),
+        /// bit 1 = track -y (<c>right</c>). Returns 0 (no platform), 1, 2, or 3 (both sides).
+        /// </summary>
+        public static int TrackDoorSides(StationSessionDocument document, StationModuleFact track, string lineId, string direction) {
+            if (document == null || track.Tunnel || track.Bridge) return 0;
+            int mask = 0;
+            var edges = document.ModulesOfType("platform-edge");
+            for (int i = 0; i < edges.Count; i++) {
+                var edge = edges[i];
+                if (!string.Equals(edge.LineId, lineId, StringComparison.Ordinal)) continue;
+                var from = edge.RailId ?? "";
+                bool matches = from.Length > 0
+                    ? string.Equals(from, track.Id, StringComparison.Ordinal)
+                    : string.Equals(edge.Dir, direction, StringComparison.Ordinal);
+                if (!matches) continue;
+                if (string.Equals(edge.Side, "left", StringComparison.Ordinal)) mask |= 1;
+                else mask |= 2;
+                if (mask == 3) break;
+            }
+            return mask;
+        }
+
+        /// <summary>Maps track-local <see cref="TrackDoorSides"/> into consist-local door bank bits using travel heading.</summary>
+        public static int ConsistDoorBankMask(int trackDoorSides, int directionSign) {
+            int m = trackDoorSides & 3;
+            if (directionSign < 0) return ((m & 1) << 1) | ((m & 2) >> 1);
+            return m;
         }
 
         static bool TryPlatformEdgeFact(StationSessionDocument document, StationModuleFact track, string lineId,
@@ -229,6 +261,9 @@ namespace Metro.Sim {
             var direction = track.Dir ?? "";
             if (direction.Length == 0) direction = haveLine ? line.Direction : "up";
             bool hasEdge = TryPlatformEdgeFact(document, track, line.Id ?? "", direction, out var edge);
+            int dirSign = DirectionSign(track, line, haveLine);
+            int trackSides = TrackDoorSides(document, track, line.Id ?? "", direction);
+            int bankMask = ConsistDoorBankMask(trackSides, dirSign);
             var entry = new StationTrainBerth {
                 LineId = line.Id ?? track.LineId ?? "",
                 TrackId = track.Id ?? "",
@@ -239,11 +274,12 @@ namespace Metro.Sim {
                 Y = track.Y + .5 + oy,
                 Z = track.Z + TrainOrigin(modelScale),
                 Fx = fx, Fy = fy,
-                DirectionSign = DirectionSign(track, line, haveLine),
+                DirectionSign = dirSign,
                 HalfLength = stock.Length * Math.Max(0, line.Cars) * modelScale * .5,
                 ApproachRun = back,
                 DepartRun = forward,
                 HasPlatform = hasEdge,
+                DoorBankMask = bankMask,
             };
             if (hasEdge) {
                 entry.PlatformX = edge.X + .5;

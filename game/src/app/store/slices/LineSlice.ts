@@ -15,6 +15,7 @@ import {
 import { normalizeHeadwayProfile, snapFormation } from '../../../sim/headway.ts'
 import type { LineDef } from '../../../sim/types.ts'
 import type { AppState } from '../Store.ts'
+import { stationHostCommit } from '../../stationHostBridge.ts'
 
 export interface LineSlice {
   /** Add a new line and make it the rail tool's target. */
@@ -28,6 +29,8 @@ export interface LineSlice {
 export const createLineSlice: StateCreator<AppState, [], [], LineSlice> = (set, get) => ({
   addLine: () => {
     const st = get()
+    const host = stationHostCommit()
+    if (host?.ownsStation() && host.commitAddLine?.(st.railDir)) return
     const used = new Set(st.station.lines.map((l) => l.id))
     let n = st.station.lines.length + 1
     while (used.has(String(n))) n++
@@ -40,6 +43,8 @@ export const createLineSlice: StateCreator<AppState, [], [], LineSlice> = (set, 
     const st = get()
     const line = st.station.lines.find((l) => l.id === lineId)
     if (!line) return
+    const host = stationHostCommit()
+    if (host?.ownsStation() && host.commitRemoveLine?.(lineId)) return
     // A line owns its rolling stock, so the pure edit drops every track bound to
     // it along with those tracks' derived screen doors and tunnel shell.
     const trackIds = st.station.modules.filter((m) => m.type === 'track' && m.cfg.line === lineId).map((m) => m.id)
@@ -82,6 +87,8 @@ export const createLineSlice: StateCreator<AppState, [], [], LineSlice> = (set, 
     // Keep that repair contract even when the line already carries the value.
     if (patch.stock === undefined && patch.cars === undefined && patch.power === undefined && patch.psd === undefined &&
       Object.entries(fixed).every(([key, value]) => JSON.stringify(prev[key as keyof LineDef]) === JSON.stringify(value))) return
+    const host = stationHostCommit()
+    if (host?.ownsStation() && host.commitUpdateLine?.(lineId, fixed)) return
     const lines = st.station.lines.map((l) => (l.id === lineId ? { ...l, ...fixed } : l))
     let station = { ...st.station, lines }
     // Power is a line option, so carry it to every track bound to the line —

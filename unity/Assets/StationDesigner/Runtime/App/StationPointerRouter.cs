@@ -1334,9 +1334,11 @@ namespace Metro.App {
             // placed and the corridor opened together (`carveRampOpenings`).
             if (StationModuleFamilies.IsRamp(plan.Candidate.Type) && !plan.Candidate.Bool("block")) {
                 var patch = new StationCellPatch();
+                var candidateRecord = StationModulePlacement.ToRecord(plan.Candidate);
                 patch.ModuleAdds.Add(plan.Candidate);
-                foreach (var write in StationRampCarve.Carve(host.Index,
-                             new[] { StationModulePlacement.ToRecord(plan.Candidate) }))
+                foreach (var write in StationRampCarve.MaterializeExitFloorLandings(host.Index, candidateRecord))
+                    patch.Writes.Add(write);
+                foreach (var write in StationRampCarve.Carve(host.Index, new[] { candidateRecord }))
                     patch.Writes.Add(write);
                 if (!StationEditSession.TryApplyCells(host, patch, "place", null, out _, out code)) {
                     reason = code;
@@ -1407,9 +1409,29 @@ namespace Metro.App {
             }
             if (carried == null && string.Equals(toolType, "stair-block", StringComparison.Ordinal)) {
                 // The 楼梯块's height is the tool's own 高/低 toggle (`stairBlockHeight`).
-                var height = StationToolSelection.Setting("stairBlockHeight");
-                request.BlockHeight = double.TryParse(height, System.Globalization.NumberStyles.Float,
-                    System.Globalization.CultureInfo.InvariantCulture, out var metres) && metres > 0 ? metres : 1;
+                double metres = StationToolSelection.SettingDouble("stairBlockHeight", 1.0);
+                request.BlockHeight = metres > 0 ? metres : 1.0;
+            }
+            if (carried == null && !string.IsNullOrEmpty(toolType) &&
+                ((toolType.StartsWith("stair", StringComparison.Ordinal) && !string.Equals(toolType, "stair-block", StringComparison.Ordinal)) ||
+                 string.Equals(toolType, "escalator", StringComparison.Ordinal))) {
+                bool isEscalator = string.Equals(toolType, "escalator", StringComparison.Ordinal);
+                string span = StationToolSelection.Setting("escalatorSpan");
+                if (string.IsNullOrEmpty(span)) span = StationToolSelection.Setting("rampSpan");
+                if (span != "double" && span != "triple") span = "single";
+                request.RampSpan = span;
+                string lengthKey = span == "triple" ? "tripleRampLength"
+                    : span == "double" ? "doubleRampLength" : "rampLength";
+                string lengthId = StationToolSelection.Setting(lengthKey);
+                if (string.IsNullOrEmpty(lengthId)) lengthId = StationToolSelection.Setting("rampLength");
+                request.RampLengthId = lengthId;
+                if (isEscalator) {
+                    request.EscalatorDown = string.Equals(StationToolSelection.Setting("escalatorDir"), "down", StringComparison.Ordinal);
+                    request.EscalatorWidth = StationToolSelection.SettingInt("escalatorWidth", 1);
+                } else {
+                    request.StairWidth = StationToolSelection.SettingDouble("stairWidth", StationRampRules.Band);
+                    request.StairStyle = StationToolSelection.Setting("stairStyle");
+                }
             }
             if (carried == null && string.Equals(toolType, "lift", StringComparison.Ordinal)) {
                 // `liftInterval` is the floor interval in metres; `liftSize` arms the 大 shaft
@@ -1669,6 +1691,21 @@ namespace Metro.App {
                 editHost.Preview?.Show(plan);
                 return;
             }
+            if (StationModuleFamilies.IsRamp(plan.Candidate.Type) && !plan.Candidate.Bool("block")) {
+                var patch = new StationCellPatch();
+                var candidateRecord = StationModulePlacement.ToRecord(plan.Candidate);
+                patch.ModuleReplaces.Add(plan.Candidate);
+                foreach (var write in StationRampCarve.MaterializeExitFloorLandings(host.Index, candidateRecord))
+                    patch.Writes.Add(write);
+                foreach (var write in StationRampCarve.Carve(host.Index, new[] { candidateRecord }, excludeModuleId: module.Id))
+                    patch.Writes.Add(write);
+                if (!StationEditSession.TryApplyCells(host, patch, "move", null, out _, out code)) {
+                    reason = code;
+                    return;
+                }
+                AfterCommit(host, editHost, module.Id);
+                return;
+            }
             if (!StationEditSession.TryApply(host, StationModuleEditMode.Replace, plan.Candidate, null, "move", null, out _, out code)) {
                 reason = code;
                 return;
@@ -1828,6 +1865,129 @@ namespace Metro.App {
                     }
                     if (!StationEditSession.TryApplyExitSettings(host, id, hasName, name, hasInRate, inRate,
                         hasOpen, open, command.Id, out _, out rejectCode)) {
+                        rejectReason = rejectCode;
+                        return false;
+                    }
+                    return true;
+                }
+                case "edit.city": {
+                    if (!host.IsLoaded) { rejectCode = "no-session"; return false; }
+                    string city = String(payload, "city");
+                    var beforeRead = host.Coordinator.CommittedRead;
+                    var local = StationHostEdits.TryPlanCity(beforeRead, city, host.CurrentSourceId, out rejectCode);
+                    if (rejectCode == "no-change") return true;
+                    if (local == null) { rejectReason = "Unsupported city style."; return false; }
+                    if (!StationEditSession.TryApplyLocalRead(host, local, beforeRead, "city", command.Id, out _, out rejectCode)) {
+                        rejectReason = rejectCode;
+                        return false;
+                    }
+                    return true;
+                }
+                case "edit.rename": {
+                    if (!host.IsLoaded) { rejectCode = "no-session"; return false; }
+                    string name = String(payload, "name");
+                    bool hasNameEn = payload["nameEn"] != null && payload["nameEn"].Type == JTokenType.String;
+                    string nameEn = hasNameEn ? (string)payload["nameEn"] : "";
+                    var beforeRead = host.Coordinator.CommittedRead;
+                    var local = StationHostEdits.TryPlanRename(beforeRead, name, nameEn, hasNameEn, host.CurrentSourceId, out rejectCode);
+                    if (rejectCode == "no-change") return true;
+                    if (local == null) { rejectReason = "Station name cannot be blank."; return false; }
+                    if (!StationEditSession.TryApplyLocalRead(host, local, beforeRead, "rename", command.Id, out _, out rejectCode)) {
+                        rejectReason = rejectCode;
+                        return false;
+                    }
+                    return true;
+                }
+                case "edit.line.add": {
+                    if (!host.IsLoaded) { rejectCode = "no-session"; return false; }
+                    string dir = String(payload, "direction");
+                    var beforeRead = host.Coordinator.CommittedRead;
+                    var local = StationHostEdits.TryPlanAddLine(beforeRead, dir, host.CurrentSourceId, out var addedLine, out rejectCode);
+                    if (local == null) { rejectReason = rejectCode; return false; }
+                    if (!StationEditSession.TryApplyLocalRead(host, local, beforeRead, "line-add", command.Id, out _, out rejectCode)) {
+                        rejectReason = rejectCode;
+                        return false;
+                    }
+                    if (addedLine != null) payload["lineId"] = addedLine.Id;
+                    return true;
+                }
+                case "edit.line.remove": {
+                    if (!host.IsLoaded) { rejectCode = "no-session"; return false; }
+                    string lineId = String(payload, "lineId");
+                    var beforeRead = host.Coordinator.CommittedRead;
+                    if (!StationHostEdits.TryPlanRemoveLine(beforeRead, lineId, host.CurrentSourceId,
+                        out var local, out var fullEnvelope, out rejectCode)) {
+                        rejectReason = rejectCode;
+                        return false;
+                    }
+                    bool ok = local != null
+                        ? StationEditSession.TryApplyLocalRead(host, local, beforeRead, "line-remove", command.Id, out _, out rejectCode)
+                        : StationEditSession.TryApplyPatch(host, fullEnvelope, "line-remove", command.Id, out _, out rejectCode);
+                    if (!ok) { rejectReason = rejectCode; return false; }
+                    return true;
+                }
+                case "edit.line.update": {
+                    if (!host.IsLoaded) { rejectCode = "no-session"; return false; }
+                    string lineId = String(payload, "lineId");
+                    var patch = payload["patch"] as JObject ?? payload;
+                    var beforeRead = host.Coordinator.CommittedRead;
+                    if (!StationHostEdits.TryPlanUpdateLine(beforeRead, lineId, patch, host.CurrentSourceId,
+                        out var local, out var fullEnvelope, out rejectCode)) {
+                        if (rejectCode == "no-change") return true;
+                        rejectReason = rejectCode == "rail-overlap" ? "Resized track overlaps another rail." : rejectCode;
+                        return false;
+                    }
+                    bool ok = local != null
+                        ? StationEditSession.TryApplyLocalRead(host, local, beforeRead, "line-update", command.Id, out _, out rejectCode)
+                        : StationEditSession.TryApplyPatch(host, fullEnvelope, "line-update", command.Id, out _, out rejectCode);
+                    if (!ok) { rejectReason = rejectCode; return false; }
+                    return true;
+                }
+                case "edit.lift.doors": {
+                    if (!host.IsLoaded) { rejectCode = "no-session"; return false; }
+                    string id = String(payload, "moduleId");
+                    int z = Int(payload, "z", 0);
+                    string side = String(payload, "side");
+                    var beforeRead = host.Coordinator.CommittedRead;
+                    var local = StationHostEdits.TryPlanLiftDoorSide(beforeRead, id, z, side, host.CurrentSourceId, out rejectCode);
+                    if (rejectCode == "no-change") return true;
+                    if (local == null) { rejectReason = rejectCode; return false; }
+                    if (!StationEditSession.TryApplyLocalRead(host, local, beforeRead, "lift-doors", command.Id, out _, out rejectCode)) {
+                        rejectReason = rejectCode;
+                        return false;
+                    }
+                    return true;
+                }
+                case "edit.run.reverse": {
+                    if (!host.IsLoaded) { rejectCode = "no-session"; return false; }
+                    string id = String(payload, "moduleId");
+                    var beforeRead = host.Coordinator.CommittedRead;
+                    var local = StationHostEdits.TryPlanSwitchRunDirection(beforeRead, id, host.CurrentSourceId, out rejectCode);
+                    if (local == null) { rejectReason = rejectCode; return false; }
+                    if (!StationEditSession.TryApplyLocalRead(host, local, beforeRead, "run-reverse", command.Id, out _, out rejectCode)) {
+                        rejectReason = rejectCode;
+                        return false;
+                    }
+                    return true;
+                }
+                case "edit.road.reverse": {
+                    if (!host.IsLoaded) { rejectCode = "no-session"; return false; }
+                    string id = String(payload, "moduleId");
+                    var beforeRead = host.Coordinator.CommittedRead;
+                    var local = StationHostEdits.TryPlanSwitchRoadDirection(beforeRead, id, host.CurrentSourceId, out rejectCode);
+                    if (local == null) { rejectReason = rejectCode; return false; }
+                    if (!StationEditSession.TryApplyLocalRead(host, local, beforeRead, "road-reverse", command.Id, out _, out rejectCode)) {
+                        rejectReason = rejectCode;
+                        return false;
+                    }
+                    return true;
+                }
+                case "edit.rail.regen": {
+                    if (!host.IsLoaded) { rejectCode = "no-session"; return false; }
+                    string trackId = String(payload, "trackId");
+                    var fullEnvelope = StationHostEdits.TryPlanRegenRail(host.Coordinator.CommittedRead, trackId, out rejectCode);
+                    if (fullEnvelope == null) { rejectReason = rejectCode; return false; }
+                    if (!StationEditSession.TryApplyPatch(host, fullEnvelope, "rail-regen", command.Id, out _, out rejectCode)) {
                         rejectReason = rejectCode;
                         return false;
                     }

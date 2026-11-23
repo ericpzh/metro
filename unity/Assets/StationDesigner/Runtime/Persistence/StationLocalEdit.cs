@@ -97,6 +97,164 @@ namespace Metro.Persistence {
             return BuildResult(committed, rootHeader, savedAt, committed.Document.CellPages, modulePages, delta, sourceId, out code);
         }
 
+        /// <summary>
+        /// Patch one module's JSON in place through the bounded local path (e.g. lift door sides,
+        /// escalator/walkway direction reversal, one-way road reversal). Returns null with a stable
+        /// code if the module is missing, refuses the edit, or requires full-document repair.
+        /// </summary>
+        public static StationReadResult TryApplyModuleInPlace(StationReadResult committed, string moduleId,
+            Func<JObject, string> mutator, string sourceId, out string code) {
+            using var editSample = StationEditTrace.Measure("StationEdit.TryApplyModuleInPlace");
+            code = null;
+            if (committed?.Document == null || committed.Index == null) { code = "no-document"; return null; }
+            if (string.IsNullOrEmpty(moduleId) || mutator == null) { code = "bad-payload"; return null; }
+            if (!TryCloneRootHeader(committed, out var rootHeader, out var savedAt, out code)) return null;
+            if (!committed.Index.TryGetModulePage(moduleId, out var existing, out int pageId) || existing == null) {
+                code = "not-found";
+                return null;
+            }
+            var json = JObject.Parse(existing.RawJson);
+            string err = mutator(json);
+            if (!string.IsNullOrEmpty(err)) { code = err; return null; }
+            if (!TryBuildProjectedModule(json, committed.Document.City, out var built, out code)) return null;
+
+            var builder = committed.Document.ModulePages.ToBuilder();
+            if (!builder.ReplaceInPage(pageId, m => string.Equals(m.Id, moduleId, StringComparison.Ordinal), built)) {
+                code = "local-module-mismatch";
+                return null;
+            }
+            var delta = new StationIndexDelta();
+            delta.ChangedModules.Add(built);
+            delta.ModulePageIds[built.Id] = pageId;
+            StationEditTrace.AddScanned(1);
+            StationEditTrace.AddCloned(builder.ClonedRecordCount + 1);
+            var modulePages = builder.Build(committed.Document.ModulePages);
+            return BuildResult(committed, rootHeader, savedAt, committed.Document.CellPages, modulePages, delta, sourceId, out code);
+        }
+
+        /// <summary>
+        /// Apply a complete authored road-record set (<see cref="StationRoadEdits"/> output)
+        /// incrementally against <see cref="StationDocument.ModulePages"/> without re-serializing
+        /// or re-parsing unrelated cells or modules. Untouched road records are shared; removed,
+        /// changed, and newly added road records populate <see cref="StationIndexDelta"/> so
+        /// <see cref="StationRoadRenderer"/> can restage roads while all other view families stay
+        /// retained.
+        /// </summary>
+        public static StationReadResult TryApplyRoadSet(StationReadResult committed,
+            IReadOnlyList<StationRoadRecord> nextRoads, string sourceId, out string code) {
+            using var editSample = StationEditTrace.Measure("StationEdit.TryApplyRoadSet");
+            code = null;
+            if (committed?.Document == null || committed.Index == null) { code = "no-document"; return null; }
+            if (nextRoads == null) { code = "bad-payload"; return null; }
+            if (!TryCloneRootHeader(committed, out var rootHeader, out var savedAt, out code)) return null;
+
+            var prevRoads = committed.Index.ModulesOfType("road");
+            var prevById = new Dictionary<string, (StationModuleRecord Record, int PageId)>(prevRoads.Count, StringComparer.Ordinal);
+            for (int i = 0; i < prevRoads.Count; i++) {
+                var rec = prevRoads[i];
+                if (rec == null || string.IsNullOrEmpty(rec.Id)) continue;
+                if (!committed.Index.TryGetModulePage(rec.Id, out var paged, out int pageId) || paged == null) {
+                    code = "local-road-page-missing";
+                    return null;
+                }
+                prevById[rec.Id] = (paged, pageId);
+            }
+
+            var nextIds = new HashSet<string>(StringComparer.Ordinal);
+            var builtNext = new List<StationModuleRecord>(nextRoads.Count);
+            string city = committed.Document.City;
+            for (int i = 0; i < nextRoads.Count; i++) {
+                var road = nextRoads[i];
+                if (road == null || string.IsNullOrEmpty(road.Id) || !nextIds.Add(road.Id)) {
+                    code = "local-bad-road";
+                    return null;
+                }
+                var roadJson = StationRoadWrites.ToSaveRecord(road);
+                var refusal = ModuleRefusal(roadJson);
+                if (refusal != null) { code = refusal; return null; }
+                if (!TryBuildProjectedModule(roadJson, city, out var built, out code)) return null;
+                builtNext.Add(built);
+            }
+
+            var builder = committed.Document.ModulePages.ToBuilder();
+            var delta = new StationIndexDelta();
+
+            foreach (var kv in prevById) {
+                if (nextIds.Contains(kv.Key)) continue;
+                if (!builder.RemoveFromPage(kv.Value.PageId, m => string.Equals(m.Id, kv.Key, StringComparison.Ordinal))) {
+                    code = "local-module-mismatch";
+                    return null;
+                }
+                delta.RemovedModules.Add(kv.Key);
+            }
+
+            for (int i = 0; i < builtNext.Count; i++) {
+                var built = builtNext[i];
+                if (prevById.TryGetValue(built.Id, out var prior)) {
+                    if (string.Equals(prior.Record.RawJson, built.RawJson, StringComparison.Ordinal)) continue;
+                    if (!builder.ReplaceInPage(prior.PageId, m => string.Equals(m.Id, built.Id, StringComparison.Ordinal), built)) {
+                        code = "local-module-mismatch";
+                        return null;
+                    }
+                    delta.ChangedModules.Add(built);
+                    delta.ModulePageIds[built.Id] = prior.PageId;
+                } else {
+                    int pageId = builder.Append(built);
+                    delta.ChangedModules.Add(built);
+                    delta.ModulePageIds[built.Id] = pageId;
+                }
+            }
+
+            StationEditTrace.AddScanned(prevById.Count + builtNext.Count);
+            StationEditTrace.AddCloned(builder.ClonedRecordCount + delta.ChangedModules.Count);
+            var modulePages = builder.Build(committed.Document.ModulePages);
+            return BuildResult(committed, rootHeader, savedAt, committed.Document.CellPages, modulePages, delta, sourceId, out code);
+        }
+
+        /// <summary>
+        /// Update station-level metadata (<c>name</c>, <c>nameEn</c>, <c>city</c>) and/or the
+        /// <c>static.lines</c> list without touching or cloning any cell or module page.
+        /// </summary>
+        public static StationReadResult TryApplyMetadata(StationReadResult committed,
+            string nextName, string nextNameEn, string nextCity,
+            IReadOnlyList<StationLineRecord> nextLines, string sourceId, out string code) {
+            using var editSample = StationEditTrace.Measure("StationEdit.TryApplyMetadata");
+            code = null;
+            if (committed?.Document == null || committed.Index == null) { code = "no-document"; return null; }
+            if (!TryCloneRootHeader(committed, out var rootHeader, out var savedAt, out code)) return null;
+
+            var previous = committed.Document;
+            string name = nextName ?? previous.Name;
+            string nameEn = nextNameEn ?? previous.NameEn;
+            string city = string.IsNullOrEmpty(nextCity) ? previous.City : nextCity;
+            var lines = nextLines ?? previous.Lines;
+
+            rootHeader["name"] = name;
+            rootHeader["nameEn"] = nameEn;
+            rootHeader["city"] = city;
+            rootHeader.Remove("cityStyle");
+
+            var rawRootJson = StationDocumentReader.CanonicalRootJson(rootHeader);
+            var document = new StationDocument(
+                name, nameEn, city, previous.Seed,
+                previous.LevelBase, previous.StoreyHeight, previous.Day,
+                previous.CellPages, previous.ModulePages, lines,
+                previous.DroppedCells, previous.DroppedModules,
+                new StationSource(sourceId ?? "", ""), savedAt,
+                null,
+                doc => StationDocumentReader.SerializeEnvelope(rootHeader, doc.SavedAt, doc),
+                doc => StationDocumentReader.HashEnvelope(rootHeader, doc.SavedAt, doc),
+                rawRootJson);
+            StationDocumentReader.RegisterRootHeader(document, rootHeader);
+
+            var index = committed.Index.RebindDocument(document);
+            StationEditTrace.NoteLocalDocument();
+            var result = StationReadResult.FromLocalEdit(document, index, committed.ReaderDiagnostics, committed.Repairs, rootHeader);
+            result.LocalParent = committed;
+            result.LocalDelta = new StationIndexDelta();
+            return result;
+        }
+
         // ------------------------------------------------------------- history restore
 
         /// <summary>
@@ -598,20 +756,24 @@ namespace Metro.Persistence {
 
         static bool SameHeaderMetadata(JObject a, JObject b) {
             foreach (var prop in a.Properties()) {
-                if (prop.Name == "savedAt" || prop.Name == "static") continue;
+                if (prop.Name == "savedAt" || prop.Name == "static" ||
+                    prop.Name == "name" || prop.Name == "nameEn" ||
+                    prop.Name == "city" || prop.Name == "cityStyle") continue;
                 if (!JToken.DeepEquals(prop.Value, b[prop.Name])) return false;
             }
             foreach (var prop in b.Properties()) {
-                if (prop.Name == "savedAt" || prop.Name == "static") continue;
+                if (prop.Name == "savedAt" || prop.Name == "static" ||
+                    prop.Name == "name" || prop.Name == "nameEn" ||
+                    prop.Name == "city" || prop.Name == "cityStyle") continue;
                 if (!JToken.DeepEquals(a[prop.Name], prop.Value)) return false;
             }
             if (a["static"] is JObject sa && b["static"] is JObject sb) {
                 foreach (var prop in sa.Properties()) {
-                    if (prop.Name == "cells" || prop.Name == "modules") continue;
+                    if (prop.Name == "cells" || prop.Name == "modules" || prop.Name == "lines") continue;
                     if (!JToken.DeepEquals(prop.Value, sb[prop.Name])) return false;
                 }
                 foreach (var prop in sb.Properties()) {
-                    if (prop.Name == "cells" || prop.Name == "modules") continue;
+                    if (prop.Name == "cells" || prop.Name == "modules" || prop.Name == "lines") continue;
                     if (!JToken.DeepEquals(sa[prop.Name], prop.Value)) return false;
                 }
             }

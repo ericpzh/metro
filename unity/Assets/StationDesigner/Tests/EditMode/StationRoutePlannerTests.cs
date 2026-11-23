@@ -356,7 +356,7 @@ public class StationRoutePlannerTests {
         document.Modules.Add(new StationModuleFact { Id = "walkway-x", Type = "walkway", X = 32, Y = 30, Z = 0, Width = 1 });
         var reported = string.Join(",", StationWalkGraphBuilder.Build(document).Unported);
         StringAssert.Contains("lift-stops:lift-x", reported);
-        StringAssert.Contains("fixture-access:bench-x", reported);
+        StringAssert.DoesNotContain("fixture-access:bench-x", reported);
         StringAssert.Contains("walkway-belt:walkway-x", reported);
     }
 

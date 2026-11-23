@@ -207,6 +207,18 @@ namespace Metro.Build {
         public double RunLength;
         /// <summary>A ramp's chosen climb in metres; 0 reads the 长 5 m rung.</summary>
         public double RunRise;
+        /// <summary>Ramp span family (`single` | `double` | `triple`).</summary>
+        public string RampSpan = "single";
+        /// <summary>Ramp length rung (`ultra-short` | `short` | `medium` | `long` | `ultra-long`).</summary>
+        public string RampLengthId = "";
+        /// <summary>Stair width setting in metres (0 = narrow default).</summary>
+        public double StairWidth;
+        /// <summary>Stair style override when <see cref="ToolType"/> is bare <c>stair</c>.</summary>
+        public string StairStyle = "";
+        /// <summary>True when an escalator travels down (<c>from</c> = top, <c>to</c> = base).</summary>
+        public bool EscalatorDown;
+        /// <summary>Escalator plan width in blocks (1..3; 0 = narrow).</summary>
+        public int EscalatorWidth;
         /// <summary>
         /// A 楼梯块's chosen height in metres (`stairBlockHeight`): 1 is the tall block and
         /// 0.5 the low one. Zero reads the family's own default.
@@ -236,6 +248,11 @@ namespace Metro.Build {
         /// the catalogue's own piece and leaves the override out of the save, 2 and 3 carry it.
         /// </summary>
         public int CurtainHeight = 4;
+        /// <summary>
+        /// Empty blocks left between consecutive pieces in a dragged equipment run (`lineSpacing`,
+        /// 0..6, `sim/lineSpacing.ts`). Zero places pieces back-to-back at their footprint span.
+        /// </summary>
+        public int LineSpacing;
         /// <summary>
         /// The **point** the ray met on the picked module, in document axes. `Hit` prefers the
         /// cell behind a model (see `PlacementHit`'s note), so it cannot say where along a
@@ -291,15 +308,26 @@ namespace Metro.Build {
             string.Equals(type, "stair", StringComparison.Ordinal) ||
             string.Equals(type, "escalator", StringComparison.Ordinal);
 
+        /// <summary>True when a palette tool id builds a straight stair or escalator eligible for exit-bay snap.</summary>
+        public static bool IsStraightRampPalette(string toolType, string stairStyleOverride = "") {
+            if (string.Equals(toolType, "escalator", StringComparison.Ordinal)) return true;
+            if (string.Equals(toolType, "stair-straight", StringComparison.Ordinal)) return true;
+            if (string.Equals(toolType, "stair", StringComparison.Ordinal)) {
+                return string.IsNullOrEmpty(stairStyleOverride) || string.Equals(stairStyleOverride, "straight", StringComparison.Ordinal);
+            }
+            return false;
+        }
+
         /// <summary>
-        /// The run and rise a fresh ramp is built at for the request: the source's
-        /// `rampSnapSpec` (the 长 5 m rung, 8 cells for a stair and 9 for the 30° escalator)
-        /// unless the tool passes its own length and climb.
+        /// The run and rise a fresh ramp is built at for the request: resolves the tool's span
+        /// (<c>single</c>/<c>double</c>/<c>triple</c>) and length rung (<c>ultra-short</c>..<c>ultra-long</c>)
+        /// via <see cref="StationRampRules.RampSpecFor"/> unless explicit numeric overrides were supplied.
         /// </summary>
         public static void RampSpec(StationPlacementRequest request, out double run, out double rise) {
             bool escalator = string.Equals(request?.ToolType, "escalator", StringComparison.Ordinal);
-            run = escalator ? StationExitSnapping.EscalatorRun : StationExitSnapping.StairRun;
-            rise = escalator ? StationExitSnapping.EscalatorRise : StationExitSnapping.StairRise;
+            StationRampRules.RampSpecFor(request?.RampSpan, request?.RampLengthId, escalator, out int specRun, out int specRise);
+            run = specRun;
+            rise = specRise;
             if (request != null && request.RunLength > 0) run = request.RunLength;
             if (request != null && request.RunRise > 0) rise = request.RunRise;
         }
@@ -446,8 +474,12 @@ namespace Metro.Build {
                 // mounts of their own and stay unsupported here.
                 parsed.Type = "exit";
                 parsed.Variant = id;
-            } else if (id == "stair" || id == "stair-straight") {
+            } else if (id == "stair" || id == "stair-straight" ||
+                       id == "stair-right90" || id == "stair-left90" ||
+                       id == "stair-right180" || id == "stair-left180" ||
+                       id == "stair-leftForward" || id == "stair-centerForward" || id == "stair-rightForward") {
                 parsed.Type = "stair";
+                parsed.Variant = id == "stair" ? "" : id.Substring("stair-".Length);
             } else if (id == "stair-block") {
                 // The 楼梯块: a solid stair box, not a flight (`createModule`'s stair-block
                 // branch). Its height comes from the tool's own setting, not the palette id.
@@ -686,21 +718,40 @@ namespace Metro.Build {
                 return true;
             }
             if (IsRamp(family.Type)) {
-                RampSpec(request, out var run, out var rise);
-                StationExitSnapping.StairFacing(rotation, out var facingX, out var facingY);
-                var from = new StationPoint(candidate.X, candidate.Y, candidate.Z);
-                var to = new StationPoint(candidate.X + facingX * run, candidate.Y + facingY * run, candidate.Z + rise);
-                candidate.From = from;
-                candidate.To = to;
                 if (family.Type == "stair") {
-                    candidate.Set("style", "straight");
-                    candidate.Set("width", StationExitSnapping.NarrowWidth.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture));
-                    // `createModule` writes the single flight even for a straight run, so a
-                    // committed candidate reopens through the same `cfg.flights` shape.
-                    candidate.SetJson("flights", FlightsJson(from, to));
+                    string style = !string.IsNullOrEmpty(family.Variant) ? family.Variant
+                        : (!string.IsNullOrEmpty(request.StairStyle) ? request.StairStyle : "straight");
+                    double toolWidth = request.StairWidth > 0 ? request.StairWidth : StationRampRules.Band;
+                    double buildWidth = StationRampRules.StairBuildWidth(style, toolWidth);
+                    var basePt = new StationPoint(candidate.X, candidate.Y, candidate.Z);
+                    List<(StationPoint From, StationPoint To)> flights;
+                    if (style == "straight" && (request.RunLength > 0 || request.RunRise > 0)) {
+                        RampSpec(request, out var run, out var rise);
+                        StationExitSnapping.StairFacing(rotation, out var facingX, out var facingY);
+                        flights = new List<(StationPoint, StationPoint)> {
+                            (basePt, new StationPoint(candidate.X + facingX * run, candidate.Y + facingY * run, candidate.Z + rise)),
+                        };
+                    } else {
+                        flights = StationRampRules.StairFlightsFor(basePt, rotation, style, toolWidth,
+                            request.RampLengthId, request.RampSpan);
+                    }
+                    candidate.From = flights[0].From;
+                    candidate.To = flights[flights.Count - 1].To;
+                    candidate.Set("style", style);
+                    candidate.Set("width", buildWidth.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture));
+                    candidate.SetJson("flights", FlightsJson(flights));
                 } else {
+                    RampSpec(request, out var run, out var rise);
+                    StationExitSnapping.StairFacing(rotation, out var facingX, out var facingY);
+                    var lower = new StationPoint(candidate.X, candidate.Y, candidate.Z);
+                    var upper = new StationPoint(candidate.X + facingX * run, candidate.Y + facingY * run, candidate.Z + rise);
+                    bool up = !request.EscalatorDown;
+                    candidate.From = up ? lower : upper;
+                    candidate.To = up ? upper : lower;
                     candidate.Set("incline", "30");
-                    candidate.Set("dir", "up");
+                    candidate.Set("dir", up ? "up" : "down");
+                    int escWidth = request.EscalatorWidth > 0 ? Math.Max(1, Math.Min(3, request.EscalatorWidth)) : 1;
+                    if (escWidth > 1) candidate.Set(escWidth, "width");
                 }
                 draft = candidate;
                 return true;
@@ -935,11 +986,26 @@ namespace Metro.Build {
         }
 
         /// <summary>`cfg.flights` as the source's `createModule` writes one straight flight.</summary>
-        static string FlightsJson(StationPoint from, StationPoint to) {
-            string Point(StationPoint point) =>
-                "{\"x\":" + Format(point.X) + ",\"y\":" + Format(point.Y) + ",\"z\":" + Format(point.Z) + "}";
-            return "[{\"from\":" + Point(from) + ",\"to\":" + Point(to) + "}]";
+        internal static string FlightsJson(IReadOnlyList<(StationPoint From, StationPoint To)> flights) {
+            if (flights == null || flights.Count == 0) return "[]";
+            var sb = new System.Text.StringBuilder(flights.Count * 64 + 2);
+            sb.Append('[');
+            for (int i = 0; i < flights.Count; i++) {
+                if (i > 0) sb.Append(',');
+                var f = flights[i];
+                sb.Append("{\"from\":{\"x\":").Append(Format(f.From.X))
+                  .Append(",\"y\":").Append(Format(f.From.Y))
+                  .Append(",\"z\":").Append(Format(f.From.Z))
+                  .Append("},\"to\":{\"x\":").Append(Format(f.To.X))
+                  .Append(",\"y\":").Append(Format(f.To.Y))
+                  .Append(",\"z\":").Append(Format(f.To.Z)).Append("}}");
+            }
+            sb.Append(']');
+            return sb.ToString();
         }
+
+        static string FlightsJson(StationPoint from, StationPoint to) =>
+            FlightsJson(new[] { (from, to) });
 
         static string Format(double value) =>
             value.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
@@ -991,7 +1057,7 @@ namespace Metro.Build {
                 // The snap replaces the base and turn **before** the candidate's endpoints are
                 // laid, which is the source's order in `buildPlacementModule`.
                 StationExitBaySnap? baySnap = null;
-                if (StationModuleFamilies.IsRamp(request.ToolType) && request.Hit.HasCell) {
+                if (StationModuleFamilies.IsStraightRampPalette(request.ToolType, request.StairStyle) && request.Hit.HasCell) {
                     StationModuleFamilies.RampSpec(request, out var run, out var rise);
                     if (StationExitSnapping.TrySnapRunToExitBay(index.Document.Modules,
                             request.Hit.X, request.Hit.Y, request.Hit.Z, run, rise, out var snap, out _)) {
@@ -1038,14 +1104,7 @@ namespace Metro.Build {
             // blocks the corridor sweeps. Only a straight single flight is ported, so a turning
             // run keeps its own stable refusal. A 楼梯块 is not a flight — it is one solid box —
             // so it takes the ordinary clearance path.
-            if (request.Carried == null && StationModuleFamilies.IsRamp(candidate.Type) && !candidate.Bool("block")) {
-                var record = ToRecord(candidate);
-                plan.Reason = StationRampRules.IsStraightRun(record)
-                    ? Validate(index, candidate, request.Carried, plan.ColliderIds, plan.UnverifiedIds)
-                    : "ramp-turning-unported";
-            } else {
-                plan.Reason = Validate(index, candidate, request.Carried, plan.ColliderIds, plan.UnverifiedIds);
-            }
+            plan.Reason = Validate(index, candidate, request.Carried, plan.ColliderIds, plan.UnverifiedIds);
             plan.SupportId = Support(index, candidate);
             return plan;
         }
@@ -1173,12 +1232,40 @@ namespace Metro.Build {
                 !string.Equals(source.Type, "hanger", StringComparison.Ordinal)) {
                 draft.CeilingAnchored = topOver;
             }
-            // A run's own endpoints are world cells: re-lay them about the carried
-            // anchor, stepped in the piece's turn convention (`movedModule`).
+            // A run's own endpoints (and saved multi-flight segments) are world cells: re-lay them
+            // about the carried anchor using the exact `movedModule` rotation convention (stair blocks
+            // turn CCW; straight/turning stairs, escalators and walkways turn CW).
             if (source.Type == "stair" || source.Type == "escalator" || source.Type == "walkway") {
-                if (!source.From.HasValue || !source.To.HasValue) { reason = "unsupported-family"; return null; }
-                reason = "unsupported-family";
-                return null;
+                bool blocky = source.Type == "stair" && source.Config.Bool("block");
+                int steps = ((rot - StationFootprints.NormRot(source.Rotation)) % 4 + 4) % 4;
+                StationPoint ShiftPoint(StationPoint p) {
+                    double dx = p.X - source.X;
+                    double dy = p.Y - source.Y;
+                    for (int s = 0; s < steps; s++) {
+                        double nx = blocky ? -dy : dy;
+                        double ny = blocky ? dx : -dx;
+                        dx = nx;
+                        dy = ny;
+                    }
+                    return new StationPoint(x + dx, y + dy, z + (p.Z - source.Z));
+                }
+                if (source.From.HasValue && source.To.HasValue) {
+                    draft.From = ShiftPoint(source.From.Value);
+                    draft.To = ShiftPoint(source.To.Value);
+                } else if (!blocky) {
+                    reason = "unsupported-family";
+                    return null;
+                }
+                if (source.Type == "stair" && !blocky) {
+                    var oldFlights = StationRampRules.FlightsOf(source);
+                    if (oldFlights.Count > 0) {
+                        var movedFlights = new List<(StationPoint From, StationPoint To)>(oldFlights.Count);
+                        for (int fi = 0; fi < oldFlights.Count; fi++) {
+                            movedFlights.Add((ShiftPoint(oldFlights[fi].From), ShiftPoint(oldFlights[fi].To)));
+                        }
+                        draft.SetJson("flights", StationModuleFamilies.FlightsJson(movedFlights));
+                    }
+                }
             }
             // A ground 出入口 keeps the offset of the course it was mounted on.
             if (source.Type == "exit" && source.Config.Text("style") == "doorway" && source.Config.Has("mountZ")) {

@@ -44,10 +44,7 @@ namespace Metro.App {
                 reason = code;
                 return false;
             }
-            var saved = host.SaveDocument();
-            var next = StationRoadWrites.Apply(saved, commit.Next, out code);
-            if (next == null) { reason = code; return false; }
-            if (!StationEditSession.TryApplyPatch(host, next, commit.Kind, null, out _, out code)) {
+            if (!StationEditSession.TryApplyRoads(host, commit.Next, commit.Kind, null, out _, out code)) {
                 reason = code;
                 return false;
             }

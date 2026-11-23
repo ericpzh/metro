@@ -37,12 +37,12 @@ project layers in `tools/unity-parity/check-unity-compile.ps1`:
 
 | Folder / Assembly | Key files |
 | --- | --- |
-| `Runtime/Sim/` (`Metro.Sim`) | `StationClock`, `SimulationScheduler`, `SimulationRng`, `StationWalkGraphBuilder`, `StationWalkGraphWorkspace`, `StationRoutePlanner`, `StationSparsePolicy`/`Topology`/`Router`, `StationSimulationSession`, `StationServiceRuntime`/`Doors`/`Frames`, `StationTrainPose`, `StationRoadTraffic`, `StationStatistics` |
-| `Runtime/Build/` (`Metro.Build`) | `StationDocument`, `StationRecordPages` (256-record pages), `StationIndex` (`TryCreateIncremental`), `ModuleFacts`, `StationFootprints`, `StationEditPlanning`, `StationCellEditPlanning`, `StationWallAim`, `StationCeilingAim`, `StationRampPlanning`/`Carve`, `StationStairSlides`, `StationLiftPlanning`, `StationRoofPlanning`, `StationPillarPlanning`, `StationHangerPlanning`, `StationRailPlanning`, `StationTunnelShell`, `StationSurfacePlanning`, `StationZonePlanning`, `StationFinishEdits`, `StationSignEdits`/`Layouts`, `StationExitSnapping`, `StationPlatformDoorways`, `StationPsdEndRules`, `StationRoadDocument`/`Layout`/`Edits` |
-| `Runtime/Persistence/` (`Metro.Persistence`) | `StationSaveV1`, `StationSaveCandidate`, `StationDocumentReader`, `ModuleFactsReader`, `StationLocalEdit`, `StationCellEdits`, `StationModuleEdits`, `StationLiftEdits`, `StationRoadWrites`, `StationCellNormalization`, `StationDayRepair`, `StationGridRepair`, `StationLineRepair`, `StationSignRepair` |
+| `Runtime/Sim/` (`Metro.Sim`) | `StationClock`, `SimulationScheduler`, `SimulationRng`, `StationWalkGraphBuilder`, `StationWalkGraphWorkspace`, `StationRoutePlanner`, `StationSparsePolicy`/`Topology`/`Router`, `StationSimulationSession`, `StationServiceRuntime`/`Doors`/`Frames`, `StationPassengerWalking`, `StationActivityStops`, `StationTrainPose`, `StationRoadTraffic`, `StationStatistics` |
+| `Runtime/Build/` (`Metro.Build`) | `StationDocument`, `StationRecordPages` (256-record pages), `StationIndex` (`TryCreateIncremental`), `ModuleFacts`, `StationFootprints`, `StationEditPlanning`, `StationCellEditPlanning`, `StationWallAim`, `StationCeilingAim`, `StationRampPlanning`/`Carve`, `StationStairSlides`, `StationLiftPlanning`, `StationFacilityPlanning`, `StationModuleRuns`, `StationLineDefaults`, `StationRoofPlanning`, `StationPillarPlanning`, `StationHangerPlanning`, `StationRailPlanning`, `StationTunnelShell`, `StationSurfacePlanning`, `StationZonePlanning`, `StationFinishEdits`, `StationSignEdits`/`Layouts`, `StationExitSnapping`, `StationPlatformDoorways`, `StationPsdEndRules`, `StationRoadDocument`/`Layout`/`Edits` |
+| `Runtime/Persistence/` (`Metro.Persistence`) | `StationSaveV1`, `StationSaveCandidate`, `StationDocumentReader`, `ModuleFactsReader`, `StationLocalEdit`, `StationHostEdits`, `StationCellEdits`, `StationModuleEdits`, `StationLiftEdits`, `StationRoadWrites`, `StationCellNormalization`, `StationDayRepair`, `StationGridRepair`, `StationLineRepair`, `StationSignRepair` |
 | `Runtime/View/` (`Metro.View`) | `StationCoordinates`, `ModulePlacement`, `ModuleViews`, `StationModuleLevels`, `StationCeilingMounts`, `StationOutdoorConnections`, `StationConnectionDependencies`, `StationPlatformInsets`, `StationRampOpenings`, `StationCellMesher`, `StationCellMeshWorkspace`, `StationVisibility`, `StationViewCommands`, `StationCameraState`/`Controller`, `StationRailGeometry`/`Meshes`, `StationExplodedLayoutPlan`/`Connections`, `StationMeshLodIndices`, `RuntimeCatalogue`, `TrainCatalogue`/`Consist`/`Formations`/`MeshLods`, `PassengerCatalogue`/`Anchor`/`Appearance` |
 | `Runtime/App/` (`Metro.App`) | `StationGameHost`, `StationLoadCoordinator`, `StationWorldView`, `StationCommandRouter`, `StationDesktopUiPresenter`, `StationBenchmarkRecorder`, `StationPlayerBenchmark`, `StationEditProfiling`, `StationBindingReport`, `StationTools`, `StationPointerRouter`, `StationScenePicker`, `StationEditSession`, `StationPlacementPreview`, `Station{Cell,Paint,Zone,Rail,Tunnel,Surface,Roof,Pillar,Lift,Road}Tool`, `StationRenderRig`, `StationSkySystem`, `StationSectionView`/`Drag`, `StationExplodedView`, `StationStatisticsFeature`, `StationGraphicsSettings`, `StationModelDetailConfiguration`, `StationFsrUpscaler`, `StationRigidModelLods`, `StationGlass`, `StationMaterials`, `GeometryKit`, `ModuleMotion`, `TrainDoorRig`, `StationFamilyRenderers` |
-| `Runtime/App/Views/` (`Metro.App`) | `StationCellView`, `StationFinishLibrary`, `StationModuleGroups`, `StationPrefabBatch`, `StationStructureModuleViews`, `BoothModuleViews`, `OutdoorModuleViews`, `VerticalModuleViews`, `OpeningModuleViews`, `PsdReturnTrim`, `TrainConsistViews`, `PassengerCrowdView`, `SessionPassengerFeed`, `StationRoadView`, `RoadVehicleViews`, `StationExplodedTrayBuilder`, `StationGridRenderer`, `StationOverlayViews`, `StationZoneMap`, `StationSignView`/`TextureCache`, `StationExitArtwork`, `PsdHeaderArtwork`, `StationDisplayArtwork`, `StationDisplayTvArtwork`, `StationTvPlatePainter`/`Schedule`, `StationLineMapArtwork`, `StationClockArtwork`, `StationCalligraphyArtwork`/`FaceCache` |
+| `Runtime/App/Views/` (`Metro.App`) | `StationCellView`, `StationFinishLibrary`, `StationModuleGroups`, `StationPrefabBatch`, `StationStructureModuleViews`, `StationContactShadows`, `BoothModuleViews`, `OutdoorModuleViews`, `VerticalModuleViews`, `OpeningModuleViews`, `PsdReturnTrim`, `TrainConsistViews`, `TrainLiveryBinder`, `PassengerCrowdView`, `SessionPassengerFeed`, `StationRoadView`, `RoadVehicleViews`, `StationExplodedTrayBuilder`, `StationGridRenderer`, `StationOverlayViews`, `StationZoneMap`, `StationSignView`/`TextureCache`, `StationExitArtwork`, `PsdHeaderArtwork`, `StationDisplayArtwork`, `StationDisplayTvArtwork`, `StationTvPlatePainter`/`Schedule`, `StationLineMapArtwork`, `StationClockArtwork`, `StationCalligraphyArtwork`/`FaceCache` |
 | `Editor/` (`Assembly-CSharp-Editor`) | `StationGameScene`, `StationLocalProfile`, `RuntimeCatalogue`, `TrainCatalogueBuilder`, `PassengerCatalogueBuilder`, `LocalPassengerInjection`, `StationMeshLodImporter`, `TrainMeshLodBaker`, `StationGraphicsProjectSettings`, `BuildWeb`, `BuildWindows`, `ImportAssets`, `StationGameSmoke`, `StationStoreyVisibilityProbe`, `StationBindingReportCommand`, `StationEditorReactOverlay`, `StationDesignerIcon.png` |
 | `Plugins/WebGL/` | `StationGame.jslib` (+ test-harness `.jslib` files; every exported function declares `<fn>__sig` with `'p'` on pointer args) |
 | `Resources/` | `StationFinish`, `StationSky`, `StationSection{Lit,Unlit}`, `StationHighlight`, `StationExplodedGuide`, `StationFsr1` shaders; `StationSection{Clip,Depth}.hlsl`; `StationGlassRef.mat`, `StationUnlitTransparentRef.mat`; `StationFinishes/`, `Posters/`, `LineMaps/`, `ModelLods/` |
@@ -83,12 +83,13 @@ project layers in `tools/unity-parity/check-unity-compile.ps1`:
   disposing the outgoing world (`BeforePreviousDispose` fires right before old
   world teardown). Every `IStationViewRenderer` singleton must key state per
   `StationWorldView` and prune only `IsDisposed` worlds in `Release()`.
-- Host-initiated browser artwork requests (signs, PSD headers, street exits,
-  calligraphy) must publish via `StationGameHost.PublishOutbound` — never
-  WebGL-only `StationWebBridge.Publish` — so both WebGL and desktop/Editor
-  WebView2 receive them (`StationSignTransportTests`). Billboards, TV departure
-  boards, city line maps, digital/analogue clocks, and zone labels render
-  natively in C# via `Resources/{Posters,LineMaps}` and `NotoSansSC.ttf`.
+- Host-initiated browser artwork requests (signs, PSD headers & decals, street
+  exits, calligraphy, train cab marks) must publish via
+  `StationGameHost.PublishOutbound` — never WebGL-only
+  `StationWebBridge.Publish` — so both WebGL and desktop/Editor WebView2 receive
+  them (`StationSignTransportTests`). Billboards, TV departure boards, city line
+  maps, digital/analogue clocks, and zone labels render natively in C# via
+  `Resources/{Posters,LineMaps}` and `NotoSansSC.ttf`.
 
 ## Simulation parity contracts
 
@@ -100,6 +101,16 @@ project layers in `tools/unity-parity/check-unity-compile.ps1`:
   Keep static region reachability (`StationSparseTopology.CanReach`), field-free
   coarse queries, and same-tick cold-field warmup in `StepSparseRouting` aligned
   with the browser (`StationSparseRoutingTests`, `crowd-routing-oracle.json`).
+- **Fare gates, platform queues, errands & walking profiles:**
+  - `StationWalkGraphBuilder`/`Workspace` enforce directional fare-line crossings
+    (`CrossingDir`, `GateAllows`, `GateLaneAllows`, `GateApproach`), exit
+    head-house enclosure wall planes, and activity-stop nodes (`StationActivityStops`:
+    TVMs, vending, benches, shelves, cubicles, sinks, shops/retail/booths).
+  - `StationServiceRuntime` models committed two-way gate lanes, platform
+    flanking waiting nodes (`PlatformWaitingNodes`, `PsdQueueClearDepth`), door
+    load commitments, multi-leg errand queuing/dwell, and deterministic walking
+    profiles (`StationPassengerWalking`, mirrored in `PassengerCrowdView`).
+    Verified by `StationSimParityTests` and `StationErrandsAndWalkingTests`.
 - **Vertical circulation & lifts (`StationServiceRuntime`, `StationRoutePlanner`,
   `StationWalkGraphBuilder`, `StationWalkGraphWorkspace`):**
   - Arrivals and alighters share the `3%` step-free (`StepFreeChance = 0.03`) and

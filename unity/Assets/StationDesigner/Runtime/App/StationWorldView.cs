@@ -206,6 +206,71 @@ namespace Metro.App {
                 var c = delta.ChangedCells[i];
                 TouchedColumns.Add(PackColumn(c.X, c.Y));
             }
+
+            CityChanged = !string.Equals(prevDoc?.City ?? "", nextDoc?.City ?? "", StringComparison.Ordinal);
+            NameChanged = !string.Equals(prevDoc?.Name ?? "", nextDoc?.Name ?? "", StringComparison.Ordinal) ||
+                          !string.Equals(prevDoc?.NameEn ?? "", nextDoc?.NameEn ?? "", StringComparison.Ordinal);
+            VisualChangedLineIds = new HashSet<string>(StringComparer.Ordinal);
+            AnalyzeLineChanges(prevDoc?.Lines, nextDoc?.Lines, prevIndex, VisualChangedLineIds, out bool structureChanged);
+            LineStructureChanged = structureChanged;
+        }
+
+        static void AnalyzeLineChanges(
+            IReadOnlyList<StationLineRecord> prevLines,
+            IReadOnlyList<StationLineRecord> nextLines,
+            StationIndex prevIndex,
+            HashSet<string> visualChangedIds,
+            out bool structureChanged) {
+            structureChanged = false;
+            var prevById = new Dictionary<string, StationLineRecord>(StringComparer.Ordinal);
+            if (prevLines != null) {
+                for (int i = 0; i < prevLines.Count; i++) {
+                    var l = prevLines[i];
+                    if (l != null && !string.IsNullOrEmpty(l.Id)) prevById[l.Id] = l;
+                }
+            }
+            var nextById = new Dictionary<string, StationLineRecord>(StringComparer.Ordinal);
+            if (nextLines != null) {
+                for (int i = 0; i < nextLines.Count; i++) {
+                    var l = nextLines[i];
+                    if (l != null && !string.IsNullOrEmpty(l.Id)) nextById[l.Id] = l;
+                }
+            }
+            foreach (var kv in prevById) {
+                if (!nextById.TryGetValue(kv.Key, out var nl)) {
+                    visualChangedIds.Add(kv.Key);
+                    if (prevIndex != null) {
+                        var tracks = prevIndex.ModulesOfType("track");
+                        for (int i = 0; i < tracks.Count; i++) {
+                            if (string.Equals(tracks[i]?.Config.Text("line"), kv.Key, StringComparison.Ordinal)) {
+                                structureChanged = true;
+                                break;
+                            }
+                        }
+                    }
+                    continue;
+                }
+                var pl = kv.Value;
+                if (!string.Equals(pl.Stock, nl.Stock, StringComparison.Ordinal) ||
+                    !string.Equals(pl.Power, nl.Power, StringComparison.Ordinal) ||
+                    pl.Cars != nl.Cars ||
+                    !string.Equals(pl.Direction, nl.Direction, StringComparison.Ordinal)) {
+                    structureChanged = true;
+                    visualChangedIds.Add(kv.Key);
+                    continue;
+                }
+                if (!string.Equals(pl.Name, nl.Name, StringComparison.Ordinal) ||
+                    !string.Equals(pl.NameEn, nl.NameEn, StringComparison.Ordinal) ||
+                    !string.Equals(pl.Colour, nl.Colour, StringComparison.Ordinal) ||
+                    !string.Equals(pl.Psd, nl.Psd, StringComparison.Ordinal) ||
+                    !string.Equals(pl.UpTerminus, nl.UpTerminus, StringComparison.Ordinal) ||
+                    !string.Equals(pl.DownTerminus, nl.DownTerminus, StringComparison.Ordinal)) {
+                    visualChangedIds.Add(kv.Key);
+                }
+            }
+            foreach (var kv in nextById) {
+                if (!prevById.ContainsKey(kv.Key)) visualChangedIds.Add(kv.Key);
+            }
         }
 
         public StationWorldView World { get; }
@@ -216,6 +281,10 @@ namespace Metro.App {
         public StationIndexDelta Delta { get; }
         public Transform StagingRoot { get; }
         public bool CellsChanged { get; }
+        public bool CityChanged { get; }
+        public bool NameChanged { get; }
+        public bool LineStructureChanged { get; }
+        public HashSet<string> VisualChangedLineIds { get; }
         public HashSet<string> TouchedModuleIds { get; }
         public HashSet<long> TouchedColumns { get; }
         public List<StationDiagnostic> Diagnostics { get; } = new List<StationDiagnostic>();
@@ -433,11 +502,7 @@ namespace Metro.App {
             }
             if (document.LevelBase != next.LevelBase ||
                 document.StoreyHeight != next.StoreyHeight ||
-                document.Seed != next.Seed ||
-                !string.Equals(document.City, next.City, StringComparison.Ordinal) ||
-                !string.Equals(document.Name, next.Name, StringComparison.Ordinal) ||
-                !string.Equals(document.NameEn, next.NameEn, StringComparison.Ordinal) ||
-                !SameLines(document.Lines, next.Lines)) {
+                document.Seed != next.Seed) {
                 StationEditTrace.NoteViewFallback("global-station-metadata");
                 return null;
             }

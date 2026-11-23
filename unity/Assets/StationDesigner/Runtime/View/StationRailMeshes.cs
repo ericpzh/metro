@@ -37,16 +37,32 @@ namespace Metro.View {
         public const float DeckDepth = 1f;
     }
 
+    /// <summary>
+    /// Overhead catenary configuration for one saved track run (`CatenaryModel.ts` / `TrackGantry.ts`).
+    /// Under a slab or inside a tunnel a rigid aluminium conductor rail hangs in the shallow 5 m
+    /// ceiling recess; on a bridge or open gantry run, cantilever masts carry a sagging parabolic
+    /// messenger wire, droppers, ribbed insulators, and a return conductor.
+    /// </summary>
+    public sealed class RailCatenaryOptions {
+        public bool Tunnel;
+        /// <summary>`cfg.catenaryStyle`: `"gantry"` selects open cantilever masts outside bridges.</summary>
+        public string Style = "";
+        /// <summary>`STOCK[line.stock].width`, for the side mast offset (`trackSideFixtureOffset`).</summary>
+        public float VehicleWidth;
+        /// <summary>Track-local ceiling underside (`trackCeilingUnderside - mod.z`); 0 uses headroom + 1.</summary>
+        public float CeilingZ;
+    }
+
     /// <summary>One material bin of generated track geometry: vertices and triangles only.</summary>
     public sealed class RailMeshBin {
         public readonly List<Vector3> Vertices = new List<Vector3>();
         public readonly List<int> Triangles = new List<int>();
-        readonly List<(int Start, int LastTier)> hardware = new List<(int, int)>();
+        readonly List<(int Start, int Count, int LastTier)> hardware = new List<(int, int, int)>();
         public int VertexCount => Vertices.Count;
         public int TriangleCount => Triangles.Count / 3;
 
         public void Box(Vector3 centre, Vector3 size, int lastTier = 2) {
-            if (lastTier < 2) hardware.Add((Triangles.Count, lastTier));
+            int triStart = Triangles.Count;
             float hx = size.x * .5f, hy = size.y * .5f, hz = size.z * .5f;
             int start = Vertices.Count;
             for (int i = 0; i < 8; i++) {
@@ -64,6 +80,91 @@ namespace Metro.View {
                 var face = faces[f];
                 Triangles.Add(start + face[0]); Triangles.Add(start + face[1]); Triangles.Add(start + face[2]);
                 Triangles.Add(start + face[0]); Triangles.Add(start + face[2]); Triangles.Add(start + face[3]);
+            }
+            if (lastTier < 2) hardware.Add((triStart, Triangles.Count - triStart, lastTier));
+        }
+
+        /// <summary>A cylinder between two arbitrary Unity-local points.</summary>
+        public void Tube(Vector3 a, Vector3 b, float radius, int radialSegments = 8, int lastTier = 2) {
+            Vector3 axis = b - a;
+            float length = axis.magnitude;
+            if (length < 1e-5f || radius <= 0f) return;
+            int segs = Mathf.Max(3, radialSegments);
+            int triStart = Triangles.Count;
+            Vector3 dir = axis / length;
+            Vector3 tangent = Vector3.Cross(dir, Mathf.Abs(dir.y) < .9f ? Vector3.up : Vector3.right).normalized;
+            Vector3 bitangent = Vector3.Cross(dir, tangent);
+            int start = Vertices.Count;
+            for (int ring = 0; ring < 2; ring++) {
+                Vector3 origin = ring == 0 ? a : b;
+                for (int i = 0; i < segs; i++) {
+                    float angle = (i / (float)segs) * Mathf.PI * 2f;
+                    Vector3 offset = (tangent * Mathf.Cos(angle) + bitangent * Mathf.Sin(angle)) * radius;
+                    Vertices.Add(origin + offset);
+                }
+            }
+            for (int i = 0; i < segs; i++) {
+                int next = (i + 1) % segs;
+                int v0 = start + i;
+                int v1 = start + next;
+                int v2 = start + segs + next;
+                int v3 = start + segs + i;
+                Triangles.Add(v0); Triangles.Add(v2); Triangles.Add(v1);
+                Triangles.Add(v0); Triangles.Add(v3); Triangles.Add(v2);
+            }
+            // End caps.
+            for (int i = 1; i + 1 < segs; i++) {
+                Triangles.Add(start); Triangles.Add(start + i); Triangles.Add(start + i + 1);
+                Triangles.Add(start + segs); Triangles.Add(start + segs + i + 1); Triangles.Add(start + segs + i);
+            }
+            if (lastTier < 2) hardware.Add((triStart, Triangles.Count - triStart, lastTier));
+        }
+
+        /// <summary>A five-rib porcelain/composite insulator along <paramref name="a"/> → <paramref name="b"/>.</summary>
+        public void RibbedInsulator(Vector3 a, Vector3 b, float radius, int radialSegments = 8, int lastTier = 2) {
+            Vector3 axis = b - a;
+            float length = axis.magnitude;
+            if (length < 1e-5f || radius <= 0f) return;
+            int segs = Mathf.Max(4, radialSegments);
+            int triStart = Triangles.Count;
+            Vector3 dir = axis / length;
+            Vector3 tangent = Vector3.Cross(dir, Mathf.Abs(dir.y) < .9f ? Vector3.up : Vector3.right).normalized;
+            Vector3 bitangent = Vector3.Cross(dir, tangent);
+            var rings = new List<Vector2>(22) { new Vector2(radius * .42f, 0f) };
+            for (int i = 0; i < 5; i++) {
+                float z = length * (i + .1f) / 5f;
+                rings.Add(new Vector2(radius * .42f, z));
+                rings.Add(new Vector2(radius, z + length * .045f));
+                rings.Add(new Vector2(radius * .88f, z + length * .09f));
+                rings.Add(new Vector2(radius * .42f, z + length * .15f));
+            }
+            rings.Add(new Vector2(radius * .42f, length));
+            int start = Vertices.Count;
+            for (int r = 0; r < rings.Count; r++) {
+                Vector3 centre = a + dir * rings[r].y;
+                float rad = rings[r].x;
+                for (int i = 0; i < segs; i++) {
+                    float angle = (i / (float)segs) * Mathf.PI * 2f;
+                    Vertices.Add(centre + (tangent * Mathf.Cos(angle) + bitangent * Mathf.Sin(angle)) * rad);
+                }
+            }
+            for (int r = 0; r + 1 < rings.Count; r++) {
+                int r0 = start + r * segs;
+                int r1 = start + (r + 1) * segs;
+                for (int i = 0; i < segs; i++) {
+                    int next = (i + 1) % segs;
+                    Triangles.Add(r0 + i); Triangles.Add(r1 + next); Triangles.Add(r0 + next);
+                    Triangles.Add(r0 + i); Triangles.Add(r1 + i); Triangles.Add(r1 + next);
+                }
+            }
+            if (lastTier < 2) hardware.Add((triStart, Triangles.Count - triStart, lastTier));
+        }
+
+        /// <summary>Continuous segmented tube along a polyline (for the sagging parabolic messenger wire).</summary>
+        public void PolylineTube(IReadOnlyList<Vector3> points, float radius, int radialSegments = 6, int lastTier = 2) {
+            if (points == null || points.Count < 2 || radius <= 0f) return;
+            for (int i = 0; i + 1 < points.Count; i++) {
+                Tube(points[i], points[i + 1], radius, radialSegments, lastTier);
             }
         }
 
@@ -118,7 +219,7 @@ namespace Metro.View {
             int source = 0;
             foreach (var item in hardware) {
                 for (; source < item.Start; source++) result.Add(Triangles[source]);
-                source = item.Start + 36;
+                source = item.Start + item.Count;
             }
             for (; source < Triangles.Count; source++) result.Add(Triangles[source]);
             return result;
@@ -127,7 +228,7 @@ namespace Metro.View {
         void AppendFasteners(List<int> indices, int tier) {
             foreach (var item in hardware) {
                 if (item.LastTier != tier) continue;
-                for (int next = item.Start; next < item.Start + 36; next++) indices.Add(Triangles[next]);
+                for (int next = item.Start; next < item.Start + item.Count; next++) indices.Add(Triangles[next]);
             }
         }
     }
@@ -156,8 +257,20 @@ namespace Metro.View {
         public int ThirdRailSide;
         public float ThirdRailLocalY;
         public bool Catenary;
+        /// <summary>Contact wire centre height above the track datum (`TrainContactWireZ`).</summary>
+        public float ContactWireZ;
+        /// <summary>True when catenary built the rigid overhead conductor (under cover/tunnel), false for open gantry.</summary>
+        public bool RigidCatenary;
+        /// <summary>Open gantry cantilever mast count (0 for rigid or third rail).</summary>
+        public int GantryMastCount;
+        /// <summary>Sagging messenger span count between anchors (0 for rigid or third rail).</summary>
+        public int MessengerSpanCount;
+        /// <summary>Vertical dropper count on open gantry spans.</summary>
+        public int DropperCount;
         /// <summary>Non-null for a `cfg.bridge` run: the deck, shoulders and barriers it draws.</summary>
         public RailBridgeOptions Bridge;
+        /// <summary>Optional overhead catenary configuration (`CatenaryModel.ts`).</summary>
+        public RailCatenaryOptions CatenaryOptions;
         /// <summary>The deck's barrier line offset across the bed (`bridgeSupportOffset`).</summary>
         public float BridgeSupportOffset;
         /// <summary>The deck's full across extent (`bridgeSpan`), never narrower than the bed.</summary>
@@ -174,6 +287,8 @@ namespace Metro.View {
         public readonly RailMeshBin Insulator = new RailMeshBin();
         /// <summary>The sound barrier's opaque lower panels (`mats.white` in the source).</summary>
         public readonly RailMeshBin Panel = new RailMeshBin();
+        /// <summary>The copper overhead contact wire (`mats.wood` in `CatenaryModel.ts`).</summary>
+        public readonly RailMeshBin Copper = new RailMeshBin();
 
         float cx;   // local x of the run centre
         float cy;   // local y of the bed centre
@@ -186,11 +301,16 @@ namespace Metro.View {
         /// edge the conductor rail takes (ignored for an overhead run).
         /// </summary>
         public static RailRunGeometry Build(float width, float depth, float scale, int thirdRailSide, bool catenary) =>
-            Build(width, depth, scale, thirdRailSide, catenary, null);
+            Build(width, depth, scale, thirdRailSide, catenary, null, null);
 
         /// <summary>Build one run, optionally as a bridge (see <see cref="RailBridgeOptions"/>).</summary>
         public static RailRunGeometry Build(float width, float depth, float scale, int thirdRailSide, bool catenary,
-            RailBridgeOptions bridge) {
+            RailBridgeOptions bridge) =>
+            Build(width, depth, scale, thirdRailSide, catenary, bridge, null);
+
+        /// <summary>Build one run with explicit bridge and catenary options.</summary>
+        public static RailRunGeometry Build(float width, float depth, float scale, int thirdRailSide, bool catenary,
+            RailBridgeOptions bridge, RailCatenaryOptions catenaryOptions) {
             var run = new RailRunGeometry {
                 Width = Math.Max(1f, width),
                 Depth = Math.Max(1f, depth),
@@ -198,6 +318,7 @@ namespace Metro.View {
                 ThirdRailSide = thirdRailSide,
                 Catenary = catenary,
                 Bridge = bridge,
+                CatenaryOptions = catenaryOptions,
             };
             run.BuildParts();
             return run;
@@ -286,7 +407,6 @@ namespace Metro.View {
 
             if (Catenary) {
                 BuildCatenary();
-                Notes.Add("track-catenary:masts+contact-wire (simplified gantry lookup)");
             } else {
                 BuildThirdRail();
             }
@@ -487,31 +607,142 @@ namespace Metro.View {
         }
 
         /// <summary>
-        /// An overhead run: masts along the bed, a cantilever and a contact wire at the
-        /// source's `CONTACT_WIRE_Z`. The full per-neighbour gantry weave is not ported
-        /// (the station rails are third rail); the wire, masts and droppers are real
-        /// geometry and the simplification is named in <see cref="Notes"/>.
+        /// Port of `CatenaryModel.ts:buildTrackCatenary` for the 5 m storey profile:
+        /// rigid aluminium overhead conductor rail under slabs and inside tunnels, and
+        /// single-sided cantilever gantries with a sagging parabolic messenger wire,
+        /// droppers, ribbed insulators, cleats, and return conductor on open runs/bridges.
+        /// Contact wire sits level at `TrainContactWireZ(Scale)` (`3.903 m` at `0.98`)
+        /// reaching both module seams (`-0.5 .. w - 0.5`).
         /// </summary>
         void BuildCatenary() {
-            // Catenary is drawn on the track group, not the scaled running-gear group: it
-            // is not shifted by `TRACK_BED_DROP` and keeps its authored wire height.
             float w = Width, d = Depth;
-            int masts = Mathf.Max(2, Mathf.RoundToInt(w / 24f));
-            float contact = StationRailGeometry.OverheadContactZ;
-            for (int i = 0; i < masts; i++) {
-                float x = ((i + .5f) / masts) * w - .5f;
-                float postY = cy + (d * .5f + .35f);
-                Box(Dark, V(x, postY, contact * .5f), S(.16f, .16f, contact));
-                Box(Dark, V(x, cy, contact - .05f), S(.16f, postY - cy, .12f));
-                Box(Insulator, V(x, cy, contact - .18f), S(.12f, .12f, .12f));
+            float contact = StationRailGeometry.TrainContactWireZ(Scale);
+            ContactWireZ = contact;
+            int mastSide = ThirdRailSide == 0 ? -1 : ThirdRailSide;
+            bool tunnel = CatenaryOptions != null && CatenaryOptions.Tunnel;
+            string style = CatenaryOptions != null ? CatenaryOptions.Style ?? "" : "";
+            float vehicleWidth = CatenaryOptions != null && CatenaryOptions.VehicleWidth > 0f
+                ? CatenaryOptions.VehicleWidth
+                : Bridge != null ? Bridge.VehicleWidth : 0f;
+            bool isGantry = !tunnel && (IsBridge || string.Equals(style, "gantry", StringComparison.Ordinal));
+            RigidCatenary = !isGantry;
+
+            // Round copper contact wire reaching both module seams; underside touches pantograph carbon.
+            Copper.Tube(V(-.5f, cy, contact), V(w - .5f, cy, contact), StationRailGeometry.ContactWireRadius, 8);
+
+            if (!isGantry) {
+                float ceiling = CatenaryOptions != null && CatenaryOptions.CeilingZ > 0f
+                    ? CatenaryOptions.CeilingZ
+                    : StationRailGeometry.TrackHeadroom(true, tunnel, false, style) + 1f;
+                // Flanged aluminium conductor rail; copper sits proud beneath it.
+                Box(Steel, V(cx, cy, contact + .062f), S(w, .095f, .016f));
+                Box(Steel, V(cx, cy, contact + .036f), S(w, .022f, .036f));
+                int count = Mathf.Max(2, Mathf.RoundToInt(w / 4f));
+                for (int i = 0; i < count; i++) {
+                    float x = (i + .5f) * w / count - .5f;
+                    if (tunnel) {
+                        Box(Dark, V(x, -.46f, ceiling - .045f), S(.19f, .06f, .08f));
+                        Steel.Tube(V(x, -.43f, ceiling - .025f), V(x, cy - .32f, ceiling - .03f), .012f, 6);
+                        Dark.Tube(V(x, -.43f, ceiling - .075f), V(x, cy - .32f, ceiling - .03f), .009f, 6);
+                        Dark.RibbedInsulator(V(x, cy - .32f, ceiling - .03f), V(x, cy, ceiling - .03f), .023f, 6);
+                        Steel.Tube(V(x, cy, ceiling - .03f), V(x, cy, contact + .077f), .012f, 6);
+                    } else {
+                        Box(Dark, V(x, cy - .48f, ceiling - .012f), S(.22f, .25f, .024f));
+                        Dark.RibbedInsulator(V(x, cy - .45f, ceiling - .03f), V(x, cy - .1f, ceiling - .03f), .023f, 6);
+                        Steel.Tube(V(x, cy - .1f, ceiling - .03f), V(x, cy, contact + .075f), .012f, 6);
+                    }
+                    Dark.Box(V(x, cy, contact + .075f), S(.14f, .14f, .018f), lastTier: 0);
+                }
+                Notes.Add("track-catenary:rigid" + (tunnel ? "-tunnel" : "-ceiling") +
+                    " contact=" + contact.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture) +
+                    " ceiling=" + ceiling.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture));
+                return;
             }
-            Box(Dark, V(cx, cy, contact), S(w, .035f, .035f));
-            Box(Steel, V(cx, cy, contact + 1.2f), S(w, .03f, .03f));
-            int droppers = Mathf.Max(2, Mathf.RoundToInt(w / 5f));
-            for (int i = 0; i < droppers; i++) {
-                float x = ((i + .5f) / droppers) * w - .5f;
-                Box(Steel, V(x, cy, contact + .6f), S(.025f, .025f, 1.2f));
+
+            // Open gantry layout (`TrackGantry.ts:trackGantryLayout`).
+            var mastXs = new List<float>();
+            if (IsBridge) {
+                for (float x = 0f; x < w; x += 8f) mastXs.Add(x);
+            } else {
+                int count = Mathf.Max(1, Mathf.CeilToInt(w / 8f));
+                for (int i = 0; i < count; i++) {
+                    mastXs.Add(count == 1 ? (w - 1f) * .5f : (i / (float)(count - 1)) * (w - 1f) - .5f);
+                }
             }
+            GantryMastCount = mastXs.Count;
+            float offset = StationRailGeometry.TrackSideFixtureOffset(d, vehicleWidth);
+            float postY = cy + mastSide * offset;
+            float top = contact + .72f;
+            float messengerZ = contact + .38f;
+            float bottom = IsBridge ? -StationRailGeometry.UnderfloorDrop : 0f;
+            float postTop = top + .1f;
+            float inward = Mathf.Sign(cy - postY);
+            if (inward == 0f) inward = -mastSide;
+            float armEnd = cy + inward * .35f;
+            float side = postY + inward * .08f;
+
+            void InsulatedArm(Vector3 from, Vector3 to) {
+                Vector3 c = Vector3.Lerp(from, to, .12f);
+                Vector3 dd = Vector3.Lerp(from, to, .38f);
+                Steel.Tube(from, c, .023f, 6);
+                Dark.RibbedInsulator(c, dd, .065f, 6);
+                Steel.Tube(dd, to, .023f, 6);
+            }
+
+            for (int i = 0; i < mastXs.Count; i++) {
+                float x = mastXs[i];
+                Box(Dark, V(x, postY, (bottom + postTop) * .5f), S(.12f, .12f, postTop - bottom));
+                Dark.Tube(V(x, postY, top), V(x, armEnd, top), .045f, 8);
+                Dark.Tube(V(x, postY, top - .66f), V(x, armEnd - inward * .20f, top), .032f, 8);
+                Box(Dark, V(x, postY + inward * .06f, top - .36f), S(.12f, .08f, .10f));
+                Box(Dark, V(x, postY + inward * .06f, contact + .21f), S(.12f, .08f, .10f));
+                InsulatedArm(V(x, side, top - .36f), V(x, cy, messengerZ));
+                InsulatedArm(V(x, side, contact + .21f), V(x, cy - mastSide * .18f, contact + .10f));
+                Dark.Tube(
+                    V(x, Mathf.Lerp(side, cy, .48f), Mathf.Lerp(top - .36f, messengerZ, .48f)),
+                    V(x, cy - mastSide * .18f, contact + .10f), .012f, 6);
+                Dark.Tube(V(x, cy - mastSide * .18f, contact + .10f), V(x, cy, contact + .035f), .015f, 6);
+                Steel.Tube(V(x, cy, messengerZ), V(x, cy, contact + .012f), .006f, 6);
+                Dark.RibbedInsulator(V(x, postY, top - .02f), V(x, postY - mastSide * .18f, top - .02f), .035f, 6);
+            }
+            Dark.Tube(V(-.5f, postY - mastSide * .18f, top - .02f), V(w - .5f, postY - mastSide * .18f, top - .02f), .009f, 6);
+
+            // Unique sorted anchors from -0.5 to w - 0.5: every module ends at messengerZ so
+            // abutting runs join seamlessly without steps, while each span sags parabolically.
+            var anchors = new List<float>(mastXs.Count + 2) { -.5f, w - .5f };
+            for (int i = 0; i < mastXs.Count; i++) anchors.Add(mastXs[i]);
+            anchors.Sort();
+            var uniqueAnchors = new List<float>(anchors.Count);
+            for (int i = 0; i < anchors.Count; i++) {
+                if (uniqueAnchors.Count == 0 || Mathf.Abs(anchors[i] - uniqueAnchors[uniqueAnchors.Count - 1]) > 1e-4f)
+                    uniqueAnchors.Add(anchors[i]);
+            }
+            var curvePoints = new Vector3[9];
+            for (int bay = 1; bay < uniqueAnchors.Count; bay++) {
+                float start = uniqueAnchors[bay - 1];
+                float end = uniqueAnchors[bay];
+                float length = end - start;
+                if (length < .01f) continue;
+                MessengerSpanCount++;
+                float sag = Mathf.Min(.14f, length * .025f);
+                for (int p = 0; p < 9; p++) {
+                    float t = p / 8f;
+                    float z = messengerZ - sag * 4f * t * (1f - t);
+                    curvePoints[p] = V(Mathf.Lerp(start, end, t), cy, z);
+                }
+                Steel.PolylineTube(curvePoints, .009f, 6);
+                int droppers = Mathf.Max(1, Mathf.CeilToInt(length / 2f));
+                for (int i = 0; i < droppers; i++) {
+                    float t = (i + .5f) / droppers;
+                    float x = Mathf.Lerp(start, end, t);
+                    float z = messengerZ - sag * 4f * t * (1f - t);
+                    Steel.Tube(V(x, cy, contact + .012f), V(x, cy, z), .006f, 6, lastTier: i % 2 == 0 ? 2 : 0);
+                    Dark.Box(V(x, cy, contact + .026f), S(.055f, .055f, .025f), lastTier: 0);
+                    DropperCount++;
+                }
+            }
+            Notes.Add("track-catenary:gantry masts=" + GantryMastCount + " spans=" + MessengerSpanCount +
+                " contact=" + contact.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture));
         }
     }
 }

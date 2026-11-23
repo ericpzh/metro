@@ -144,17 +144,39 @@ namespace Metro.Build {
         }
 
         /// <summary>
-        /// `<c>carveRampOpenings</c>`: drop every reached cell (a wall is never carved — the run's
-        /// rail touches it instead) and tag each opened column's new ceiling. Returns the cell
-        /// writes, empty when the document has no run or nothing to open.
+        /// `<c>carveRampOpenings</c>`: drop every reached cell (a wall or any ramp/lift landing is
+        /// never carved) and tag each opened column's new ceiling. Passing
+        /// <paramref name="excludeModuleId"/> ignores an old copy of a moved module.
         /// </summary>
-        public static List<StationCellWrite> Carve(StationIndex index, IEnumerable<StationModuleRecord> extra = null) {
+        public static List<StationCellWrite> Carve(StationIndex index, IEnumerable<StationModuleRecord> extra = null,
+            string excludeModuleId = null) {
             var writes = new List<StationCellWrite>();
             if (index == null) return writes;
             var runs = new List<Run>();
-            foreach (var module in index.Document.Modules) runs.AddRange(RunsFor(module));
+            var protect = new HashSet<StationCellKey>();
+            void CollectModule(StationModuleRecord module) {
+                if (module == null) return;
+                runs.AddRange(RunsFor(module));
+                if (module.Type == "stair" && !module.Config.Bool("block")) {
+                    foreach (var l in StationRampRules.StairLandings(module)) protect.Add(l);
+                } else if (module.Type == "escalator" || module.Type == "walkway") {
+                    foreach (var l in StationRampRules.EscalatorLandings(module)) protect.Add(l);
+                } else if (module.Type == "lift") {
+                    int size = module.Config.Int("size", 2) == 3 ? 3 : 2;
+                    for (int lx = 0; lx < size; lx++) {
+                        for (int ly = 0; ly < size; ly++) {
+                            protect.Add(new StationCellKey(module.X + lx, module.Y + ly, module.Z));
+                        }
+                    }
+                }
+            }
+            foreach (var module in index.Document.Modules) {
+                if (module == null) continue;
+                if (!string.IsNullOrEmpty(excludeModuleId) && string.Equals(module.Id, excludeModuleId, StringComparison.Ordinal)) continue;
+                CollectModule(module);
+            }
             if (extra != null) {
-                foreach (var module in extra) runs.AddRange(RunsFor(module));
+                foreach (var module in extra) CollectModule(module);
             }
             if (runs.Count == 0) return writes;
             var kill = new HashSet<StationCellKey>();
@@ -162,6 +184,7 @@ namespace Metro.Build {
             foreach (var cell in index.Document.Cells) {
                 if (cell == null || !cell.IsSolid) continue;
                 if (StationCellRules.IsWallBlock(cell.Tags)) continue;
+                if (protect.Contains(cell.Key)) continue;
                 bool reached = false;
                 foreach (var run in runs) {
                     if (!Within(cell, run, run.CoreHalf)) continue;
@@ -189,6 +212,34 @@ namespace Metro.Build {
                 foreach (var tag in cell.Tags) if (string.Equals(tag, OpeningCeiling, StringComparison.Ordinal)) tagged = true;
                 if (tagged) continue;
                 writes.Add(StationCellWrite.AddTags(cell.Key, new[] { OpeningCeiling }));
+            }
+            return writes;
+        }
+
+        /// <summary>
+        /// Materialize explicit solid floor cells for any integer landing of <paramref name="candidate"/>
+        /// that rests on an exit head-house's virtual floor (no authored solid cell yet).
+        /// </summary>
+        public static List<StationCellWrite> MaterializeExitFloorLandings(StationIndex index, StationModuleRecord candidate) {
+            var writes = new List<StationCellWrite>();
+            if (index == null || candidate == null) return writes;
+            List<StationCellKey> landings = null;
+            if (candidate.Type == "stair" && !candidate.Config.Bool("block")) {
+                landings = StationRampRules.StairLandings(candidate);
+            } else if (candidate.Type == "escalator" || candidate.Type == "walkway") {
+                landings = StationRampRules.EscalatorLandings(candidate);
+            }
+            if (landings == null || landings.Count == 0) return writes;
+            var seen = new HashSet<StationCellKey>();
+            for (int i = 0; i < landings.Count; i++) {
+                var key = landings[i];
+                if (!seen.Add(key)) continue;
+                var existing = index.GetCell(key.X, key.Y, key.Z);
+                if (existing != null && existing.IsSolid) continue;
+                if (!StationFootprints.IsExitFloorAt(index, key.X, key.Y, key.Z)) continue;
+                var solidWrite = StationCellWrite.Set(key, isVoid: false);
+                solidWrite.Zone = "outside";
+                writes.Add(solidWrite);
             }
             return writes;
         }

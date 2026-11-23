@@ -387,6 +387,7 @@ namespace Metro.App {
             public ModuleMotion Legacy;
             public TrainDoorRig Train;
             public int TrainBank = 1;
+            public int TrainBankMask = 1;
             public ModuleMotionSample Sample;
             public int Applied;
             public float Moved;
@@ -454,12 +455,18 @@ namespace Metro.App {
         }
 
         /// <summary>Bind a consist's door rig, keyed by the frame's `lineId|trackId`.</summary>
-        public bool BindTrain(string trainId, TrainDoorRig rig, int bank = 1) {
+        public bool BindTrain(string trainId, TrainDoorRig rig, int bank = 1) =>
+            BindTrainMask(trainId, rig, bank >= 0 ? 1 : 2);
+
+        /// <summary>Bind a consist's door rig with an explicit bank bitmask (bit 0 = +1, bit 1 = −1, 0..3).</summary>
+        public bool BindTrainMask(string trainId, TrainDoorRig rig, int bankMask) {
             if (rig == null || string.IsNullOrEmpty(trainId)) return false;
+            int mask = bankMask & 3;
             var binding = Add(trainId, ModuleMotionFamily.TrainDoors, train: rig);
-            binding.TrainBank = bank >= 0 ? 1 : -1;
+            binding.TrainBankMask = mask;
+            binding.TrainBank = (mask & 1) != 0 ? 1 : -1;
             binding.Channel = ModuleMotionChannel.FrameTrains;
-            binding.Detail = "leaves=" + rig.Leaves + " doors=" + rig.Doors + " bank=" + binding.TrainBank +
+            binding.Detail = "leaves=" + rig.Leaves + " doors=" + rig.Doors + " bankMask=" + mask +
                 " anchors=" + rig.LineAnchors.Describe();
             return true;
         }
@@ -981,7 +988,8 @@ namespace Metro.App {
             // One bank only: the source addresss each bank separately, and the frame
             // publishes one fraction per consist (`doorSides` is not ported yet), so the
             // bank the caller named as the platform side moves and its opposite stays shut.
-            binding.Train.SetBank(binding.TrainBank, door);
+            int mask = binding.TrainBankMask & 3;
+            binding.Train.Apply((mask & 1) != 0 ? door : 0f, (mask & 2) != 0 ? door : 0f);
             binding.Applied++;
             Measure(binding);
         }

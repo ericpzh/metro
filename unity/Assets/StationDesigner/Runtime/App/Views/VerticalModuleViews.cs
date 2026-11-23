@@ -3431,6 +3431,13 @@ namespace Metro.App.Views {
                     }
                 }
             }
+            if (context.CityChanged || context.NameChanged) {
+                var exits = context.NextIndex.ModulesOfType("exit");
+                for (int i = 0; i < exits.Count; i++) {
+                    var ex = exits[i];
+                    if (ex != null && !removedIds.Contains(ex.Id)) dirtyIds.Add(ex.Id);
+                }
+            }
 
             if (rampEnvelopes != null) {
                 for (int i = 0; i < state.Views.Count; i++) {

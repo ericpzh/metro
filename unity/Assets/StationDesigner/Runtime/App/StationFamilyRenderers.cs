@@ -658,6 +658,7 @@ namespace Metro.App {
             // live registry had no owner for `pillar` or `roof`, so Tanwei's 73 pillars (11 of
             // them bridge piers) and 308 roofs reported `no-renderer` and drew nothing.
             StationRenderers.Add(new Metro.App.Views.StationStructureModuleRenderer());
+            StationRenderers.Add(new Metro.App.Views.StationContactShadowRenderer());
             StationRenderers.Add(new Metro.App.Views.StationGridRenderer());
             StationRenderers.Add(new Metro.App.Views.StationOverlayRenderer());
             StationFrameSinks.Add(new RoadFrameSink());

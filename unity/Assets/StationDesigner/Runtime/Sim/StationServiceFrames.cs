@@ -36,6 +36,10 @@ namespace Metro.Sim {
         Alighting = 3,
         /// <summary>Aboard a consist at the platform (stepped in, doors may shut after).</summary>
         Boarding = 4,
+        /// <summary>Using a ticket or vending machine (<c>Buying</c>).</summary>
+        Buying = 5,
+        /// <summary>Dwelling at a bench, shop, shelf, cubicle, sink or booth (<c>Browsing</c>).</summary>
+        Browsing = 6,
     }
 
     /// <summary>The distance-parameterized walking line over a ramp and its landings.</summary>
@@ -180,6 +184,8 @@ namespace Metro.Sim {
                 case StationPassengerState.Riding: return "riding";
                 case StationPassengerState.Alighting: return "alighting";
                 case StationPassengerState.Boarding: return "boarding";
+                case StationPassengerState.Buying: return "buying";
+                case StationPassengerState.Browsing: return "browsing";
                 default: return "walking";
             }
         }

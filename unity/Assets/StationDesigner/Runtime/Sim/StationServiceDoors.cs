@@ -167,6 +167,9 @@ namespace Metro.Sim {
         public int X, Y, Z;
         /// <summary>Metres along the rail from its first cell (`doorRunOffsets`).</summary>
         public double Offset;
+        /// <summary>Unit vector pointing from the PSD wall inland onto the platform floor.</summary>
+        public double InwardX, InwardY;
+        public bool HasInward;
 
         public override string ToString() => Id + "@" + X + "," + Y + "," + Z;
     }
@@ -215,6 +218,9 @@ namespace Metro.Sim {
                 int step = Math.Max(1, run.Count / count);
                 for (int i = 0; i < run.Count && seats.Count < count; i += step) seats.Add((i, i));
             }
+            StationServiceCadence.RotateLocal(edge.Rot, 0,
+                string.Equals(edge.Side, "right", StringComparison.Ordinal) ? -1 : 1,
+                out double inwardX, out double inwardY);
             for (int i = 0; i < seats.Count; i++) {
                 var (j, offset) = seats[i];
                 var (x, y) = run[j];
@@ -223,6 +229,7 @@ namespace Metro.Sim {
                     Id = (edge.Id ?? "") + "#" + slots.Count,
                     PlatformId = edge.Id ?? "", LineId = edge.LineId ?? "", TrackId = track.Id ?? "",
                     Index = slots.Count, Node = node, X = x, Y = y, Z = edge.Z, Offset = offset,
+                    InwardX = inwardX, InwardY = inwardY, HasInward = true,
                 });
             }
             if (slots.Count == 0) diagnostic = "platform-door-no-floor:" + (edge.Id ?? "");

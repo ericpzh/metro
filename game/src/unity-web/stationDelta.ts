@@ -3,7 +3,9 @@
 
 import { normalizeCityStyle } from '../sim/cityStyles.ts'
 import { normalizeLevelBase, STOREY_HEIGHT } from '../sim/constants.ts'
-import type { Cell, Module, StationData } from '../sim/types.ts'
+import { repairLineRunning } from '../sim/headway.ts'
+import { trainScaleForStorey } from '../sim/stock.ts'
+import type { Cell, LineDef, Module, StationData } from '../sim/types.ts'
 import { cellKey, cloneCell } from '../build/model/Cells.ts'
 import { assignAdPosters, ensureSignLayouts } from '../build/model/Equipment.ts'
 import type { StationState } from '../build/model/State.ts'
@@ -94,9 +96,23 @@ export function applyStationDelta(previous: StationState, delta: StationCommitDe
     cellIndexCache.set(nextCells, nextIndex)
   }
 
+  let nextLines = previous.lines
+  if (Array.isArray(delta.lines)) {
+    const scale = trainScaleForStorey()
+    nextLines = delta.lines.map(raw => {
+      const copy = (typeof structuredClone === 'function' ? structuredClone(raw) : JSON.parse(JSON.stringify(raw))) as unknown as LineDef
+      return repairLineRunning({
+        ...copy,
+        modelScale: scale,
+        upTerminus: copy.upTerminus ?? '',
+        downTerminus: copy.downTerminus ?? '',
+      })
+    })
+  }
+
   let nextModules = previous.modules
   if (delta.removedModules.length > 0 || delta.changedModules.length > 0) {
-    const baseForNorm: StationState = { ...previous, cityStyle, name, nameEn, levelBase }
+    const baseForNorm: StationState = { ...previous, cityStyle, name, nameEn, levelBase, lines: nextLines }
     const normalizedChanged = normalizeDeltaModules(delta.changedModules, baseForNorm)
     const removedSet = delta.removedModules.length > 0 ? new Set(delta.removedModules) : null
     const changedById = new Map<string, Module>()
@@ -131,6 +147,7 @@ export function applyStationDelta(previous: StationState, delta: StationCommitDe
   if (
     nextCells === previous.cells &&
     nextModules === previous.modules &&
+    nextLines === previous.lines &&
     cityStyle === previous.cityStyle &&
     name === previous.name &&
     nameEn === previous.nameEn &&
@@ -147,5 +164,6 @@ export function applyStationDelta(previous: StationState, delta: StationCommitDe
     levelBase,
     cells: nextCells,
     modules: nextModules,
+    lines: nextLines,
   }
 }

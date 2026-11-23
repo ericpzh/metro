@@ -55,6 +55,7 @@ export interface StationCommitDelta {
   changedCells: Record<string, unknown>[]
   removedModules: string[]
   changedModules: Record<string, unknown>[]
+  lines?: Record<string, unknown>[]
   sourceHash?: string | null
   sourceHashRevision?: number
 }
@@ -63,6 +64,8 @@ export interface StationSnapshot {
   ready: boolean
   sessionId: string
   revision: number
+  /** Monotonic host counter bumped on every non-edit station load (`station.new` / `station.open` / `station.openDemo`). */
+  stationEpoch: number
   sourceId: string | null
   sourceHash: string | null
   sourceHashRevision?: number
@@ -125,6 +128,7 @@ const EMPTY: StationSnapshot = {
   ready: false,
   sessionId: '',
   revision: -1,
+  stationEpoch: 0,
   sourceId: null,
   sourceHash: null,
   sourceHashRevision: -1,
@@ -137,6 +141,23 @@ const EMPTY: StationSnapshot = {
   state: {},
   capabilities: {},
   rejects: [],
+}
+
+/** Extract authoritative undo/redo availability from a committed host snapshot. */
+export function readHostHistory(snap: StationSnapshot): { canUndo: boolean; canRedo: boolean } {
+  const st = snap.state
+  const edit = st.edit as Record<string, unknown> | null | undefined
+  const canUndo = typeof st.canUndo === 'boolean'
+    ? st.canUndo
+    : typeof edit?.canUndo === 'boolean'
+      ? edit.canUndo
+      : typeof edit?.undoDepth === 'number' && edit.undoDepth > 0
+  const canRedo = typeof st.canRedo === 'boolean'
+    ? st.canRedo
+    : typeof edit?.canRedo === 'boolean'
+      ? edit.canRedo
+      : typeof edit?.redoDepth === 'number' && edit.redoDepth > 0
+  return { canUndo, canRedo }
 }
 
 let snapshot: StationSnapshot = EMPTY
@@ -211,6 +232,7 @@ function parseCommitDelta(raw: unknown): StationCommitDelta | null {
     changedCells: r.changedCells as Record<string, unknown>[],
     removedModules: r.removedModules.filter((id): id is string => typeof id === 'string'),
     changedModules: r.changedModules as Record<string, unknown>[],
+    lines: Array.isArray(r.lines) ? r.lines as Record<string, unknown>[] : undefined,
     sourceHash: typeof r.sourceHash === 'string' && r.sourceHash.length > 0 ? r.sourceHash : null,
     sourceHashRevision: typeof r.sourceHashRevision === 'number' && Number.isInteger(r.sourceHashRevision) ? r.sourceHashRevision : -1,
   }
@@ -232,6 +254,9 @@ export function reduce(current: StationSnapshot, reply: Reply): StationSnapshot 
   const kind: ReplyKind = reply.kind ?? 'state'
   const revision = typeof reply.revision === 'number' ? reply.revision : current.revision
   const payload = reply.payload ?? {}
+  const stationEpoch = typeof payload.stationEpoch === 'number' && Number.isInteger(payload.stationEpoch)
+    ? payload.stationEpoch
+    : current.stationEpoch
   if (kind === 'commit') {
     const hasDocument = typeof payload.document === 'string'
     const hasDelta = !hasDocument && payload.delta !== undefined
@@ -247,6 +272,7 @@ export function reduce(current: StationSnapshot, reply: Reply): StationSnapshot 
       return {
         ...current,
         revision,
+        stationEpoch,
         document,
         documentRevision: revision,
         delta: null,
@@ -279,6 +305,7 @@ export function reduce(current: StationSnapshot, reply: Reply): StationSnapshot 
       return {
         ...current,
         revision,
+        stationEpoch,
         document: null,
         delta,
         resyncNeeded: false,
@@ -294,6 +321,7 @@ export function reduce(current: StationSnapshot, reply: Reply): StationSnapshot 
     return {
       ...current,
       revision,
+      stationEpoch,
       sourceId: typeof payload.sourceId === 'string' ? payload.sourceId : current.sourceId,
       sourceHash: typeof payload.sourceHash === 'string'
         ? (payload.sourceHash.length > 0 ? payload.sourceHash : null)
@@ -329,7 +357,7 @@ export function reduce(current: StationSnapshot, reply: Reply): StationSnapshot 
     return next
   }
   if (revision < current.revision) return current
-  return { ...current, revision, state: { ...current.state, ...payload } }
+  return { ...current, revision, stationEpoch, state: { ...current.state, ...payload } }
 }
 
 function deliver(text: string): void {

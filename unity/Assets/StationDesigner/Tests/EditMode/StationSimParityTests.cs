@@ -1665,4 +1665,233 @@ public class StationSimParityTests {
             UnityEngine.Object.DestroyImmediate(host);
         }
     }
+
+    // --------------------------------------------------- 10. Track 2: Fare crossing, waiting slots & doorLoads
+
+    [Test]
+    public void ReversedGateRotationSameSideRelabelsAndWorkspaceReachabilityMatchFareZones() {
+        StationSessionDocument MakeDoc(int gateDir, int gateRot, int westZone = 2, int gateZone = 3, int eastZone = 3) {
+            var doc = new StationSessionDocument { StationId = "gate-fare-parity", LevelBase = 0 };
+            for (int x = 0; x <= 10; x++) {
+                int z = x < 5 ? westZone : x == 5 ? gateZone : eastZone;
+                doc.Cells.Add(Cell(x, 0, 0, zone: z, solid: true, speed: 1.0));
+            }
+            doc.Modules.Add(new StationModuleFact {
+                Id = "g1", Type = "gate", X = 5, Y = 0, Z = 0, Rot = gateRot,
+                GateDir = gateDir, GateOpen = true, GateHasLane = true,
+            });
+            return doc;
+        }
+
+        var optsOn = new StationWalkGraphOptions { IncludeGround = false, ZoneBarriers = true };
+        var optsOff = new StationWalkGraphOptions { IncludeGround = false, ZoneBarriers = false };
+
+        // Aligned (Rot=3) and Reversed (Rot=1) entry-only gates must both allow unpaid->paid (+x) and block paid->unpaid (-x).
+        foreach (int rot in new[] { 3, 1 }) {
+            var docIn = MakeDoc(gateDir: 1, gateRot: rot);
+            var gFull = StationWalkGraphBuilder.Build(docIn, optsOn);
+            var ws = StationWalkGraphBuilder.BuildWorkspace(docIn, optsOn);
+            var gWs = ws.Graph;
+            foreach (var g in new[] { gFull, gWs }) {
+                Assert.IsTrue(g.TryNode(4, 0, 0, out int west));
+                Assert.IsTrue(g.TryNode(5, 0, 0, out int gate));
+                Assert.IsTrue(g.TryNode(6, 0, 0, out int east));
+                Assert.GreaterOrEqual(Array.IndexOf(g.AdjTo[west], gate), 0, "rot=" + rot + " entry allows unpaid->gate");
+                Assert.AreEqual(-1, Array.IndexOf(g.AdjTo[gate], west), "rot=" + rot + " entry blocks gate->unpaid");
+                Assert.IsTrue(g.CanReach(west, east), "rot=" + rot + " workspace reachability allows unpaid->paid");
+                if (ReferenceEquals(g, gWs))
+                    Assert.IsFalse(g.CanReach(east, west), "rot=" + rot + " workspace reachability blocks paid->unpaid");
+
+                var planner = new StationRoutePlanner(g);
+                Assert.IsTrue(planner.Search(west, east, default).Found, "rot=" + rot + " A* routes unpaid->paid");
+                Assert.IsFalse(planner.Search(east, west, default).Found, "rot=" + rot + " A* refuses paid->unpaid");
+            }
+
+            // Incremental flip from entry (+1) to exit (-1) must match a fresh rebuild.
+            var docOut = MakeDoc(gateDir: -1, gateRot: rot);
+            var delta = new StationSessionDelta();
+            delta.ChangedModules.Add(docOut.Modules[0]);
+            var staged = StationWalkGraphBuilder.StageCellDelta(ws, docOut, delta);
+            var gOutFull = StationWalkGraphBuilder.Build(docOut, optsOn);
+            Assert.IsTrue(staged.Graph.TryNode(4, 0, 0, out int w2));
+            Assert.IsTrue(staged.Graph.TryNode(5, 0, 0, out int g2));
+            Assert.IsTrue(staged.Graph.TryNode(6, 0, 0, out int e2));
+            Assert.AreEqual(-1, Array.IndexOf(staged.Graph.AdjTo[w2], g2), "rot=" + rot + " incremental exit blocks unpaid->gate");
+            Assert.GreaterOrEqual(Array.IndexOf(staged.Graph.AdjTo[g2], w2), 0, "rot=" + rot + " incremental exit allows gate->unpaid");
+            Assert.IsFalse(staged.Graph.CanReach(w2, e2), "rot=" + rot + " incremental CanReach blocks unpaid->paid");
+            Assert.IsTrue(staged.Graph.CanReach(e2, w2), "rot=" + rot + " incremental CanReach allows paid->unpaid");
+            Assert.IsTrue(gOutFull.TryNode(4, 0, 0, out int wf));
+            Assert.IsTrue(gOutFull.TryNode(5, 0, 0, out int gf));
+            Assert.AreEqual(Array.IndexOf(gOutFull.AdjTo[wf], gf) >= 0, Array.IndexOf(staged.Graph.AdjTo[w2], g2) >= 0);
+        }
+
+        // Same-side relabels (outside=1 <-> unpaid=2, paid=3 <-> platform=4) allow both ways even through a one-way gate.
+        var sameUnpaid = MakeDoc(gateDir: -1, gateRot: 1, westZone: 1, gateZone: 2, eastZone: 2);
+        var gSame = StationWalkGraphBuilder.Build(sameUnpaid, optsOn);
+        Assert.IsTrue(gSame.TryNode(4, 0, 0, out int suW));
+        Assert.IsTrue(gSame.TryNode(5, 0, 0, out int suG));
+        Assert.IsTrue(gSame.TryNode(6, 0, 0, out int suE));
+        Assert.IsTrue(new StationRoutePlanner(gSame).Search(suW, suE, default).Found, "outside->unpaid is same-side and unblocked");
+        Assert.IsTrue(new StationRoutePlanner(gSame).Search(suE, suW, default).Found, "unpaid->outside is same-side and unblocked");
+
+        // Disabled ZoneBarriers allows both directions along the gate lane regardless of GateDir.
+        var gOff = StationWalkGraphBuilder.Build(MakeDoc(gateDir: 1, gateRot: 1), optsOff);
+        Assert.IsTrue(gOff.TryNode(4, 0, 0, out int offW));
+        Assert.IsTrue(gOff.TryNode(6, 0, 0, out int offE));
+        Assert.IsTrue(new StationRoutePlanner(gOff).Search(offE, offW, default).Found, "ZoneBarriers=false allows both ways");
+    }
+
+    [Test]
+    public void PlatformWaitingSlotsFlankDoorStayBehindPsdAndRecoverOnRemoval() {
+        // Wide platform: track at y=-1, edge at y=0 (Side="left" => inward +y), platform floor y=0..6, x=0..40.
+        var doc = new StationSessionDocument { StationId = "wait-slots", LevelBase = 0 };
+        for (int x = 0; x <= 40; x++) {
+            for (int y = 0; y <= 6; y++) {
+                doc.Cells.Add(Cell(x, y, 0, zone: 4, solid: true, speed: 1.0));
+            }
+        }
+        doc.Modules.Add(new StationModuleFact {
+            Id = "track-1", Type = "track", X = 0, Y = -1, Z = 0, Rot = 0, Width = 40, Depth = 1,
+            LineId = "1", Dir = "up",
+        });
+        doc.Modules.Add(new StationModuleFact {
+            Id = "edge-1", Type = "platform-edge", X = 0, Y = 0, Z = 0, Rot = 0, Width = 40,
+            LineId = "1", RailId = "track-1", Dir = "up", Side = "left",
+        });
+        doc.Lines.Add(new StationLineFact {
+            Id = "1", Direction = "up", Stock = "B", Cars = 2, ModelScale = 0.98,
+            HeadwayPeak = 60, HeadwayOffpeak = 120, HeadwayLate = 240,
+            AlightPerTrain = 0, AuthoredAlight = true,
+        });
+
+        var session = new StationSimulationSession(new StationSessionSetup {
+            Document = doc, Day = AlwaysOpenWorkdayDay(), Seed = 11, StartSimTime = 8 * 3600, StartPlaying = true,
+            WalkOptions = new StationWalkGraphOptions { IncludeGround = false },
+            Services = new StationServiceOptions { Spawn = false, RoutingMode = StationRoutingMode.Legacy },
+        });
+        Assert.IsTrue(session.Services.TryDoorStates("1", "track-1", out var doorStates));
+        Assert.GreaterOrEqual(doorStates.Length, 4);
+        var d0 = doorStates[0];
+        var waiting = session.Services.PlatformWaitingNodes(d0.Node, hasInward: true, ix: 0, iy: 1);
+        Assert.GreaterOrEqual(waiting.Length, 4, "wide platform provides paired waiting slots");
+        // First two slots are flanking at depth=1 (y = d0.Y + 1), side = +/-1 (x = d0.X +/- 1), keeping center aisle open.
+        for (int i = 0; i < Math.Min(4, waiting.Length); i++) {
+            int wn = waiting[i];
+            double depth = session.WalkGraph.NodeY[wn] - session.WalkGraph.NodeY[d0.Node];
+            double side = Math.Abs(session.WalkGraph.NodeX[wn] - session.WalkGraph.NodeX[d0.Node]);
+            Assert.GreaterOrEqual(depth, 1.0 - 1e-6, "waiting slot stays behind PSD row");
+            Assert.AreEqual(1.0, side, 1e-6, "paired flanking slot leaves center aisle clear");
+        }
+
+        // Seed riders while doors are shut: they hold behind PsdQueueClearDepth (0.9 m) inland of the PSD.
+        session.Services.SeedDoorRiders("1", "track-1", 4);
+        for (int t = 0; t < 5; t++) session.Advance(1.0); // before train opens doors
+        foreach (var frame in session.Services.PassengerFrames()) {
+            if (frame.State == StationPassengerState.Queuing) {
+                Assert.GreaterOrEqual(frame.Y - (d0.Y + 0.5), 0.9 - 1e-6,
+                    "queued rider stays behind PSD safety line while doors are closed");
+            }
+        }
+
+        // Removing the waiting cell under a queued rider recovers cleanly on incremental edit.
+        int removedCellX = (int)Math.Floor(session.WalkGraph.NodeX[waiting[0]]);
+        int removedCellY = (int)Math.Floor(session.WalkGraph.NodeY[waiting[0]]);
+        var doc2 = new StationSessionDocument { StationId = doc.StationId, LevelBase = doc.LevelBase };
+        foreach (var c in doc.Cells) {
+            if (c.X == removedCellX && c.Y == removedCellY && c.Z == 0) continue;
+            doc2.Cells.Add(c);
+        }
+        doc2.Modules.AddRange(doc.Modules);
+        doc2.Lines.AddRange(doc.Lines);
+        var cellDelta = new StationSessionDelta();
+        cellDelta.RemovedCells.Add((removedCellX, removedCellY, 0));
+        var staged = session.StageCellDelta(doc2.StationId, doc2.LevelBase, AlwaysOpenWorkdayDay(), cellDelta);
+        session.CommitDocumentEdit(staged);
+        var waitingAfter = session.Services.PlatformWaitingNodes(
+            session.WalkGraph.TryNode(d0.X, d0.Y, d0.Z, out int newDoorNode) ? newDoorNode : -1,
+            hasInward: true, ix: 0, iy: 1);
+        foreach (int wn in waitingAfter) {
+            Assert.IsFalse((int)Math.Floor(session.WalkGraph.NodeX[wn]) == removedCellX &&
+                           (int)Math.Floor(session.WalkGraph.NodeY[wn]) == removedCellY,
+                "removed waiting cell is excluded after incremental edit");
+        }
+        // Advance through train arrival/dwell: head steps to doorway and boards cleanly.
+        for (int t = 0; t < 20; t++) session.Advance(1.0);
+        Assert.Greater(session.Services.Boarded, 0, "waiting riders advance to doorway and board after recovery");
+    }
+
+    [Test]
+    public void ApproachingBoardersSpreadAcrossDoorsViaDoorLoadsInLegacyAndSparseModes() {
+        // Long approach corridor so riders are still walking (none queued yet) while spawning a wave.
+        var doc = new StationSessionDocument { StationId = "door-loads-spread", LevelBase = 0 };
+        for (int x = 0; x <= 44; x++) {
+            for (int y = 0; y <= 14; y++) {
+                doc.Cells.Add(Cell(x, y, 0, zone: 4, solid: true, speed: 1.0));
+            }
+        }
+        doc.Modules.Add(new StationModuleFact {
+            Id = "exit-a", Type = "exit", X = 2, Y = 12, Z = 0, Rot = 0, Name = "A口",
+            HeadHouse = false, HasExitInRate = true, ExitInRate = 36000,
+        });
+        doc.Modules.Add(new StationModuleFact {
+            Id = "track-1", Type = "track", X = 4, Y = -1, Z = 0, Rot = 0, Width = 40, Depth = 1,
+            LineId = "1", Dir = "up",
+        });
+        doc.Modules.Add(new StationModuleFact {
+            Id = "edge-1", Type = "platform-edge", X = 4, Y = 0, Z = 0, Rot = 0, Width = 40,
+            LineId = "1", RailId = "track-1", Dir = "up", Side = "left",
+        });
+        doc.Lines.Add(new StationLineFact {
+            Id = "1", Direction = "up", Stock = "B", Cars = 2, ModelScale = 0.98,
+            HeadwayPeak = 600, HeadwayOffpeak = 600, HeadwayLate = 600,
+            AlightPerTrain = 0, AuthoredAlight = true,
+        });
+
+        var rt = typeof(StationServiceRuntime);
+        var pListField = rt.GetField("passengers", BindingFlags.Instance | BindingFlags.NonPublic);
+        var loadsField = rt.GetField("doorLoads", BindingFlags.Instance | BindingFlags.NonPublic);
+        var pType = rt.GetNestedType("Passenger", BindingFlags.NonPublic);
+        var targetDoorField = pType.GetField("TargetDoorId");
+        var boardsField = pType.GetField("Boards");
+        var phaseField = pType.GetField("Phase");
+
+        foreach (var mode in new[] { StationRoutingMode.Legacy, StationRoutingMode.Sparse }) {
+            var session = new StationSimulationSession(new StationSessionSetup {
+                Document = doc, Day = AlwaysOpenWorkdayDay(1.5), Seed = 7, StartSimTime = 8 * 3600, StartPlaying = true,
+                WalkOptions = new StationWalkGraphOptions { IncludeGround = false },
+                Services = new StationServiceOptions { RoutingMode = mode },
+            });
+            // Run 5 ticks: riders spawn at y=12 (12m from doors at y=0), so they are still walking and NOT yet queued!
+            for (int t = 0; t < 5; t++) session.Advance(1.0);
+            var pax = (System.Collections.IList)pListField.GetValue(session.Services);
+            var loads = (Dictionary<string, int>)loadsField.GetValue(session.Services);
+            var distinctDoors = new HashSet<string>(StringComparer.Ordinal);
+            int walkingBoarders = 0;
+            foreach (var p in pax) {
+                if (!(bool)boardsField.GetValue(p)) continue;
+                string doorId = (string)targetDoorField.GetValue(p);
+                Assert.IsFalse(string.IsNullOrEmpty(doorId), mode + ": approaching boarder must have a committed TargetDoorId");
+                distinctDoors.Add(doorId);
+                if (phaseField.GetValue(p).ToString() == "Walking") walkingBoarders++;
+            }
+            Assert.Greater(walkingBoarders, 4, mode + ": expected multiple walking boarders before anyone queues");
+            Assert.GreaterOrEqual(distinctDoors.Count, 3,
+                mode + ": approaching wave must spread across >= 3 distinct doors before queuing");
+            int loadSum = 0;
+            foreach (var kv in loads) loadSum += kv.Value;
+            Assert.AreEqual(walkingBoarders, loadSum, mode + ": doorLoads matches committed boarders without double-counting");
+
+            // Removing the platform edge clears all door commitments cleanly.
+            var docNoEdge = new StationSessionDocument { StationId = doc.StationId, LevelBase = doc.LevelBase };
+            docNoEdge.Cells.AddRange(doc.Cells);
+            docNoEdge.Modules.Add(doc.Modules[0]);
+            docNoEdge.Modules.Add(doc.Modules[1]);
+            docNoEdge.Lines.AddRange(doc.Lines);
+            var rmDelta = new StationSessionDelta();
+            rmDelta.RemovedModules.Add("edge-1");
+            var staged = session.StageCellDelta(docNoEdge.StationId, docNoEdge.LevelBase, AlwaysOpenWorkdayDay(1.5), rmDelta);
+            session.CommitDocumentEdit(staged);
+            Assert.AreEqual(0, loads.Count, mode + ": removing platform edge clears all doorLoads commitments");
+        }
+    }
 }

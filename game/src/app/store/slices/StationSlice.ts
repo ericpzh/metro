@@ -24,6 +24,7 @@ import { normalizePeaks, normalizeService } from '../../../sim/clock.ts'
 import { normalizeDayDemand, type DayDemand, type DemandKnobs } from '../../../sim/demand.ts'
 import type { PeakWindows } from '../../../sim/constants.ts'
 import type { AppState } from '../Store.ts'
+import { stationHostCommit } from '../../stationHostBridge.ts'
 import { loadSim, rebuildSim } from './SimSlice.ts'
 import { openingLevel } from '../../openingLevel.ts'
 
@@ -155,6 +156,8 @@ export const createStationSlice: StateCreator<AppState, [], [], StationSlice> = 
   setCityStyle: (value) => {
     const s = get().station, cityStyle = normalizeCityStyle(value)
     if (s.cityStyle === cityStyle) return
+    const host = stationHostCommit()
+    if (host?.ownsStation() && host.commitCityStyle?.(cityStyle)) return
     get().commit({ ...s, cityStyle })
   },
 
@@ -163,6 +166,8 @@ export const createStationSlice: StateCreator<AppState, [], [], StationSlice> = 
     const trimmed = name.trim()
     const english = nameEn === undefined ? (s.nameEn ?? '') : nameEn.trim()
     if (!trimmed || (trimmed === s.name && english === (s.nameEn ?? ''))) return
+    const host = stationHostCommit()
+    if (host?.ownsStation() && host.commitStationName?.(trimmed, english)) return
     get().commit({ ...s, name: trimmed, nameEn: english })
   },
 

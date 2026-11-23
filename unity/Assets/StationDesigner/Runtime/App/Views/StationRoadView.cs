@@ -532,7 +532,10 @@ namespace Metro.App.Views {
         }
 
         public void ClearPreview() {
-            if (previewRoot) Destroy(previewRoot.gameObject);
+            if (previewRoot) {
+                if (Application.isPlaying) Destroy(previewRoot.gameObject);
+                else DestroyImmediate(previewRoot.gameObject);
+            }
             previewRoot = null;
         }
 
@@ -569,22 +572,143 @@ namespace Metro.App.Views {
             stage = null;
             fallbackReason = null;
             var delta = context.Delta;
+            bool touchedRoad = false;
             for (int i = 0; i < delta.RemovedModules.Count; i++) {
                 if (context.PrevIndex.TryGetModule(delta.RemovedModules[i], out var oldMod) &&
                     oldMod != null && oldMod.Type == "road") {
-                    fallbackReason = "local-module-family:road";
-                    return false;
+                    touchedRoad = true;
+                    break;
                 }
             }
-            for (int i = 0; i < delta.ChangedModules.Count; i++) {
-                var mod = delta.ChangedModules[i];
-                if (mod != null && mod.Type == "road") {
-                    fallbackReason = "local-module-family:road";
-                    return false;
+            if (!touchedRoad) {
+                for (int i = 0; i < delta.ChangedModules.Count; i++) {
+                    var mod = delta.ChangedModules[i];
+                    if (mod != null && mod.Type == "road") {
+                        touchedRoad = true;
+                        break;
+                    }
                 }
             }
+            if (!touchedRoad) return true;
+
+            if (!states.TryGetValue(context.World, out var state) || state == null || state.RoleRoot == null) {
+                fallbackReason = "no-road-state";
+                return false;
+            }
+
+            var nextRoadModules = context.NextIndex.ModulesOfType("road");
+            var nextRecords = new List<StationRoadRecord>(nextRoadModules.Count);
+            for (int i = 0; i < nextRoadModules.Count; i++) {
+                var module = nextRoadModules[i];
+                if (module != null && module.Type == "road") {
+                    nextRecords.Add(StationRoadRecord.FromFacts(module.Facts));
+                }
+            }
+
+            var stagedContent = new GameObject("roads-content");
+            stagedContent.transform.SetParent(context.StagingRoot, false);
+            stagedContent.SetActive(false);
+
+            Shader shader = state.Shader != null ? state.Shader : Shader.Find("Universal Render Pipeline/Lit");
+            var stagedView = StationRoadView.BuildRecords(stagedContent.transform, nextRecords, shader);
+            foreach (var diagnostic in stagedView.Diagnostics) {
+                context.Diagnostics.Add(new StationDiagnostic(diagnostic.Code ?? "road",
+                    StationDiagnosticSeverity.Warning, "road", diagnostic.ModuleId ?? "", diagnostic.Detail ?? ""));
+            }
+
+            StationRoadTraffic stagedTraffic = null;
+            RoadVehicleViews stagedVehicles = null;
+            if (nextRecords.Count > 0) {
+                var network = StationRoadLayout.Network(nextRecords);
+                int seed = unchecked((int)(context.NextDocument != null ? context.NextDocument.Seed : 0));
+                stagedTraffic = new StationRoadTraffic(StationRoadLayout.TrafficNetwork(network), seed);
+                stagedVehicles = RoadVehicleViews.Build(stagedContent.transform, stagedTraffic, shader, false,
+                    state.Catalogue,
+                    (code, detail) => context.Diagnostics.Add(new StationDiagnostic(code ?? "unresolved",
+                        StationDiagnosticSeverity.Warning, "renderer", Role, detail ?? "")));
+            }
+
+            stage = new RoadLocalStage(this, state, stagedContent, stagedView, stagedTraffic, stagedVehicles,
+                nextRecords.ToArray(), context.NextDocument != null ? context.NextDocument.LevelBase : state.LevelBase);
             return true;
         }
+
+        sealed class RoadLocalStage : Metro.App.IStationLocalRendererStage {
+            readonly StationRoadRenderer renderer;
+            readonly State state;
+            readonly GameObject stagedContent;
+            readonly StationRoadView stagedView;
+            readonly StationRoadTraffic stagedTraffic;
+            readonly RoadVehicleViews stagedVehicles;
+            readonly StationRoadRecord[] nextRecords;
+            readonly int levelBase;
+            bool committed;
+
+            public RoadLocalStage(StationRoadRenderer renderer, State state, GameObject stagedContent,
+                StationRoadView stagedView, StationRoadTraffic stagedTraffic, RoadVehicleViews stagedVehicles,
+                StationRoadRecord[] nextRecords, int levelBase) {
+                this.renderer = renderer;
+                this.state = state;
+                this.stagedContent = stagedContent;
+                this.stagedView = stagedView;
+                this.stagedTraffic = stagedTraffic;
+                this.stagedVehicles = stagedVehicles;
+                this.nextRecords = nextRecords;
+                this.levelBase = levelBase;
+            }
+
+            public void Commit(Metro.App.StationWorldView world, Metro.App.StationLocalViewCommit commit) {
+                committed = true;
+                world.RetireRecordsWhere(r => string.Equals(r.Role, renderer.Role, StringComparison.Ordinal),
+                    commit, retireViewObjects: false);
+                if (state.ContentRoot != null) {
+                    commit.RetiredViews.Add(state.ContentRoot);
+                }
+
+                stagedContent.transform.SetParent(state.RoleRoot, false);
+                stagedContent.SetActive(true);
+                if (stagedVehicles != null) {
+                    stagedVehicles.BindWorld(world);
+                }
+
+                for (int i = 0; i < nextRecords.Length; i++) {
+                    var record = nextRecords[i];
+                    var view = stagedContent.transform.Find("road " + record.Id);
+                    if (!view) continue;
+                    var box = new StationBox(record.X, record.Y, record.Z, record.X + record.W, record.Y + record.D, record.Z + 1.07);
+                    int level = (int)Math.Round(record.Z);
+                    world.AddLocalRecord(new Metro.App.StationViewRecord {
+                        Role = renderer.Role,
+                        ModuleId = record.Id,
+                        Part = "",
+                        View = view.gameObject,
+                        Bounds = box,
+                        HasBounds = true,
+                        LevelMin = level,
+                        LevelMax = level,
+                    }, commit);
+                }
+
+                state.ContentRoot = stagedContent;
+                state.View = stagedView;
+                state.Traffic = stagedTraffic;
+                state.Vehicles = stagedVehicles;
+                state.Records = nextRecords;
+                state.LevelBase = levelBase;
+                double priorTime = state.SampledTime;
+                state.SampledTime = double.NaN;
+                if (!double.IsNaN(priorTime)) {
+                    renderer.Update(priorTime);
+                }
+            }
+
+            public void Dispose() {
+                if (committed || stagedContent == null) return;
+                if (Application.isPlaying) UnityEngine.Object.Destroy(stagedContent);
+                else UnityEngine.Object.DestroyImmediate(stagedContent);
+            }
+        }
+
         /// <summary>
         /// Per-world render state. The host snapshots one renderer instance into
         /// every staged world, so state must belong to the world: a previous
@@ -592,6 +716,10 @@ namespace Metro.App.Views {
         /// </summary>
         sealed class State {
             public Metro.App.StationWorldView World;
+            public Transform RoleRoot;
+            public GameObject ContentRoot;
+            public Shader Shader;
+            public Metro.View.RuntimeCatalogue Catalogue;
             public StationRoadView View;
             public RoadVehicleViews Vehicles;
             public StationRoadTraffic Traffic;
@@ -623,17 +751,26 @@ namespace Metro.App.Views {
                 if (module == null || module.Type != "road") continue;
                 records.Add(StationRoadRecord.FromFacts(module.Facts));
             }
-            var state = new State {
-                World = context.World, Records = records.ToArray(), Serial = ++serial,
-                LevelBase = context.Document != null ? context.Document.LevelBase : 0,
-            };
             var root = context.RoleRoot(Role);
             Shader shader = context.Shader != null ? context.Shader : Shader.Find("Universal Render Pipeline/Lit");
-            state.View = StationRoadView.BuildRecords(root, records, shader);
+            var contentGo = new GameObject("roads-content");
+            contentGo.transform.SetParent(root, false);
+
+            var state = new State {
+                World = context.World,
+                RoleRoot = root,
+                ContentRoot = contentGo,
+                Shader = shader,
+                Catalogue = context.Catalogue,
+                Records = records.ToArray(),
+                Serial = ++serial,
+                LevelBase = context.Document != null ? context.Document.LevelBase : 0,
+            };
+            state.View = StationRoadView.BuildRecords(contentGo.transform, records, shader);
             foreach (var diagnostic in state.View.Diagnostics)
                 context.ReportUnresolved(diagnostic.Code, "road", diagnostic.ModuleId, diagnostic.Detail);
             foreach (var record in state.Records) {
-                var view = root.Find("road " + record.Id);
+                var view = contentGo.transform.Find("road " + record.Id);
                 if (!view) continue;
                 var box = new StationBox(record.X, record.Y, record.Z, record.X + record.W, record.Y + record.D, record.Z + 1.07);
                 int level = (int)Math.Round(record.Z);
@@ -642,7 +779,7 @@ namespace Metro.App.Views {
             if (records.Count > 0) {
                 var network = StationRoadLayout.Network(records);
                 state.Traffic = new StationRoadTraffic(StationRoadLayout.TrafficNetwork(network), unchecked((int)context.Document.Seed));
-                state.Vehicles = RoadVehicleViews.Build(root, state.Traffic, shader, false, context.Catalogue,
+                state.Vehicles = RoadVehicleViews.Build(contentGo.transform, state.Traffic, shader, false, context.Catalogue,
                     (code, detail) => context.ReportUnresolved(code, "renderer", Role, detail));
                 state.Vehicles.BindWorld(context.World);
             }
@@ -966,6 +1103,14 @@ namespace Metro.App.Views {
         static bool Apply(StationGameHost host, RoadEditCommit commit, out string reason) {
             reason = "";
             if (host == null || host.Coordinator == null) { reason = "No station host is loaded."; return false; }
+            var local = host.TryApplyLocalRoads(commit.Next, host.CurrentSourceId, out _);
+            if (local != null) {
+                if (local.Accepted) return true;
+                reason = local.Rejection != null
+                    ? local.Rejection.Code + ": " + local.Rejection.Reason
+                    : "The station rejected the road edit.";
+                return false;
+            }
             JObject root;
             try { root = JObject.Parse(host.Coordinator.Save(DateTimeOffset.UtcNow)); }
             catch (Exception error) { reason = "Could not read the committed save: " + error.Message; return false; }
@@ -982,8 +1127,7 @@ namespace Metro.App.Views {
             }
             while (next.Count > 0) rebuilt.Add(RoadJson(next.Dequeue()));
             station["modules"] = rebuilt;
-            var result = host.Coordinator.Open(root.ToString(Formatting.None),
-                new StationSource(host.CurrentSourceId, host.CurrentSourceHash), host.CurrentSourceId);
+            var result = host.ApplyDocumentEdit(root.ToString(Formatting.None), host.CurrentSourceId);
             if (result.Accepted) return true;
             reason = result.Rejection != null
                 ? result.Rejection.Code + ": " + result.Rejection.Reason

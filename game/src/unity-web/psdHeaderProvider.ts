@@ -23,12 +23,21 @@
 
 import { PSD_HEADER_PIXELS, drawPsdHeader } from '../render/models/pieces/PsdHeader.ts'
 import type { PsdHeaderInfo } from '../render/models/pieces/PsdHeader.ts'
+import { drawPsdArrow, drawPsdBand, drawPsdDoorBand, drawPsdWarning } from '../render/models/pieces/PsdDecals.ts'
 import { defaultEnsureFonts, SIGN_FACE_CHUNK_CHARS } from './signFaceProvider.ts'
 import { stationBridge } from './stationBridge.ts'
 
 /* ------------------------------------------------------------------ shapes */
 
-export type PsdHeaderPanelKind = 'route' | 'station' | 'sticker'
+export type PsdHeaderPanelKind =
+  | 'route'
+  | 'station'
+  | 'sticker'
+  | 'fixed-band'
+  | 'door-band'
+  | 'door-warning'
+  | 'door-arrow-left'
+  | 'door-arrow-right'
 
 /** One printed panel C# asks for. Everything here is painted data or the quad's size. */
 export interface PsdHeaderPanelFacts {
@@ -39,8 +48,10 @@ export interface PsdHeaderPanelFacts {
   /** Every run whose slots print this key. */
   moduleIds?: string[]
   kind: PsdHeaderPanelKind
-  /** Canvas width: 1024 for one panel, 2048 for the paired half-height sticker. */
+  /** Canvas width: 1024 for route/station/fixed-band, 2048 for sticker, 640 for door band/warning, 256 for arrow. */
   pixels: number
+  /** Canvas height in pixels (256 headers/arrows, 128 bands, 480 warning). */
+  pixelHeight?: number
   /** The printed plane in source metres (the quad's size, not the picture). */
   width: number
   height: number
@@ -201,12 +212,49 @@ function psdHeaderInfoOf(panel: PsdHeaderPanelFacts): PsdHeaderInfo {
   }
 }
 
-/** Fraction of pixels that are not the panel's paper colour; -1 when unmeasurable. */
-function inkOf(context: CanvasRenderingContext2D, width: number, height: number): number {
+function parsePanelKind(value: unknown): PsdHeaderPanelKind {
+  switch (value) {
+    case 'station':
+    case 'sticker':
+    case 'fixed-band':
+    case 'door-band':
+    case 'door-warning':
+    case 'door-arrow-left':
+    case 'door-arrow-right':
+      return value
+    default:
+      return 'route'
+  }
+}
+
+function defaultPixelSize(kind: PsdHeaderPanelKind, requestedWidth?: number, requestedHeight?: number): [number, number] {
+  switch (kind) {
+    case 'sticker': return [2048, PSD_HEADER_PANEL_HEIGHT]
+    case 'fixed-band': return [1024, 128]
+    case 'door-band': return [640, 128]
+    case 'door-warning': return [640, 480]
+    case 'door-arrow-left':
+    case 'door-arrow-right': return [256, 256]
+    default:
+      return [requestedWidth === 2048 ? 2048 : 1024, requestedHeight && requestedHeight > 0 ? requestedHeight : PSD_HEADER_PANEL_HEIGHT]
+  }
+}
+
+function isTransparentDecal(kind: PsdHeaderPanelKind): boolean {
+  return kind === 'door-warning' || kind === 'door-arrow-left' || kind === 'door-arrow-right'
+}
+
+/** Fraction of pixels that are not the panel's paper colour (or non-transparent for alpha decals); -1 when unmeasurable. */
+function inkOf(context: CanvasRenderingContext2D, width: number, height: number, transparent = false): number {
   try {
     if (typeof context.getImageData !== 'function') return -1
     const data = context.getImageData(0, 0, width, height).data
     if (data.length < 4) return 0
+    if (transparent) {
+      let ink = 0
+      for (let i = 3; i < data.length; i += 4) if (data[i] > 0) ink++
+      return ink / (width * height)
+    }
     // `drawPsdHeader` always grounds the panel on this paper (`#f4f6f8`); the bottom-left
     // pixel is the colour bar, so it cannot stand in for the paper.
     const paper = [244, 246, 248]
@@ -221,12 +269,11 @@ function inkOf(context: CanvasRenderingContext2D, width: number, height: number)
 }
 
 /**
- * Paint one PSD header panel with the shipping engine.
+ * Paint one PSD header or safety vinyl decal panel with the shipping engine.
  *
  * A `sticker` is the source's paired print: the route panel's 1024 px on the left and
  * the station panel's on the right of a 2048 px canvas (`PsdModel.buildPsd` translates
- * by 1024 for the second draw). Nothing here reads the shell's locale: C# resolves the
- * direction/name fallbacks and `drawPsdHeader`'s own strings are locale-independent.
+ * by 1024 for the second draw). The four safety vinyl kinds call `PsdDecals.ts` directly.
  */
 export function paintPsdHeader(
   panel: PsdHeaderPanelFacts,
@@ -235,26 +282,38 @@ export function paintPsdHeader(
   if (!panel || typeof panel.key !== 'string' || panel.key.length === 0) {
     return { key: panel?.key ?? '', moduleId: panel?.moduleId ?? '', kind: panel?.kind ?? 'route', reason: 'unsupported', detail: 'key' }
   }
-  const kind: PsdHeaderPanelKind = panel.kind === 'station' ? 'station' : panel.kind === 'sticker' ? 'sticker' : 'route'
-  const pixels = panel.pixels === 2048 ? 2048 : 1024
+  const kind = parsePanelKind(panel.kind)
+  const [pixels, pixelHeight] = defaultPixelSize(kind, panel.pixels, panel.pixelHeight)
   const createSurface = options.createSurface ?? domPsdHeaderSurface
-  const surface = createSurface(pixels, PSD_HEADER_PANEL_HEIGHT)
+  const surface = createSurface(pixels, pixelHeight)
   if (!surface) {
     return { key: panel.key, moduleId: panel.moduleId, kind, reason: 'unsupported', detail: 'canvas' }
   }
   const context = surface.context
-  const colour = psdHeaderColour(panel.colour)
-  const info = psdHeaderInfoOf(panel)
-  const name = typeof panel.stationName === 'string' ? panel.stationName : ''
-  const nameEn = typeof panel.stationNameEn === 'string' ? panel.stationNameEn : ''
-  if (kind === 'sticker') {
-    drawPsdHeader(context, 'route', colour, info, name, nameEn)
-    context.save()
-    context.translate(1024, 0)
-    drawPsdHeader(context, 'station', colour, info, name, nameEn)
-    context.restore()
+  if (kind === 'fixed-band') {
+    drawPsdBand(context)
+  } else if (kind === 'door-band') {
+    drawPsdDoorBand(context)
+  } else if (kind === 'door-warning') {
+    drawPsdWarning(context)
+  } else if (kind === 'door-arrow-left') {
+    drawPsdArrow(context, -1)
+  } else if (kind === 'door-arrow-right') {
+    drawPsdArrow(context, 1)
   } else {
-    drawPsdHeader(context, kind, colour, info, name, nameEn)
+    const colour = psdHeaderColour(panel.colour)
+    const info = psdHeaderInfoOf(panel)
+    const name = typeof panel.stationName === 'string' ? panel.stationName : ''
+    const nameEn = typeof panel.stationNameEn === 'string' ? panel.stationNameEn : ''
+    if (kind === 'sticker') {
+      drawPsdHeader(context, 'route', colour, info, name, nameEn)
+      context.save()
+      context.translate(1024, 0)
+      drawPsdHeader(context, 'station', colour, info, name, nameEn)
+      context.restore()
+    } else {
+      drawPsdHeader(context, kind, colour, info, name, nameEn)
+    }
   }
   const png = surface.pngBase64()
   if (!png) {
@@ -266,7 +325,7 @@ export function paintPsdHeader(
     kind,
     width: surface.width,
     height: surface.height,
-    ink: inkOf(context, surface.width, surface.height),
+    ink: inkOf(context, surface.width, surface.height, isTransparentDecal(kind)),
     pngBase64: png,
   }
 }
@@ -281,8 +340,8 @@ function panelOfFacts(value: unknown): PsdHeaderPanelFacts | null {
   if (!value || typeof value !== 'object') return null
   const panel = value as Partial<PsdHeaderPanelFacts>
   if (typeof panel.key !== 'string' || panel.key.length === 0) return null
-  const kind: PsdHeaderPanelKind = panel.kind === 'station' ? 'station' : panel.kind === 'sticker' ? 'sticker' : 'route'
-  const pixels = Number(panel.pixels)
+  const kind = parsePanelKind(panel.kind)
+  const [defaultW, defaultH] = defaultPixelSize(kind, Number(panel.pixels), Number(panel.pixelHeight))
   const width = Number(panel.width)
   const height = Number(panel.height)
   if (!Number.isFinite(width) || !Number.isFinite(height)) return null
@@ -291,7 +350,8 @@ function panelOfFacts(value: unknown): PsdHeaderPanelFacts | null {
     moduleId: typeof panel.moduleId === 'string' ? panel.moduleId : '',
     moduleIds: Array.isArray(panel.moduleIds) ? panel.moduleIds.filter((id): id is string => typeof id === 'string') : [],
     kind,
-    pixels: pixels === 2048 ? 2048 : 1024,
+    pixels: defaultW,
+    pixelHeight: defaultH,
     width,
     height,
     slots: Number.isFinite(Number(panel.slots)) ? Number(panel.slots) : 1,

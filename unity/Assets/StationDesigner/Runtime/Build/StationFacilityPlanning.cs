@@ -55,6 +55,8 @@ namespace Metro.Build {
 
         public static bool IsWalledRoomBrush(string kind) => kind == "store" || kind == "toilet" || kind == "office";
 
+        public static bool IsFacilityBrush(string kind) => IsBoothBrush(kind) || IsWalledRoomBrush(kind);
+
         /// <summary>
         /// `facilitySignature`: two rooms merge only when their kind matches, so a toilet
         /// drawn over a shop is a clash rather than a silent fit-out swap.
@@ -70,8 +72,16 @@ namespace Metro.Build {
             IsWalledRoomBrush(kind) ? "shop:" + kind : "booth:" + kind;
 
         public static StationFacilityRect RectOf(StationModuleRecord module) {
-            int w = Math.Max(1, module.Width), h = Math.Max(1, module.Depth);
+            int w = Math.Max(1, module.Width);
+            int h = Math.Max(1, module.Height > 1 ? module.Height : module.Depth);
             return new StationFacilityRect(module.X, module.Y, module.X + w - 1, module.Y + h - 1, module.Z);
+        }
+
+        /// <summary>`facilityCovers`: true when <paramref name="rect"/> covers the whole room footprint.</summary>
+        public static bool Covers(StationModuleRecord module, StationFacilityRect rect) {
+            if (module == null) return false;
+            var own = RectOf(module);
+            return rect.Z == own.Z && rect.X0 <= own.X0 && rect.Y0 <= own.Y0 && rect.X1 >= own.X1 && rect.Y1 >= own.Y1;
         }
 
         /// <summary>True when two rects share at least one cell on the same level.</summary>
@@ -190,7 +200,8 @@ namespace Metro.Build {
         public static StationFacilityPlan Plan(StationIndex index, string kind, StationFacilityRect rect, int front) {
             var plan = new StationFacilityPlan { Kind = kind ?? "", Rect = rect };
             if (index == null) { plan.Reason = "no-document"; return plan; }
-            if (!StationFacilityRules.IsBoothBrush(plan.Kind)) { plan.Reason = "unsupported-brush"; return plan; }
+            if (!StationFacilityRules.IsFacilityBrush(plan.Kind)) { plan.Reason = "unsupported-brush"; return plan; }
+            bool walled = StationFacilityRules.IsWalledRoomBrush(plan.Kind);
             var want = StationFacilityRules.BrushSignature(plan.Kind);
             var seen = new HashSet<string>(StringComparer.Ordinal);
             var current = rect;
@@ -222,7 +233,7 @@ namespace Metro.Build {
             }
             if (current.CellCount > StationFacilityRules.MaxCells) { plan.Reason = "too-large"; return plan; }
             // Every rect cell must already be floor — at grade the implicit street is floor,
-            // so a counter may be drawn on virgin ground, but never across a dug hole.
+            // so a room or counter may be drawn on virgin ground, but never across a dug hole.
             for (int y = current.Y0; y <= current.Y1; y++) {
                 for (int x = current.X0; x <= current.X1; x++) {
                     if (StationFootprints.IsSolidAt(index, x, y, current.Z)) continue;
@@ -231,15 +242,67 @@ namespace Metro.Build {
                 }
             }
             var reserved = new HashSet<string>(StringComparer.Ordinal);
-            string roomId = plan.Merge.Count > 0 ? plan.Merge[0].Id : NextFreeId(index, "booth", reserved);
+            if (walled) {
+                string roomId = plan.Merge.Count > 0 ? plan.Merge[0].Id : NextFreeId(index, plan.Kind, reserved);
+                var keptDoors = CollectKeptPerimeterDoors(plan.Merge, current);
+                var shop = new StationEditDraft {
+                    Id = roomId,
+                    Type = "shop",
+                    X = current.X0,
+                    Y = current.Y0,
+                    Z = current.Z,
+                    Width = current.Width,
+                    Height = current.Height,
+                    Rotation = 0,
+                };
+                shop.Set("kind", plan.Kind);
+                shop.SetJson("door", FormatDoorArray(keptDoors));
+                shop.Set(true, "stocked");
+                plan.Room = shop;
+                plan.RoomReplaces = plan.Merge.Count > 0;
+
+                // Clear interior walls from absorbed rooms while keeping any wall cell on the new
+                // union perimeter or needed by a surviving unmerged walled room.
+                if (plan.Merge.Count > 0) {
+                    var mergedIds = new HashSet<string>(StringComparer.Ordinal);
+                    for (int i = 0; i < plan.Merge.Count; i++) mergedIds.Add(plan.Merge[i].Id);
+                    var keep = new HashSet<StationCellKey>();
+                    for (int y = current.Y0; y <= current.Y1; y++) {
+                        for (int x = current.X0; x <= current.X1; x++) {
+                            if (!StationFacilityRules.IsPerimeter(current, x, y)) continue;
+                            for (int dz = 1; dz <= StationFacilityRules.ShopWallH; dz++) {
+                                keep.Add(new StationCellKey(x, y, current.Z + dz));
+                            }
+                        }
+                    }
+                    foreach (var other in index.Document.Modules) {
+                        if (other == null || mergedIds.Contains(other.Id) || other.Type != "shop") continue;
+                        foreach (var cell in WallCells(index, other)) keep.Add(cell);
+                    }
+                    var dropSet = new HashSet<StationCellKey>();
+                    foreach (var merged in plan.Merge) {
+                        bool keepsId = plan.RoomReplaces && string.Equals(merged.Id, roomId, StringComparison.Ordinal);
+                        if (!keepsId) plan.Removes.Add(merged.Id);
+                        foreach (var id in AutoFurnitureIn(index, StationFacilityRules.RectOf(merged))) {
+                            if (!plan.Removes.Contains(id)) plan.Removes.Add(id);
+                        }
+                        foreach (var cell in WallCells(index, merged)) {
+                            if (!keep.Contains(cell) && dropSet.Add(cell)) plan.DropCells.Add(cell);
+                        }
+                    }
+                }
+                return plan;
+            }
+
+            string boothId = plan.Merge.Count > 0 ? plan.Merge[0].Id : NextFreeId(index, "booth", reserved);
             var booth = new StationEditDraft {
-                Id = roomId,
+                Id = boothId,
                 Type = "booth",
                 X = current.X0,
                 Y = current.Y0,
                 Z = current.Z,
                 Width = current.Width,
-                Depth = current.Height,
+                Height = current.Height,
                 Rotation = 0,
             };
             booth.Set("kind", plan.Kind);
@@ -273,7 +336,7 @@ namespace Metro.Build {
             // room whose id the union keeps: it is rewritten, and its old fit-out is re-stocked
             // against the union so no bench is left standing inside the new room.
             foreach (var merged in plan.Merge) {
-                bool keepsId = plan.RoomReplaces && string.Equals(merged.Id, roomId, StringComparison.Ordinal);
+                bool keepsId = plan.RoomReplaces && string.Equals(merged.Id, boothId, StringComparison.Ordinal);
                 if (!keepsId) plan.Removes.Add(merged.Id);
                 foreach (var id in AutoFurnitureIn(index, StationFacilityRules.RectOf(merged))) plan.Removes.Add(id);
             }
@@ -345,6 +408,130 @@ namespace Metro.Build {
                 }
             }
             return cells;
+        }
+
+        /// <summary>`facilityOpeningCells`: wall cells on <paramref name="module"/>'s perimeter inside <paramref name="rect"/>.</summary>
+        public static List<StationCellKey> OpeningCells(StationIndex index, StationModuleRecord module, StationFacilityRect rect) {
+            var cells = new List<StationCellKey>();
+            if (index == null || module == null || module.Type != "shop") return cells;
+            foreach (var cell in WallCells(index, module)) {
+                if (cell.X >= rect.X0 && cell.X <= rect.X1 && cell.Y >= rect.Y0 && cell.Y <= rect.Y1) {
+                    cells.Add(cell);
+                }
+            }
+            return cells;
+        }
+
+        /// <summary>
+        /// `carveFacilityOpenings`: cut perimeter wall columns inside <paramref name="rect"/> and record
+        /// each opened <c>[x,y]</c> on <c>cfg.door</c>. Drops the room (and any auto furniture) if its
+        /// last wall cell is opened.
+        /// </summary>
+        public static StationFacilityPlan PlanCarveOpenings(StationIndex index, string moduleId, StationFacilityRect rect) {
+            var plan = new StationFacilityPlan { Rect = rect };
+            if (index == null) { plan.Reason = "no-document"; return plan; }
+            if (string.IsNullOrEmpty(moduleId) || !index.TryGetModule(moduleId, out var module) || module == null ||
+                module.Type != "shop") {
+                plan.Reason = "no-module";
+                return plan;
+            }
+            var own = StationFacilityRules.RectOf(module);
+            plan.Kind = module.Config.Text("kind");
+            var cut = OpeningCells(index, module, rect);
+            if (cut.Count == 0) { plan.Reason = "no-openings"; return plan; }
+
+            var cutSet = new HashSet<StationCellKey>(cut);
+            foreach (var cell in cut) plan.DropCells.Add(cell);
+
+            var allWalls = WallCells(index, module);
+            bool anyWallLeft = false;
+            for (int i = 0; i < allWalls.Count; i++) {
+                if (!cutSet.Contains(allWalls[i])) { anyWallLeft = true; break; }
+            }
+
+            if (!anyWallLeft) {
+                plan.Removes.Add(module.Id);
+                foreach (var id in AutoFurnitureIn(index, own)) plan.Removes.Add(id);
+                return plan;
+            }
+
+            var doors = ParseDoors(module);
+            var have = new HashSet<(int, int)>(doors);
+            for (int i = 0; i < cut.Count; i++) {
+                var pair = (cut[i].X, cut[i].Y);
+                if (have.Add(pair)) doors.Add(pair);
+            }
+            var updated = new StationEditDraft {
+                Id = module.Id,
+                SourceId = module.Id,
+                Type = "shop",
+                X = own.X0,
+                Y = own.Y0,
+                Z = own.Z,
+                Width = own.Width,
+                Height = own.Height,
+                Rotation = 0,
+            };
+            updated.Set("kind", string.IsNullOrEmpty(plan.Kind) ? "store" : plan.Kind);
+            updated.SetJson("door", FormatDoorArray(doors));
+            updated.Set(true, "stocked");
+            plan.Room = updated;
+            plan.RoomReplaces = true;
+            return plan;
+        }
+
+        static List<(int X, int Y)> ParseDoors(StationModuleRecord module) {
+            var doors = new List<(int X, int Y)>();
+            if (module == null) return doors;
+            var raw = module.Config.Text("door");
+            if (string.IsNullOrEmpty(raw)) return doors;
+            int i = 0;
+            int n = raw.Length;
+            bool ReadInt(out int value) {
+                value = 0;
+                while (i < n && !char.IsDigit(raw[i]) && raw[i] != '-') i++;
+                if (i >= n) return false;
+                int start = i;
+                if (raw[i] == '-') i++;
+                while (i < n && char.IsDigit(raw[i])) i++;
+                return int.TryParse(raw.Substring(start, i - start),
+                    System.Globalization.NumberStyles.Integer,
+                    System.Globalization.CultureInfo.InvariantCulture, out value);
+            }
+            while (ReadInt(out int x) && ReadInt(out int y)) {
+                doors.Add((x, y));
+            }
+            return doors;
+        }
+
+        static List<(int X, int Y)> CollectKeptPerimeterDoors(List<StationModuleRecord> merged, StationFacilityRect union) {
+            var seen = new HashSet<(int, int)>();
+            var kept = new List<(int, int)>();
+            for (int i = 0; i < merged.Count; i++) {
+                var m = merged[i];
+                if (m == null || (m.Type != "shop" && m.Type != "booth")) continue;
+                var doors = ParseDoors(m);
+                for (int d = 0; d < doors.Count; d++) {
+                    var p = doors[d];
+                    if (p.X >= union.X0 && p.X <= union.X1 && p.Y >= union.Y0 && p.Y <= union.Y1 &&
+                        StationFacilityRules.IsPerimeter(union, p.X, p.Y) && seen.Add(p)) {
+                        kept.Add(p);
+                    }
+                }
+            }
+            return kept;
+        }
+
+        static string FormatDoorArray(List<(int X, int Y)> doors) {
+            if (doors == null || doors.Count == 0) return "[]";
+            var sb = new System.Text.StringBuilder(doors.Count * 10 + 2);
+            sb.Append('[');
+            for (int i = 0; i < doors.Count; i++) {
+                if (i > 0) sb.Append(',');
+                sb.Append('[').Append(doors[i].X).Append(',').Append(doors[i].Y).Append(']');
+            }
+            sb.Append(']');
+            return sb.ToString();
         }
 
         /// <summary>The `cfg.auto` furniture a room's footprint stocked, for `dropAutoFurniture`.</summary>

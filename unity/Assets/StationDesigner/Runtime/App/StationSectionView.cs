@@ -519,12 +519,22 @@ namespace Metro.App {
 
         bool configured;
         bool dirty = true;
+        string pendingTheme;
         Func<bool, bool> pendingExplodedHandler;
         Func<double> simTimeSource;
         double manualSimTime = StationSkySystem.DefaultSimTime;
         StationCameraSnapshot lastPublishedPose;
         bool hasPublishedPose;
         bool pausedForExploded;
+
+        public string ActiveTheme => Commands != null ? Commands.Theme : (string.IsNullOrEmpty(pendingTheme) ? "blueprint" : pendingTheme);
+
+        public void SetTheme(string theme) {
+            string normalized = StationViewCommandApplier.NormalizeTheme(theme);
+            pendingTheme = normalized;
+            if (Sky != null) Sky.SetTheme(normalized);
+            SyncSky();
+        }
 
         /// <summary>
         /// The sequence of the last camera pose this rig published (plan 29 §5). The shell
@@ -564,7 +574,7 @@ namespace Metro.App {
             double simTime = simTimeSource != null ? simTimeSource() : manualSimTime;
             Sky.SetSimTime(simTime);
             bool hideUi = Visibility.State.HideUi;
-            Sky.Update(cam, hideUi, force: force && hideUi);
+            Sky.Update(cam, hideUi, force: force);
         }
 
         public void Configure(Camera camera, Bounds documentBounds, StationLevelGrid grid, int activeLevel,
@@ -580,6 +590,19 @@ namespace Metro.App {
                 Visibility = new StationVisibilityRegistry(FindStationShader());
                 Commands = new StationViewCommandApplier(CameraController, Visibility, grid);
                 Sky = new StationSkySystem();
+                Commands.ThemeChanged += nextTheme => {
+                    pendingTheme = nextTheme;
+                    Sky?.SetTheme(nextTheme);
+                    SyncSky();
+                };
+                if (!string.IsNullOrEmpty(pendingTheme)) {
+                    Commands.TryApply(new StationViewCommand {
+                        Type = StationViewCommandType.ViewSet,
+                        Key = StationViewKey.Theme,
+                        StringValue = pendingTheme,
+                    }, out _);
+                    Sky.SetTheme(pendingTheme);
+                }
                 if (pendingExplodedHandler != null) Commands.ExplodedHandler = pendingExplodedHandler;
                 Commands.Changed += MarkDirty;
                 CameraController.Changed += MarkDirty;
@@ -1053,8 +1076,9 @@ namespace Metro.App {
                 var role = RoleOfIndexed(record, idx);
                 var levels = LevelsOfIndexed(record, idx, grid);
                 bool parked = role == StationPartRole.Train && !record.View.activeSelf;
+                bool contactShadow = string.Equals(record.Role, "contact-shadows", StringComparison.Ordinal);
                 var target = visibility.Register(record.View.transform, role, levels,
-                    parked: parked, gradeOwned: IsGradeOwnedIndexed(record, idx));
+                    parked: parked, contactShadow: contactShadow, gradeOwned: IsGradeOwnedIndexed(record, idx));
                 if (target != null) dirtyTargets.Add(target);
             }
             for (int i = 0; i < localCommit.AddedRecords.Count; i++) {
@@ -1063,8 +1087,9 @@ namespace Metro.App {
                 var role = RoleOfIndexed(record, idx);
                 var levels = LevelsOfIndexed(record, idx, grid);
                 bool parked = role == StationPartRole.Train && !record.View.activeSelf;
+                bool contactShadow = string.Equals(record.Role, "contact-shadows", StringComparison.Ordinal);
                 var target = visibility.Register(record.View.transform, role, levels,
-                    parked: parked, gradeOwned: IsGradeOwnedIndexed(record, idx));
+                    parked: parked, contactShadow: contactShadow, gradeOwned: IsGradeOwnedIndexed(record, idx));
                 if (target != null) dirtyTargets.Add(target);
             }
 
@@ -1114,7 +1139,9 @@ namespace Metro.App {
                 var levels = idx != null ? LevelsOfIndexed(record, idx, grid) : LevelsOf(record, modules, grid);
                 bool gradeOwned = idx != null ? IsGradeOwnedIndexed(record, idx) : IsGradeOwned(record, modules);
                 bool parked = role == StationPartRole.Train && !record.View.activeSelf;
-                visibility.Register(record.View.transform, role, levels, parked: parked, gradeOwned: gradeOwned);
+                bool contactShadow = string.Equals(record.Role, "contact-shadows", StringComparison.Ordinal);
+                visibility.Register(record.View.transform, role, levels, parked: parked, contactShadow: contactShadow,
+                    gradeOwned: gradeOwned);
             }
             world.BindVisibility(visibility);
             visibility.Apply();
@@ -1555,6 +1582,24 @@ namespace Metro.App {
         public bool TryHandle(StationCommand command, JObject payload, out string rejectCode, out string rejectReason) {
             rejectCode = "";
             rejectReason = "";
+            bool isThemeSet = command != null && string.Equals(command.Type, "view.set", StringComparison.Ordinal) &&
+                StationViewCommandParser.NormalizeKey((string)command.Payload?["key"] ?? "") == StationViewKey.Theme;
+            if (isThemeSet && rig != null && !rig.Configured) {
+                var themeToken = command.Payload?["value"];
+                string themeValue = themeToken != null && themeToken.Type == JTokenType.String ? (string)themeToken : null;
+                if (string.IsNullOrWhiteSpace(themeValue)) {
+                    rejectCode = "parse-failed:bad-view-theme";
+                    rejectReason = "view.set theme requires a non-empty string.";
+                    return false;
+                }
+                string normalized = StationViewCommandApplier.NormalizeTheme(themeValue);
+                rig.SetTheme(normalized);
+                if (payload != null) {
+                    payload["view"] = new JObject { ["theme"] = normalized };
+                    if (host != null) payload["revision"] = host.CurrentRevision;
+                }
+                return true;
+            }
             if (rig == null || !rig.Configured) {
                 rejectCode = "no-session";
                 rejectReason = "No committed station view is installed.";
@@ -1573,8 +1618,8 @@ namespace Metro.App {
             host?.SetActiveLevel(nextLevel);
             // A storey switch, a hide toggle or a section move all change the surface under a
             // still pointer, so the tool's ghost is re-aimed from the committed view.
-            // Skip redundant hover re-aim on an unchanged accepted level.
-            if (!isLevelSet || nextLevel != prevLevel) {
+            // Skip redundant hover re-aim on an unchanged accepted level or pure theme change.
+            if (!isThemeSet && (!isLevelSet || nextLevel != prevLevel)) {
                 StationPointerRouter.RefreshHover(host);
             }
             StationViewResponses.Fill(rig, host, payload);

@@ -303,7 +303,7 @@ namespace Metro.Build {
                 // so placement never stalls on an empty line list. The line commits in the same
                 // revision as the track it sizes (`defaultLine`).
                 var fresh = StationLineDefaults.Default(string.IsNullOrEmpty(lineId) ? "1" : lineId,
-                    string.IsNullOrEmpty(direction) ? "up" : direction, "third-rail");
+                    string.IsNullOrEmpty(direction) ? "up" : direction, "third-rail", index.Document?.City);
                 plan.NewLine = fresh;
                 line = new StationLineRecord(fresh.Id, fresh.Name, fresh.NameEn, fresh.Colour, fresh.Stock,
                     fresh.Cars, fresh.Power, fresh.Psd, fresh.Direction, "", "", "");

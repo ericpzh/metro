@@ -215,5 +215,182 @@ namespace Metro.Build {
         }
 
         public static bool IsStraightRun(StationModuleRecord m) => TryEnvelope(m, out _, out _);
+
+        // ------------------------------------------------------------- ramp lengths, spans, flights & landings
+
+        /// <summary>Port of <c>sim/rampLengths.ts</c> + <c>escalatorLengthSpec</c> (5 rungs × 3 spans).</summary>
+        public static void RampSpecFor(string span, string lengthId, bool escalator, out int run, out int rise) {
+            string normSpan = span == "triple" ? "triple" : span == "double" ? "double" : "single";
+            string id = string.IsNullOrEmpty(lengthId) ? "long" : lengthId;
+            if (normSpan == "single") {
+                switch (id) {
+                    case "ultra-short": rise = 2; run = 3; break;
+                    case "short": rise = 3; run = 5; break;
+                    case "medium": rise = 4; run = 6; break;
+                    case "ultra-long": rise = 6; run = 9; break;
+                    default: rise = 5; run = 8; break;
+                }
+            } else if (normSpan == "double") {
+                switch (id) {
+                    case "ultra-short": rise = 7; run = 11; break;
+                    case "short": rise = 8; run = 12; break;
+                    case "medium": rise = 9; run = 14; break;
+                    case "ultra-long": rise = 11; run = 17; break;
+                    default: rise = 10; run = 15; break;
+                }
+            } else {
+                switch (id) {
+                    case "ultra-short": rise = 12; break;
+                    case "short": rise = 13; break;
+                    case "medium": rise = 14; break;
+                    case "ultra-long": rise = 16; break;
+                    default: rise = 15; break;
+                }
+                run = (int)Math.Ceiling(rise * 1.5);
+            }
+            if (escalator) {
+                run = (int)Math.Ceiling(rise / Math.Tan(Math.PI / 6.0));
+            }
+        }
+
+        public static int StairLanes(double width) {
+            if (width <= 0) return 1;
+            if (StairOnBlockGrid(width)) return StairRunBlocks(width);
+            int lanes = (int)Math.Round(width / Band, MidpointRounding.AwayFromZero);
+            return Math.Max(1, Math.Min(3, lanes));
+        }
+
+        public static double StairSwitchbackRunWidth(double width) =>
+            StairLanes(width) - 2.0 * StairRailProud;
+
+        public static double StairBuildWidth(string style, double width) {
+            double w = width > 0 ? width : Band;
+            return string.IsNullOrEmpty(style) || style == "straight" ? w : StairSwitchbackRunWidth(w);
+        }
+
+        public static void StairRight(int rot, out int rx, out int ry) {
+            StationExitSnapping.StairFacing(rot, out int fx, out int fy);
+            rx = fy;
+            ry = -fx;
+        }
+
+        static int StairStories(int rise) {
+            if (rise > 11) return 3;
+            if (rise > 6) return 2;
+            return 1;
+        }
+
+        /// <summary>Port of <c>sim/stairs.ts:stairFlightsFor</c> for all 8 stair styles and 3 spans.</summary>
+        public static List<(StationPoint From, StationPoint To)> StairFlightsFor(
+            StationPoint basePt, int rot, string style, double width, string lengthId, string span) {
+            RampSpecFor(span, lengthId, escalator: false, out int run, out int rise);
+            int flightRun = Math.Max(1, (int)Math.Ceiling(run / 2.0));
+            double flightRise = rise / 2.0;
+            StationExitSnapping.StairFacing(rot, out int fx, out int fy);
+            StairRight(rot, out int rx, out int ry);
+            StationPoint At(double df, double dr, double dz) =>
+                new StationPoint(basePt.X + fx * df + rx * dr, basePt.Y + fy * df + ry * dr, basePt.Z + dz);
+
+            int switchbackSpan = StairLanes(width > 0 ? width : Band);
+            int quarterStep = switchbackSpan - 1;
+            var flights = new List<(StationPoint From, StationPoint To)>(4);
+
+            switch (style ?? "straight") {
+                case "right90":
+                    flights.Add((basePt, At(flightRun, 0, flightRise)));
+                    flights.Add((At(flightRun, quarterStep, flightRise), At(flightRun, quarterStep + flightRun, rise)));
+                    break;
+                case "left90":
+                    flights.Add((basePt, At(flightRun, 0, flightRise)));
+                    flights.Add((At(flightRun, -quarterStep, flightRise), At(flightRun, -quarterStep - flightRun, rise)));
+                    break;
+                case "right180":
+                    flights.Add((basePt, At(flightRun, 0, flightRise)));
+                    flights.Add((At(flightRun, switchbackSpan, flightRise), At(0, switchbackSpan, rise)));
+                    break;
+                case "left180":
+                    flights.Add((basePt, At(flightRun, 0, flightRise)));
+                    flights.Add((At(flightRun, -switchbackSpan, flightRise), At(0, -switchbackSpan, rise)));
+                    break;
+                case "leftForward":
+                    flights.Add((basePt, At(flightRun, 0, flightRise)));
+                    flights.Add((At(flightRun, -switchbackSpan, flightRise), At(flightRun * 2, -switchbackSpan, rise)));
+                    break;
+                case "rightForward":
+                    flights.Add((basePt, At(flightRun, 0, flightRise)));
+                    flights.Add((At(flightRun, switchbackSpan, flightRise), At(flightRun * 2, switchbackSpan, rise)));
+                    break;
+                case "centerForward": {
+                    int stories = StairStories(rise);
+                    int halfUnits = (int)Math.Round(rise * 2.0);
+                    var levels = new int[stories + 2];
+                    levels[0] = 0;
+                    for (int k = 1; k <= stories; k++) {
+                        levels[k] = (int)Math.Round(halfUnits * (2 * k - 1) / (2.0 * stories), MidpointRounding.AwayFromZero);
+                    }
+                    levels[stories + 1] = halfUnits;
+                    int along = 0;
+                    for (int i = 0; i < stories + 1; i++) {
+                        double climb = (levels[i + 1] - levels[i]) / 2.0;
+                        int cells = Math.Max(1, (int)Math.Ceiling(climb / rise * run));
+                        flights.Add((
+                            new StationPoint(basePt.X + fx * along, basePt.Y + fy * along, basePt.Z + levels[i] / 2.0),
+                            new StationPoint(basePt.X + fx * (along + cells), basePt.Y + fy * (along + cells), basePt.Z + levels[i + 1] / 2.0)));
+                        along += cells;
+                    }
+                    break;
+                }
+                default:
+                    flights.Add((basePt, At(run, 0, rise)));
+                    break;
+            }
+            return flights;
+        }
+
+        /// <summary>Port of <c>sim/escalators.ts:escalatorLandings</c>.</summary>
+        public static List<StationCellKey> EscalatorLandings(StationModuleRecord m) {
+            var outCells = new List<StationCellKey>();
+            if (m == null || !m.From.HasValue || !m.To.HasValue) return outCells;
+            var f = m.From.Value;
+            var t = m.To.Value;
+            outCells.Add(new StationCellKey((int)Math.Round(f.X), (int)Math.Round(f.Y), (int)Math.Round(f.Z)));
+            outCells.Add(new StationCellKey((int)Math.Round(t.X), (int)Math.Round(t.Y), (int)Math.Round(t.Z)));
+            int w = Width(m);
+            if (w <= 1) return outCells;
+            bool lowerFirst = f.Z != t.Z ? f.Z < t.Z : (f.X != t.X ? f.X < t.X : f.Y < t.Y);
+            var low = lowerFirst ? f : t;
+            var high = lowerFirst ? t : f;
+            double ux = high.X - low.X, uy = high.Y - low.Y;
+            double len = Math.Sqrt(ux * ux + uy * uy);
+            if (len < 1e-6) return outCells;
+            double dx = uy / len;
+            double dy = -ux / len;
+            for (int lane = 1; lane < w; lane++) {
+                outCells.Add(new StationCellKey((int)Math.Round(f.X + dx * lane), (int)Math.Round(f.Y + dy * lane), (int)Math.Round(f.Z)));
+                outCells.Add(new StationCellKey((int)Math.Round(t.X + dx * lane), (int)Math.Round(t.Y + dy * lane), (int)Math.Round(t.Z)));
+            }
+            return outCells;
+        }
+
+        /// <summary>Port of <c>sim/stairs.ts:stairLandings</c>.</summary>
+        public static List<StationCellKey> StairLandings(StationModuleRecord m) {
+            var outCells = new List<StationCellKey>();
+            if (m == null) return outCells;
+            var seen = new HashSet<StationCellKey>();
+            var flights = FlightsOf(m);
+            for (int i = 0; i < flights.Count; i++) {
+                var a = flights[i].From;
+                var b = flights[i].To;
+                if (Math.Abs(a.Z - Math.Round(a.Z)) < 1e-6) {
+                    var ka = new StationCellKey((int)Math.Round(a.X), (int)Math.Round(a.Y), (int)Math.Round(a.Z));
+                    if (seen.Add(ka)) outCells.Add(ka);
+                }
+                if (Math.Abs(b.Z - Math.Round(b.Z)) < 1e-6) {
+                    var kb = new StationCellKey((int)Math.Round(b.X), (int)Math.Round(b.Y), (int)Math.Round(b.Z));
+                    if (seen.Add(kb)) outCells.Add(kb);
+                }
+            }
+            return outCells;
+        }
     }
 }

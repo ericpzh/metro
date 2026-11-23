@@ -329,23 +329,12 @@ namespace Metro.Sim {
         }
 
         static bool CheckGatePassage(StationWalkGraph graph, int[] srvAtNode, int from, int to, out int direction) {
-            int dx = (int)Math.Floor(graph.NodeX[to] - graph.NodeX[from] + 0.5);
-            int dy = (int)Math.Floor(graph.NodeY[to] - graph.NodeY[from] + 0.5);
             direction = 0;
-            int fromSrv = (uint)from < (uint)srvAtNode.Length ? srvAtNode[from] : -1;
-            if (fromSrv >= 0) {
-                var srv = graph.Servers[fromSrv];
-                if (srv.Kind == "gate" && srv.GateMode != 0 &&
-                    StationWalkGraphBuilder.GateTravelDirection(srv.GateRotation, dx, dy) != srv.GateMode) {
-                    return false;
-                }
-            }
             int toSrv = (uint)to < (uint)srvAtNode.Length ? srvAtNode[to] : -1;
             if (toSrv >= 0) {
                 var srv = graph.Servers[toSrv];
                 if (srv.Kind == "gate") {
-                    direction = StationWalkGraphBuilder.GateTravelDirection(srv.GateRotation, dx, dy);
-                    return srv.GateMode == 0 || srv.GateMode == direction;
+                    direction = StationWalkGraphBuilder.GateApproach(graph, from, to);
                 }
             }
             return true;

@@ -43,8 +43,50 @@ namespace Metro.View {
         public const float PsdFullDoorWidthScale = 1.5f;
         /// <summary>`platformBlockInsets.ts:edge = 0.5 + PSD_WALL_OFFSET - PSD_BASE_DEPTH / 2`.</summary>
         public const double CellEdge = .5 + PsdWallOffset - PsdBaseDepth * .5;
-        /// <summary>`CONTACT_WIRE_Z` for an overhead line, above the rail origin.</summary>
-        public const float OverheadContactZ = 5.05f;
+        /// <summary>`sim/stock.ts:PANTOGRAPH_CONTACT_Z` in unscaled vehicle metres.</summary>
+        public const float PantographContactZ = 3.57f;
+        /// <summary>Contact wire tube radius (`CatenaryModel.ts`), metres.</summary>
+        public const float ContactWireRadius = .012f;
+        /// <summary>`CONTACT_WIRE_Z` for the default 5 m profile (`trainContactWireZ(0.98)` = 3.903 m).</summary>
+        public const float OverheadContactZ = (1f - CabinFloorZ * DefaultScale) + PantographContactZ * DefaultScale + ContactWireRadius;
+
+        /// <summary>`sim/stock.ts:trainContactWireZ`: wire centre height so its underside meets the pantograph carbon strip.</summary>
+        public static float TrainContactWireZ(float scale = DefaultScale) {
+            float s = Scale(scale);
+            return TrainOrigin(s) + PantographContactZ * s + ContactWireRadius;
+        }
+
+        /// <summary>`sim/track.ts:trackHeadroom`: clear courses above the bed, including overhead support assembly.</summary>
+        public static int TrackHeadroom(bool catenary, bool tunnel, bool bridge, string catenaryStyle) =>
+            catenary && !tunnel && (bridge || string.Equals(catenaryStyle, "gantry", StringComparison.Ordinal)) ? 4 : 3;
+
+        /// <summary>
+        /// `sim/track.ts:trackCeilingUnderside` in track-local metres (`underside - track.z`).
+        /// Finds the lowest solid block directly over the track footprint strictly above <c>track.z + 1</c>.
+        /// </summary>
+        public static float TrackCeilingUndersideLocal(StationIndex index, ModuleFacts track,
+            bool catenary, bool tunnel, bool bridge, string catenaryStyle) {
+            int headroom = TrackHeadroom(catenary, tunnel, bridge, catenaryStyle);
+            int underside = track.Z + headroom + 1;
+            if (index != null && track != null) {
+                int w = Math.Max(1, track.Width);
+                int d = Math.Max(1, track.Depth);
+                for (int i = 0; i < w; i++) {
+                    for (int j = 0; j < d; j++) {
+                        StationFootprints.RotateLocal(track.Rotation, i, j, out var dx, out var dy);
+                        int wx = track.X + (int)Math.Round(dx);
+                        int wy = track.Y + (int)Math.Round(dy);
+                        for (int z = track.Z + 2; z < underside; z++) {
+                            if (index.TryGetCell(new StationCellKey(wx, wy, z), out var cell) && !cell.IsVoid) {
+                                underside = z;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            return underside - (track != null ? track.Z : 0);
+        }
 
         /// <summary>`trainOriginForScale`: the consist origin above the track record's floor.</summary>
         public static float TrainOrigin(float scale) => 1f - CabinFloorZ * Scale(scale);

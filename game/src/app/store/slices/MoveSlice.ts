@@ -12,6 +12,7 @@ import type { Module, Vec3i } from '../../../sim/types.ts'
 import { primeGroundResize } from '../../../sim/ground.ts'
 import { isRotatableType, moduleLabel } from '../catalog.ts'
 import type { AppState } from '../Store.ts'
+import { hostOwnsVerb, stationHostCommit } from '../../stationHostBridge.ts'
 
 /** A doorway's clicked block course can change without changing its storey anchor. */
 function exitMountZ(module: Module | null): number | undefined {
@@ -110,6 +111,8 @@ export const createMoveSlice: StateCreator<AppState, [], [], MoveSlice> = (set, 
   // it is in the air (`Viewport`, `moveId`). So 取消 has nothing to restore, and
   // 确认 is the one and only commit.
   liftModule: (moduleId) => {
+    const host = stationHostCommit()
+    if (host?.ownsStation() && host.startMove?.(moduleId)) return
     const st = get()
     const mod = st.station.modules.find((m) => m.id === moduleId)
     if (!mod) return
@@ -125,6 +128,8 @@ export const createMoveSlice: StateCreator<AppState, [], [], MoveSlice> = (set, 
     })
   },
   switchRunDirection: (moduleId) => {
+    const host = stationHostCommit()
+    if (host?.ownsStation() && host.commitSwitchRunDirection?.(moduleId)) return
     const st = get()
     const modules = st.station.modules.map((m) =>
       m.id === moduleId && (m.type === 'escalator' || m.type === 'walkway')
@@ -135,6 +140,8 @@ export const createMoveSlice: StateCreator<AppState, [], [], MoveSlice> = (set, 
     get().commit({ ...st.station, modules })
   },
   switchRoadDirection: (moduleId) => {
+    const host = stationHostCommit()
+    if (host?.ownsStation() && host.commitSwitchRoadDirection?.(moduleId)) return
     const st = get()
     const modules = st.station.modules.map((m) =>
       m.id === moduleId && m.type === 'road' && m.cfg.direction === 'one-way'
@@ -175,10 +182,12 @@ export const createMoveSlice: StateCreator<AppState, [], [], MoveSlice> = (set, 
     set({ moveDraft: { ...d, module } })
   },
   cancelMove: (announce = true) => {
+    if (hostOwnsVerb('cancelGesture')) return
     if (!get().moveDraft) return
     set(announce ? { moveDraft: null, notice: msg('returned_to_the_original_position') } : { moveDraft: null })
   },
   confirmMove: () => {
+    if (hostOwnsVerb('confirmMove')) return
     const st = get()
     const d = st.moveDraft
     if (!d) return

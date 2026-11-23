@@ -1756,7 +1756,9 @@ namespace Metro.View {
                     LevelBase = StationLevelGrid.NormalizeBase(State.LevelBase),
                     StoreyHeight = State.StoreyHeight > 0 ? State.StoreyHeight : StationLevelGrid.LadderStep,
                 };
-                int shadowZ = Mathf.RoundToInt(StationCameraSpace.ToDocument(target.WorldBounds.center).z);
+                int shadowZ = target.LevelZs != null && target.LevelZs.Count > 0
+                    ? target.LevelZs[0]
+                    : Mathf.RoundToInt(StationCameraSpace.ToDocument(target.WorldBounds.center).z);
                 bool everyStorey = State.HideUi || State.Cutaway;
                 if (!StationVisibilityRules.ContactShadowVisible(shadowZ, State.ActiveLevel, everyStorey, grid)) {
                     return StationDrawMode.Hidden;
@@ -1778,8 +1780,9 @@ namespace Metro.View {
             return StationDrawMode.Base;
         }
 
-        /// <summary>Hidden parts are unpickable; ghosts and see-through walls stay addressable.</summary>
-        public bool IsTargetPickable(IStationVisibilityTarget target) => Decide(target) != StationDrawMode.Hidden;
+        /// <summary>Hidden parts and contact shadows are unpickable; ghosts and see-through walls stay addressable.</summary>
+        public bool IsTargetPickable(IStationVisibilityTarget target) =>
+            target != null && !target.ContactShadow && Decide(target) != StationDrawMode.Hidden;
 
         /// <summary>
         /// Does 隐藏地面 remove this part? The ground slab, road deck and courses are grade roles;

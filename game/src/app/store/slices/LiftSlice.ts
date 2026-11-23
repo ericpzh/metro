@@ -2,6 +2,7 @@ import type { StateCreator } from 'zustand'
 import { liftWithDoorSide } from '../../../sim/lifts.ts'
 import type { LiftDoorSide } from '../../../sim/types.ts'
 import type { AppState } from '../Store.ts'
+import { stationHostCommit } from '../../stationHostBridge.ts'
 
 // The lift-door slice (§5.1): choosing which face of a shaft's cabin opens at
 // one storey. Like every inspector control that edits a placed piece, this is
@@ -19,6 +20,8 @@ export interface LiftSlice {
 
 export const createLiftSlice: StateCreator<AppState, [], [], LiftSlice> = (_set, get) => ({
   setLiftDoorSide: (moduleId, z, side) => {
+    const host = stationHostCommit()
+    if (host?.ownsStation() && host.commitLiftDoorSide?.(moduleId, z, side)) return
     const st = get()
     const modules = st.station.modules.map((m) =>
       m.id === moduleId && m.type === 'lift' ? liftWithDoorSide(m, z, side) : m,

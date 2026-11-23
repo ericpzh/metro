@@ -24,6 +24,7 @@ import { blockerLabels } from '../../../sim/placement.ts'
 import { nextTrackRunLength, supportedTrackRunLength, trackOriginForCentre } from '../../../sim/track.ts'
 import type { BridgeRailing, LineDirection } from '../../../sim/types.ts'
 import type { AppState } from '../Store.ts'
+import { stationHostCommit } from '../../stationHostBridge.ts'
 
 export interface RailSlice {
   /** Rail tool: the line/direction a freshly laid bed binds to. Power is a
@@ -145,6 +146,8 @@ export const createRailSlice: StateCreator<AppState, [], [], RailSlice> = (set, 
     set({ notice: msg('tunnel_connected_value_m', st.tunnelLength) })
   },
   regenRail: (trackId) => {
+    const host = stationHostCommit()
+    if (host?.ownsStation() && host.commitRegenRail?.(trackId)) return
     const next = regenerateRailEdges(get().station, trackId)
     get().commit(next)
     set({ notice: msg('platform_doors_regenerated_for_the_current_platform') })

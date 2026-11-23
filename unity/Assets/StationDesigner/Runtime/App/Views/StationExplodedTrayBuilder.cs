@@ -221,7 +221,9 @@ namespace Metro.App.Views {
         readonly List<EscalatorTrayBinding> escalatorBindings = new List<EscalatorTrayBinding>();
         readonly List<ConsistTrayBinding> consistBindings = new List<ConsistTrayBinding>();
         readonly Dictionary<string, ConsistTrayBinding> consistById = new Dictionary<string, ConsistTrayBinding>(StringComparer.Ordinal);
+        readonly Dictionary<string, Material> consistLiveryPool = new Dictionary<string, Material>(StringComparer.Ordinal);
         readonly ModuleMotionDispatch trainDoorDispatch = new ModuleMotionDispatch();
+        bool trainMarkListenerAttached;
 
         // Deferred prop batch state (cleared once equipmentReady is true)
         readonly List<PropWorkItem> deferredItems = new List<PropWorkItem>();
@@ -1895,6 +1897,19 @@ namespace Metro.App.Views {
                     instance.transform.localScale = Vector3.one;
                     TrainConsistViews.CompactConsistInstance(
                         instance, formationKey, staticBodyCache, ownedMeshes, ShadowCastingMode.Off);
+                    var liveryBinding = TrainLiveryBinder.Capture(instance);
+                    TrainLiveryBinder.Apply(
+                        liveryBinding,
+                        line.Id,
+                        string.IsNullOrEmpty(line.Colour) ? StationCityStyles.LineColourFor(line.Id, document.City) : line.Colour,
+                        document.City,
+                        consistLiveryPool,
+                        ownedMaterials,
+                        recaptureVisibility: false);
+                    if (!trainMarkListenerAttached) {
+                        TrainMarkTextureCache.TextureUpdated += RefreshExplodedTrainMarks;
+                        trainMarkListenerAttached = true;
+                    }
                     SetLayerRecursively(instance, presentationLayer);
 
                     var view = new TrainConsistView {
@@ -1907,19 +1922,30 @@ namespace Metro.App.Views {
                         Scale = scale,
                         Berth = berth,
                         Root = instance,
+                        LiveryBinding = liveryBinding,
                     };
                     PlaceConsistInTrayLocalSpace(view);
 
                     var rig = new TrainDoorRig(instance, TrainDoorRig.ForLine(line.Stock, line.Cars, scale));
                     view.Rig = rig;
-                    view.PlatformBank = berth.HasPlatform
-                        ? TrainDoorRig.BankFacing(instance.transform, trays[trayIdx].LiveRoot.TransformPoint(StationCoordinates.Point(berth.PlatformPoint)))
-                        : berth.DefaultPlatformBank;
-                    rig.SetPlatformBank(view.PlatformBank);
-                    rig.SetBank(view.PlatformBank, 0f);
-                    rig.SetBank(-view.PlatformBank, 0f);
+                    int bankMask = 0;
+                    if (berth.PlatformPoints.Count > 0) {
+                        for (int p = 0; p < berth.PlatformPoints.Count; p++) {
+                            int b = TrainDoorRig.BankFacing(instance.transform,
+                                trays[trayIdx].LiveRoot.TransformPoint(StationCoordinates.Point(berth.PlatformPoints[p])));
+                            bankMask |= b >= 0 ? 1 : 2;
+                        }
+                    } else if (berth.HasPlatform) {
+                        int b = TrainDoorRig.BankFacing(instance.transform,
+                            trays[trayIdx].LiveRoot.TransformPoint(StationCoordinates.Point(berth.PlatformPoint)));
+                        bankMask = b >= 0 ? 1 : 2;
+                    }
+                    view.DoorBankMask = bankMask;
+                    view.PlatformBank = (bankMask & 1) != 0 ? 1 : ((bankMask & 2) != 0 ? -1 : berth.DefaultPlatformBank);
+                    rig.SetActiveBankMask(bankMask);
+                    rig.Reset();
                     if (rig.Leaves > 0) {
-                        trainDoorDispatch.BindTrain(trainId, rig, view.PlatformBank);
+                        trainDoorDispatch.BindTrainMask(trainId, rig, bankMask);
                     }
 
                     view.Retire();
@@ -2072,7 +2098,7 @@ namespace Metro.App.Views {
                 trainDoorDispatch.Apply(frame, alpha);
                 for (int i = 0; i < consistBindings.Count; i++) {
                     var view = consistBindings[i].View;
-                    if (view.Berth != null && !view.Berth.HasPlatform) view.Rig?.SetBank(view.PlatformBank, 0f);
+                    if (view.Berth != null && view.DoorBankMask == 0) view.Rig?.Reset();
                     if (view.Root != null && activeIds.Contains(view.TrainId)) view.Mount();
                 }
             }
@@ -2351,7 +2377,31 @@ namespace Metro.App.Views {
             if (disposed) throw new ObjectDisposedException(nameof(StationExplodedTrayBuilder));
         }
 
+        void RefreshExplodedTrainMarks() {
+            if (document == null) return;
+            var lineById = new Dictionary<string, StationLineRecord>(document.Lines.Count, StringComparer.Ordinal);
+            for (int i = 0; i < document.Lines.Count; i++) {
+                var l = document.Lines[i];
+                if (l != null && !string.IsNullOrEmpty(l.Id)) lineById[l.Id] = l;
+            }
+            for (int i = 0; i < consistBindings.Count; i++) {
+                var v = consistBindings[i]?.View;
+                if (v?.LiveryBinding == null || v.Root == null) continue;
+                string colour = lineById.TryGetValue(v.LineId, out var line) && !string.IsNullOrEmpty(line.Colour)
+                    ? line.Colour
+                    : StationCityStyles.LineColourFor(v.LineId, document.City);
+                TrainLiveryBinder.Apply(
+                    v.LiveryBinding, v.LineId, colour, document.City,
+                    consistLiveryPool, ownedMaterials, recaptureVisibility: false);
+            }
+        }
+
         public void Dispose() {
+            if (trainMarkListenerAttached) {
+                TrainMarkTextureCache.TextureUpdated -= RefreshExplodedTrainMarks;
+                trainMarkListenerAttached = false;
+            }
+            consistLiveryPool.Clear();
             if (disposed) return;
             disposed = true;
 

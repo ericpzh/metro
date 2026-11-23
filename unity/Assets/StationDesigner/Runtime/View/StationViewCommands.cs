@@ -43,6 +43,7 @@ namespace Metro.View {
         Density,
         Zones,
         FollowPassenger,
+        Theme,
     }
 
     /// <summary>One parsed command, normalised away from JSON.</summary>
@@ -70,6 +71,7 @@ namespace Metro.View {
         public bool BoolValue;
         public int IntValue;
         public float FloatValue;
+        public string StringValue;
         public bool HasVector;
         public Vector3 VectorValue;
         public StationSectionPlane Section;
@@ -420,6 +422,11 @@ namespace Metro.View {
                     if (!TryInt(value, out command.IntValue)) { error = "bad-follow-passenger"; return false; }
                     command.Key = StationViewKey.FollowPassenger;
                     return true;
+                case StationViewKey.Theme:
+                    if (!(value is string themeText) || string.IsNullOrWhiteSpace(themeText)) { error = "bad-view-theme"; return false; }
+                    command.StringValue = themeText.Trim().ToLowerInvariant();
+                    command.Key = StationViewKey.Theme;
+                    return true;
                 case StationViewKey.Section:
                     if (!TrySection(value, out command.Section)) { error = "bad-section"; return false; }
                     command.HasSection = true;
@@ -472,6 +479,7 @@ namespace Metro.View {
                 case "density": case "densityoverlay": case "density_overlay": return StationViewKey.Density;
                 case "zones": case "zoneoverlay": case "zone_overlay": case "zonemap": case "zone_map": return StationViewKey.Zones;
                 case "followpassenger": case "follow_passenger": case "followagent": case "follow_agent": return StationViewKey.FollowPassenger;
+                case "theme": case "uitheme": case "ui_theme": return StationViewKey.Theme;
                 default: return StationViewKey.Unknown;
             }
         }
@@ -591,9 +599,12 @@ namespace Metro.View {
         public StationViewCapabilities Capabilities;
         public bool LevelRail = true;
         public bool FollowPassenger = false;
+        public string Theme { get; private set; } = "blueprint";
 
         /// <summary>Raised after an accepted command; the host coalesces the publish.</summary>
         public event Action Changed;
+        /// <summary>Raised when <c>view.set { key: "theme" }</c> changes the active UI theme.</summary>
+        public event Action<string> ThemeChanged;
 
         Func<bool, bool> explodedHandler;
 
@@ -777,6 +788,12 @@ namespace Metro.View {
                     // The first-person eye view is not ported; the flag is state only and
                     // the published capability says so rather than pretending to move.
                     break;
+                case StationViewKey.Theme: {
+                    string normalized = NormalizeTheme(command.StringValue);
+                    Theme = normalized;
+                    ThemeChanged?.Invoke(normalized);
+                    return true;
+                }
                 default:
                     code = "unknown-view-key";
                     return false;
@@ -855,8 +872,15 @@ namespace Metro.View {
             builder.Append(",\"sectionSurface\":");
             StationCameraJson.AppendBool(builder, SectionSurfaceVisible);
             builder.Append(",\"followPassenger\":").Append(state.FollowPassenger);
-            builder.Append('}');
+            builder.Append(",\"theme\":\"");
+            builder.Append(Theme ?? "blueprint");
+            builder.Append("\"}");
         }
+
+        public static string NormalizeTheme(string theme) =>
+            string.Equals(theme, "studio", StringComparison.OrdinalIgnoreCase) ? "studio"
+            : string.Equals(theme, "site", StringComparison.OrdinalIgnoreCase) ? "site"
+            : "blueprint";
 
         void PublishChanged() {
             Capabilities.SectionShaderPlane = Visibility.SectionShaderSupported;

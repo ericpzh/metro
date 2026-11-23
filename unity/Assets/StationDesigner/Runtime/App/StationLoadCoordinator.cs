@@ -686,6 +686,15 @@ namespace Metro.App {
             return InstallLocalEdit(read, sourceId);
         }
 
+        /// <summary>Try the local path for replacing the station's authored road set incrementally.</summary>
+        public StationLoadResult TryInstallLocalRoadSet(IReadOnlyList<StationRoadRecord> nextRoads, string sourceId, out string code) {
+            code = null;
+            if (disposed || document == null || committedRead == null) { code = "no-document"; return null; }
+            var read = StationLocalEdit.TryApplyRoadSet(committedRead, nextRoads, sourceId, out code);
+            if (read == null) return null;
+            return InstallLocalEdit(read, sourceId);
+        }
+
         public void Tick(double realSeconds) => simulation?.Tick(realSeconds);
 
         public void Dispose() {
@@ -934,8 +943,10 @@ namespace Metro.App {
                 Block = cfg.Bool("block"),
                 HasEndpoints = module.HasFrom && module.HasTo,
                 RunLength = 0,
+                ShopKind = module.Type == "shop" ? cfg.Text("kind") : "",
+                GlassFloorStanding = module.Type == "glass" && StationFootprints.GlassStandsOnFloor(cfg),
             };
-            if ((fact.Type == "checkout" || fact.Type == "shelf") &&
+            if ((fact.Type == "checkout" || fact.Type == "shelf" || fact.Type == "glass") &&
                 StationFootprints.TryFootprint(module, out var footprint, out _)) {
                 fact.Width = footprint.Length;
             }
@@ -1297,6 +1308,13 @@ namespace Metro.App {
             "upNextStation", "upNextStationEn", "downNextStation", "downNextStationEn",
         };
 
+        static readonly HashSet<string> ServiceOrCosmeticLineKeys = new HashSet<string>(StringComparer.Ordinal) {
+            "name", "nameEn", "color", "colour",
+            "upTerminus", "downTerminus", "upTerminusEn", "downTerminusEn",
+            "upNextStation", "upNextStationEn", "downNextStation", "downNextStationEn",
+            "headwayProfile", "alightPerTrain",
+        };
+
         public static bool IsSimInertDecorModule(StationModuleRecord module) {
             if (module == null) return false;
             if (string.Equals(module.Type, "hanger", StringComparison.Ordinal)) {
@@ -1310,6 +1328,17 @@ namespace Metro.App {
             if (before == null || after == null || !ReferenceEquals(after.LocalParent, before) || after.LocalDelta == null)
                 return Classify(before?.Document, after?.Document);
             if (!SameExtraRootTrees(before.Envelope, after.Envelope)) return StationDocumentEditKind.Structural;
+            bool lineServiceChanged = false;
+            if (!SameLinesExact(before.Document.Lines, after.Document.Lines)) {
+                if (SameLinesPresentationOnly(before.Document.Lines, after.Document.Lines) ||
+                    SameLinesExceptUnused(before.Document, after.Document)) {
+                    // Purely cosmetic line metadata or adding/removing an empty unused line.
+                } else if (SameLinesServiceOrCosmeticOnly(before.Document.Lines, after.Document.Lines)) {
+                    lineServiceChanged = true;
+                } else {
+                    return StationDocumentEditKind.Structural;
+                }
+            }
             var delta = after.LocalDelta;
             for (int i = 0; i < delta.RemovedModules.Count; i++) {
                 var module = before.Index.GetModule(delta.RemovedModules[i]);
@@ -1337,8 +1366,8 @@ namespace Metro.App {
             }
             before.Index.GetGroundWindow(out var x0, out var y0, out var x1, out var y1);
             after.Index.GetGroundWindow(out var nx0, out var ny0, out var nx1, out var ny1);
-            return x0 == nx0 && y0 == ny0 && x1 == nx1 && y1 == ny1
-                ? StationDocumentEditKind.Cosmetic : StationDocumentEditKind.Structural;
+            if (x0 != nx0 || y0 != ny0 || x1 != nx1 || y1 != ny1) return StationDocumentEditKind.Structural;
+            return lineServiceChanged ? StationDocumentEditKind.DayOnly : StationDocumentEditKind.Cosmetic;
         }
 
         public static StationDocumentEditKind Classify(StationDocument before, StationDocument after) =>
@@ -1356,8 +1385,7 @@ namespace Metro.App {
             if (before == null || after == null) return StationDocumentEditKind.Structural;
             if (before.Seed != after.Seed ||
                 before.LevelBase != after.LevelBase ||
-                before.StoreyHeight != after.StoreyHeight ||
-                !string.Equals(before.City, after.City, StringComparison.Ordinal)) {
+                before.StoreyHeight != after.StoreyHeight) {
                 return StationDocumentEditKind.Structural;
             }
             if (!extraRootsEqual) {
@@ -1373,13 +1401,14 @@ namespace Metro.App {
             if (!cellsCosmetic) return StationDocumentEditKind.Structural;
 
             bool linesExact = SameLinesExact(before.Lines, after.Lines);
-            bool linesCosmetic = linesExact || SameLinesPresentationOnly(before.Lines, after.Lines);
-            if (!linesCosmetic) return StationDocumentEditKind.Structural;
+            bool linesCosmetic = linesExact || SameLinesPresentationOnly(before.Lines, after.Lines) || SameLinesExceptUnused(before, after);
+            bool linesServiceOnly = !linesCosmetic && SameLinesServiceOrCosmeticOnly(before.Lines, after.Lines);
+            if (!linesCosmetic && !linesServiceOnly) return StationDocumentEditKind.Structural;
 
             bool modulesExact = SameModulesExact(before.Modules, after.Modules);
             bool modulesExitLabelsOnly = modulesExact || SameModulesExitNamesOnly(before.Modules, after.Modules);
             bool modulesInertOnly = false;
-            if (!modulesExitLabelsOnly && !dayChanged && cellsExact && linesExact &&
+            if (!modulesExitLabelsOnly && !dayChanged && !linesServiceOnly && cellsExact && linesExact &&
                 string.Equals(before.Name, after.Name, StringComparison.Ordinal) &&
                 string.Equals(before.NameEn, after.NameEn, StringComparison.Ordinal)) {
                 modulesInertOnly = IsSimInertModuleEdit(before, after);
@@ -1388,7 +1417,7 @@ namespace Metro.App {
                 return StationDocumentEditKind.Structural;
             }
 
-            if (dayChanged) {
+            if (dayChanged || linesServiceOnly) {
                 return cellsExact && modulesExitLabelsOnly
                     ? StationDocumentEditKind.DayOnly
                     : StationDocumentEditKind.Structural;
@@ -1523,6 +1552,62 @@ namespace Metro.App {
                 if (!string.Equals(la.Psd, lb.Psd, StringComparison.Ordinal)) return false;
                 if (!string.Equals(la.Direction, lb.Direction, StringComparison.Ordinal)) return false;
                 if (!SameJsonExcept(la.RawJson, lb.RawJson, CosmeticLineKeys)) return false;
+            }
+            return true;
+        }
+
+        static bool SameLinesServiceOrCosmeticOnly(IReadOnlyList<StationLineRecord> a, IReadOnlyList<StationLineRecord> b) {
+            if (a.Count != b.Count) return false;
+            for (int i = 0; i < a.Count; i++) {
+                var la = a[i];
+                var lb = b[i];
+                if (!string.Equals(la.Id, lb.Id, StringComparison.Ordinal)) return false;
+                if (!string.Equals(la.Stock, lb.Stock, StringComparison.Ordinal)) return false;
+                if (la.Cars != lb.Cars) return false;
+                if (!string.Equals(la.Power, lb.Power, StringComparison.Ordinal)) return false;
+                if (!string.Equals(la.Psd, lb.Psd, StringComparison.Ordinal)) return false;
+                if (!string.Equals(la.Direction, lb.Direction, StringComparison.Ordinal)) return false;
+                if (!SameJsonExcept(la.RawJson, lb.RawJson, ServiceOrCosmeticLineKeys)) return false;
+            }
+            return true;
+        }
+
+        static bool SameLinesExceptUnused(StationDocument before, StationDocument after) {
+            var beforeById = new Dictionary<string, StationLineRecord>(StringComparer.Ordinal);
+            for (int i = 0; i < before.Lines.Count; i++) beforeById[before.Lines[i].Id] = before.Lines[i];
+            var afterById = new Dictionary<string, StationLineRecord>(StringComparer.Ordinal);
+            for (int i = 0; i < after.Lines.Count; i++) afterById[after.Lines[i].Id] = after.Lines[i];
+            var usedLines = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < before.Modules.Count; i++) {
+                var m = before.Modules[i];
+                if (m.Type == "track" || m.Type == "platform-edge") {
+                    string lid = m.Config.Text("line");
+                    if (!string.IsNullOrEmpty(lid)) usedLines.Add(lid);
+                }
+            }
+            for (int i = 0; i < after.Modules.Count; i++) {
+                var m = after.Modules[i];
+                if (m.Type == "track" || m.Type == "platform-edge") {
+                    string lid = m.Config.Text("line");
+                    if (!string.IsNullOrEmpty(lid)) usedLines.Add(lid);
+                }
+            }
+            foreach (var kv in beforeById) {
+                if (!afterById.TryGetValue(kv.Key, out var next)) {
+                    if (usedLines.Contains(kv.Key)) return false;
+                    continue;
+                }
+                if (!string.Equals(kv.Value.Stock, next.Stock, StringComparison.Ordinal) ||
+                    kv.Value.Cars != next.Cars ||
+                    !string.Equals(kv.Value.Power, next.Power, StringComparison.Ordinal) ||
+                    !string.Equals(kv.Value.Psd, next.Psd, StringComparison.Ordinal) ||
+                    !string.Equals(kv.Value.Direction, next.Direction, StringComparison.Ordinal) ||
+                    !SameJsonExcept(kv.Value.RawJson, next.RawJson, CosmeticLineKeys)) {
+                    return false;
+                }
+            }
+            foreach (var kv in afterById) {
+                if (!beforeById.ContainsKey(kv.Key) && usedLines.Contains(kv.Key)) return false;
             }
             return true;
         }

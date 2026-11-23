@@ -205,6 +205,9 @@ namespace Metro.Sim {
             public bool HasGateLane;
             public long GateCoord;
             public int GateRotation;
+            public int GateMode;
+            public (long CellCoord, long FrontCoord)[] FixtureAccess;
+            public long[] ExitFloorCoords;
             public RampWall[] RampWalls;
             public string[] Unported;
             public bool IsServerOrPlatformOrExit;
@@ -240,8 +243,11 @@ namespace Metro.Sim {
         // Module-derived state (shared by reference when delta has zero module changes, sharded when modules change):
         Dictionary<string, ModuleContribution>[] moduleShards;
         Dictionary<long, int>[] obstacleShards;
-        Dictionary<long, List<(string Id, int Rotation)>> gateEntriesByCoord;
-        Dictionary<long, int> gateRotations;
+        Dictionary<long, List<(string Id, int Rotation, int Mode)>> gateEntriesByCoord;
+        Dictionary<long, (int Rotation, int Mode)> gateLanes;
+        Dictionary<long, List<(string Id, long FrontCoord)>> fixtureEntriesByCoord;
+        Dictionary<long, long> fixtureAccess;
+        Dictionary<long, int> exitFloorCounts;
         Dictionary<long, List<RampWall>> rampWallGrid;
         bool hasAnyRampWalls;
         List<StationModuleFact> serverModules;
@@ -382,8 +388,11 @@ namespace Metro.Sim {
                 ws.moduleShards[s] = new Dictionary<string, ModuleContribution>(StringComparer.Ordinal);
                 ws.obstacleShards[s] = new Dictionary<long, int>();
             }
-            ws.gateEntriesByCoord = new Dictionary<long, List<(string Id, int Rotation)>>();
-            ws.gateRotations = new Dictionary<long, int>();
+            ws.gateEntriesByCoord = new Dictionary<long, List<(string Id, int Rotation, int Mode)>>();
+            ws.gateLanes = new Dictionary<long, (int Rotation, int Mode)>();
+            ws.fixtureEntriesByCoord = new Dictionary<long, List<(string Id, long FrontCoord)>>();
+            ws.fixtureAccess = new Dictionary<long, long>();
+            ws.exitFloorCounts = new Dictionary<long, int>();
             ws.rampWallGrid = new Dictionary<long, List<RampWall>>();
             ws.serverModules = new List<StationModuleFact>();
             var unportedList = new List<string>();
@@ -396,7 +405,7 @@ namespace Metro.Sim {
                 for (int k = 0; k < contrib.ContentXs.Length; k++) {
                     AddContentXY(contrib.ContentXs[k], contrib.ContentYs[k]);
                 }
-                ApplyModuleContributionToShards(contrib, ws.obstacleShards, null, ws.gateEntriesByCoord, ws.gateRotations, ws.rampWallGrid);
+                ApplyModuleContributionToShards(contrib, ws.obstacleShards, null, ws.gateEntriesByCoord, ws.gateLanes, ws.fixtureEntriesByCoord, ws.fixtureAccess, ws.exitFloorCounts, ws.rampWallGrid);
                 if (contrib.RampWalls != null && contrib.RampWalls.Length > 0) ws.hasAnyRampWalls = true;
                 if (contrib.IsServerOrPlatformOrExit) ws.serverModules.Add(mod);
                 if (contrib.Unported != null) {
@@ -460,6 +469,13 @@ namespace Metro.Sim {
                         if (authoredGrade2D.Contains(PackBucket2(x, y))) continue;
                         TryEmitNode(x, y, StationWalkGraphBuilder.GroundZ, StationWalkGraphBuilder.ZoneOutside, opts.UnknownFloorSpeed);
                     }
+                }
+            }
+            if (ws.exitFloorCounts.Count > 0) {
+                foreach (var pk in ws.exitFloorCounts.Keys) {
+                    if (ws.authoredShards[ShardOf(pk)].ContainsKey(pk)) continue;
+                    Unpack3(pk, out int ex, out int ey, out int ez);
+                    TryEmitNode(ex, ey, ez, StationWalkGraphBuilder.ZoneOutside, opts.UnknownFloorSpeed);
                 }
             }
 
@@ -575,7 +591,10 @@ namespace Metro.Sim {
                 next.moduleShards = moduleShards;
                 next.obstacleShards = obstacleShards;
                 next.gateEntriesByCoord = gateEntriesByCoord;
-                next.gateRotations = gateRotations;
+                next.gateLanes = gateLanes;
+                next.fixtureEntriesByCoord = fixtureEntriesByCoord;
+                next.fixtureAccess = fixtureAccess;
+                next.exitFloorCounts = exitFloorCounts;
                 next.rampWallGrid = rampWallGrid;
                 next.hasAnyRampWalls = hasAnyRampWalls;
                 next.serverModules = serverModules;
@@ -603,13 +622,32 @@ namespace Metro.Sim {
 
                 bool gatesCloned = false;
                 next.gateEntriesByCoord = gateEntriesByCoord;
-                next.gateRotations = gateRotations;
+                next.gateLanes = gateLanes;
                 void EnsureGatesWritable() {
                     if (gatesCloned) return;
                     gatesCloned = true;
-                    next.gateEntriesByCoord = new Dictionary<long, List<(string Id, int Rotation)>>(gateEntriesByCoord.Count);
-                    foreach (var kv in gateEntriesByCoord) next.gateEntriesByCoord[kv.Key] = new List<(string Id, int Rotation)>(kv.Value);
-                    next.gateRotations = new Dictionary<long, int>(gateRotations);
+                    next.gateEntriesByCoord = new Dictionary<long, List<(string Id, int Rotation, int Mode)>>(gateEntriesByCoord.Count);
+                    foreach (var kv in gateEntriesByCoord) next.gateEntriesByCoord[kv.Key] = new List<(string Id, int Rotation, int Mode)>(kv.Value);
+                    next.gateLanes = new Dictionary<long, (int Rotation, int Mode)>(gateLanes);
+                }
+
+                bool fixturesCloned = false;
+                next.fixtureEntriesByCoord = fixtureEntriesByCoord;
+                next.fixtureAccess = fixtureAccess;
+                void EnsureFixturesWritable() {
+                    if (fixturesCloned) return;
+                    fixturesCloned = true;
+                    next.fixtureEntriesByCoord = new Dictionary<long, List<(string Id, long FrontCoord)>>(fixtureEntriesByCoord.Count);
+                    foreach (var kv in fixtureEntriesByCoord) next.fixtureEntriesByCoord[kv.Key] = new List<(string Id, long FrontCoord)>(kv.Value);
+                    next.fixtureAccess = new Dictionary<long, long>(fixtureAccess);
+                }
+
+                bool exitFloorsCloned = false;
+                next.exitFloorCounts = exitFloorCounts;
+                void EnsureExitFloorsWritable() {
+                    if (exitFloorsCloned) return;
+                    exitFloorsCloned = true;
+                    next.exitFloorCounts = new Dictionary<long, int>(exitFloorCounts);
                 }
 
                 for (int i = 0; i < delta.RemovedModules.Count; i++) {
@@ -619,12 +657,14 @@ namespace Metro.Sim {
                         if (oldC.IsServerOrPlatformOrExit) serverModulesChanged = true;
                         if (oldC.ObstacleCoords != null && oldC.ObstacleCoords.Length > 0) obstacleRemoved = true;
                         if (oldC.HasGateLane) EnsureGatesWritable();
+                        if (oldC.FixtureAccess != null && oldC.FixtureAccess.Length > 0) { EnsureFixturesWritable(); obstacleRemoved = true; }
+                        if (oldC.ExitFloorCoords != null && oldC.ExitFloorCoords.Length > 0) { EnsureExitFloorsWritable(); obstacleRemoved = true; }
                         if (oldC.Unported != null && oldC.Unported.Length > 0) {
                             unportedChanged = true;
                             removedUnportedStrings ??= new HashSet<string>(StringComparer.Ordinal);
                             for (int u = 0; u < oldC.Unported.Length; u++) removedUnportedStrings.Add(oldC.Unported[u]);
                         }
-                        RemoveModuleContributionFromShards(oldC, writableObsShard, next.gateEntriesByCoord, next.gateRotations, dirtyCellCoords);
+                        RemoveModuleContributionFromShards(oldC, writableObsShard, next.gateEntriesByCoord, next.gateLanes, next.fixtureEntriesByCoord, next.fixtureAccess, next.exitFloorCounts, dirtyCellCoords);
                         for (int k = 0; k < oldC.ContentXs.Length; k++) NoteContentDelta(oldC.ContentXs[k], oldC.ContentYs[k], -1);
                         if (oldC.RampWalls != null && oldC.RampWalls.Length > 0) {
                             rampWallsChanged = true;
@@ -641,8 +681,10 @@ namespace Metro.Sim {
                         if (oldC.IsServerOrPlatformOrExit) serverModulesChanged = true;
                         if (oldC.ObstacleCoords != null && oldC.ObstacleCoords.Length > 0) obstacleRemoved = true;
                         if (oldC.HasGateLane) EnsureGatesWritable();
+                        if (oldC.FixtureAccess != null && oldC.FixtureAccess.Length > 0) { EnsureFixturesWritable(); obstacleRemoved = true; }
+                        if (oldC.ExitFloorCoords != null && oldC.ExitFloorCoords.Length > 0) { EnsureExitFloorsWritable(); obstacleRemoved = true; }
                         if (oldC.Unported != null && oldC.Unported.Length > 0) unportedChanged = true;
-                        RemoveModuleContributionFromShards(oldC, writableObsShard, next.gateEntriesByCoord, next.gateRotations, dirtyCellCoords);
+                        RemoveModuleContributionFromShards(oldC, writableObsShard, next.gateEntriesByCoord, next.gateLanes, next.fixtureEntriesByCoord, next.fixtureAccess, next.exitFloorCounts, dirtyCellCoords);
                         for (int k = 0; k < oldC.ContentXs.Length; k++) NoteContentDelta(oldC.ContentXs[k], oldC.ContentYs[k], -1);
                         if (oldC.RampWalls != null && oldC.RampWalls.Length > 0) {
                             rampWallsChanged = true;
@@ -653,9 +695,11 @@ namespace Metro.Sim {
                     var newC = BuildModuleContribution(mod, i);
                     if (newC.IsServerOrPlatformOrExit) serverModulesChanged = true;
                     if (newC.HasGateLane) EnsureGatesWritable();
+                    if (newC.FixtureAccess != null && newC.FixtureAccess.Length > 0) EnsureFixturesWritable();
+                    if (newC.ExitFloorCoords != null && newC.ExitFloorCoords.Length > 0) EnsureExitFloorsWritable();
                     if (newC.Unported != null && newC.Unported.Length > 0) unportedChanged = true;
                     WritableModShard(ModuleShardOf(modId))[modId] = newC;
-                    ApplyModuleContributionToShards(newC, next.obstacleShards, writableObsShard, next.gateEntriesByCoord, next.gateRotations, null, dirtyCellCoords);
+                    ApplyModuleContributionToShards(newC, next.obstacleShards, writableObsShard, next.gateEntriesByCoord, next.gateLanes, next.fixtureEntriesByCoord, next.fixtureAccess, next.exitFloorCounts, null, dirtyCellCoords);
                     for (int k = 0; k < newC.ContentXs.Length; k++) NoteContentDelta(newC.ContentXs[k], newC.ContentYs[k], 1);
                     if (newC.RampWalls != null && newC.RampWalls.Length > 0) {
                         rampWallsChanged = true;
@@ -1036,7 +1080,7 @@ namespace Metro.Sim {
                 byte newDeg = (byte)scratchTo.Count;
                 if (newDeg > oldDeg) {
                     connectivityIncreased = true;
-                } else if (newDeg < oldDeg) {
+                } else if (newDeg < oldDeg || (options.ZoneBarriers && oldDeg > 0)) {
                     if (!splitSeedsByComp.TryGetValue(next.walkComponent[u], out var sset)) {
                         splitSeedsByComp[next.walkComponent[u]] = sset = new HashSet<long>();
                     }
@@ -1158,6 +1202,7 @@ namespace Metro.Sim {
                 NodeY = nodeY,
                 NodeZ = nodeZ,
                 NodeSpeed = nodeSpeed,
+                ZoneBarriers = options.ZoneBarriers,
                 NodeZone = nodeZone,
                 NodeShards = nodeShards,
                 StationArea = stationArea,
@@ -1282,6 +1327,13 @@ namespace Metro.Sim {
                 }
             }
 
+            // Activity stops and their serialized servers, in exact document order:
+            StationActivityStops.PopulateGraphStops(
+                graph,
+                serverModules,
+                (sx, sy, sz) => TryGetNode(sx, sy, sz, out int sn) ? sn : -1,
+                srv => AddServer(graph, srv));
+
             // Platform edges (second pass in exact document order, matching StationWalkGraphBuilder.Build):
             for (int i = 0; i < serverModules.Count; i++) {
                 var module = serverModules[i];
@@ -1358,12 +1410,19 @@ namespace Metro.Sim {
             // 1. Cardinal in exact order: (1,0), (-1,0), (0,1), (0,-1)
             int cardMask = 0;
             int[] cardNeighbor = { -1, -1, -1, -1 };
+            long pkI = nodeCoord[i];
+            long fixFrontI = 0;
+            bool hasFixI = fixtureAccess != null && fixtureAccess.TryGetValue(pkI, out fixFrontI);
             for (int c = 0; c < 4; c++) {
                 int nx = x + Cardinal[c].dx, ny = y + Cardinal[c].dy;
                 if (!TryGetNode(nx, ny, z, out int j)) continue;
-                bool fromGate = gateRotations.TryGetValue(nodeCoord[i], out var fromLane);
-                bool toGate = gateRotations.TryGetValue(nodeCoord[j], out var toLane);
-                if (!StationWalkGraphBuilder.GateStepAllowed(fromGate, fromLane, toGate, toLane,
+                long pkJ = nodeCoord[j];
+                if (hasFixI && fixFrontI != pkJ) continue;
+                if (fixtureAccess != null && fixtureAccess.TryGetValue(pkJ, out long fixFrontJ) && fixFrontJ != pkI) continue;
+                bool fromGate = gateLanes.TryGetValue(pkI, out var fromLane);
+                bool toGate = gateLanes.TryGetValue(pkJ, out var toLane);
+                if (!StationWalkGraphBuilder.GateStepAllowed(fromGate, fromLane.Rotation, fromLane.Mode,
+                        toGate, toLane.Rotation, toLane.Mode,
                         nx - x, ny - y, zoneI, nodeZone[j], options.ZoneBarriers)) continue;
                 if (CrossesRampWall(x + 0.5, y + 0.5, nx + 0.5, ny + 0.5, z)) continue;
                 double spd = (speedI + nodeSpeed[j]) * 0.5;
@@ -1376,7 +1435,7 @@ namespace Metro.Sim {
             }
 
             // 2. Diagonal in exact order: (1,1), (1,-1), (-1,1), (-1,-1)
-            if (gateRotations.ContainsKey(nodeCoord[i])) return;
+            if (gateLanes.ContainsKey(pkI) || hasFixI) return;
             for (int d = 0; d < 4; d++) {
                 int dx = Diagonal[d].dx, dy = Diagonal[d].dy;
                 int nx = x + dx, ny = y + dy;
@@ -1387,9 +1446,13 @@ namespace Metro.Sim {
                 int b = cardNeighbor[cardBIdx];
                 long pkJ = Pack3(nx, ny, z);
                 if (!nodeShards[ShardOf(pkJ)].TryGetValue(pkJ, out int j)) continue;
-                if (gateRotations.ContainsKey(pkJ) ||
-                    gateRotations.ContainsKey(nodeCoord[a]) ||
-                    gateRotations.ContainsKey(nodeCoord[b])) continue;
+                if (gateLanes.ContainsKey(pkJ) ||
+                    gateLanes.ContainsKey(nodeCoord[a]) ||
+                    gateLanes.ContainsKey(nodeCoord[b])) continue;
+                if (fixtureAccess != null && fixtureAccess.Count > 0 &&
+                    (fixtureAccess.ContainsKey(pkJ) ||
+                     fixtureAccess.ContainsKey(nodeCoord[a]) ||
+                     fixtureAccess.ContainsKey(nodeCoord[b]))) continue;
                 // Check CardinalAllows(a -> j) and CardinalAllows(b -> j):
                 int zoneJ = nodeZone[j];
                 if (options.ZoneBarriers && (StationWalkGraphBuilder.CrossesFareLine(nodeZone[a], zoneJ) ||
@@ -1406,6 +1469,16 @@ namespace Metro.Sim {
         }
 
         // ---------------------------------------- exact WalkComponent & reachability
+
+        bool HasReversePlanarWalk(int u, int v) {
+            if (!options.ZoneBarriers) return true;
+            int pDeg = planarDegree[v];
+            var outs = adjTo[v];
+            for (int e = 0; e < pDeg; e++) {
+                if (outs[e] == u) return true;
+            }
+            return false;
+        }
 
         void BuildInitialWalkComponents() {
             walkComponent = new int[nodeCount];
@@ -1427,7 +1500,7 @@ namespace Metro.Sim {
                     var outs = adjTo[u];
                     for (int e = 0; e < pDeg; e++) {
                         int v = outs[e];
-                        if (walkComponent[v] == 0) {
+                        if (walkComponent[v] == 0 && HasReversePlanarWalk(u, v)) {
                             walkComponent[v] = comp;
                             queue.Enqueue(v);
                         }
@@ -1470,6 +1543,7 @@ namespace Metro.Sim {
                 var outs = adjTo[u];
                 for (int e = 0; e < pDeg; e++) {
                     int v = outs[e];
+                    if (!HasReversePlanarWalk(u, v)) continue;
                     int cu = walkComponent[u];
                     int cv = walkComponent[v];
                     if (cu == cv) continue;
@@ -1482,7 +1556,7 @@ namespace Metro.Sim {
                     } else {
                         smallComp = cv; largeComp = cu; startNode = v;
                     }
-                    // Relabel smallComp -> largeComp via planar Walk edges:
+                    // Relabel smallComp -> largeComp via bidirectional planar Walk edges:
                     bfsQueue.Clear();
                     walkComponent[startNode] = largeComp;
                     bfsQueue.Enqueue(startNode);
@@ -1494,7 +1568,7 @@ namespace Metro.Sim {
                         var curOuts = adjTo[cur];
                         for (int k = 0; k < deg; k++) {
                             int nb = curOuts[k];
-                            if (walkComponent[nb] == smallComp) {
+                            if (walkComponent[nb] == smallComp && HasReversePlanarWalk(cur, nb)) {
                                 walkComponent[nb] = largeComp;
                                 bfsQueue.Enqueue(nb);
                             }
@@ -1566,7 +1640,7 @@ namespace Metro.Sim {
                     var outs = adjTo[u];
                     for (int e = 0; e < deg; e++) {
                         int v = outs[e];
-                        if (walkComponent[v] != comp) continue;
+                        if (walkComponent[v] != comp || !HasReversePlanarWalk(u, v)) continue;
                         if (!owner.TryGetValue(v, out var otherArm)) {
                             owner[v] = arm;
                             arm.Visited.Add(v);
@@ -1678,6 +1752,34 @@ namespace Metro.Sim {
                 }
             }
 
+            // One-way gates under ZoneBarriers create directed planar walk edges across
+            // bidirectional walk components; fold them into both standard and step-free condensation.
+            if (options.ZoneBarriers && gateLanes.Count > 0) {
+                var directedNodes = new HashSet<int>();
+                foreach (var kv in gateLanes) {
+                    Unpack3(kv.Key, out int gx, out int gy, out int gz);
+                    if (TryGetNode(gx, gy, gz, out int gn)) directedNodes.Add(gn);
+                    for (int c = 0; c < 4; c++) {
+                        if (TryGetNode(gx + Cardinal[c].dx, gy + Cardinal[c].dy, gz, out int nb)) directedNodes.Add(nb);
+                    }
+                }
+                foreach (int u in directedNodes) {
+                    int cu = walkComponent[u];
+                    int pDeg = planarDegree[u];
+                    var outs = adjTo[u];
+                    for (int e = 0; e < pDeg; e++) {
+                        int cv = walkComponent[outs[e]];
+                        if (cu == cv) continue;
+                        int du = DenseId(cu);
+                        int dv = DenseId(cv);
+                        if (!stdAdj.TryGetValue(du, out var listStd)) stdAdj[du] = listStd = new List<int>(4);
+                        if (!listStd.Contains(dv)) listStd.Add(dv);
+                        if (!sfAdj.TryGetValue(du, out var listSf)) sfAdj[du] = listSf = new List<int>(4);
+                        if (!listSf.Contains(dv)) listSf.Add(dv);
+                    }
+                }
+            }
+
             graph.CondensationMap = activeDense;
             graph.CondensationReachStandard = BuildReachBitsets(denseCount, stdAdj);
             graph.CondensationReachStepFree = BuildReachBitsets(denseCount, sfAdj);
@@ -1725,8 +1827,11 @@ namespace Metro.Sim {
             if (authoredShards[ShardOf(pk)].TryGetValue(pk, out var cell)) {
                 return cell.Solid;
             }
-            return z == StationWalkGraphBuilder.GroundZ && hasGroundWindow &&
-                   x >= gx0 && x <= gx1 && y >= gy0 && y <= gy1;
+            if (z == StationWalkGraphBuilder.GroundZ && hasGroundWindow &&
+                x >= gx0 && x <= gx1 && y >= gy0 && y <= gy1) {
+                return true;
+            }
+            return exitFloorCounts != null && exitFloorCounts.ContainsKey(pk);
         }
 
         bool EvaluateWalkable(int x, int y, int z, out int zone, out double speed) {
@@ -1737,8 +1842,9 @@ namespace Metro.Sim {
                 if (!cell.Solid || cell.Speed <= 0) return false;
                 zone = cell.Zone;
                 speed = cell.Speed;
-            } else if (z == StationWalkGraphBuilder.GroundZ && hasGroundWindow &&
-                       x >= gx0 && x <= gx1 && y >= gy0 && y <= gy1) {
+            } else if ((z == StationWalkGraphBuilder.GroundZ && hasGroundWindow &&
+                        x >= gx0 && x <= gx1 && y >= gy0 && y <= gy1) ||
+                       (exitFloorCounts != null && exitFloorCounts.ContainsKey(pk))) {
                 zone = StationWalkGraphBuilder.ZoneOutside;
                 speed = options.UnknownFloorSpeed;
                 if (speed <= 0) return false;
@@ -1851,6 +1957,7 @@ namespace Metro.Sim {
                         contrib.HasGateLane = true;
                         contrib.GateCoord = Pack3(module.X, module.Y, module.Z);
                         contrib.GateRotation = module.Rot;
+                        contrib.GateMode = module.GateDir;
                         contrib.IsServerOrPlatformOrExit = true;
                     } else {
                         obstacles = new List<long>(1) { Pack3(module.X, module.Y, module.Z) };
@@ -1858,14 +1965,21 @@ namespace Metro.Sim {
                     break;
                 case "fence":
                 case "psd-end":
+                    obstacles = new List<long>(1) { Pack3(module.X, module.Y, module.Z) };
+                    break;
                 case "tvm":
                 case "vending":
                     obstacles = new List<long>(1) { Pack3(module.X, module.Y, module.Z) };
+                    contrib.IsServerOrPlatformOrExit = true;
                     break;
                 case "checkout":
+                    obstacles = new List<long>();
+                    StationWalkGraphBuilder.ShopFixtureBlockedCells(module, (x, y, z) => obstacles.Add(Pack3(x, y, z)));
+                    break;
                 case "shelf":
                     obstacles = new List<long>();
                     StationWalkGraphBuilder.ShopFixtureBlockedCells(module, (x, y, z) => obstacles.Add(Pack3(x, y, z)));
+                    contrib.IsServerOrPlatformOrExit = true;
                     break;
                 case "road": {
                     int w = Math.Max(1, module.Width), d = Math.Max(1, module.Depth);
@@ -1892,11 +2006,12 @@ namespace Metro.Sim {
                     }
                     break;
                 case "booth": {
-                    int w = Math.Max(1, module.Width), h = Math.Max(1, module.Depth);
+                    int w = Math.Max(1, module.Width), h = Math.Max(1, module.Height > 0 ? module.Height : module.Depth);
                     obstacles = new List<long>(w * h);
                     for (int x = module.X; x < module.X + w; x++)
                         for (int y = module.Y; y < module.Y + h; y++)
                             obstacles.Add(Pack3(x, y, module.Z));
+                    contrib.IsServerOrPlatformOrExit = true;
                     break;
                 }
                 case "lift": {
@@ -1942,17 +2057,54 @@ namespace Metro.Sim {
                     }
                     break;
                 }
-                case "exit":
+                case "exit": {
                     contrib.IsServerOrPlatformOrExit = true;
-                    if (module.HeadHouse) unported = new List<string>(1) { "exit-walls:" + module.Id };
+                    if (StationWalkGraphBuilder.HasHeadHouseShell(module)) {
+                        var planes = new List<StationWalkGraphBuilder.ExitWallPlane>(3);
+                        StationWalkGraphBuilder.ExitWallPlanesFor(module, planes);
+                        if (planes.Count > 0) {
+                            var rw = new RampWall[planes.Count];
+                            for (int p = 0; p < planes.Count; p++) {
+                                var pl = planes[p];
+                                rw[p] = new RampWall { Ax = pl.Ax, Ay = pl.Ay, Bx = pl.Bx, By = pl.By, Z0 = pl.Z0, Z1 = pl.Z1 };
+                            }
+                            contrib.RampWalls = rw;
+                        }
+                        var fp = new List<(int X, int Y, int Z)>(48);
+                        StationWalkGraphBuilder.ExitFootprintCellsFor(module, fp);
+                        if (fp.Count > 0) {
+                            var coords = new long[fp.Count];
+                            for (int f = 0; f < fp.Count; f++) coords[f] = Pack3(fp[f].X, fp[f].Y, fp[f].Z);
+                            contrib.ExitFloorCoords = coords;
+                        }
+                    }
                     break;
+                }
                 case "platform-edge":
                     contrib.IsServerOrPlatformOrExit = true;
                     break;
                 case "bench":
                 case "cubicle":
-                case "sink":
-                    unported = new List<string>(1) { "fixture-access:" + module.Id };
+                case "sink": {
+                    var pairs = new List<(int X, int Y, int Z, int FrontX, int FrontY, int FrontZ)>(2);
+                    StationActivityStops.FixtureAccessPairs(module, pairs);
+                    if (pairs.Count > 0) {
+                        var arr = new (long CellCoord, long FrontCoord)[pairs.Count];
+                        for (int p = 0; p < pairs.Count; p++) {
+                            var pair = pairs[p];
+                            arr[p] = (Pack3(pair.X, pair.Y, pair.Z), Pack3(pair.FrontX, pair.FrontY, pair.FrontZ));
+                        }
+                        contrib.FixtureAccess = arr;
+                    }
+                    contrib.IsServerOrPlatformOrExit = true;
+                    break;
+                }
+                case "retail":
+                case "shop":
+                    contrib.IsServerOrPlatformOrExit = true;
+                    break;
+                case "glass":
+                    if (module.GlassFloorStanding) contrib.IsServerOrPlatformOrExit = true;
                     break;
                 case "roof":
                     if (module.Variant == "canopy") unported = new List<string>(1) { "canopy-posts:" + module.Id };
@@ -1975,8 +2127,11 @@ namespace Metro.Sim {
             ModuleContribution contrib,
             Dictionary<long, int>[] obstacleShards,
             Func<int, Dictionary<long, int>> writableObsShard,
-            Dictionary<long, List<(string Id, int Rotation)>> gateEntries,
-            Dictionary<long, int> gateRotations,
+            Dictionary<long, List<(string Id, int Rotation, int Mode)>> gateEntries,
+            Dictionary<long, (int Rotation, int Mode)> gateLanes,
+            Dictionary<long, List<(string Id, long FrontCoord)>> fixtureEntries,
+            Dictionary<long, long> fixtureAccess,
+            Dictionary<long, int> exitFloorCounts,
             Dictionary<long, List<RampWall>> rampGrid,
             HashSet<long> dirty = null) {
             for (int i = 0; i < contrib.ObstacleCoords.Length; i++) {
@@ -1990,11 +2145,34 @@ namespace Metro.Sim {
             if (contrib.HasGateLane) {
                 long gk = contrib.GateCoord;
                 if (!gateEntries.TryGetValue(gk, out var list)) {
-                    gateEntries[gk] = list = new List<(string Id, int Rotation)>(1);
+                    gateEntries[gk] = list = new List<(string Id, int Rotation, int Mode)>(1);
                 }
-                list.Add((contrib.Id, contrib.GateRotation));
-                gateRotations[gk] = contrib.GateRotation;
+                list.Add((contrib.Id, contrib.GateRotation, contrib.GateMode));
+                gateLanes[gk] = (contrib.GateRotation, contrib.GateMode);
                 dirty?.Add(gk);
+            }
+            if (contrib.FixtureAccess != null && fixtureEntries != null && fixtureAccess != null) {
+                for (int i = 0; i < contrib.FixtureAccess.Length; i++) {
+                    var (fk, front) = contrib.FixtureAccess[i];
+                    if (!fixtureEntries.TryGetValue(fk, out var flist)) {
+                        fixtureEntries[fk] = flist = new List<(string Id, long FrontCoord)>(1);
+                    }
+                    flist.Add((contrib.Id, front));
+                    fixtureAccess[fk] = front;
+                    dirty?.Add(fk);
+                }
+            }
+            if (contrib.ExitFloorCoords != null && exitFloorCounts != null) {
+                for (int i = 0; i < contrib.ExitFloorCoords.Length; i++) {
+                    long ek = contrib.ExitFloorCoords[i];
+                    int prev = exitFloorCounts.TryGetValue(ek, out int c) ? c : 0;
+                    exitFloorCounts[ek] = prev + 1;
+                    if (prev == 0 && dirty != null) {
+                        dirty.Add(ek);
+                        Unpack3(ek, out int ex, out int ey, out int ez);
+                        dirty.Add(Pack3(ex, ey, ez - 1));
+                    }
+                }
             }
             if (rampGrid != null && contrib.RampWalls != null && contrib.RampWalls.Length > 0) {
                 AddRampWallsToGrid(contrib.RampWalls, rampGrid);
@@ -2004,8 +2182,11 @@ namespace Metro.Sim {
         static void RemoveModuleContributionFromShards(
             ModuleContribution contrib,
             Func<int, Dictionary<long, int>> writableObsShard,
-            Dictionary<long, List<(string Id, int Rotation)>> gateEntries,
-            Dictionary<long, int> gateRotations,
+            Dictionary<long, List<(string Id, int Rotation, int Mode)>> gateEntries,
+            Dictionary<long, (int Rotation, int Mode)> gateLanes,
+            Dictionary<long, List<(string Id, long FrontCoord)>> fixtureEntries,
+            Dictionary<long, long> fixtureAccess,
+            Dictionary<long, int> exitFloorCounts,
             HashSet<long> dirty) {
             for (int i = 0; i < contrib.ObstacleCoords.Length; i++) {
                 long pk = contrib.ObstacleCoords[i];
@@ -2031,11 +2212,49 @@ namespace Metro.Sim {
                     }
                     if (list.Count == 0) {
                         gateEntries.Remove(gk);
-                        gateRotations.Remove(gk);
+                        gateLanes.Remove(gk);
                     } else {
-                        gateRotations[gk] = list[list.Count - 1].Rotation;
+                        var last = list[list.Count - 1];
+                        gateLanes[gk] = (last.Rotation, last.Mode);
                     }
                     dirty?.Add(gk);
+                }
+            }
+            if (contrib.FixtureAccess != null && fixtureEntries != null && fixtureAccess != null) {
+                for (int i = 0; i < contrib.FixtureAccess.Length; i++) {
+                    long fk = contrib.FixtureAccess[i].CellCoord;
+                    if (fixtureEntries.TryGetValue(fk, out var flist)) {
+                        for (int k = flist.Count - 1; k >= 0; k--) {
+                            if (string.Equals(flist[k].Id, contrib.Id, StringComparison.Ordinal)) {
+                                flist.RemoveAt(k);
+                                break;
+                            }
+                        }
+                        if (flist.Count == 0) {
+                            fixtureEntries.Remove(fk);
+                            fixtureAccess.Remove(fk);
+                        } else {
+                            fixtureAccess[fk] = flist[flist.Count - 1].FrontCoord;
+                        }
+                        dirty?.Add(fk);
+                    }
+                }
+            }
+            if (contrib.ExitFloorCoords != null && exitFloorCounts != null) {
+                for (int i = 0; i < contrib.ExitFloorCoords.Length; i++) {
+                    long ek = contrib.ExitFloorCoords[i];
+                    if (exitFloorCounts.TryGetValue(ek, out int c)) {
+                        if (c <= 1) {
+                            exitFloorCounts.Remove(ek);
+                            if (dirty != null) {
+                                dirty.Add(ek);
+                                Unpack3(ek, out int ex, out int ey, out int ez);
+                                dirty.Add(Pack3(ex, ey, ez - 1));
+                            }
+                        } else {
+                            exitFloorCounts[ek] = c - 1;
+                        }
+                    }
                 }
             }
         }

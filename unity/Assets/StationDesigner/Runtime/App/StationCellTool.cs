@@ -933,10 +933,9 @@ namespace Metro.App {
             StationCellKey cursor) {
             var anchor = current.Anchor;
             var target = current.Target;
-            int z = anchor.Z;
-            var line = current.Dragging
-                ? StationModuleRuns.LineCells(anchor, target, z)
-                : new List<StationCellKey> { anchor };
+            var template = current.Remove && current.Run != null ? current.Run : RunTemplate();
+            var line = StationModuleRuns.RunSlots(worldRef.Index, template, anchor, target, current.Dragging,
+                current.Remove, out _, out _);
             var previewOut = new StationCellPreview {
                 Kind = "run",
                 Cursor = cursor,
@@ -950,9 +949,10 @@ namespace Metro.App {
                 previewOut.Check.Cells.AddRange(line);
                 return previewOut;
             }
-            var plan = StationModuleRuns.PlanAdd(worldRef.Index,
-                current.Remove && current.Run != null ? current.Run : RunTemplate(), null, line, current.Remove);
+            var plan = StationModuleRuns.PlanRun(worldRef.Index, template, anchor, target, current.Dragging, current.Remove);
             previewOut.Check = StationModuleRuns.ToCheck(plan);
+            var patch = StationModuleRuns.ToPatch(plan);
+            previewOut.Patch = patch;
             if (current.Remove) {
                 // An erase run shows the pieces it lifts: every accepted cell is one panel going
                 // away, so the red/blue split reads as "what this release does".
@@ -971,6 +971,7 @@ namespace Metro.App {
             Width = StationToolSelection.SettingInt("width", 0),
             LineId = StationToolSelection.Setting("lineId"),
             CurtainHeight = StationToolSelection.SettingInt("curtainHeight", 4),
+            LineSpacing = StationModuleRuns.ClampSpacing(StationToolSelection.SettingInt("lineSpacing", 0)),
         };
 
         /// <summary>The 删除 tool's plan: the pieces it takes, or the blocks it digs.</summary>
@@ -1112,6 +1113,9 @@ namespace Metro.App {
                 } else if (current.Kind == StationCellGestureKind.Delete && !current.Sweep) {
                     var deleteAim = AnchorFor(hit, true);
                     if (deleteAim.HasValue) current.Target = deleteAim.Value;
+                } else if (current.Kind == StationCellGestureKind.ModuleRun) {
+                    var runAim = AnchorFor(hit, current.Remove, WantsWorkPlane(current.Tool));
+                    if (runAim.HasValue) current.Target = runAim.Value;
                 }
             }
             if (current.Kind == StationCellGestureKind.Delete && current.Sweep) {
@@ -1133,12 +1137,14 @@ namespace Metro.App {
             StationCellPatch patch;
             if (plan.Patch != null) {
                 patch = plan.Patch;
+                if (current.Kind == StationCellGestureKind.ModuleRun && !patch.HasWork) {
+                    reason = !string.IsNullOrEmpty(plan.Check.Reason) ? plan.Check.Reason : "nothing-to-do";
+                    return false;
+                }
             } else if (current.Kind == StationCellGestureKind.ModuleRun) {
-                var runLine = current.Dragging
-                    ? StationModuleRuns.LineCells(current.Anchor, current.Target, current.Anchor.Z)
-                    : new List<StationCellKey> { current.Anchor };
-                var runPlan = StationModuleRuns.PlanAdd(worldRef.Index,
-                    current.Remove && current.Run != null ? current.Run : RunTemplate(), null, runLine, current.Remove);
+                var runTemplate = current.Remove && current.Run != null ? current.Run : RunTemplate();
+                var runPlan = StationModuleRuns.PlanRun(worldRef.Index, runTemplate,
+                    current.Anchor, current.Target, current.Dragging, current.Remove);
                 patch = StationModuleRuns.ToPatch(runPlan);
                 if (!patch.HasWork) {
                     reason = runPlan.Reason.Length > 0 ? runPlan.Reason : "nothing-to-do";

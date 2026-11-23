@@ -30,8 +30,16 @@ namespace Metro.Persistence {
                 ["rot"] = RotationOf(draft),
             };
             if (draft.Width > 1) record["w"] = draft.Width;
-            if (draft.Depth > 1) record["d"] = draft.Depth;
-            if (draft.Height > 1) record["h"] = draft.Height;
+            bool facility = string.Equals(draft.Type, "shop", StringComparison.Ordinal) ||
+                            string.Equals(draft.Type, "booth", StringComparison.Ordinal) ||
+                            string.Equals(draft.Type, "retail", StringComparison.Ordinal);
+            if (facility) {
+                int fh = Math.Max(draft.Height, draft.Depth);
+                if (fh > 1) record["h"] = fh;
+            } else {
+                if (draft.Depth > 1) record["d"] = draft.Depth;
+                if (draft.Height > 1) record["h"] = draft.Height;
+            }
             if (draft.CeilingAnchored) record["ceilingAnchored"] = true;
             if (draft.PanelHeight > 0) record["panelH"] = draft.PanelHeight;
             if (draft.From.HasValue) record["from"] = Point(draft.From.Value);
@@ -152,6 +160,10 @@ namespace Metro.Persistence {
             if (draft.From.HasValue) record["from"] = Point(draft.From.Value);
             if (draft.To.HasValue) record["to"] = Point(draft.To.Value);
             var cfg = record["cfg"] as JObject;
+            if (draft.Config.TryGetValue("flights", out var flightsText) && !string.IsNullOrEmpty(flightsText)) {
+                if (cfg == null) { cfg = new JObject(); record["cfg"] = cfg; }
+                try { cfg["flights"] = JToken.Parse(flightsText); } catch (JsonException) { }
+            }
             if (draft.Config.ContainsKey("mountZ")) {
                 if (cfg == null) { cfg = new JObject(); record["cfg"] = cfg; }
                 cfg["mountZ"] = Scalar(draft.Config["mountZ"]);

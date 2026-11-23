@@ -1592,6 +1592,16 @@ namespace Metro.App.Views {
                 }
             }
 
+            if (context.VisualChangedLineIds.Count > 0) {
+                var marks = context.NextIndex.ModulesOfType("floor-mark");
+                for (int i = 0; i < marks.Count; i++) {
+                    var m = marks[i];
+                    if (m != null && string.Equals(m.Config.Text("variant"), "direction", StringComparison.Ordinal)) {
+                        dirtyChunks.Add((ChunkCoord(m.X), ChunkCoord(m.Y)));
+                    }
+                }
+            }
+
             if (context.CellsChanged) {
                 for (int i = 0; i < delta.RemovedCells.Count; i++) {
                     var k = delta.RemovedCells[i];
@@ -2628,17 +2638,32 @@ namespace Metro.App.Views {
                 int side = StationRailGeometry.ThirdRailSide(other, station, StationRailGeometry.LineDirectionOf(context.Document, other));
                 float offset = StationRailGeometry.TrackSideFixtureOffset(Mathf.Max(1f, other.Depth), StockWidthOf(context, other));
                 float centreAcross = (Mathf.Max(1f, other.Depth) - 1f) * .5f;
-                // A bridge gantry stands every eight metres from the run's origin.
-                for (float x = 0f; x < Mathf.Max(1f, other.Width); x += 8f) {
-                    RotateLocal(other.Rotation, x, centreAcross + side * offset, out var dx, out var dy);
-                    double globalX = other.X - bridge.X + dx;
-                    double globalY = other.Y - bridge.Y + dy;
-                    RotateLocal(-bridge.Rotation, globalX, globalY, out var localX, out var localY);
-                    if (localX < -.56 || localX > bridgeWidth - .44) continue;
-                    posts.Add(new Vector2((float)localX, (float)localY));
+                float otherWidth = Mathf.Max(1f, other.Width);
+                // Match `TrackGantry.ts:trackGantryLayout`: bridges place posts every 8 m from 0,
+                // open gantry platform/ground runs distribute ceil(w/8) posts across the span.
+                if (other.Config.Bool("bridge")) {
+                    for (float x = 0f; x < otherWidth; x += 8f) {
+                        AddNeighborPost(posts, other, bridge, x, centreAcross + side * offset, bridgeWidth);
+                    }
+                } else {
+                    int count = Mathf.Max(1, Mathf.CeilToInt(otherWidth / 8f));
+                    for (int p = 0; p < count; p++) {
+                        float x = count == 1 ? (otherWidth - 1f) * .5f : (p / (float)(count - 1)) * (otherWidth - 1f) - .5f;
+                        AddNeighborPost(posts, other, bridge, x, centreAcross + side * offset, bridgeWidth);
+                    }
                 }
             }
             return posts;
+        }
+
+        static void AddNeighborPost(List<Vector2> posts, ModuleFacts other, ModuleFacts bridge,
+            float x, float y, float bridgeWidth) {
+            RotateLocal(other.Rotation, x, y, out var dx, out var dy);
+            double globalX = other.X - bridge.X + dx;
+            double globalY = other.Y - bridge.Y + dy;
+            RotateLocal(-bridge.Rotation, globalX, globalY, out var localX, out var localY);
+            if (localX < -.56 || localX > bridgeWidth - .44) return;
+            posts.Add(new Vector2((float)localX, (float)localY));
         }
 
         /// <summary>`track.rotateLocal` on doubles (the source's own quarter-turn).</summary>
@@ -2675,7 +2700,19 @@ namespace Metro.App.Views {
             // save names. `BuildTrackRun` used to drop the whole `cfg.bridge*` group, so Tanwei's
             // four 32 × 3 m bridge runs came out as dug trenches with nothing over them.
             var bridge = RailBridgeOptionsFor(context, module, station, catenary, thirdRail);
-            var run = RailRunGeometry.Build(width, depth, scale, thirdRail, catenary, bridge);
+            RailCatenaryOptions catenaryOptions = null;
+            if (catenary) {
+                bool tunnel = module.Config.Bool("tunnel");
+                string catStyle = module.Config.Text("catenaryStyle");
+                catenaryOptions = new RailCatenaryOptions {
+                    Tunnel = tunnel,
+                    Style = catStyle,
+                    VehicleWidth = StockWidthOf(context, module),
+                    CeilingZ = StationRailGeometry.TrackCeilingUndersideLocal(context.Index, module,
+                        true, tunnel, bridge != null, catStyle),
+                };
+            }
+            var run = RailRunGeometry.Build(width, depth, scale, thirdRail, catenary, bridge, catenaryOptions);
             var root = new GameObject((string.IsNullOrEmpty(module.Id) ? "track" : module.Id) + " run");
             root.transform.SetParent(context.RoleRoot(Role), false);
             // `TrackModel.build` positions its group at the track record's **floor elevation**
@@ -2697,6 +2734,8 @@ namespace Metro.App.Views {
                 ? TrackMaterial(context, state, "track deck", StationMaterials.Platform, .86f, .02f) : null;
             var panelMaterial = bridge != null
                 ? TrackMaterial(context, state, "track barrier panel", StationMaterials.Light, .55f, .04f) : null;
+            var copperMaterial = catenary
+                ? TrackMaterialColor(context, state, "track contact wire", new Color(.68f, .42f, .24f, 1f), .55f, .65f) : null;
             AddTrackPart(root.transform, run.Bed, bedMaterial, state, "track-bed");
             AddTrackPart(root.transform, run.Deck, deckMaterial, state, "track-deck");
             AddTrackPart(root.transform, run.Steel, steelMaterial, state, "track-rail");
@@ -2704,6 +2743,7 @@ namespace Metro.App.Views {
             AddTrackPart(root.transform, run.Power, powerMaterial, state, "track-power");
             AddTrackPart(root.transform, run.Insulator, insulatorMaterial, state, "track-insulator");
             AddTrackPart(root.transform, run.Panel, panelMaterial, state, "track-barrier-panel");
+            AddTrackPart(root.transform, run.Copper, copperMaterial, state, "track-contact-wire");
             var grid = StationLevelGrid.FromDocument(context.Document.LevelBase, context.Document.StoreyHeight);
             var bands = StationModuleLevels.Of(module, grid);
             int levelMin = bands.Length > 0 ? bands[0] : module.Z;
@@ -2721,10 +2761,13 @@ namespace Metro.App.Views {
         readonly List<string> trackNotes = new List<string>();
 
         Material TrackMaterial(StationViewBuildContext context, WorldState state, string name, int colour,
+            float smoothness, float metallic) =>
+            TrackMaterialColor(context, state, name, StationMaterials.Colours[colour], smoothness, metallic);
+
+        Material TrackMaterialColor(StationViewBuildContext context, WorldState state, string name, Color value,
             float smoothness, float metallic) {
             var shader = context.Shader != null ? context.Shader : Shader.Find("Universal Render Pipeline/Lit");
             var material = new Material(shader) { name = name };
-            var value = (Color)StationMaterials.Colours[colour];
             if (material.HasProperty("_BaseColor")) material.SetColor("_BaseColor", value.linear);
             else material.color = value;
             if (material.HasProperty("_Smoothness")) material.SetFloat("_Smoothness", smoothness);
@@ -3674,6 +3717,80 @@ namespace Metro.App.Views {
 
         protected override bool IsLocalPrefabSupported(string type) =>
             type != "tv" && type != "calligraphy" && type != "linemap";
+
+        sealed class DisplayMetadataRefreshStage : IStationLocalRendererStage {
+            readonly StationDisplayModuleRenderer owner;
+            readonly WorldState state;
+            readonly StationLocalDeltaContext context;
+            readonly IStationLocalRendererStage inner;
+
+            public DisplayMetadataRefreshStage(StationDisplayModuleRenderer owner, WorldState state,
+                StationLocalDeltaContext context, IStationLocalRendererStage inner) {
+                this.owner = owner;
+                this.state = state;
+                this.context = context;
+                this.inner = inner;
+            }
+
+            public void Commit(StationWorldView world, StationLocalViewCommit commit) {
+                inner?.Commit(world, commit);
+                var station = context.GetNextStationFacts();
+                bool needCalligraphy = context.NameChanged || context.CityChanged;
+                bool needLinemap = context.CityChanged;
+                bool needTv = context.NameChanged || context.CityChanged || context.VisualChangedLineIds.Count > 0;
+                bool boundCalligraphy = false;
+                for (int i = 0; i < station.Length; i++) {
+                    var module = station[i];
+                    if (module == null || !state.ById.TryGetValue(module.Id, out var built) || built?.View == null) continue;
+                    if (needCalligraphy && module.Type == "calligraphy") {
+                        var scope = owner.CalligraphyArtworkForWorld(world, state);
+                        StationCalligraphyArtwork.Bind(context.NextDocument, scope, built.View, module, world.Font, world);
+                        boundCalligraphy = true;
+                    } else if (needLinemap && module.Type == "linemap") {
+                        var scope = owner.DisplayArtworkForWorld(world, state);
+                        StationLineMapArtwork.Bind(scope, context.NextDocument, built.View, module, world);
+                    } else if (needTv && module.Type == "tv") {
+                        var scope = owner.DisplayArtworkForWorld(world, state);
+                        StationDisplayTvArtwork.Bind(scope, world, context.NextDocument, InitialMotionFrame(), true,
+                            built.View, module, station, Time.realtimeSinceStartupAsDouble);
+                    }
+                }
+                if (boundCalligraphy && state.Calligraphy != null) state.Calligraphy.Cache?.Pump();
+            }
+
+            public void Dispose() { inner?.Dispose(); }
+        }
+
+        StationCalligraphyArtwork.Scope CalligraphyArtworkForWorld(StationWorldView world, WorldState state) {
+            if (state.Calligraphy != null && state.Calligraphy.gameObject != null) return state.Calligraphy;
+            state.Calligraphy = StationCalligraphyArtwork.CreateScope(world.RoleRoot(Role), world, world.Font);
+            return state.Calligraphy;
+        }
+
+        public override bool TryStageLocalDelta(
+            StationLocalDeltaContext context,
+            out IStationLocalRendererStage stage,
+            out string fallbackReason) {
+            if (!base.TryStageLocalDelta(context, out var innerStage, out fallbackReason)) {
+                stage = null;
+                return false;
+            }
+            if (!context.NameChanged && !context.CityChanged && context.VisualChangedLineIds.Count == 0) {
+                stage = innerStage;
+                return true;
+            }
+            var state = StateOf(context.World);
+            if (state == null) {
+                stage = innerStage;
+                return true;
+            }
+            bool hasTarget =
+                ((context.NameChanged || context.CityChanged) && context.NextIndex.ModulesOfType("calligraphy").Count > 0) ||
+                (context.CityChanged && context.NextIndex.ModulesOfType("linemap").Count > 0) ||
+                context.NextIndex.ModulesOfType("tv").Count > 0;
+            stage = hasTarget ? new DisplayMetadataRefreshStage(this, state, context, innerStage) : innerStage;
+            return true;
+        }
 
         protected override bool UsesCeilingMountInLocal(ModuleFacts module) =>
             StationFootprints.IsCeilingHung(module);

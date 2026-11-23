@@ -63,6 +63,8 @@ namespace Metro.App {
         Material skyMaterial;
         Camera boundCamera;
         Color voidColor = StationRenderRig.VoidColor;
+        string theme = "blueprint";
+        bool hasExplicitVoidColor;
         bool shown;
         float intensity = SkyIntensity(DefaultSimTime);
         float appliedIntensity = float.NaN;
@@ -71,6 +73,7 @@ namespace Metro.App {
         public float Intensity => intensity;
         public float AppliedIntensity => appliedIntensity;
         public Color VoidColor => voidColor;
+        public string Theme => theme;
         public Material Material => skyMaterial;
 
         /// <summary>Seconds since midnight wrapped into <c>[0, 86400)</c>, preserving fractional seconds.</summary>
@@ -124,13 +127,15 @@ namespace Metro.App {
 
         public void SetVoidColor(Color color) {
             voidColor = color;
-            if (!shown && boundCamera != null && !float.IsNaN(appliedIntensity)) {
+            hasExplicitVoidColor = true;
+            if (!shown && boundCamera != null) {
                 boundCamera.backgroundColor = voidColor;
                 if (RenderSettings.fog) RenderSettings.fogColor = voidColor.linear;
             }
         }
 
-        public void SetTheme(string theme) {
+        public void SetTheme(string nextTheme) {
+            theme = StationViewCommandApplier.NormalizeTheme(nextTheme);
             SetVoidColor(string.Equals(theme, "studio", StringComparison.OrdinalIgnoreCase)
                 ? StationRenderRig.StudioVoidColor
                 : StationRenderRig.VoidColor);
@@ -146,6 +151,10 @@ namespace Metro.App {
 
             if (!hideUi && !shown && !force) {
                 boundCamera = camera;
+                if (hasExplicitVoidColor) {
+                    camera.backgroundColor = voidColor;
+                    if (RenderSettings.fog) RenderSettings.fogColor = voidColor.linear;
+                }
                 return;
             }
 
@@ -195,6 +204,7 @@ namespace Metro.App {
             var shader = skyMaterial != null ? skyMaterial.shader : FindShader();
             return new JObject {
                 ["shown"] = shown,
+                ["theme"] = theme,
                 ["intensity"] = Math.Round(intensity, 6),
                 ["clearFlags"] = cam != null ? cam.clearFlags.ToString() : CameraClearFlags.SolidColor.ToString(),
                 ["shaderSupported"] = shader != null && shader.isSupported,

@@ -72,6 +72,19 @@ namespace Metro.App {
             return (int)token;
         }
 
+        public static double SettingDouble(string key, double fallback) {
+            var token = settings[key];
+            if (token == null) return fallback;
+            if (token.Type == JTokenType.Integer || token.Type == JTokenType.Float) return (double)token;
+            if (token.Type == JTokenType.String &&
+                double.TryParse((string)token, System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out var parsed) &&
+                !double.IsNaN(parsed) && !double.IsInfinity(parsed)) {
+                return parsed;
+            }
+            return fallback;
+        }
+
         public static bool SettingBool(string key, bool fallback = false) {
             var token = settings[key];
             if (token == null) return fallback;
@@ -108,7 +121,8 @@ namespace Metro.App {
                    string.Equals(id, "roof-shell", StringComparison.Ordinal) ||
                    string.Equals(id, "roof-truss", StringComparison.Ordinal) ||
                    string.Equals(id, "roof-tapered", StringComparison.Ordinal) ||
-                   string.Equals(id, "roof-canopy", StringComparison.Ordinal);
+                   string.Equals(id, "roof-canopy", StringComparison.Ordinal) ||
+                   Metro.Build.StationModuleRuns.IsLinePalette(id);
         }
 
         /// <summary>

@@ -823,6 +823,7 @@ internal sealed unsafe class D3d11VisualCapture : IDisposable {
 
 internal sealed class OffscreenWebViewHost : NativeWindow, IDisposable {
     private const string VirtualOrigin = "https://app.metro.local";
+    private const string PublicOrigin = "https://stationdesigner.com";
 
     private readonly CliOptions options;
     private readonly SynchronizationContext uiContext;
@@ -1015,6 +1016,7 @@ internal sealed class OffscreenWebViewHost : NativeWindow, IDisposable {
             coreWebView.AddWebResourceRequestedFilter(VirtualOrigin + "/*", CoreWebView2WebResourceContext.All);
             coreWebView.WebResourceRequested += (_, args) => HandleWebResourceRequested(env, args);
             coreWebView.WebMessageReceived += OnWebMessageReceived;
+            coreWebView.NewWindowRequested += OnNewWindowRequested;
 
             if (options.SelfTest) {
                 coreWebView.NavigationCompleted += async (_, navArgs) => {
@@ -1155,6 +1157,40 @@ internal sealed class OffscreenWebViewHost : NativeWindow, IDisposable {
 
         Console.Out.WriteLine($"SELFTEST_OK mounted=true transparent=true offscreen=true input={inputOk} avgCaptureMs={avgCaptureMs} elapsedMs={sw.ElapsedMilliseconds}");
         Shutdown(0);
+    }
+
+    private void OnNewWindowRequested(object? sender, CoreWebView2NewWindowRequestedEventArgs e) {
+        // Never allow popups inside the offscreen WebView2 overlay; only allowlisted public
+        // feedback board URLs may open in the user's system browser.
+        e.Handled = true;
+        if (!TryResolveAllowedExternalUrl(e.Uri, out string targetUrl)) return;
+        try {
+            Process.Start(new ProcessStartInfo(targetUrl) { UseShellExecute = true });
+        } catch (Exception ex) {
+            _ = SendToUnityAsync(new { kind = "log", level = "warning", message = "External link open failed: " + ex.Message });
+        }
+    }
+
+    internal static bool TryResolveAllowedExternalUrl(string? rawUri, out string targetUrl) {
+        targetUrl = "";
+        if (string.IsNullOrWhiteSpace(rawUri)) return false;
+        if (!Uri.TryCreate(rawUri, UriKind.Absolute, out var uri)) return false;
+        if (!string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)) return false;
+        string origin = uri.GetLeftPart(UriPartial.Authority);
+        bool allowedOrigin =
+            string.Equals(origin, VirtualOrigin, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(origin, PublicOrigin, StringComparison.OrdinalIgnoreCase);
+        if (!allowedOrigin) return false;
+        string path = uri.AbsolutePath.TrimEnd('/');
+        if (string.Equals(path, "/stats/report", StringComparison.OrdinalIgnoreCase)) {
+            targetUrl = PublicOrigin + "/stats/report";
+            return true;
+        }
+        if (string.Equals(path, "/stats/en/report", StringComparison.OrdinalIgnoreCase)) {
+            targetUrl = PublicOrigin + "/stats/en/report";
+            return true;
+        }
+        return false;
     }
 
     private void OnWebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e) {

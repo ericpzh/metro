@@ -414,7 +414,13 @@ namespace Metro.App.Views {
         readonly List<int> goneScratch = new List<int>();
         readonly List<Diagnostic> diagnostics = new List<Diagnostic>();
         readonly HashSet<string> reported = new HashSet<string>(StringComparer.Ordinal);
+        readonly List<Matrix4x4> contactShadowMatrices = new List<Matrix4x4>();
+        Matrix4x4[] contactShadowSlice;
+        Material contactShadowMaterial;
         MaterialPropertyBlock toneBlock;
+
+        /// <summary>Active crowd contact-shadow blobs queued for this frame's instanced draw.</summary>
+        public int ContactShadowCount => contactShadowMatrices.Count;
         PassengerCatalogue catalogue;
         StationWorldView world;
         PassengerSupportResolver supportResolver;
@@ -525,6 +531,66 @@ namespace Metro.App.Views {
             }
             for (int i = 0; i < goneScratch.Count; i++) Hide(goneScratch[i]);
             RefreshVisibleCount();
+        }
+
+        void LateUpdate() {
+            DrawContactShadows();
+        }
+
+        void RebuildContactShadows() {
+            contactShadowMatrices.Clear();
+            var vis = world != null ? world.Visibility : null;
+            int followId = vis != null ? vis.State.FollowPassenger : -1;
+            bool everyStorey = vis == null || vis.State.HideUi || vis.State.Cutaway;
+            int activeLevel = vis != null ? vis.State.ActiveLevel : 0;
+            bool hideGround = vis != null && vis.State.HideGround;
+            bool sectionClip = vis != null && vis.SectionClipping;
+            var grid = vis != null ? vis.State.Grid : default;
+
+            foreach (var actor in actors.Values) {
+                if (actor == null || !actor.Visible || !actor.ActiveInFrame || actor.Root == null || !actor.Root.activeSelf) continue;
+                if (actor.SimId == followId) continue;
+                if (hideGround && actor.LastGradeOwned) continue;
+                if (vis != null && !StationVisibilityRules.ContactShadowVisible(actor.LastBand, activeLevel, everyStorey, grid)) continue;
+                var pos = actor.LastPosition;
+                if (float.IsNaN(pos.x)) pos = actor.Root.transform.position;
+                if (sectionClip && !vis.IsPointKept(StationCoordinates.WorldToDocument(pos))) continue;
+                float sx = Mathf.Max(.2f, (float)actor.Look.Width * .72f);
+                float sz = Mathf.Max(.2f, (float)actor.Look.Depth * .72f);
+                contactShadowMatrices.Add(Matrix4x4.TRS(
+                    pos + Vector3.up * StationContactShadowAssets.PassengerLiftY,
+                    Quaternion.identity,
+                    new Vector3(sx, 1f, sz)));
+            }
+        }
+
+        void DrawContactShadows() {
+            int total = contactShadowMatrices.Count;
+            if (total == 0 || !gameObject.activeInHierarchy) return;
+            if (contactShadowMaterial == null) {
+                contactShadowMaterial = StationContactShadowAssets.CreateMaterial(
+                    StationContactShadowAssets.PassengerTexture(), "passenger contact shadows");
+                if (contactShadowMaterial == null) return;
+            }
+            var vis = world != null ? world.Visibility : null;
+            if (vis != null && contactShadowMaterial.HasProperty("_SectionPlane")) {
+                var normal = StationCoordinates.Direction(vis.Section.Normal);
+                var point = StationCoordinates.Point(vis.Section.Point);
+                contactShadowMaterial.SetVector("_SectionPlane",
+                    new Vector4(normal.x, normal.y, normal.z, -Vector3.Dot(normal, point)));
+                contactShadowMaterial.SetFloat("_SectionClip", vis.SectionClipping ? 1f : 0f);
+            }
+            var mesh = StationContactShadowAssets.QuadMesh();
+            const int maxPerDraw = 1023;
+            if (contactShadowSlice == null || contactShadowSlice.Length != maxPerDraw) {
+                contactShadowSlice = new Matrix4x4[maxPerDraw];
+            }
+            for (int offset = 0; offset < total; offset += maxPerDraw) {
+                int count = Mathf.Min(maxPerDraw, total - offset);
+                contactShadowMatrices.CopyTo(offset, contactShadowSlice, 0, count);
+                Graphics.DrawMeshInstanced(mesh, 0, contactShadowMaterial, contactShadowSlice, count,
+                    null, UnityEngine.Rendering.ShadowCastingMode.Off, false);
+            }
         }
 
         PassengerCrowdActor GetOrSpawn(PassengerPose pose) {
@@ -828,6 +894,7 @@ namespace Metro.App.Views {
                 if (actor.Visible) visible++;
             }
             VisibleActors = visible;
+            RebuildContactShadows();
         }
 
         void Hide(int simId) {
@@ -979,6 +1046,8 @@ namespace Metro.App.Views {
             actors.Clear();
             inactiveByRecipe.Clear();
             seen.Clear();
+            contactShadowMatrices.Clear();
+            if (contactShadowMaterial != null) { DestroyNow(contactShadowMaterial); contactShadowMaterial = null; }
             diagnostics.Clear();
             reported.Clear();
             VisibleActors = 0;
@@ -997,6 +1066,8 @@ namespace Metro.App.Views {
             actors.Clear();
             inactiveByRecipe.Clear();
             seen.Clear();
+            contactShadowMatrices.Clear();
+            if (contactShadowMaterial != null) { DestroyNow(contactShadowMaterial); contactShadowMaterial = null; }
             diagnostics.Clear();
             reported.Clear();
         }
@@ -1320,7 +1391,8 @@ namespace Metro.App.Views {
         }
 
         static bool IsOnFoot(StationPassengerState state) =>
-            state == StationPassengerState.Walking || state == StationPassengerState.Queuing;
+            state == StationPassengerState.Walking || state == StationPassengerState.Queuing ||
+            state == StationPassengerState.Buying || state == StationPassengerState.Browsing;
 
         static double Lerp(double from, double to, double alpha) => from + (to - from) * alpha;
 

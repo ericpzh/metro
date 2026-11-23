@@ -146,7 +146,10 @@ namespace Metro.App {
         readonly bool authoredOpen;
         float plus, minus;
         int platformBank = 1;
+        int activeBankMask = 1;
         int observed = -1;
+        int observedPlus = -1;
+        int observedMinus = -1;
 
         /// <summary>Every exported leaf the rig bound (`*DoorNN`).</summary>
         public int Leaves => leaves.Count;
@@ -160,6 +163,9 @@ namespace Metro.App {
         /// <summary>The bank that faces the platform: +1 (source `plus`) or −1 (`minus`).</summary>
         public int PlatformBank => platformBank;
 
+        /// <summary>Bitmask of active banks facing platforms: bit 0 = +1 (`plus`), bit 1 = −1 (`minus`), 0..3.</summary>
+        public int ActiveBankMask => activeBankMask;
+
         /// <summary>Fraction commanded on the +1 bank.</summary>
         public float Plus => plus;
 
@@ -170,13 +176,42 @@ namespace Metro.App {
         public float PlatformFraction => platformBank >= 0 ? plus : minus;
 
         /// <summary>The bank the platform does not face; it must stay shut.</summary>
-        public int InactiveBank => -platformBank;
+        public int InactiveBank => (activeBankMask & 1) == 0 ? 1 : ((activeBankMask & 2) == 0 ? -1 : -platformBank);
 
-        /// <summary>The fraction the inactive bank holds (0 on a berth with a platform).</summary>
-        public float InactiveFraction => platformBank >= 0 ? minus : plus;
+        /// <summary>The max fraction held by any bank NOT enabled in <see cref="ActiveBankMask"/> (0 when both banks are active).</summary>
+        public float InactiveFraction {
+            get {
+                float f = 0f;
+                if ((activeBankMask & 1) == 0) f = Mathf.Max(f, plus);
+                if ((activeBankMask & 2) == 0) f = Mathf.Max(f, minus);
+                return f;
+            }
+        }
 
         /// <summary>The fraction one bank holds (`+1` = the source's `plus`).</summary>
         public float BankFraction(int bank) => bank >= 0 ? plus : minus;
+
+        /// <summary>The doorway index of the observed leaf on <paramref name="bank"/> (+1 or −1).</summary>
+        public int ObservedDoorwayFor(int bank) {
+            int idx = bank >= 0 ? observedPlus : observedMinus;
+            return idx >= 0 && idx < leaves.Count ? leaves[idx].door : -1;
+        }
+
+        /// <summary>Live local x of the observed leaf on <paramref name="bank"/> (+1 or −1).</summary>
+        public float ObservedLeafXFor(int bank) {
+            int idx = bank >= 0 ? observedPlus : observedMinus;
+            if (idx < 0 || idx >= leaves.Count || !root) return 0f;
+            var leaf = leaves[idx];
+            return leaf.node ? root.InverseTransformPoint(leaf.node.position).x : 0f;
+        }
+
+        /// <summary>Live local z of the observed leaf on <paramref name="bank"/> (+1 or −1).</summary>
+        public float ObservedLeafZFor(int bank) {
+            int idx = bank >= 0 ? observedPlus : observedMinus;
+            if (idx < 0 || idx >= leaves.Count || !root) return 0f;
+            var leaf = leaves[idx];
+            return leaf.node ? root.InverseTransformPoint(leaf.node.position).z : 0f;
+        }
 
         /// <summary>The doorway index the observed leaf belongs to (−1 when it could not be paired).</summary>
         public int ObservedDoorway => observed >= 0 && observed < leaves.Count ? leaves[observed].door : -1;
@@ -419,11 +454,17 @@ namespace Metro.App {
             !string.IsNullOrEmpty(name) && !name.StartsWith("DoorCentre", StringComparison.Ordinal) && LeafName.IsMatch(name);
 
         void PickObserved() {
-            observed = -1;
+            observedPlus = -1;
+            observedMinus = -1;
             for (int i = 0; i < leaves.Count; i++) {
-                if (leaves[i].bank != platformBank || leaves[i].door < 0) continue;
-                if (observed < 0 || leaves[i].closed.x < leaves[observed].closed.x) observed = i;
+                if (leaves[i].door < 0) continue;
+                if (leaves[i].bank >= 0) {
+                    if (observedPlus < 0 || leaves[i].closed.x < leaves[observedPlus].closed.x) observedPlus = i;
+                } else {
+                    if (observedMinus < 0 || leaves[i].closed.x < leaves[observedMinus].closed.x) observedMinus = i;
+                }
             }
+            observed = platformBank >= 0 ? observedPlus : observedMinus;
             // A bank with no complete pair still reports a leaf, so a caller can sample it.
             if (observed < 0 && leaves.Count > 0) observed = 0;
         }
@@ -433,11 +474,28 @@ namespace Metro.App {
         /// <summary>Choose which bank faces the platform (+1 = source `plus`, −1 = `minus`).</summary>
         public void SetPlatformBank(int bank) {
             int next = bank >= 0 ? 1 : -1;
+            activeBankMask = next >= 0 ? 1 : 2;
             if (next == platformBank && observed >= 0) return;
             platformBank = next;
             PickObserved();
             ApplyBank(1, plus);
             ApplyBank(-1, minus);
+        }
+
+        /// <summary>Set which banks face platforms: bit 0 = +1 (`plus`), bit 1 = −1 (`minus`), 0..3.</summary>
+        public void SetActiveBankMask(int mask) {
+            activeBankMask = mask & 3;
+            if ((activeBankMask & 1) != 0) platformBank = 1;
+            else if ((activeBankMask & 2) != 0) platformBank = -1;
+            PickObserved();
+            ApplyBank(1, plus);
+            ApplyBank(-1, minus);
+        }
+
+        /// <summary>Drive every bank enabled in <see cref="ActiveBankMask"/> and hold disabled banks shut.</summary>
+        public void ApplyMask(float openness) {
+            float fraction = Mathf.Clamp01(openness);
+            Apply((activeBankMask & 1) != 0 ? fraction : 0f, (activeBankMask & 2) != 0 ? fraction : 0f);
         }
 
         /// <summary>Derive the platform bank from a world point that lies on the platform.</summary>

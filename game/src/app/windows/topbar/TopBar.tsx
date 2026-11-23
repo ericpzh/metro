@@ -2,7 +2,7 @@ import { t } from '../../../sim/i18n.ts'
 import { useLanguage } from '../../i18n.ts'
 // Lane A split (Phase 1): moved verbatim from app/App.tsx — TopBar() plus its
 // private StationName() editor and SPEEDS group.
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { useStore } from '../../store.ts'
 import { ExampleStationsButton } from './ExampleStationsButton.tsx'
 import { NewStationButton } from './NewStationButton.tsx'
@@ -13,6 +13,7 @@ import { openSaveWithLoading } from '../../gameLoading.ts'
 import { CityStyleSelect } from './CityStyleSelect.tsx'
 import { FileButtons } from './FileButtons.tsx'
 import { useStationHost } from '../StationHost.tsx'
+import { stationHostCommit } from '../../stationHostBridge.ts'
 
 // Speed multipliers: the play/pause toggle and the speeds are one segmented
 // group (暂停 | 1× | 4× | 16× | 64×). Exactly one is highlighted: paused ⇒ the
@@ -56,15 +57,26 @@ function StationName({ editable = true }: { editable?: boolean }): React.ReactEl
   )
 }
 
+const EMPTY_HISTORY = { canUndo: false, canRedo: false }
+const noopSubscribe = (): (() => void) => () => {}
+
 export function TopBar({ files }: { files?: { save: () => void; open: (text: string) => void } } = {}): React.ReactElement {
   useLanguage()
   const host = useStationHost()
   const saveToFile = useStore((s) => s.saveToFile)
   const loadFromText = useStore((s) => s.loadFromText)
-  const undo = useStore((s) => s.undo)
-  const redo = useStore((s) => s.redo)
-  const canUndo = useStore((s) => s.past.length > 0)
-  const canRedo = useStore((s) => s.future.length > 0)
+  const storeUndo = useStore((s) => s.undo)
+  const storeRedo = useStore((s) => s.redo)
+  const storeCanUndo = useStore((s) => s.past.length > 0)
+  const storeCanRedo = useStore((s) => s.future.length > 0)
+  const hostHistory = useSyncExternalStore(
+    host?.subscribeHistory ?? noopSubscribe,
+    host?.getHistory ?? (() => EMPTY_HISTORY),
+  )
+  const undo = host?.undo ?? storeUndo
+  const redo = host?.redo ?? storeRedo
+  const canUndo = host?.getHistory ? hostHistory.canUndo : storeCanUndo
+  const canRedo = host?.getHistory ? hostHistory.canRedo : storeCanRedo
   const fileRef = useRef<HTMLInputElement>(null)
   // Ctrl+L opens the file picker, but the input lives here while the key
   // handler lives in App, so it arrives as an event.
@@ -77,7 +89,7 @@ export function TopBar({ files }: { files?: { save: () => void; open: (text: str
     <div className="topbar">
       <div className="brand">
         <span className="logo">{t('metro_station_designer')}</span>
-        <StationName editable={!files && !host} />
+        <StationName editable={!files && (!host || Boolean(stationHostCommit()?.commitStationName))} />
       </div>
       <div className="spacer" />
       <NewStationButton />

@@ -278,13 +278,7 @@ namespace Metro.Sim {
                     return path.ToArray();
                 }
                 double gs = gScore[current];
-                double curX = nodeX[current], curY = nodeY[current], curZ = nodeZ[current];
-                int curSrvIdx = (uint)current < (uint)srvAtNode.Length ? srvAtNode[current] : -1;
-                StationServerFact curGateSrv = null;
-                if (curSrvIdx >= 0) {
-                    var cs = serversList[curSrvIdx];
-                    if (cs.Kind == "gate" && cs.GateMode != 0) curGateSrv = cs;
-                }
+                double curZ = nodeZ[current];
                 var to = adjToRaw != null ? adjToRaw[current] : graph.AdjTo[current];
                 var edgeKinds = adjKindRaw != null ? adjKindRaw[current] : graph.AdjKind[current];
                 var edgeCosts = adjCostRaw != null ? adjCostRaw[current] : graph.AdjCost[current];
@@ -296,19 +290,10 @@ namespace Metro.Sim {
                     int atNode = (uint)next < (uint)srvAtNode.Length ? srvAtNode[next] : -1;
                     if (walkOnly && (kind != WalkEdgeKind.Walk || curZ != nodeZ[next] || atNode >= 0)) continue;
                     int direction = 0;
-                    if (kind == WalkEdgeKind.Walk) {
-                        if (curGateSrv != null) {
-                            int dx = (int)(nodeX[next] - curX), dy = (int)(nodeY[next] - curY);
-                            if (StationWalkGraphBuilder.GateTravelDirection(curGateSrv.GateRotation, dx, dy) != curGateSrv.GateMode)
-                                continue;
-                        }
-                        if (atNode >= 0) {
-                            var endSrv = serversList[atNode];
-                            if (endSrv.Kind == "gate") {
-                                int dx = (int)(nodeX[next] - curX), dy = (int)(nodeY[next] - curY);
-                                direction = StationWalkGraphBuilder.GateTravelDirection(endSrv.GateRotation, dx, dy);
-                                if (endSrv.GateMode != 0 && endSrv.GateMode != direction) continue;
-                            }
+                    if (kind == WalkEdgeKind.Walk && atNode >= 0) {
+                        var endSrv = serversList[atNode];
+                        if (endSrv.Kind == "gate") {
+                            direction = StationWalkGraphBuilder.GateApproach(graph, current, next);
                         }
                     }
                     double congCost = 0;
@@ -370,23 +355,35 @@ namespace Metro.Sim {
         }
 
         internal bool GatePassage(int from, int to, out int direction) {
-            int dx = (int)(graph.NodeX[to] - graph.NodeX[from]);
-            int dy = (int)(graph.NodeY[to] - graph.NodeY[from]);
+            int dx = (int)Math.Floor(graph.NodeX[to] - graph.NodeX[from] + 0.5);
+            int dy = (int)Math.Floor(graph.NodeY[to] - graph.NodeY[from] + 0.5);
             direction = 0;
+            bool fromGate = false;
+            int fromRot = 0, fromMode = 0;
             if (graph.ServerForNode.TryGetValue(from, out int start)) {
                 var server = graph.Servers[start];
-                if (server.Kind == "gate" && server.GateMode != 0 &&
-                    StationWalkGraphBuilder.GateTravelDirection(server.GateRotation, dx, dy) != server.GateMode)
-                    return false;
+                if (server.Kind == "gate") {
+                    fromGate = true;
+                    fromRot = server.GateRotation;
+                    fromMode = server.GateMode;
+                }
             }
+            bool toGate = false;
+            int toRot = 0, toMode = 0;
             if (graph.ServerForNode.TryGetValue(to, out int end)) {
                 var server = graph.Servers[end];
                 if (server.Kind == "gate") {
-                    direction = StationWalkGraphBuilder.GateTravelDirection(server.GateRotation, dx, dy);
-                    return server.GateMode == 0 || server.GateMode == direction;
+                    toGate = true;
+                    toRot = server.GateRotation;
+                    toMode = server.GateMode;
+                    direction = StationWalkGraphBuilder.GateApproach(graph, from, to);
                 }
             }
-            return true;
+            if (!fromGate && !toGate) return true;
+            return StationWalkGraphBuilder.GateStepAllowed(
+                fromGate, fromRot, fromMode,
+                toGate, toRot, toMode,
+                dx, dy, graph.NodeZone[from], graph.NodeZone[to], graph.ZoneBarriers);
         }
 
         internal double LastSearchCost(int goal) => gScore[goal];

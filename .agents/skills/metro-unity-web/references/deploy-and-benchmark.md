@@ -139,9 +139,9 @@ Reference for `tools/unity-web/`, `tools/unity-windows-bundle/`, `unity/wrangler
 Run with `npm run test:unity` (no Unity Editor required):
 
 - **Bridge, UI shell & input:** `station-bridge.test.mjs`, `shared-web-ui.test.mjs`,
-  `camera-cadence.test.mjs`, `pointer-input.test.mjs`, `pointer-measure.test.mjs`,
-  `ui-pointer-drag.test.mjs`, `keyboard-navigation.test.mjs`, `tool-adapter.test.mjs`,
-  `edit-notices.test.mjs`, `simulation-playback.test.mjs`,
+  `webgl-autosave.test.mjs`, `camera-cadence.test.mjs`, `pointer-input.test.mjs`,
+  `pointer-measure.test.mjs`, `ui-pointer-drag.test.mjs`, `keyboard-navigation.test.mjs`,
+  `tool-adapter.test.mjs`, `edit-notices.test.mjs`, `simulation-playback.test.mjs`,
   `station-statistics-adapter.test.mjs`, `exploded-view.test.mjs`.
 - **Desktop/Editor WebView2 host:** `editor-react-overlay.test.mjs` (verifies
   `StationDesktopUiPresenter`, `StationEditorReactOverlay`, `MetroEditorWebView`

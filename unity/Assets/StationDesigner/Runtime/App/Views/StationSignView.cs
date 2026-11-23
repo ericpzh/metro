@@ -2655,6 +2655,13 @@ namespace Metro.App {
                 var mod = delta.ChangedModules[i];
                 if (mod != null && mod.Type == "sign") dirtyIds.Add(mod.Id);
             }
+            if (context.CityChanged || context.VisualChangedLineIds.Count > 0) {
+                var allSigns = context.NextIndex.ModulesOfType("sign");
+                for (int i = 0; i < allSigns.Count; i++) {
+                    var s = allSigns[i];
+                    if (s != null && !removedIds.Contains(s.Id)) dirtyIds.Add(s.Id);
+                }
+            }
 
             int storeyHeight = context.NextDocument.StoreyHeight > 0
                 ? context.NextDocument.StoreyHeight

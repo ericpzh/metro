@@ -72,6 +72,8 @@ namespace Metro.App {
         string clientSessionId = "";
         /// <summary>True while <see cref="ApplyDocumentEdit"/> installs an edit of the committed station.</summary>
         bool editingDocument;
+        /// <summary>Monotonically incremented on every non-edit station replacement (new/open/openDemo).</summary>
+        int stationEpoch;
         bool openInFlight;
         readonly Queue<string> queuedBrowserCommands = new Queue<string>();
 
@@ -96,6 +98,7 @@ namespace Metro.App {
         public StationDocument Document => coordinator?.Document;
         public bool IsLoaded => coordinator != null && coordinator.IsLoaded;
         public int CurrentRevision => coordinator?.Revision ?? 0;
+        public int StationEpoch => stationEpoch;
         public string CurrentSourceId => coordinator?.SourceId ?? "";
         public string CurrentSourceHash => coordinator?.SourceHash ?? "";
         public IStationSimulationHost Simulation => coordinator?.Simulation;
@@ -642,6 +645,21 @@ namespace Metro.App {
             return result;
         }
 
+        /// <summary>Try the local edit path for replacing the station's authored road set incrementally.</summary>
+        public StationLoadResult TryApplyLocalRoads(IReadOnlyList<StationRoadRecord> nextRoads, string sourceId, out string code) {
+            code = null;
+            if (!IsLoaded) { code = "no-session"; return null; }
+            StationLoadResult result;
+            editingDocument = true;
+            try {
+                result = coordinator.TryInstallLocalRoadSet(nextRoads,
+                    string.IsNullOrEmpty(sourceId) ? CurrentSourceId : sourceId, out code);
+            } finally {
+                editingDocument = false;
+            }
+            return result;
+        }
+
         /// <summary>
         /// The edit transaction a feature handler calls: hand it the complete normalized
         /// v1 document text. It installs through the same atomic transaction as an open,
@@ -779,6 +797,16 @@ namespace Metro.App {
                     ["sourceHash"] = peekHash,
                     ["sourceHashRevision"] = hashRev,
                 };
+                var previousRead = coordinator.PreviousCommittedRead;
+                if (Document != null && previousRead?.Document != null &&
+                    !StationHostEdits.SameLineList(previousRead.Document.Lines, Document.Lines)) {
+                    var linesArr = new JArray();
+                    for (int i = 0; i < Document.Lines.Count; i++) {
+                        var rawLine = Document.Lines[i]?.RawJson;
+                        if (!string.IsNullOrEmpty(rawLine)) linesArr.Add(new JRaw(rawLine));
+                    }
+                    deltaObj["lines"] = linesArr;
+                }
                 StationEditTrace.NoteDeltaPayload();
 
                 var deltaPayload = new JObject {
@@ -905,6 +933,9 @@ namespace Metro.App {
         void MergeState(JObject payload, bool useRawJsonCache = false) {
             payload["level"] = activeLevel;
             payload["name"] = Document?.Name ?? "";
+            payload["stationEpoch"] = stationEpoch;
+            payload["canUndo"] = StationEditSession.CanUndo;
+            payload["canRedo"] = StationEditSession.CanRedo;
             payload["speed"] = Simulation?.Speed ?? 1;
             payload["playing"] = Simulation?.Playing ?? false;
             // A6: the committed tool rides the same state frame as the camera, so the
@@ -1021,12 +1052,13 @@ namespace Metro.App {
             // framing. Only a New/Open/demo commit opens at the document's lowest authored
             // metre and frames the fresh bounds (plan 11 D4).
             if (!editingDocument) {
+                stationEpoch++;
                 ClearContributorCaches();
                 Metro.App.Views.StationTvSchedule.ClearCache();
                 StationPaintGame.Forget();
                 StationCellTool.ForgetWorld();
                 StationZoneTool.ForgetWorld();
-                StationEditSession.PruneHistory(info.SourceId ?? "");
+                StationEditSession.ClearHistory();
                 activeLevel = info.Document == null ? 0 : info.Document.OpeningLevel;
                 if (frameCameraOnCommit && stationCamera != null && !info.CameraBounds.IsEmpty) FrameCamera(info.CameraBounds);
             }

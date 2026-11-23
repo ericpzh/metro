@@ -32,8 +32,10 @@ namespace Metro.App {
         /// <summary>Every run whose slots print this key (one key can serve several runs).</summary>
         public readonly List<string> ModuleIds = new List<string>();
         public PsdHeaderKind Kind;
-        /// <summary>Canvas width: 1024 (route/station) or 2048 (the paired half sticker).</summary>
+        /// <summary>Canvas width: 1024 (route/station/fixed-band), 2048 (sticker), 640 (door), or 256 (arrow).</summary>
         public int Pixels = 1024;
+        /// <summary>Canvas height in pixels (`256` headers/arrows, `128` bands, `480` warning placard).</summary>
+        public int HeightPixels = PixelHeight;
         /// <summary>The printed plane in source metres (`slot.Width`).</summary>
         public float Width = 1f;
         /// <summary>The printed plane in source metres (`slot.Height`).</summary>
@@ -94,11 +96,25 @@ namespace Metro.App {
     }
 
     public static class PsdHeaderVocabulary {
-        /// <summary>The source's `drawPsdHeader` kinds, plus the paired sticker.</summary>
+        /// <summary>True for the printed safety vinyl decals (`PsdDecals.ts`).</summary>
+        public static bool IsDecal(PsdHeaderKind kind) =>
+            kind == PsdHeaderKind.FixedBand ||
+            kind == PsdHeaderKind.DoorBand ||
+            kind == PsdHeaderKind.DoorWarning ||
+            kind == PsdHeaderKind.DoorArrowLeft ||
+            kind == PsdHeaderKind.DoorArrowRight;
+
+        /// <summary>The source's `drawPsdHeader` / `PsdDecals.ts` kinds.</summary>
         public static string Kind(PsdHeaderKind kind) {
             switch (kind) {
                 case PsdHeaderKind.Route: return "route";
                 case PsdHeaderKind.Station: return "station";
+                case PsdHeaderKind.HalfSticker: return "sticker";
+                case PsdHeaderKind.FixedBand: return "fixed-band";
+                case PsdHeaderKind.DoorBand: return "door-band";
+                case PsdHeaderKind.DoorWarning: return "door-warning";
+                case PsdHeaderKind.DoorArrowLeft: return "door-arrow-left";
+                case PsdHeaderKind.DoorArrowRight: return "door-arrow-right";
                 default: return "sticker";
             }
         }
@@ -107,6 +123,11 @@ namespace Metro.App {
             switch (value ?? "") {
                 case "station": return PsdHeaderKind.Station;
                 case "sticker": return PsdHeaderKind.HalfSticker;
+                case "fixed-band": return PsdHeaderKind.FixedBand;
+                case "door-band": return PsdHeaderKind.DoorBand;
+                case "door-warning": return PsdHeaderKind.DoorWarning;
+                case "door-arrow-left": return PsdHeaderKind.DoorArrowLeft;
+                case "door-arrow-right": return PsdHeaderKind.DoorArrowRight;
                 default: return PsdHeaderKind.Route;
             }
         }
@@ -227,6 +248,7 @@ namespace Metro.App {
                 ["moduleIds"] = ids,
                 ["kind"] = panel.KindName,
                 ["pixels"] = panel.Pixels,
+                ["pixelHeight"] = panel.HeightPixels > 0 ? panel.HeightPixels : PsdHeaderPanel.PixelHeight,
                 ["width"] = panel.Width,
                 ["height"] = panel.Height,
                 ["slots"] = panel.SlotCount,
@@ -531,6 +553,21 @@ namespace Metro.App {
             var material = new Material(binding.MaterialTemplate) {
                 name = "psd header " + Short(binding.Key),
             };
+            if (binding.Slot.Transparent) {
+                if (material.HasProperty("_Surface")) material.SetFloat("_Surface", 1f);
+                if (material.HasProperty("_Blend")) material.SetFloat("_Blend", 0f);
+                if (material.HasProperty("_SrcBlend")) material.SetFloat("_SrcBlend", (float)BlendMode.SrcAlpha);
+                if (material.HasProperty("_DstBlend")) material.SetFloat("_DstBlend", (float)BlendMode.OneMinusSrcAlpha);
+                if (material.HasProperty("_ZWrite")) material.SetFloat("_ZWrite", 0f);
+                material.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+                material.renderQueue = (int)RenderQueue.Transparent + 2;
+            }
+            if (binding.Slot.RepeatU > 0f && Mathf.Abs(binding.Slot.RepeatU - 1f) > 1e-4f) {
+                var tile = new Vector2(binding.Slot.RepeatU, 1f);
+                material.mainTextureScale = tile;
+                if (material.HasProperty("_BaseMap")) material.SetTextureScale("_BaseMap", tile);
+                if (material.HasProperty("_MainTex")) material.SetTextureScale("_MainTex", tile);
+            }
             var renderer = quad.AddComponent<MeshRenderer>();
             renderer.sharedMaterial = material;
             renderer.shadowCastingMode = ShadowCastingMode.Off;
@@ -538,8 +575,8 @@ namespace Metro.App {
             binding.Quad = quad;
             binding.Renderer = renderer;
             binding.Material = material;
-            // Unpainted: the housing behind the band stays visible rather than a white sheet.
-            ApplyArtwork(material, null);
+            // Unpainted: transparent decals stay invisible until painted; opaque headers stay dark.
+            ApplyArtwork(material, null, binding.Slot.Transparent);
         }
 
         void Want(OpeningView view, in PsdHeaderSlot slot) => Want(slot.Key, view, slot);
@@ -562,7 +599,8 @@ namespace Metro.App {
                 Key = slot.Key,
                 ModuleId = view != null ? view.ModuleId : "",
                 Kind = slot.Kind,
-                Pixels = slot.Pixels,
+                Pixels = slot.Pixels > 0 ? slot.Pixels : 1024,
+                HeightPixels = slot.PixelHeight > 0 ? slot.PixelHeight : PsdHeaderPanel.PixelHeight,
                 Width = slot.Width,
                 Height = slot.Height,
                 SlotCount = 1,
@@ -678,9 +716,11 @@ namespace Metro.App {
             foreach (var painted in response.Painted ?? Array.Empty<PsdHeaderPaintedPanel>()) {
                 if (painted == null || painted.Png == null || painted.Png.Length == 0) continue;
                 if (!wanted.TryGetValue(painted.Key, out var panel)) continue;   // stale: no one wants it
-                if (painted.Width != panel.Pixels || painted.Height != PsdHeaderPanel.PixelHeight) continue;
+                int expectedH = panel.HeightPixels > 0 ? panel.HeightPixels : PsdHeaderPanel.PixelHeight;
+                if (painted.Width != panel.Pixels || painted.Height != expectedH) continue;
                 if (entries.ContainsKey(painted.Key)) continue;                 // already painted by another batch
-                var texture = Decode(painted.Png, painted.Width, painted.Height, "psd header " + Short(painted.Key));
+                var texture = Decode(painted.Png, painted.Width, painted.Height, "psd header " + Short(painted.Key),
+                    repeatU: panel.Kind == PsdHeaderKind.FixedBand);
                 if (texture == null) continue;
                 var entry = new Entry {
                     Key = painted.Key,
@@ -753,7 +793,7 @@ namespace Metro.App {
             int served = 0;
             foreach (var pair in subscribers) {
                 foreach (var binding in pair.Value) {
-                    if (binding.View == view && binding.HasTexture) served++;
+                    if (binding.View == view && binding.HasTexture && !PsdHeaderVocabulary.IsDecal(binding.Kind)) served++;
                 }
             }
             return served;
@@ -857,12 +897,13 @@ namespace Metro.App {
             }
         }
 
-        static Texture2D Decode(byte[] png, int width, int height, string name) {
+        static Texture2D Decode(byte[] png, int width, int height, string name, bool repeatU = false) {
             var texture = new Texture2D(2, 2, TextureFormat.RGBA32, false);
             if (!texture.LoadImage(png, false)) { Destroy(texture); return null; }
             if (texture.width != width || texture.height != height) { Destroy(texture); return null; }
             texture.name = name;
-            texture.wrapMode = TextureWrapMode.Clamp;
+            texture.wrapModeU = repeatU ? TextureWrapMode.Repeat : TextureWrapMode.Clamp;
+            texture.wrapModeV = TextureWrapMode.Clamp;
             texture.filterMode = FilterMode.Bilinear;
             texture.anisoLevel = 2;
             return texture;
@@ -908,12 +949,12 @@ namespace Metro.App {
         static Mesh quadMesh;
 
         /// <summary>The source panel is unlit (`MeshBasicMaterial`); the station's shade must not dim it.</summary>
-        internal static void ApplyArtwork(Material material, Texture2D texture) {
+        internal static void ApplyArtwork(Material material, Texture2D texture, bool transparent = false) {
             if (material == null) return;
             if (texture == null) {
-                var dark = new Color(.07f, .08f, .09f, 1f);
-                if (material.HasProperty("_BaseColor")) material.SetColor("_BaseColor", dark);
-                if (material.HasProperty("_Color")) material.color = dark;
+                var unpainted = transparent ? new Color(1f, 1f, 1f, 0f) : new Color(.07f, .08f, .09f, 1f);
+                if (material.HasProperty("_BaseColor")) material.SetColor("_BaseColor", unpainted);
+                if (material.HasProperty("_Color")) material.color = unpainted;
                 if (material.HasProperty("_BaseMap")) material.SetTexture("_BaseMap", null);
                 if (material.HasProperty("_MainTex")) material.SetTexture("_MainTex", null);
                 material.mainTexture = null;
@@ -1030,13 +1071,19 @@ namespace Metro.App {
         internal void Apply(Texture2D texture, string fingerprint) {
             Texture = texture;
             Fingerprint = fingerprint ?? "";
-            PsdHeaderTextureCache.ApplyArtwork(Material, texture);
+            PsdHeaderTextureCache.ApplyArtwork(Material, texture, Slot.Transparent);
+            if (Material != null && Slot.RepeatU > 0f && Mathf.Abs(Slot.RepeatU - 1f) > 1e-4f) {
+                var tile = new Vector2(Slot.RepeatU, 1f);
+                Material.mainTextureScale = tile;
+                if (Material.HasProperty("_BaseMap")) Material.SetTextureScale("_BaseMap", tile);
+                if (Material.HasProperty("_MainTex")) Material.SetTextureScale("_MainTex", tile);
+            }
         }
 
         internal void Clear() {
             Texture = null;
             Fingerprint = "";
-            PsdHeaderTextureCache.ApplyArtwork(Material, null);
+            PsdHeaderTextureCache.ApplyArtwork(Material, null, Slot.Transparent);
         }
 
         /// <summary>Re-read the view's current painted plan; a changed key is new pixels.</summary>

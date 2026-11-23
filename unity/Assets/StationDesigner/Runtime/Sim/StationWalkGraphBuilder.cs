@@ -60,6 +60,8 @@ namespace Metro.Sim {
         /// <summary>A lift shaft's stops, bottom → top, and their floor heights.</summary>
         public int[] LiftStops;
         public double[] LiftStopZ;
+        /// <summary>Stable activity-stop id for <c>Kind == "stop"</c> servers.</summary>
+        public string StopId = "";
     }
 
     public sealed class StationPlatformFact {
@@ -102,10 +104,13 @@ namespace Metro.Sim {
         public readonly Dictionary<int, int> ServerForNode = new Dictionary<int, int>();
         public readonly List<StationPlatformFact> Platforms = new List<StationPlatformFact>();
         public readonly List<StationExitFact> Exits = new List<StationExitFact>();
+        public readonly List<StationActivityStopFact> Stops = new List<StationActivityStopFact>();
         public int MinX, MinY, MaxX, MaxY;
         /// <summary>The station's own walkable floor, m² — one node is one square metre, street excluded.</summary>
         public double StationArea;
         public int[] LevelsZ = Array.Empty<int>();
+        /// <summary>Whether this graph was built with §4.5 fare-zone barriers enforced.</summary>
+        public bool ZoneBarriers;
         /// <summary>Family names present in the document that this build does not traverse.</summary>
         public string[] Unported = Array.Empty<string>();
 
@@ -233,16 +238,69 @@ namespace Metro.Sim {
         public const int GroundZ = 0;
         public const int ZoneOutside = 1;
 
-        internal static bool GateStepAllowed(bool fromGate, int fromRotation,
-            bool toGate, int toRotation, int dx, int dy, int fromZone, int toZone,
+        /// <summary>Paid-side zone roles: paid (3), platform (4), restricted (5).</summary>
+        public static bool IsPaidZone(int zone) => zone >= 3 && zone <= 5;
+
+        /// <summary>Unpaid-side zone roles: none (0), outside (1), unpaid (2).</summary>
+        public static bool IsUnpaidZone(int zone) => !IsPaidZone(zone);
+
+        /// <summary>
+        /// Fare-line crossing direction from <paramref name="fromZone"/> to <paramref name="toZone"/>:
+        /// +1 entering paid, -1 leaving paid, 0 same-side relabel (no crossing).
+        /// </summary>
+        public static int CrossingDir(int fromZone, int toZone) {
+            bool fromPaid = IsPaidZone(fromZone);
+            bool toPaid = IsPaidZone(toZone);
+            if (fromPaid == toPaid) return 0;
+            return toPaid ? 1 : -1;
+        }
+
+        /// <summary>Whether a gate with <paramref name="mode"/> (-1 out, 0 both, +1 in) allows <paramref name="dir"/>.</summary>
+        public static bool GateAllows(int mode, int dir) =>
+            dir == 0 || mode == 0 || (mode > 0 ? dir == 1 : dir == -1);
+
+        /// <summary>Whether a gate lane (<paramref name="lane"/> = committed two-way direction) admits <paramref name="dir"/>.</summary>
+        public static bool GateLaneAllows(int mode, int lane, int dir) =>
+            mode == 0 ? (lane == 0 || dir == 0 || dir == lane) : GateAllows(mode, dir);
+
+        /// <summary>
+        /// Infers the fare-crossing direction when approaching <paramref name="gateNode"/> from
+        /// <paramref name="fromNode"/> by scanning the gate's outgoing neighbours (mirrors <c>station.ts:gateApproach</c>).
+        /// </summary>
+        public static int GateApproach(StationWalkGraph graph, int fromNode, int gateNode) {
+            if (graph == null || fromNode < 0 || gateNode < 0 ||
+                fromNode >= graph.NodeCount || gateNode >= graph.NodeCount) return 0;
+            int fromZone = graph.NodeZone[fromNode];
+            var outs = graph.AdjToRaw != null ? graph.AdjToRaw[gateNode] : graph.AdjTo[gateNode];
+            for (int e = 0; e < outs.Length; e++) {
+                int nb = outs[e];
+                if ((uint)nb >= (uint)graph.NodeCount) continue;
+                int dir = CrossingDir(fromZone, graph.NodeZone[nb]);
+                if (dir != 0) return dir;
+            }
+            return 0;
+        }
+
+        internal static bool GateStepAllowed(bool fromGate, int fromRotation, int fromMode,
+            bool toGate, int toRotation, int toMode, int dx, int dy, int fromZone, int toZone,
             bool zoneBarriers) {
             if (fromGate && GateTravelDirection(fromRotation, dx, dy) == 0) return false;
             if (toGate && GateTravelDirection(toRotation, dx, dy) == 0) return false;
-            return !zoneBarriers || !CrossesFareLine(fromZone, toZone) || fromGate || toGate;
+            if (!zoneBarriers) return true;
+            int dir = CrossingDir(fromZone, toZone);
+            if (dir == 0) return true;
+            if (fromGate && GateAllows(fromMode, dir)) return true;
+            if (toGate && GateAllows(toMode, dir)) return true;
+            return false;
         }
 
+        internal static bool GateStepAllowed(bool fromGate, int fromRotation,
+            bool toGate, int toRotation, int dx, int dy, int fromZone, int toZone,
+            bool zoneBarriers) =>
+            GateStepAllowed(fromGate, fromRotation, 0, toGate, toRotation, 0, dx, dy, fromZone, toZone, zoneBarriers);
+
         internal static bool CrossesFareLine(int fromZone, int toZone) =>
-            (fromZone >= 3 && fromZone <= 5) != (toZone >= 3 && toZone <= 5);
+            CrossingDir(fromZone, toZone) != 0;
 
         internal static int GateTravelDirection(int rotation, int dx, int dy) {
             switch ((rotation % 4 + 4) % 4) {
@@ -266,24 +324,29 @@ namespace Metro.Sim {
         public static StationWalkGraph Build(StationSessionDocument document, StationWalkGraphOptions options = null) {
             if (document == null) throw new ArgumentNullException(nameof(document));
             options = options ?? new StationWalkGraphOptions();
-            var graph = new StationWalkGraph();
+            var graph = new StationWalkGraph { ZoneBarriers = options.ZoneBarriers };
             var unported = new List<string>();
             var docCells = document.EnsureCells();
 
-            // ---- effective cells: authored records first, then the generated street.
+            // ---- effective cells: authored records first, then the generated street, then exit pads.
             var cells = new List<CellShape>();
             var authoredAtGrade = new HashSet<long>();
+            var authoredCoords = new HashSet<string>(StringComparer.Ordinal);
             foreach (var cell in docCells) {
                 if (cell.Z == GroundZ) authoredAtGrade.Add(Pack(cell.X, cell.Y));
+                authoredCoords.Add(StationWalkGraph.CellKey(cell.X, cell.Y, cell.Z));
                 cells.Add(new CellShape { X = cell.X, Y = cell.Y, Z = cell.Z, Solid = cell.Solid, Zone = cell.Zone, Speed = double.IsNaN(cell.Speed) ? options.UnknownFloorSpeed : cell.Speed });
             }
             if (options.IncludeGround) AppendGround(cells, document, options, authoredAtGrade, docCells);
+            AppendExitFloors(cells, document, options, authoredCoords);
 
             var solid = new HashSet<string>(StringComparer.Ordinal);
             foreach (var cell in cells) if (cell.Solid) solid.Add(StationWalkGraph.CellKey(cell.X, cell.Y, cell.Z));
 
             // ---- exclusions: a whole cell that is not walkable even though it is solid.
-            var gateRotations = new Dictionary<string, int>(StringComparer.Ordinal);
+            var gateLanes = new Dictionary<string, (int Rotation, int Mode)>(StringComparer.Ordinal);
+            var fixtureAccess = new Dictionary<string, string>(StringComparer.Ordinal);
+            var fixturePairs = new List<(int X, int Y, int Z, int FrontX, int FrontY, int FrontZ)>(4);
             var gateWallCells = new HashSet<string>(StringComparer.Ordinal);
             var fenceCells = new HashSet<string>(StringComparer.Ordinal);
             var boothCells = new HashSet<string>(StringComparer.Ordinal);
@@ -292,7 +355,7 @@ namespace Metro.Sim {
                 string key = StationWalkGraph.CellKey(module.X, module.Y, module.Z);
                 switch (module.Type) {
                     case "gate":
-                        if (module.GateHasLane) gateRotations[key] = module.Rot;
+                        if (module.GateHasLane) gateLanes[key] = (module.Rot, module.GateDir);
                         else gateWallCells.Add(key);
                         break;
                     case "fence":
@@ -351,7 +414,13 @@ namespace Metro.Sim {
                     case "bench":
                     case "cubicle":
                     case "sink":
-                        unported.Add("fixture-access:" + module.Id);
+                        fixturePairs.Clear();
+                        StationActivityStops.FixtureAccessPairs(module, fixturePairs);
+                        for (int fp = 0; fp < fixturePairs.Count; fp++) {
+                            var pair = fixturePairs[fp];
+                            fixtureAccess[StationWalkGraph.CellKey(pair.X, pair.Y, pair.Z)] =
+                                StationWalkGraph.CellKey(pair.FrontX, pair.FrontY, pair.FrontZ);
+                        }
                         break;
                     case "roof":
                         // A canopy's posts stand on their own cells; `canopyPostCells` is not
@@ -366,7 +435,6 @@ namespace Metro.Sim {
                         unported.Add("floor-decor:" + module.Id);
                         break;
                     case "exit":
-                        if (module.HeadHouse) unported.Add("exit-walls:" + module.Id);
                         break;
                 }
             }
@@ -436,6 +504,9 @@ namespace Metro.Sim {
                 AddRampWalls(rampWalls, module, half, unported);
             }
 
+            // ---- exit head-house wall planes (solid glass sides + back wall; doorway stays open).
+            var exitWalls = CollectExitWalls(document);
+
             // ---- 4-neighbour walking, same surface height.
             var cardinalWalk = new HashSet<long>();
             for (int i = 0; i < graph.NodeCount; i++) {
@@ -444,12 +515,17 @@ namespace Metro.Sim {
                 int z = (int)(graph.NodeZ[i] - 1);
                 foreach (var step in Cardinal) {
                     int nx = x + step.dx, ny = y + step.dy;
-                    if (!graph.NodeIndex.TryGetValue(StationWalkGraph.CellKey(nx, ny, z), out int j)) continue;
-                    bool fromGate = gateRotations.TryGetValue(StationWalkGraph.CellKey(x, y, z), out var fromLane);
-                    bool toGate = gateRotations.TryGetValue(StationWalkGraph.CellKey(nx, ny, z), out var toLane);
-                    if (!GateStepAllowed(fromGate, fromLane, toGate, toLane, step.dx, step.dy,
+                    string hereKey = StationWalkGraph.CellKey(x, y, z);
+                    string thereKey = StationWalkGraph.CellKey(nx, ny, z);
+                    if (!graph.NodeIndex.TryGetValue(thereKey, out int j)) continue;
+                    if ((fixtureAccess.TryGetValue(hereKey, out var hereFront) && !string.Equals(hereFront, thereKey, StringComparison.Ordinal)) ||
+                        (fixtureAccess.TryGetValue(thereKey, out var thereFront) && !string.Equals(thereFront, hereKey, StringComparison.Ordinal))) continue;
+                    bool fromGate = gateLanes.TryGetValue(hereKey, out var fromLane);
+                    bool toGate = gateLanes.TryGetValue(thereKey, out var toLane);
+                    if (!GateStepAllowed(fromGate, fromLane.Rotation, fromLane.Mode,
+                            toGate, toLane.Rotation, toLane.Mode, step.dx, step.dy,
                             graph.NodeZone[i], graph.NodeZone[j], options.ZoneBarriers)) continue;
-                    if (CrossesExitWall(document, x, y, nx, ny, z)) continue;
+                    if (CrossesExitWall(exitWalls, x + 0.5, y + 0.5, nx + 0.5, ny + 0.5, z)) continue;
                     if (CrossesRampWall(rampWalls, x + 0.5, y + 0.5, nx + 0.5, ny + 0.5, z)) continue;
                     double speed = (graph.NodeSpeed[i] + graph.NodeSpeed[j]) / 2;
                     edges.Add(i, j, 1.0 / (WalkSpeed * speed), WalkEdgeKind.Walk, -1);
@@ -461,17 +537,20 @@ namespace Metro.Sim {
             bool CardinalAllows(int from, int to) => cardinalWalk.Contains((long)from * graph.NodeCount + to);
             for (int i = 0; i < graph.NodeCount; i++) {
                 int x = (int)(graph.NodeX[i] - 0.5), y = (int)(graph.NodeY[i] - 0.5), z = (int)(graph.NodeZ[i] - 1);
-                if (gateRotations.ContainsKey(StationWalkGraph.CellKey(x, y, z))) continue;
+                string hereKey = StationWalkGraph.CellKey(x, y, z);
+                if (gateLanes.ContainsKey(hereKey) || fixtureAccess.ContainsKey(hereKey)) continue;
                 foreach (var step in Diagonal) {
                     int nx = x + step.dx, ny = y + step.dy;
-                    if (!graph.NodeIndex.TryGetValue(StationWalkGraph.CellKey(nx, ny, z), out int j)) continue;
-                    if (!graph.NodeIndex.TryGetValue(StationWalkGraph.CellKey(nx, y, z), out int a)) continue;
-                    if (!graph.NodeIndex.TryGetValue(StationWalkGraph.CellKey(x, ny, z), out int b)) continue;
-                    if (gateRotations.ContainsKey(StationWalkGraph.CellKey(nx, ny, z)) ||
-                        gateRotations.ContainsKey(StationWalkGraph.CellKey(nx, y, z)) ||
-                        gateRotations.ContainsKey(StationWalkGraph.CellKey(x, ny, z))) continue;
+                    string thereKey = StationWalkGraph.CellKey(nx, ny, z);
+                    string aKey = StationWalkGraph.CellKey(nx, y, z);
+                    string bKey = StationWalkGraph.CellKey(x, ny, z);
+                    if (!graph.NodeIndex.TryGetValue(thereKey, out int j)) continue;
+                    if (!graph.NodeIndex.TryGetValue(aKey, out int a)) continue;
+                    if (!graph.NodeIndex.TryGetValue(bKey, out int b)) continue;
+                    if (gateLanes.ContainsKey(thereKey) || gateLanes.ContainsKey(aKey) || gateLanes.ContainsKey(bKey)) continue;
+                    if (fixtureAccess.ContainsKey(thereKey) || fixtureAccess.ContainsKey(aKey) || fixtureAccess.ContainsKey(bKey)) continue;
                     if (!CardinalAllows(i, a) || !CardinalAllows(a, j) || !CardinalAllows(i, b) || !CardinalAllows(b, j)) continue;
-                    if (CrossesExitWall(document, x, y, nx, ny, z)) continue;
+                    if (CrossesExitWall(exitWalls, x + 0.5, y + 0.5, nx + 0.5, ny + 0.5, z)) continue;
                     if (CrossesRampWall(rampWalls, x + 0.5, y + 0.5, nx + 0.5, ny + 0.5, z)) continue;
                     double speed = (graph.NodeSpeed[i] + graph.NodeSpeed[j]) / 2;
                     edges.Add(i, j, Math.Sqrt(2) / (WalkSpeed * speed), WalkEdgeKind.Walk, -1);
@@ -568,6 +647,13 @@ namespace Metro.Sim {
                     }
                 }
             }
+
+            // ---- activity stops and their serialized servers, in document order.
+            StationActivityStops.PopulateGraphStops(
+                graph,
+                document.Modules,
+                (sx, sy, sz) => NodeAt(graph, sx, sy, sz),
+                srv => AddServer(graph, srv));
 
             // ---- platform edges: one door server per walkable cell of the run.
             foreach (var module in document.Modules) {
@@ -806,12 +892,162 @@ namespace Metro.Sim {
             return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
         }
 
+        // ------------------------------------------------------------- exit enclosure & derived floor
+
+        public const double ExitHeight = 3.2;
+        public const double ExitBackY = -5.5;
+        public const double ExitFrontY = 2.3;
+        public const double ExitGlassY0 = -5.5;
+        public const double ExitGlassY1 = 1.8;
+        public const double ExitWallInset = 0.06;
+
+        internal struct ExitWallPlane {
+            public bool AxisX;
+            public double At, Min, Max, Z0, Z1;
+            public double Ax, Ay, Bx, By;
+        }
+
         /// <summary>
-        /// The exit head-house wall planes (an opening is the only way through, §5.6).
-        /// Not ported: a head-house is reported in <see cref="Unported"/> instead, so the
-        /// integration knows those edges may be more permissive than the source.
+        /// True when <paramref name="module"/> is an enclosed head-house exit (not <c>headHouse: false</c>,
+        /// not <c>doorway</c>, not <c>virtual</c>). Mirrors <c>isExitHeadHouse</c> + <c>headHouse !== false</c>.
         /// </summary>
-        static bool CrossesExitWall(StationSessionDocument document, int x, int y, int nx, int ny, int z) => false;
+        internal static bool HasHeadHouseShell(StationModuleFact module) {
+            if (module.Type != "exit" || !module.HeadHouse) return false;
+            return !string.Equals(module.ExitStyle, "doorway", StringComparison.Ordinal) &&
+                   !string.Equals(module.ExitStyle, "virtual", StringComparison.Ordinal);
+        }
+
+        public static void ExitRotate(double lx, double ly, int rot, out double wx, out double wy) {
+            switch (((rot % 4) + 4) % 4) {
+                case 1: wx = -ly; wy = lx; break;
+                case 2: wx = -lx; wy = -ly; break;
+                case 3: wx = ly; wy = -lx; break;
+                default: wx = lx; wy = ly; break;
+            }
+        }
+
+        internal static void ExitSpan(StationModuleFact module, out double centre, out double half) {
+            int bays = module.ExitBays == 1 || module.ExitBays == 3 || module.ExitBays == 4 ? module.ExitBays : 2;
+            centre = (bays - 1) * 0.5;
+            half = (bays + 2) * 0.5;
+        }
+
+        internal static void ExitWallPlanesFor(StationModuleFact module, List<ExitWallPlane> output) {
+            if (!HasHeadHouseShell(module)) return;
+            double cx = module.X + 0.5;
+            double cy = module.Y + 0.5;
+            int rot = ((module.Rot % 4) + 4) % 4;
+            ExitSpan(module, out double centre, out double half);
+            double side = half - ExitWallInset;
+            double z0 = module.Z;
+            double z1 = module.Z + ExitHeight;
+
+            void AddSeg(double lx0, double ly0, double lx1, double ly1) {
+                ExitRotate(lx0, ly0, rot, out double ax, out double ay);
+                ExitRotate(lx1, ly1, rot, out double bx, out double by);
+                double wax = cx + ax, way = cy + ay, wbx = cx + bx, wby = cy + by;
+                if (Math.Abs(ax - bx) < 1e-9) {
+                    output.Add(new ExitWallPlane {
+                        AxisX = true,
+                        At = wax,
+                        Min = Math.Min(way, wby),
+                        Max = Math.Max(way, wby),
+                        Z0 = z0,
+                        Z1 = z1,
+                        Ax = wax, Ay = way, Bx = wbx, By = wby,
+                    });
+                } else {
+                    output.Add(new ExitWallPlane {
+                        AxisX = false,
+                        At = way,
+                        Min = Math.Min(wax, wbx),
+                        Max = Math.Max(wax, wbx),
+                        Z0 = z0,
+                        Z1 = z1,
+                        Ax = wax, Ay = way, Bx = wbx, By = wby,
+                    });
+                }
+            }
+
+            AddSeg(centre - side, ExitGlassY0, centre - side, ExitGlassY1);
+            AddSeg(centre + side, ExitGlassY0, centre + side, ExitGlassY1);
+            AddSeg(centre - side, ExitBackY, centre + side, ExitBackY);
+        }
+
+        internal static void ExitFootprintCellsFor(StationModuleFact module, List<(int X, int Y, int Z)> output) {
+            if (!HasHeadHouseShell(module)) return;
+            double cx = module.X + 0.5;
+            double cy = module.Y + 0.5;
+            int rot = ((module.Rot % 4) + 4) % 4;
+            ExitSpan(module, out double centre, out double half);
+            double lo = centre - half;
+            double hi = centre + half;
+            double x0 = double.PositiveInfinity, y0 = double.PositiveInfinity;
+            double x1 = double.NegativeInfinity, y1 = double.NegativeInfinity;
+            (double lx, double ly)[] corners = {
+                (lo, ExitBackY), (hi, ExitBackY), (lo, ExitFrontY), (hi, ExitFrontY),
+            };
+            for (int c = 0; c < corners.Length; c++) {
+                ExitRotate(corners[c].lx, corners[c].ly, rot, out double wx, out double wy);
+                double px = cx + wx, py = cy + wy;
+                if (px < x0) x0 = px;
+                if (px > x1) x1 = px;
+                if (py < y0) y0 = py;
+                if (py > y1) y1 = py;
+            }
+            int ix0 = (int)Math.Floor(x0);
+            int iy0 = (int)Math.Floor(y0);
+            for (int x = ix0; x < x1; x++) {
+                for (int y = iy0; y < y1; y++) {
+                    output.Add((x, y, module.Z));
+                }
+            }
+        }
+
+        static void AppendExitFloors(List<CellShape> cells, StationSessionDocument document,
+            StationWalkGraphOptions options, HashSet<string> authoredCoords) {
+            var fp = new List<(int X, int Y, int Z)>(48);
+            var added = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var module in document.Modules) {
+                if (!HasHeadHouseShell(module)) continue;
+                fp.Clear();
+                ExitFootprintCellsFor(module, fp);
+                for (int i = 0; i < fp.Count; i++) {
+                    var (x, y, z) = fp[i];
+                    string key = StationWalkGraph.CellKey(x, y, z);
+                    if (authoredCoords.Contains(key) || !added.Add(key)) continue;
+                    cells.Add(new CellShape {
+                        X = x, Y = y, Z = z, Solid = true,
+                        Zone = ZoneOutside, Speed = options.UnknownFloorSpeed,
+                    });
+                }
+            }
+        }
+
+        static List<ExitWallPlane> CollectExitWalls(StationSessionDocument document) {
+            var walls = new List<ExitWallPlane>();
+            foreach (var module in document.Modules) {
+                if (HasHeadHouseShell(module)) ExitWallPlanesFor(module, walls);
+            }
+            return walls;
+        }
+
+        static bool CrossesExitWall(List<ExitWallPlane> walls, double x, double y, double nx, double ny, int z) {
+            for (int i = 0; i < walls.Count; i++) {
+                var w = walls[i];
+                if (z < w.Z0 || z > w.Z1) continue;
+                if (w.AxisX) {
+                    if ((x - w.At) * (nx - w.At) >= 0) continue;
+                    double cy = y + ((w.At - x) / (nx - x)) * (ny - y);
+                    if (cy > w.Min && cy < w.Max) return true;
+                } else {
+                    if ((y - w.At) * (ny - w.At) >= 0) continue;
+                    double cx = x + ((w.At - y) / (ny - y)) * (nx - x);
+                    if (cx > w.Min && cx < w.Max) return true;
+                }
+            }
+            return false;
+        }
 
         sealed class EdgeList {
             public readonly List<int>[] To;

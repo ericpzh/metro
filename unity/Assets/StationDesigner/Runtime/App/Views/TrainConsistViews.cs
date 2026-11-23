@@ -37,8 +37,12 @@ namespace Metro.App.Views {
         public float DepartRun;
         /// <summary>A point on the platform that faces this track, in document axes.</summary>
         public Vector3 PlatformPoint;
+        /// <summary>Document-space points of all platform edges bound to this track (zero, one, or both sides).</summary>
+        public readonly List<Vector3> PlatformPoints = new List<Vector3>();
         /// <summary>True when the document binds a platform edge to this track.</summary>
         public bool HasPlatform;
+        /// <summary>Consist door bank bitmask (bit 0 = +1, bit 1 = −1, 0..3).</summary>
+        public int DoorBankMask;
         /// <summary>The bank that faces the platform when no edge exists (the source's `plus`).</summary>
         public int DefaultPlatformBank = 1;
         public StationModuleRecord Track;
@@ -110,6 +114,8 @@ namespace Metro.App.Views {
         public Vector3 DocumentPosition;
         /// <summary>The bank the document's platform faces today (+1 / −1).</summary>
         public int PlatformBank = 1;
+        /// <summary>Bitmask of consist banks facing platforms (bit 0 = +1, bit 1 = −1, 0..3).</summary>
+        public int DoorBankMask = 1;
         /// <summary>The standalone `Gangway&lt;n&gt;` roots the promoted formation carries.</summary>
         public readonly List<Transform> Gangways = new List<Transform>();
         /// <summary>The saved track's own storey band (the consist's visibility membership).</summary>
@@ -117,6 +123,8 @@ namespace Metro.App.Views {
         public int[] LevelBands = Array.Empty<int>();
         /// <summary>The one world record this consist is registered under (`train:line|track`).</summary>
         public string VisibilityRecordId = "";
+        /// <summary>Live line livery & city cab-mark renderer slots captured after compaction.</summary>
+        public TrainLiveryBinding LiveryBinding;
         /// <summary>The saved track's document band, used for section classification.</summary>
         public StationBox ConsistBounds;
         public bool HasConsistBounds;
@@ -135,7 +143,8 @@ namespace Metro.App.Views {
         public int Cars => cars.Count;
         public bool Visible => Root != null && Root.activeSelf;
         public bool DoorsOpen => Rig != null &&
-            (PlatformBank >= 0 ? Rig.Plus : Rig.Minus) > 1e-4f;
+            (((DoorBankMask & 1) != 0 && Rig.Plus > 1e-4f) ||
+             ((DoorBankMask & 2) != 0 && Rig.Minus > 1e-4f));
 
         internal void AddCar(TrainCarView car) => cars.Add(car);
 
@@ -445,18 +454,40 @@ namespace Metro.App.Views {
             var direction = track.Config.Text("dir");
             if (direction.Length == 0) direction = line.Direction;
             var edge = PlatformEdgeFor(document, track, line.Id, direction);
+            int dirSign = DirectionSign(track, line);
             var facts = new List<ModuleFacts>(document.Modules.Count);
             for (int i = 0; i < document.Modules.Count; i++) facts.Add(document.Modules[i].Facts);
+            int trackSides = 0;
+            var platformPoints = new List<Vector3>();
+            if (!track.Config.Bool("tunnel") && !track.Config.Bool("bridge")) {
+                for (int i = 0; i < document.Modules.Count; i++) {
+                    var m = document.Modules[i];
+                    if (m == null || !string.Equals(m.Type, "platform-edge", StringComparison.Ordinal)) continue;
+                    if (!string.Equals(m.Config.Text("line"), line.Id, StringComparison.Ordinal)) continue;
+                    var from = m.Config.Text("from");
+                    bool matches = from.Length > 0
+                        ? string.Equals(from, track.Id, StringComparison.Ordinal)
+                        : string.Equals(m.Config.Text("dir"), direction, StringComparison.Ordinal);
+                    if (!matches) continue;
+                    bool isLeft = string.Equals(m.Config.Text("side"), "left", StringComparison.Ordinal);
+                    int bit = isLeft ? 1 : 2;
+                    if ((trackSides & bit) == 0) {
+                        trackSides |= bit;
+                        platformPoints.Add(new Vector3(m.X + .5f, m.Y + .5f, m.Z + .5f));
+                    }
+                }
+            }
             berth = new TrainBerth {
                 LineId = line.Id, TrackId = track.Id, Stock = line.Stock, Cars = line.Cars, Scale = modelScale,
                 DocumentPosition = position, Facing = facing,
-                DirectionSign = DirectionSign(track, line),
+                DirectionSign = dirSign,
                 HalfLength = TrainConsist.Length(line.Stock, line.Cars, modelScale) * .5f,
                 ApproachRun = back, DepartRun = forward,
-                HasPlatform = edge != null,
+                HasPlatform = edge != null || platformPoints.Count > 0,
+                DoorBankMask = StationTrainPose.ConsistDoorBankMask(trackSides, dirSign),
                 PlatformPoint = edge != null
                     ? new Vector3(edge.X + .5f, edge.Y + .5f, edge.Z + .5f)
-                    : new Vector3(position.x, position.y - 1.5f, position.z),
+                    : (platformPoints.Count > 0 ? platformPoints[0] : new Vector3(position.x, position.y - 1.5f, position.z)),
                 DefaultPlatformBank = 1,
                 Track = track,
                 RailSurfaceZ = StationRailGeometry.RailSurfaceZ(track, modelScale),
@@ -465,6 +496,7 @@ namespace Metro.App.Views {
                 ThirdRailSide = StationRailGeometry.ThirdRailSide(track.Facts, facts,
                     StationRailGeometry.LineDirectionOf(document, track.Facts)),
             };
+            berth.PlatformPoints.AddRange(platformPoints);
             return true;
         }
 
@@ -932,6 +964,10 @@ namespace Metro.App.Views {
 
 
         public IReadOnlyList<TrainConsistView> Consists => consists;
+        readonly Dictionary<string, Material> liveryMaterials = new Dictionary<string, Material>(StringComparer.Ordinal);
+        readonly List<Material> ownedLiveryMaterials = new List<Material>();
+        StationDocument lastPresentationDoc;
+        bool markListenerAttached;
         /// <summary>The per-world door dispatch; its probes measure the leaves' real travel.</summary>
         public ModuleMotionDispatch Dispatch => dispatch;
         /// <summary>Frames that positioned at least one consist.</summary>
@@ -953,6 +989,11 @@ namespace Metro.App.Views {
             context = buildContext ?? throw new ArgumentNullException(nameof(buildContext));
             var document = context.Document;
             if (document == null) return;
+            lastPresentationDoc = document;
+            if (!markListenerAttached) {
+                TrainMarkTextureCache.TextureUpdated += OnTrainMarksUpdated;
+                markListenerAttached = true;
+            }
             var catalogue = context.TrainCatalogue;
             var roleRoot = context.RoleRoot(TrainConsistRenderer.RoleName);
             for (int l = 0; l < document.Lines.Count; l++) {
@@ -1055,16 +1096,24 @@ namespace Metro.App.Views {
             // so a reversed service opens its mirrored bank and the far side stays shut.
             var rig = new TrainDoorRig(instance, TrainDoorRig.ForLine(line.Stock, line.Cars, scale));
             view.Rig = rig;
-            view.PlatformBank = berth.HasPlatform
-                ? TrainDoorRig.BankFacing(instance.transform, StationCoordinates.Point(berth.PlatformPoint))
-                : berth.DefaultPlatformBank;
-            rig.SetPlatformBank(view.PlatformBank);
-            rig.SetBank(view.PlatformBank, 0f);
-            rig.SetBank(-view.PlatformBank, 0f);
+            int bankMask = 0;
+            if (berth.PlatformPoints.Count > 0) {
+                for (int p = 0; p < berth.PlatformPoints.Count; p++) {
+                    int b = TrainDoorRig.BankFacing(instance.transform, StationCoordinates.Point(berth.PlatformPoints[p]));
+                    bankMask |= b >= 0 ? 1 : 2;
+                }
+            } else if (berth.HasPlatform) {
+                int b = TrainDoorRig.BankFacing(instance.transform, StationCoordinates.Point(berth.PlatformPoint));
+                bankMask = b >= 0 ? 1 : 2;
+            }
+            view.DoorBankMask = bankMask;
+            view.PlatformBank = (bankMask & 1) != 0 ? 1 : ((bankMask & 2) != 0 ? -1 : berth.DefaultPlatformBank);
+            rig.SetActiveBankMask(bankMask);
+            rig.Reset();
             if (rig.Leaves == 0) {
                 context.ReportUnresolved("train-rig-no-leaves", "train", recordId,
                     "The promoted formation carries no DoorNN leaf the rig can bind; its body is still drawn.");
-            } else if (!dispatch.BindTrain(trainId, rig, view.PlatformBank)) {
+            } else if (!dispatch.BindTrainMask(trainId, rig, bankMask)) {
                 context.ReportUnresolved("train-rig-unbound", "train", recordId,
                     "The consist's door rig could not be bound for frame.Trains.");
             }
@@ -1078,6 +1127,15 @@ namespace Metro.App.Views {
             var gangways = CollectGangways(instance);
             for (int i = 0; i < gangways.Count; i++) view.Gangways.Add(gangways[i]);
             CompactConsistStaticBodies(formationKey, view.CarViews, gangways);
+            view.LiveryBinding = TrainLiveryBinder.Capture(instance);
+            TrainLiveryBinder.Apply(
+                view.LiveryBinding,
+                line.Id,
+                string.IsNullOrEmpty(line.Colour) ? StationCityStyles.LineColourFor(line.Id, document.City) : line.Colour,
+                document.City,
+                liveryMaterials,
+                ownedLiveryMaterials,
+                recaptureVisibility: false);
             ApplyUnbatchedLods(instance, staticBodyCache, staticBodyMeshes);
             var grid = StationLevelGrid.FromDocument(document.LevelBase, document.StoreyHeight);
             var bands = StationModuleLevels.Of(track.Facts, grid);
@@ -1180,7 +1238,7 @@ namespace Metro.App.Views {
                 // (`doorSides` is 0); hold it shut rather than open a tunnel wall.
                 for (int i = 0; i < consists.Count; i++) {
                     var view = consists[i];
-                    if (view.Berth != null && !view.Berth.HasPlatform) view.Rig?.SetBank(view.PlatformBank, 0f);
+                    if (view.Berth != null && view.DoorBankMask == 0) view.Rig?.Reset();
                 }
                 // Only now, with the first pose and the door banks written, may a consist draw.
                 for (int i = 0; i < consists.Count; i++) {
@@ -1222,13 +1280,14 @@ namespace Metro.App.Views {
                         : applied >= 1f && previous < 1f ? "open"
                         : "";
                     if (kind.Length == 0) continue;
+                    bool bankActive = (view.DoorBankMask & (bank >= 0 ? 1 : 2)) != 0;
                     doorEvents.Add(new TrainDoorEvent {
                         TrainId = train.Id, ServiceSequence = train.ServiceSequence, Phase = train.Phase,
                         PhaseSeconds = train.PhaseSeconds, Kind = kind, Bank = bank,
                         Commanded = (float)train.DoorFraction, Applied = applied,
-                        Doorway = bank == view.PlatformBank ? rig.ObservedDoorway : -1,
-                        LeafX = bank == view.PlatformBank ? rig.ObservedLeafX : 0f,
-                        LeafZ = bank == view.PlatformBank ? rig.ObservedLeafZ : 0f,
+                        Doorway = bankActive ? rig.ObservedDoorwayFor(bank) : -1,
+                        LeafX = bankActive ? rig.ObservedLeafXFor(bank) : 0f,
+                        LeafZ = bankActive ? rig.ObservedLeafZFor(bank) : 0f,
                     });
                 }
                 // A bank the platform does not face must never move: report it as its own
@@ -1244,9 +1303,38 @@ namespace Metro.App.Views {
             }
         }
 
+        public void RefreshPresentation(StationDocument document) {
+            if (document == null) return;
+            lastPresentationDoc = document;
+            var lineById = new Dictionary<string, StationLineRecord>(document.Lines.Count, StringComparer.Ordinal);
+            for (int i = 0; i < document.Lines.Count; i++) {
+                var l = document.Lines[i];
+                if (l != null && !string.IsNullOrEmpty(l.Id)) lineById[l.Id] = l;
+            }
+            for (int i = 0; i < consists.Count; i++) {
+                var c = consists[i];
+                if (c?.LiveryBinding == null || c.Root == null) continue;
+                string colour = lineById.TryGetValue(c.LineId, out var line) && !string.IsNullOrEmpty(line.Colour)
+                    ? line.Colour
+                    : StationCityStyles.LineColourFor(c.LineId, document.City);
+                TrainLiveryBinder.Apply(
+                    c.LiveryBinding, c.LineId, colour, document.City,
+                    liveryMaterials, ownedLiveryMaterials, recaptureVisibility: true);
+            }
+        }
+
+        void OnTrainMarksUpdated() {
+            if (lastPresentationDoc != null) RefreshPresentation(lastPresentationDoc);
+        }
+
         /* -------------------------------------------------------------- teardown */
 
         public void Dispose() {
+            if (markListenerAttached) {
+                TrainMarkTextureCache.TextureUpdated -= OnTrainMarksUpdated;
+                markListenerAttached = false;
+            }
+            lastPresentationDoc = null;
             for (int i = 0; i < consists.Count; i++) {
                 var root = consists[i].Root;
                 if (root != null) DestroyNow(root);
@@ -1259,6 +1347,11 @@ namespace Metro.App.Views {
             }
             staticBodyMeshes.Clear();
             staticBodyCache.Clear();
+            for (int i = 0; i < ownedLiveryMaterials.Count; i++) {
+                if (ownedLiveryMaterials[i] != null) DestroyNow(ownedLiveryMaterials[i]);
+            }
+            ownedLiveryMaterials.Clear();
+            liveryMaterials.Clear();
         }
 
         /* -------------------------------------------------------------- helpers */
@@ -1339,25 +1432,54 @@ namespace Metro.App.Views {
     public sealed class TrainConsistRenderer : IStationViewRenderer, IStationLocalViewRenderer {
         public const string RoleName = "trains";
 
+        sealed class TrainPresentationStage : IStationLocalRendererStage {
+            readonly WorldState state;
+            readonly StationDocument nextDocument;
+
+            public TrainPresentationStage(WorldState state, StationDocument nextDocument) {
+                this.state = state;
+                this.nextDocument = nextDocument;
+            }
+
+            public void Commit(StationWorldView world, StationLocalViewCommit commit) {
+                state?.Views?.RefreshPresentation(nextDocument);
+            }
+
+            public void Dispose() { }
+        }
+
         public bool TryStageLocalDelta(
             StationLocalDeltaContext context,
             out IStationLocalRendererStage stage,
             out string fallbackReason) {
             stage = null;
             fallbackReason = null;
+            if (context.LineStructureChanged) {
+                fallbackReason = "local-line-structure";
+                return false;
+            }
             var delta = context.Delta;
             for (int i = 0; i < delta.RemovedModules.Count; i++) {
                 if (context.PrevIndex.TryGetModule(delta.RemovedModules[i], out var oldMod) &&
-                    oldMod != null && oldMod.Type == "track") {
-                    fallbackReason = "local-module-family:track";
+                    oldMod != null && (oldMod.Type == "track" || oldMod.Type == "platform-edge")) {
+                    fallbackReason = "local-module-family:" + oldMod.Type;
                     return false;
                 }
             }
             for (int i = 0; i < delta.ChangedModules.Count; i++) {
                 var mod = delta.ChangedModules[i];
-                if (mod != null && mod.Type == "track") {
-                    fallbackReason = "local-module-family:track";
+                if (mod != null && (mod.Type == "track" || mod.Type == "platform-edge")) {
+                    fallbackReason = "local-module-family:" + mod.Type;
                     return false;
+                }
+            }
+            if (context.CityChanged || context.VisualChangedLineIds.Count > 0) {
+                WorldState state = null;
+                for (int i = worlds.Count - 1; i >= 0; i--) {
+                    if (worlds[i].World == context.World) { state = worlds[i]; break; }
+                }
+                if (state?.Views != null) {
+                    stage = new TrainPresentationStage(state, context.NextDocument);
                 }
             }
             return true;
@@ -1409,6 +1531,10 @@ namespace Metro.App.Views {
         }
 
         public void ClearDoorEvents() { ActiveState()?.Views.ClearDoorEvents(); }
+
+        public void RefreshPresentation(StationDocument document) {
+            ActiveState()?.Views.RefreshPresentation(document);
+        }
 
         public void Build(StationViewBuildContext context) {
             if (context == null) throw new ArgumentNullException(nameof(context));
