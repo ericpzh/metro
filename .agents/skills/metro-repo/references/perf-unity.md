@@ -103,14 +103,21 @@ for measurement rules and [perf-benchmarks.md](perf-benchmarks.md) for commands.
   (`unity/ProjectSettings/ProjectSettings.asset`, effective ceiling ~4,080 MiB).
   Never raise above `4096` (triggers Emscripten memory64/`BigInt` startup
   failure).
-- **Low-memory WebGL open/save**: Direct chunk-mesh streaming without
-  intermediate managed arrays, frame-yielded `OpenYielded` with deferred-destroy
-  sweep and rollback, streamed 16 KiB SHA-256 (`HashEnvelope`), and 32 KiB
-  chunked WebGL commit/save envelopes (`StationGame.jslib`). Note:
-  `StationDocumentReader.ParseAndProject` still builds a Newtonsoft `JObject`
-  DOM during cold open, and repeated multi-profile `16×` Tianhe Park WebGL
-  samples can still pressure the 4 GiB Wasm32 heap (isolate single Tianhe
-  samples in fresh browser sessions).
+- **Low-memory WebGL open/save**: Single-pass streaming `JsonTextReader` load
+  (`StationDocumentStreamingReader.cs`) with interned cell strings/tags/`CompactStringMap`
+  finishes and canonical on-demand `RawJson` synthesis (zero full-save `JObject` DOM),
+  deferred `TrainCatalogue` staging (`BuildWeb.cs` → `Resources/MetroWebTrains`),
+  lazy cell picking (`StationCellViewRequest.LazyPickGeometry` with 32-chunk LRU cache
+  and reusable upload buffers), deferred `StationWalkGraphScratchPool` allocation for
+  stations ≥ 16,384 walk nodes, frame-yielded `OpenYielded` pre-read visual release
+  whenever `IsLargeStation(document) || json.Length >= 4_000_000`, skipped throwaway
+  `station.resync` on WebGL `/game/unity/benchmark`, streamed 16 KiB SHA-256
+  (`HashEnvelope`), and 32 KiB batched WebGL commit/save envelopes (`StationGame.jslib`).
+  On Tianhe Park WebGL (`?metroLoadProbe=1`), this cuts native reserved at load start from
+  `1,553 → 680 MiB`, live managed heap after parse+index from `702 → 278 MiB`, after
+  world build from `946 → 341 MiB`, and after simulation stage from `1,141 → 504 MiB`,
+  passing all 30/30 Tianhe WebGL benchmark combinations (`regular` + `explode`, all
+  3 detail tiers × 5 FSR modes) on attempt 1.
 - **Brotli deploy bundles** (`tools/unity-web/stage-deploy.mjs`,
   `local-worker.mjs`, `unity/wrangler.jsonc`): Stages only public
   `StationGameLocal.unity` packs (rejecting local-only `StationGameLocalWeb*`
@@ -122,10 +129,12 @@ for measurement rules and [perf-benchmarks.md](perf-benchmarks.md) for commands.
 
 ## Windows standalone `.exe` & in-app benchmark
 
-- **Deferred train loading (`BuildWindows.cs`)**: Windows builds stage a
-  `TrainCatalogue` backed by `Resources/MetroWindowsTrains` paths so the 50
-  formations load on demand instead of stalling initial scene preload; the
-  authoring scene and WebGL catalogue retain direct references.
+- **Deferred train loading (`BuildWindows.cs`, `BuildWeb.cs`)**: Both Windows
+  (`Resources/MetroWindowsTrains`) and WebGL (`Resources/MetroWebTrains`) builds
+  stage a `TrainCatalogue` backed by `Resources` paths so the 50 formations load
+  on demand (and release via `TrainCatalogue.ReleaseDeferredPrefabs()` between
+  large stations) instead of stalling initial scene preload; the authoring scene
+  and catalogue retain direct references.
 - **Single-file portable build**: `npm run build:unity:windows` builds an
   isolated Win64 `Release` player + `MetroEditorWebView.exe` +
   `game/dist-unity-ui` and packs `.preview/unity/StationDesigner.exe`

@@ -38,8 +38,8 @@ namespace Metro.Editor {
             var configIndex = Array.IndexOf(args, "-metroConfiguration");
             string configuration = configIndex >= 0 && configIndex + 1 < args.Length ? args[configIndex + 1] : "Development";
             if (configuration != "Development" && configuration != "Release") throw new ArgumentException("Invalid build configuration");
-            var options = new BuildPlayerOptions { scenes = new[] { scenePath }, locationPathName = output, target = BuildTarget.WebGL, options = configuration == "Development" ? BuildOptions.Development : BuildOptions.None };
-            var report = BuildPipeline.BuildPlayer(options);
+            var options = new BuildPlayerOptions { locationPathName = output, target = BuildTarget.WebGL, options = configuration == "Development" ? BuildOptions.Development : BuildOptions.None };
+            var report = BuildWindows.BuildWithDeferredTrains(options, scenePath, "MetroWebTrains", applyWindowsIcons: false);
             File.WriteAllText(output + ".report.json", JsonUtility.ToJson(new Summary { result = report.summary.result.ToString(), totalSize = report.summary.totalSize, unityVersion = Application.unityVersion, output = output }, true));
             if (report.summary.result != BuildResult.Succeeded || !File.Exists(Path.Combine(output, "index.html"))) throw new Exception("Web build did not succeed");
         }

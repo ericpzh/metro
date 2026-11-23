@@ -1,6 +1,9 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Globalization;
+using System.Text;
 
 namespace Metro.Build {
     /// <summary>
@@ -115,18 +118,86 @@ namespace Metro.Build {
     }
 
     /// <summary>
+    /// Compact insertion-ordered finish map (typically 1-6 faces) that is shared across
+    /// cells with identical face finishes, avoiding 150k+ Dictionary instances on large saves.
+    /// </summary>
+    public sealed class CompactStringMap : IReadOnlyDictionary<string, string> {
+        readonly string[] keys;
+        readonly string[] values;
+
+        public CompactStringMap(string[] keys, string[] values) {
+            this.keys = keys ?? Array.Empty<string>();
+            this.values = values ?? Array.Empty<string>();
+        }
+
+        public int Count => keys.Length;
+        public string KeyAt(int index) => keys[index];
+        public string ValueAt(int index) => values[index];
+
+        public string this[string key] {
+            get {
+                if (TryGetValue(key, out var value)) return value;
+                throw new KeyNotFoundException(key);
+            }
+        }
+
+        public IEnumerable<string> Keys => keys;
+        public IEnumerable<string> Values => values;
+
+        public bool ContainsKey(string key) => TryGetValue(key, out _);
+
+        public bool TryGetValue(string key, out string value) {
+            if (key != null) {
+                for (int i = 0; i < keys.Length; i++) {
+                    if (string.Equals(keys[i], key, StringComparison.Ordinal)) {
+                        value = values[i];
+                        return true;
+                    }
+                }
+            }
+            value = null;
+            return false;
+        }
+
+        public IEnumerator<KeyValuePair<string, string>> GetEnumerator() {
+            for (int i = 0; i < keys.Length; i++) {
+                yield return new KeyValuePair<string, string>(keys[i], values[i]);
+            }
+        }
+
+        IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+    }
+
+    /// <summary>
     /// One saved cell, typed. <see cref="RawJson"/> is the exact authored record,
     /// so a field this projection does not name still survives a round trip;
     /// <see cref="Finish"/> keeps every directional face the save carries.
     /// </summary>
     public sealed class StationCellRecord {
         static readonly IReadOnlyDictionary<string, string> NoFinish =
-            new ReadOnlyDictionary<string, string>(new Dictionary<string, string>(StringComparer.Ordinal));
+            new CompactStringMap(Array.Empty<string>(), Array.Empty<string>());
         static readonly string[] NoTags = Array.Empty<string>();
+
+        // Packed 3-bit optional-field codes after x,y,z,fill (up to 5 fields fit in 15 bits):
+        // 1=shape, 2=tags, 3=finish, 4=zone, 5=room; bit 15 marks canonical synthesis active.
+        public const ushort CanonicalFlag = 0x8000;
+        public const int FieldShape = 1;
+        public const int FieldTags = 2;
+        public const int FieldFinish = 3;
+        public const int FieldZone = 4;
+        public const int FieldRoom = 5;
+
+        readonly string rawJson;
+        readonly ushort canonicalKeyOrder;
 
         public StationCellRecord(
             int x, int y, int z, string shape, string fill, string zone, string[] tags,
-            IReadOnlyDictionary<string, string> finish, string room, string rawJson) {
+            IReadOnlyDictionary<string, string> finish, string room, string rawJson)
+            : this(x, y, z, shape, fill, zone, tags, finish, room, rawJson, 0) { }
+
+        public StationCellRecord(
+            int x, int y, int z, string shape, string fill, string zone, string[] tags,
+            IReadOnlyDictionary<string, string> finish, string room, string rawJson, ushort canonicalKeyOrder) {
             X = x; Y = y; Z = z;
             Shape = string.IsNullOrEmpty(shape) ? "full" : shape;
             Fill = string.IsNullOrEmpty(fill) ? "solid" : fill;
@@ -134,7 +205,8 @@ namespace Metro.Build {
             Tags = tags != null && tags.Length > 0 ? tags : NoTags;
             Finish = finish ?? NoFinish;
             Room = room ?? "";
-            RawJson = rawJson ?? "";
+            this.rawJson = canonicalKeyOrder != 0 ? null : (rawJson ?? "");
+            this.canonicalKeyOrder = canonicalKeyOrder;
         }
 
         public int X { get; }
@@ -154,7 +226,117 @@ namespace Metro.Build {
         public IReadOnlyDictionary<string, string> Finish { get; }
         /// <summary>Authored room/zone label carried on the cell, when present.</summary>
         public string Room { get; }
-        public string RawJson { get; }
+        public string RawJson {
+            get {
+                if (rawJson != null) return rawJson;
+                var sb = new StringBuilder(96);
+                AppendRawJson(sb);
+                return sb.ToString();
+            }
+        }
+
+        public void AppendRawJson(StringBuilder sb) {
+            if (rawJson != null) { sb.Append(rawJson); return; }
+            sb.Append("{\"x\":");
+            sb.Append(X.ToString(CultureInfo.InvariantCulture));
+            sb.Append(",\"y\":");
+            sb.Append(Y.ToString(CultureInfo.InvariantCulture));
+            sb.Append(",\"z\":");
+            sb.Append(Z.ToString(CultureInfo.InvariantCulture));
+            sb.Append(",\"fill\":\"");
+            AppendJsonEscaped(sb, Fill);
+            sb.Append('"');
+            int packed = canonicalKeyOrder & 0x7FFF;
+            for (int shift = 0; shift < 15; shift += 3) {
+                int code = (packed >> shift) & 7;
+                if (code == 0) break;
+                switch (code) {
+                    case FieldShape:
+                        sb.Append(",\"shape\":\"");
+                        AppendJsonEscaped(sb, Shape);
+                        sb.Append('"');
+                        break;
+                    case FieldTags:
+                        if (Tags.Count > 0) {
+                            sb.Append(",\"tags\":[");
+                            for (int i = 0; i < Tags.Count; i++) {
+                                if (i > 0) sb.Append(',');
+                                sb.Append('"');
+                                AppendJsonEscaped(sb, Tags[i]);
+                                sb.Append('"');
+                            }
+                            sb.Append(']');
+                        }
+                        break;
+                    case FieldFinish:
+                        if (Finish.Count > 0) {
+                            sb.Append(",\"finish\":{");
+                            if (Finish is CompactStringMap compact) {
+                                for (int i = 0; i < compact.Count; i++) {
+                                    if (i > 0) sb.Append(',');
+                                    sb.Append('"');
+                                    AppendJsonEscaped(sb, compact.KeyAt(i));
+                                    sb.Append("\":\"");
+                                    AppendJsonEscaped(sb, compact.ValueAt(i));
+                                    sb.Append('"');
+                                }
+                            } else {
+                                bool firstFace = true;
+                                foreach (var kv in Finish) {
+                                    if (!firstFace) sb.Append(',');
+                                    firstFace = false;
+                                    sb.Append('"');
+                                    AppendJsonEscaped(sb, kv.Key);
+                                    sb.Append("\":\"");
+                                    AppendJsonEscaped(sb, kv.Value);
+                                    sb.Append('"');
+                                }
+                            }
+                            sb.Append('}');
+                        }
+                        break;
+                    case FieldZone:
+                        if (Zone.Length > 0) {
+                            sb.Append(",\"zone\":\"");
+                            AppendJsonEscaped(sb, Zone);
+                            sb.Append('"');
+                        }
+                        break;
+                    case FieldRoom:
+                        if (Room.Length > 0) {
+                            sb.Append(",\"room\":\"");
+                            AppendJsonEscaped(sb, Room);
+                            sb.Append('"');
+                        }
+                        break;
+                }
+            }
+            sb.Append('}');
+        }
+
+        internal static void AppendJsonEscaped(StringBuilder sb, string value) {
+            if (string.IsNullOrEmpty(value)) return;
+            for (int i = 0; i < value.Length; i++) {
+                char c = value[i];
+                switch (c) {
+                    case '"': sb.Append("\\\""); break;
+                    case '\\': sb.Append("\\\\"); break;
+                    case '\b': sb.Append("\\b"); break;
+                    case '\f': sb.Append("\\f"); break;
+                    case '\n': sb.Append("\\n"); break;
+                    case '\r': sb.Append("\\r"); break;
+                    case '\t': sb.Append("\\t"); break;
+                    default:
+                        if (c < 0x20) {
+                            sb.Append("\\u");
+                            sb.Append(((int)c).ToString("x4", CultureInfo.InvariantCulture));
+                        } else {
+                            sb.Append(c);
+                        }
+                        break;
+                }
+            }
+        }
 
         public bool HasTag(string tag) {
             for (int i = 0; i < Tags.Count; i++) if (string.Equals(Tags[i], tag, StringComparison.Ordinal)) return true;
@@ -173,10 +355,20 @@ namespace Metro.Build {
     public sealed class StationModuleRecord {
         static readonly string[] NoTags = Array.Empty<string>();
 
+        readonly string rawJson;
+        readonly bool canonicalSimpleSurface;
+
         public StationModuleRecord(
             string id, string type, int x, int y, int z, int rotation, int width, int depth, int height,
             bool ceilingAnchored, StationPoint? from, StationPoint? to, string[] tags, string rawJson,
-            ModuleFacts facts, double panelHeight = 0, double offsetX = 0, double offsetY = 0) {
+            ModuleFacts facts, double panelHeight = 0, double offsetX = 0, double offsetY = 0)
+            : this(id, type, x, y, z, rotation, width, depth, height, ceilingAnchored, from, to, tags,
+                  rawJson, facts, panelHeight, offsetX, offsetY, canonicalSimpleSurface: false) { }
+
+        public StationModuleRecord(
+            string id, string type, int x, int y, int z, int rotation, int width, int depth, int height,
+            bool ceilingAnchored, StationPoint? from, StationPoint? to, string[] tags, string rawJson,
+            ModuleFacts facts, double panelHeight, double offsetX, double offsetY, bool canonicalSimpleSurface) {
             Id = id ?? "";
             Type = type ?? "";
             X = x; Y = y; Z = z;
@@ -188,7 +380,8 @@ namespace Metro.Build {
             From = from;
             To = to;
             Tags = tags != null && tags.Length > 0 ? tags : NoTags;
-            RawJson = rawJson ?? "";
+            this.rawJson = canonicalSimpleSurface ? null : (rawJson ?? "");
+            this.canonicalSimpleSurface = canonicalSimpleSurface;
             Facts = facts;
             PanelHeight = panelHeight;
             OffsetX = offsetX;
@@ -221,7 +414,32 @@ namespace Metro.Build {
         public StationPoint? From { get; }
         public StationPoint? To { get; }
         public IReadOnlyList<string> Tags { get; }
-        public string RawJson { get; }
+        public string RawJson {
+            get {
+                if (rawJson != null) return rawJson;
+                var sb = new StringBuilder(96);
+                AppendRawJson(sb);
+                return sb.ToString();
+            }
+        }
+
+        public void AppendRawJson(StringBuilder sb) {
+            if (rawJson != null) { sb.Append(rawJson); return; }
+            sb.Append("{\"x\":");
+            sb.Append(X.ToString(CultureInfo.InvariantCulture));
+            sb.Append(",\"y\":");
+            sb.Append(Y.ToString(CultureInfo.InvariantCulture));
+            sb.Append(",\"z\":");
+            sb.Append(Z.ToString(CultureInfo.InvariantCulture));
+            sb.Append(",\"id\":\"");
+            StationCellRecord.AppendJsonEscaped(sb, Id);
+            sb.Append("\",\"type\":\"");
+            StationCellRecord.AppendJsonEscaped(sb, Type);
+            sb.Append("\",\"rot\":");
+            sb.Append(Rotation.ToString(CultureInfo.InvariantCulture));
+            sb.Append(",\"cfg\":{}}");
+        }
+
         /// <summary>Placement/config snapshot the module views consume (never null).</summary>
         public ModuleFacts Facts { get; }
         public StationPoint Point => new StationPoint(X, Y, Z);

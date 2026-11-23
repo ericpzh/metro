@@ -204,7 +204,7 @@ namespace Metro.Persistence {
         }
 
         public static StationReadResult Read(string json, StationSource source, Action<string> markLoad) {
-            var projected = ParseAndProject(json, source, markLoad);
+            var projected = StationDocumentStreamingReader.ReadStreaming(json, source, markLoad);
             json = null;
 
             var cellPages = StationRecordPages<StationCellRecord>.FromArray(projected.Cells, out var cellPageIds);
@@ -283,34 +283,11 @@ namespace Metro.Persistence {
             header.Remove("static");
             var headerJson = header.ToString(Formatting.None);
 
-            int exactLength = Math.Max(0, headerJson.Length - 1) + (headerJson.Length > 2 ? 1 : 0)
-                + "\"static\":{\"cells\":[".Length
-                + "],\"modules\":[".Length
-                + "],\"lines\":[".Length
-                + "]}}".Length;
             var cellPages = document.CellPages;
-            int totalCells = 0;
-            for (int p = 0; p < cellPages.PageCount; p++) {
-                var page = cellPages.PageSpan(p);
-                totalCells += page.Length;
-                for (int j = 0; j < page.Length; j++) exactLength += page[j].RawJson.Length;
-            }
-            if (totalCells > 1) exactLength += totalCells - 1;
-
             var modPages = document.ModulePages;
-            int totalMods = 0;
-            for (int p = 0; p < modPages.PageCount; p++) {
-                var page = modPages.PageSpan(p);
-                totalMods += page.Length;
-                for (int j = 0; j < page.Length; j++) exactLength += page[j].RawJson.Length;
-            }
-            if (totalMods > 1) exactLength += totalMods - 1;
-
             var lines = document.Lines;
-            for (int i = 0; i < lines.Count; i++) exactLength += lines[i].RawJson.Length;
-            if (lines.Count > 1) exactLength += lines.Count - 1;
-
-            var sb = new StringBuilder(Math.Max(256, exactLength));
+            int estimated = Math.Max(256, headerJson.Length + 64 + document.CellCount * 72 + document.ModuleCount * 80 + lines.Count * 160);
+            var sb = new StringBuilder(estimated);
             sb.Append(headerJson, 0, headerJson.Length - 1);
             if (headerJson.Length > 2) sb.Append(',');
             sb.Append("\"static\":{\"cells\":[");
@@ -321,7 +298,7 @@ namespace Metro.Persistence {
                 for (int j = 0; j < page.Length; j++) {
                     if (!first) sb.Append(',');
                     first = false;
-                    sb.Append(page[j].RawJson);
+                    page[j].AppendRawJson(sb);
                 }
             }
 
@@ -332,7 +309,7 @@ namespace Metro.Persistence {
                 for (int j = 0; j < page.Length; j++) {
                     if (!first) sb.Append(',');
                     first = false;
-                    sb.Append(page[j].RawJson);
+                    page[j].AppendRawJson(sb);
                 }
             }
 
@@ -354,40 +331,53 @@ namespace Metro.Persistence {
             header.Remove("static");
             var headerJson = header.ToString(Formatting.None);
 
-            if (headerJson.Length > 1) write(headerJson.Substring(0, headerJson.Length - 1));
-            if (headerJson.Length > 2) write(",");
-            write("\"static\":{\"cells\":[");
+            const int FlushThreshold = 32768;
+            var sb = new StringBuilder(FlushThreshold + 1024);
+            void FlushIfFull() {
+                if (sb.Length >= FlushThreshold) {
+                    write(sb.ToString());
+                    sb.Clear();
+                }
+            }
+
+            if (headerJson.Length > 1) sb.Append(headerJson, 0, headerJson.Length - 1);
+            if (headerJson.Length > 2) sb.Append(',');
+            sb.Append("\"static\":{\"cells\":[");
 
             var cellPages = document.CellPages;
             bool first = true;
             for (int p = 0; p < cellPages.PageCount; p++) {
                 var page = cellPages.PageSpan(p);
                 for (int j = 0; j < page.Length; j++) {
-                    if (!first) write(",");
+                    if (!first) sb.Append(',');
                     first = false;
-                    write(page[j].RawJson);
+                    page[j].AppendRawJson(sb);
+                    FlushIfFull();
                 }
             }
 
-            write("],\"modules\":[");
+            sb.Append("],\"modules\":[");
             var modPages = document.ModulePages;
             first = true;
             for (int p = 0; p < modPages.PageCount; p++) {
                 var page = modPages.PageSpan(p);
                 for (int j = 0; j < page.Length; j++) {
-                    if (!first) write(",");
+                    if (!first) sb.Append(',');
                     first = false;
-                    write(page[j].RawJson);
+                    page[j].AppendRawJson(sb);
+                    FlushIfFull();
                 }
             }
 
-            write("],\"lines\":[");
+            sb.Append("],\"lines\":[");
             var lines = document.Lines;
             for (int i = 0; i < lines.Count; i++) {
-                if (i > 0) write(",");
-                write(lines[i].RawJson);
+                if (i > 0) sb.Append(',');
+                sb.Append(lines[i].RawJson);
+                FlushIfFull();
             }
-            write("]}}");
+            sb.Append("]}}");
+            if (sb.Length > 0) write(sb.ToString());
         }
 
         /// <summary>True when <paramref name="document"/> can be streamed segment-by-segment without materializing a full envelope string.</summary>
@@ -623,7 +613,7 @@ namespace Metro.Persistence {
                 Num(module["panelH"], 0), offsetX, offsetY);
         }
 
-        static StationLineRecord[] ReadLines(JArray source) {
+        internal static StationLineRecord[] ReadLines(JArray source) {
             var lines = new StationLineRecord[source.Count];
             for (int i = 0; i < source.Count; i++) {
                 var line = source[i] as JObject;
@@ -637,7 +627,7 @@ namespace Metro.Persistence {
             return lines;
         }
 
-        static StationDay ReadDay(JObject state) {
+        internal static StationDay ReadDay(JObject state) {
             var service = state["service"] as JObject;
             var morning = FirstPeak(state, 0);
             var evening = FirstPeak(state, 1);
@@ -760,15 +750,19 @@ namespace Metro.Persistence {
 
         // ------------------------------------------------------------- ad posters
 
+        internal static void AssignAdPosterSingle(JObject module, string type, StationRepairReport report) {
+            var cfg = EnsureCfg(module);
+            if (cfg.Property("poster") != null) return;
+            cfg["poster"] = RandomAdSlug(module, type);
+            report.AdPosters++;
+        }
+
         static void AssignAdPosters(JArray modules, StationRepairReport report) {
             foreach (var token in modules) {
                 if (!(token is JObject module)) continue;
                 var type = StationDocumentReader.Str(module["type"]);
                 if (type != "billboard" && type != "tv" && type != "busstop") continue;
-                var cfg = EnsureCfg(module);
-                if (cfg.Property("poster") != null) continue;
-                cfg["poster"] = RandomAdSlug(module, type);
-                report.AdPosters++;
+                AssignAdPosterSingle(module, type, report);
             }
         }
 

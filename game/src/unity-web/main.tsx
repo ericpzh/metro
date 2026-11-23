@@ -615,10 +615,13 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
   adoptEdit()
 
   // Ask the host for its station once the player registers: a demo route names
-  // the document to open, and any other path resumes whatever the host commits.
+  // the document to open, benchmark routes defer loading until the user starts
+  // a run (avoiding a throwaway `new` station allocation on WebGL), and any
+  // other path resumes whatever the host commits.
   const demo = isBenchmark ? null : demoStationForPath(location.pathname)
   queueMicrotask(() => {
-    if (demo) stationBridge.send('station.openDemo', { id: demo })
+    if (isBenchmark && !desktopOverlay) stationBridge.send('benchmark.mode', { active: true })
+    else if (demo) stationBridge.send('station.openDemo', { id: demo })
     else stationBridge.send('station.resync')
   })
 

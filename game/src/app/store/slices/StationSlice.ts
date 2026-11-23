@@ -8,7 +8,7 @@ import { clearContactFinishes } from '../../../sim/contactFinishes.ts'
 // and the undo stack see the same document.
 
 import type { StateCreator } from 'zustand'
-import { emptyStation, REFERENCE_BOOT, referenceStation } from '../../../data/reference-station.ts'
+import { emptyStation, REFERENCE_BOOT, referenceStationDocument } from '../../../data/reference-station.ts'
 import type { ExampleStationId } from '../../../data/reference-station.ts'
 import {
   nearestLevel,
@@ -242,7 +242,7 @@ export const createStationSlice: StateCreator<AppState, [], [], StationSlice> = 
   loadReference: (id = 'zoo') => {
     // The demo file is guarded clean by `demo.test.mjs`, but the same repair runs
     // here: an off-grid block would be dropped rather than loaded, not refused.
-    const repaired = toStateRepairing(referenceStation(id))
+    const repaired = toStateRepairing(referenceStationDocument(id))
     const previous = get().station
     const s = repaired.state
     set({ station: s, past: [], future: [], version: get().version + 1, geometryVersion: get().geometryVersion + 1, stationEpoch: get().stationEpoch + 1, activeZ: openingLevel(s), selected: null, moveDraft: null })

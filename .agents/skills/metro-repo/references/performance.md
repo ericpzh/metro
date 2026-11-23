@@ -15,6 +15,7 @@ Active performance contracts, measurement rules, and per-model geometry inventor
 - [perf-web.md](perf-web.md) — Three.js interactive budgets, picking, batching, derived-index release, paving, level slicing, sparse routing, traffic scaling, and exploded-view handoff.
 - [perf-unity.md](perf-unity.md) — Unity 6 URP 3-tier LODs, non-active storey step-down, FSR 1.0 upscaling, retained edits, WebGL memory/Brotli packaging, Windows `.exe` startup/benchmark, and sparse routing parity.
 - [perf-benchmarks.md](perf-benchmarks.md) — verified `npm` scripts, browser/route benchmarks, Unity EditMode/PlayMode perf suites, and standalone player benchmarks.
+- [perf-benchmark-matrix.md](perf-benchmark-matrix.md) — full 240-combination serial benchmark matrix across Web (Three.js localhost), Unity WebGL (localhost), and Unity Desktop (`.exe`).
 - [unity-model-lod-inventory.md](unity-model-lod-inventory.md) — Unity `LOD0`/`LOD1`/`LOD2` triangle inventory across rigid prefabs, procedural probes, compacted trains, and passengers.
 
 ## Per-model geometry detail inventory (Web Three.js)

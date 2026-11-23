@@ -8,10 +8,10 @@ namespace Metro.Persistence {
     // Port of clearCeilingZoneLabels and clearContactFinishes. It operates on a
     // cloned candidate array and never mutates the caller's source JSON.
     public static class StationCellNormalization {
-        sealed class Shape { public string kind, side, triangle; public int mask; }
+        internal sealed class Shape { public string kind, side, triangle; public int mask; }
         readonly struct Point { public readonly double x,y,z; public Point(double x,double y,double z){this.x=x;this.y=y;this.z=z;} }
         readonly struct Rect { public readonly double x0,x1,y0,y1; public Rect(double x0,double x1,double y0,double y1){this.x0=x0;this.x1=x1;this.y0=y0;this.y1=y1;} }
-        static readonly (string face,int x,int y,int z)[] Directions = { ("e",1,0,0),("w",-1,0,0),("n",0,1,0),("s",0,-1,0),("top",0,0,1),("bottom",0,0,-1) };
+        internal static readonly (string face,int x,int y,int z)[] Directions = { ("e",1,0,0),("w",-1,0,0),("n",0,1,0),("s",0,-1,0),("top",0,0,1),("bottom",0,0,-1) };
         static readonly string[] Sides = { "n", "e", "s", "w" };
         static readonly int[] CornerMasks = { 1,2,4,8 }, HalfMasks = { 3,6,12,9 };
         static bool Tagged(JObject cell,string tag) => cell["tags"] is JArray tags && tags.Any(t => t.Type==JTokenType.String && (string)t==tag);
@@ -21,7 +21,7 @@ namespace Metro.Persistence {
             foreach(var tag in tags) { if(tag.Type!=JTokenType.String)throw new FormatException("Invalid cell tag"); yield return (string)tag; }
         }
         static Shape ShapeOf(JObject cell) => ShapeOfTags(Tags(cell).ToArray());
-        static Shape ShapeOfTags(IReadOnlyList<string> tags) {
+        internal static Shape ShapeOfTags(IReadOnlyList<string> tags) {
             int mask=0;
             foreach(var tag in tags) {
                 var split=tag.Split(':'); if(split.Length!=2) continue;
@@ -93,7 +93,7 @@ namespace Metro.Persistence {
             foreach(var x in xs)foreach(var y in ys)foreach(var z in zs) {var p=new Point(x,y,z);if(Contains(s,p))points.Add(p);}
             if(points.Count<3)points.Clear();return points;
         }
-        static bool Covered(Shape shape,Shape neighbour,(string face,int x,int y,int z) d) {
+        internal static bool Covered(Shape shape,Shape neighbour,(string face,int x,int y,int z) d) {
             if(shape?.kind=="cuts"&&InnerFace(shape.mask,d.face))return false;
             var points=Boundary(shape,d.face);return points.Count>0&&points.All(p=>Contains(neighbour,new Point(p.x-d.x,p.y-d.y,p.z-d.z)));
         }

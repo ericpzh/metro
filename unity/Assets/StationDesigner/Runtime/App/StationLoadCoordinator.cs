@@ -285,16 +285,16 @@ namespace Metro.App {
 
             Action<string> markLoad = StationLoadProbe.Begin(id, document != null);
             bool releasedPreviousVisual = false;
-            // On 32-bit Wasm (4 GiB hard ceiling), replacing a huge station (e.g. Tianhe Park, ~152k
-            // records) with another multi-MiB document cannot fit two full visual worlds plus a ~770 MiB
-            // parse DOM simultaneously. Release only the visual world first while keeping the committed
-            // document+index intact so any parse/render/sim refusal restores cleanly via RestoreReleasedWorld().
-            if (world != null && IsLargeStation(document) &&
-                ((json != null && json.Length >= 4_000_000) || LowMemoryReplaceRecordThresholdOverride.HasValue)) {
+            // On 32-bit Wasm (4 GiB hard ceiling), loading a huge station (e.g. Tianhe Park, 16 MiB
+            // JSON / ~152k cells) or replacing one cannot fit two full visual worlds simultaneously.
+            // Release only the visual world first while keeping the committed document+index intact
+            // so any parse/render/sim refusal restores cleanly via RestoreReleasedWorld().
+            if (world != null && (IsLargeStation(document) || (json != null && json.Length >= 4_000_000))) {
                 markLoad?.Invoke("yield.release-previous-before-read");
                 BeforePreviousDispose?.Invoke(world);
                 world.Dispose();
                 world = null;
+                Assets?.TrainCatalogue?.ReleaseDeferredPrefabs();
                 releasedPreviousVisual = true;
                 yield return null;
                 if (disposed) yield break;
@@ -328,6 +328,7 @@ namespace Metro.App {
                 BeforePreviousDispose?.Invoke(world);
                 world.Dispose();
                 world = null;
+                Assets?.TrainCatalogue?.ReleaseDeferredPrefabs();
                 releasedPreviousVisual = true;
                 yield return null;
                 if (disposed) yield break;

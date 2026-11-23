@@ -52,6 +52,15 @@ namespace Metro.View {
 
         public GameObject Prefab(string key) => TryGet(key, out var entry) ? entry.prefab : null;
 
+        /// <summary>Drop cached Resources-loaded train prefabs so unused formations can be unloaded between stations.</summary>
+        public void ReleaseDeferredPrefabs() {
+            if (entries == null) return;
+            for (int i = 0; i < entries.Length; i++) {
+                var entry = entries[i];
+                if (entry != null && !string.IsNullOrEmpty(entry.resourcePath)) entry.prefab = null;
+            }
+        }
+
         public IEnumerable<Entry> Entries => entries ?? Array.Empty<Entry>();
 
         void OnEnable() => index = null;

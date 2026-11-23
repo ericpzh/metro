@@ -213,12 +213,8 @@ export function BenchmarkRoute(): React.ReactElement {
     useStore.setState({ graphicsQuality: quality, upscalingMode })
     window.__scene?.keys.clear()
     window.__benchmarkScene?.keys.clear()
-    // Paint the loading screen before mounting the game. Mounting its renderer
-    // and replacing the station can block the main thread for several seconds.
+    // Paint the loading screen before loading the station and mounting the game.
     await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
-    setAppMounted(true)
-    setLoadingProgress(16)
-    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
     const store = useStore.getState()
     store.setPlaying(false)
     store.setSpeed(SPEED)
@@ -227,7 +223,7 @@ export function BenchmarkRoute(): React.ReactElement {
     store.setHideGround(view === 'regular' && stationId === 'zoo')
     store.setGhostOther(true)
     setLoadingStep(copy.loadingStation)
-    setLoadingProgress(28)
+    setLoadingProgress(18)
     prepareBenchmarkWorker(backend)
     store.loadReference(stationId)
     // The Regular preset fixes the storey each demo is measured at: the Zoo
@@ -235,7 +231,7 @@ export function BenchmarkRoute(): React.ReactElement {
     if (view === 'regular' && stationId === 'zoo') useStore.getState().setActiveZ(-15)
     if (view === 'regular' && stationId === 'tianhe') useStore.getState().setActiveZ(-5)
     try {
-      await waitUntil(() => !!window.__metro?.getState().metrics, 30_000, copy.setupError)
+      await waitUntil(() => !!window.__metro?.getState().metrics, 90_000, copy.setupError)
       if (backend === 'wasm') {
         await waitUntil(() => {
           const routing = benchmarkRoutingDiagnostic()
@@ -246,14 +242,20 @@ export function BenchmarkRoute(): React.ReactElement {
       }
       setLoadingStep(copy.preparingScene)
       setLoadingProgress(48)
+      setAppMounted(true)
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
       if (view === 'explode') {
-        await waitUntil(() => document.querySelector('.explodedViewer')?.getAttribute('data-ready') === 'true' && !!sceneFor(view), 30_000, copy.explodedError)
+        await waitUntil(() => document.querySelector('.explodedViewer')?.getAttribute('data-ready') === 'true' && !!sceneFor(view), 60_000, copy.explodedError)
       } else {
         await waitUntil(() => {
-          const scene = sceneFor(view) as unknown as { framesRendered: number; ctx?: { stationData?: { cells?: unknown[] } } } | null
+          const scene = sceneFor(view) as unknown as {
+            framesRendered: number
+            isStationReady?: () => boolean
+            ctx?: { stationData?: { cells?: unknown[] } }
+          } | null
           const station = window.__metro?.getState().station
-          return !!scene && scene.framesRendered > 1 && !!station && scene.ctx?.stationData?.cells?.length === station.cells.length
-        }, 60_000, copy.stationError)
+          return !!scene && (scene.isStationReady?.() ?? true) && scene.framesRendered > 1 && !!station && scene.ctx?.stationData?.cells?.length === station.cells.length
+        }, 90_000, copy.stationError)
       }
       setLoadingProgress(78)
       setLoadingStep(copy.settling)

@@ -924,7 +924,13 @@ namespace Metro.Sim {
                         PruneOrphanedTrains();
                         services.ApplyIncrementalStagedEdit(committed.ServiceFacts, committed.GraphDelta);
                     } else {
-                        walkScratchPool.Preallocate(walkGraph?.NodeCount ?? 0);
+                        int nodeCount = walkGraph?.NodeCount ?? 0;
+            // For large stations (e.g. Tianhe Park, >150k walk nodes), defer allocating the
+            // two-slot edit scratch pool until an actual local edit runs (`StageCellDelta` calls
+            // `EnsureCapacity` on demand). Keeps ~80-120 MiB off Wasm32 heap on read/playback loads.
+            if (nodeCount > 0 && nodeCount < 16384) {
+                walkScratchPool.Preallocate(nodeCount);
+            }
                         RebuildServices(resetLifts: true, preserveDispatch: false, resetBands: false);
                         PruneOrphanedTrains();
                         services.ApplyStagedEdit(committed.ServiceFacts);
@@ -1019,7 +1025,13 @@ namespace Metro.Sim {
                 walkWorkspace = null;
                 walkGraph = null;
             }
-            walkScratchPool.Preallocate(walkGraph?.NodeCount ?? 0);
+            int nodeCount = walkGraph?.NodeCount ?? 0;
+            // For large stations (e.g. Tianhe Park, >150k walk nodes), defer allocating the
+            // two-slot edit scratch pool until an actual local edit runs (`StageCellDelta` calls
+            // `EnsureCapacity` on demand). Keeps ~80-120 MiB off Wasm32 heap on read/playback loads.
+            if (nodeCount > 0 && nodeCount < 16384) {
+                walkScratchPool.Preallocate(nodeCount);
+            }
             services.Build(document, walkGraph, seed);
         }
 

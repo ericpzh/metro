@@ -74,6 +74,11 @@ const DOCUMENTS = {
 export const EXAMPLE_STATION_IDS = ['zoo', 'tanwei', 'tianhe'] as const
 export type ExampleStationId = typeof EXAMPLE_STATION_IDS[number]
 
+/** Read-only demo document for immutable load paths (avoids a redundant deep clone before `toStateRepairing`). */
+export function referenceStationDocument(id: ExampleStationId = 'zoo'): StationData {
+  return DOCUMENTS[id]
+}
+
 /** A fresh copy of the demo station, safe to mutate. */
 export function referenceStation(id: ExampleStationId = 'zoo'): StationData {
   return structuredClone(DOCUMENTS[id])

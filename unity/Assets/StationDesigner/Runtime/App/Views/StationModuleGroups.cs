@@ -1052,7 +1052,7 @@ namespace Metro.App.Views {
             public readonly List<StationInstancedSurfaceBatch> InstancedBatches = new List<StationInstancedSurfaceBatch>();
             public readonly List<BuiltModule> BuiltModules = new List<BuiltModule>();
             public readonly List<StationViewRecord> Records = new List<StationViewRecord>();
-            public readonly HashSet<string> AllModuleIds = new HashSet<string>(StringComparer.Ordinal);
+            public int ModuleCount;
         }
 
         sealed class SurfaceWorldCache {
@@ -1106,7 +1106,7 @@ namespace Metro.App.Views {
                     var ck = dirtyChunks[i];
                     if (!cache.Chunks.TryGetValue(ck, out var oldBucket)) continue;
                     cache.Chunks.Remove(ck);
-                    state.Count = Math.Max(0, state.Count - oldBucket.AllModuleIds.Count);
+                    state.Count = Math.Max(0, state.Count - oldBucket.ModuleCount);
                     for (int v = 0; v < oldBucket.Views.Count; v++) {
                         if (oldBucket.Views[v] != null) retiredViews.Add(oldBucket.Views[v]);
                     }
@@ -1142,7 +1142,7 @@ namespace Metro.App.Views {
                     var ck = dirtyChunks[i];
                     if (!stagedChunks.TryGetValue(ck, out var newBucket) || newBucket.Views.Count == 0) continue;
                     cache.Chunks[ck] = newBucket;
-                    state.Count += newBucket.AllModuleIds.Count;
+                    state.Count += newBucket.ModuleCount;
                     state.Meshes.AddRange(newBucket.Meshes);
                     if (cache.Drawer != null) {
                         for (int ib = 0; ib < newBucket.InstancedBatches.Count; ib++) {
@@ -1324,7 +1324,7 @@ namespace Metro.App.Views {
                     var cb = EnsureChunkBucket(surfaceCache.Chunks, chunkX, chunkY);
                     cb.Views.Add(placeholder);
                     cb.BuiltModules.Add(builtHidden);
-                    if (!string.IsNullOrEmpty(module.Id)) cb.AllModuleIds.Add(module.Id);
+                    if (!string.IsNullOrEmpty(module.Id)) cb.ModuleCount++;
                     continue;
                 }
                 if (!TryResolve(context, module, station, out var entry, out var key, out var diagnostic)) {
@@ -1427,7 +1427,8 @@ namespace Metro.App.Views {
                 }
             }
 
-            var batchedIds = new HashSet<string>(StringComparer.Ordinal);
+            int gradeBatchedCount = 0;
+            HashSet<string> multiPartBatchedIds = null;
             var levelGrid = StationLevelGrid.FromDocument(context.Document.LevelBase, context.Document.StoreyHeight);
             foreach (var pair in buckets) {
                 var bk = pair.Key;
@@ -1472,7 +1473,7 @@ namespace Metro.App.Views {
                                 var placed = Place(context, item.module, item.entry, item.key, state);
                                 cb.Views.Add(placed.View);
                                 cb.BuiltModules.Add(placed);
-                                if (!string.IsNullOrEmpty(item.module.Id)) cb.AllModuleIds.Add(item.module.Id);
+                                if (!string.IsNullOrEmpty(item.module.Id)) cb.ModuleCount++;
                             }
                         }
                         continue;
@@ -1487,9 +1488,14 @@ namespace Metro.App.Views {
                 state.Meshes.Add(mesh);
                 cb.Meshes.Add(mesh);
                 cb.Views.Add(go);
-                for (int i = 0; i < bucket.Ids.Count; i++) {
-                    batchedIds.Add(bucket.Ids[i]);
-                    cb.AllModuleIds.Add(bucket.Ids[i]);
+                if (bucket.SkipSpans) {
+                    gradeBatchedCount += bucket.Ids.Count;
+                    cb.ModuleCount += bucket.Ids.Count;
+                } else {
+                    multiPartBatchedIds ??= new HashSet<string>(StringComparer.Ordinal);
+                    for (int i = 0; i < bucket.Ids.Count; i++) {
+                        if (multiPartBatchedIds.Add(bucket.Ids[i])) cb.ModuleCount++;
+                    }
                 }
                 int band = StationModuleLevels.Band(levelGrid, bk.Level);
                 context.World.RegisterModule(Role, "", go, "batch",
@@ -1500,13 +1506,13 @@ namespace Metro.App.Views {
                     bucket.Spans != null ? bucket.Spans.ToArray() : Array.Empty<StationBatchSpan>());
             }
 
-            state.Count += batchedIds.Count;
+            state.Count += gradeBatchedCount + (multiPartBatchedIds != null ? multiPartBatchedIds.Count : 0);
             foreach (var item in fallback) {
                 var placed = Place(context, item.module, item.entry, item.key, state);
                 var cb = EnsureChunkBucket(surfaceCache.Chunks, ChunkCoord(item.module.X), ChunkCoord(item.module.Y));
                 cb.Views.Add(placed.View);
                 cb.BuiltModules.Add(placed);
-                if (!string.IsNullOrEmpty(item.module.Id)) cb.AllModuleIds.Add(item.module.Id);
+                if (!string.IsNullOrEmpty(item.module.Id)) cb.ModuleCount++;
             }
 
             if (state.Count == 0 && buckets.Count == 0) {
@@ -1661,7 +1667,7 @@ namespace Metro.App.Views {
                         var builtHidden = new BuiltModule { ModuleId = module.Id, Type = module.Type, View = placeholder, Key = "" };
                         cb.Views.Add(placeholder);
                         cb.BuiltModules.Add(builtHidden);
-                        if (!string.IsNullOrEmpty(module.Id)) cb.AllModuleIds.Add(module.Id);
+                        if (!string.IsNullOrEmpty(module.Id)) cb.ModuleCount++;
                         cb.Records.Add(new StationViewRecord {
                             Role = Role, ModuleId = module.Id, Part = "hidden", View = placeholder,
                             Bounds = BoxOf(module), HasBounds = true, LevelMin = module.Z, LevelMax = module.Z + 1,
@@ -1770,6 +1776,7 @@ namespace Metro.App.Views {
                     }
                 }
 
+                var seenChunkModuleIds = new Dictionary<(int CX, int CY), HashSet<string>>();
                 foreach (var pair in buckets) {
                     var (cx, cy) = bucketChunk[pair.Key];
                     var cb = EnsureChunkBucket(stagedChunks, cx, cy);
@@ -1819,7 +1826,12 @@ namespace Metro.App.Views {
                     }
                     cb.Meshes.Add(mesh);
                     cb.Views.Add(go);
-                    for (int i = 0; i < bucketIds[pair.Key].Count; i++) cb.AllModuleIds.Add(bucketIds[pair.Key][i]);
+                    if (!seenChunkModuleIds.TryGetValue((cx, cy), out var seenInChunk)) {
+                        seenChunkModuleIds[(cx, cy)] = seenInChunk = new HashSet<string>(StringComparer.Ordinal);
+                    }
+                    for (int i = 0; i < bucketIds[pair.Key].Count; i++) {
+                        if (seenInChunk.Add(bucketIds[pair.Key][i])) cb.ModuleCount++;
+                    }
                     int band = StationModuleLevels.Band(grid, bucketLevel[pair.Key]);
                     cb.Records.Add(new StationViewRecord {
                         Role = Role, ModuleId = "", Part = "batch", View = go,
@@ -1846,7 +1858,7 @@ namespace Metro.App.Views {
                     var cb = EnsureChunkBucket(stagedChunks, ChunkCoord(item.module.X), ChunkCoord(item.module.Y));
                     cb.Views.Add(go);
                     cb.BuiltModules.Add(built);
-                    if (!string.IsNullOrEmpty(item.module.Id)) cb.AllModuleIds.Add(item.module.Id);
+                    if (!string.IsNullOrEmpty(item.module.Id)) cb.ModuleCount++;
                     cb.Records.Add(new StationViewRecord {
                         Role = Role, ModuleId = item.module.Id, View = go,
                         LevelMin = item.module.Z, LevelMax = item.module.Z + 1,

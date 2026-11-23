@@ -115,6 +115,7 @@ captures under `.preview/perf/` or `.preview/unity/`.
 - [references/perf-web.md](references/perf-web.md) — Three.js / Web Worker performance contracts
 - [references/perf-unity.md](references/perf-unity.md) — Unity 6 URP performance contracts
 - [references/perf-benchmarks.md](references/perf-benchmarks.md) — verified web & Unity benchmark/profiling commands
+- [references/perf-benchmark-matrix.md](references/perf-benchmark-matrix.md) — full 240-combination serial benchmark matrix across Web (Three.js), Unity WebGL, and Unity Desktop `.exe`
 - [references/unity-model-lod-inventory.md](references/unity-model-lod-inventory.md) — Unity 3-tier `LOD0`/`LOD1`/`LOD2` triangle inventory
 - [references/tools-index.md](references/tools-index.md) — categorized index of `tools/` directories and scripts
 

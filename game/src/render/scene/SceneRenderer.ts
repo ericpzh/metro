@@ -61,6 +61,12 @@ export type { PickResult, SceneStats }
 export class SceneRenderer {
   private explodedLayout: ExplodedLayout | null = null
   private explodedModuleStages: Generator<void> | null = null
+  private pendingModuleStages: { stages: Generator<void>; data: StationData } | null = null
+
+  /** True once any time-sliced dense station module build has completed. */
+  isStationReady(): boolean {
+    return this.pendingModuleStages === null
+  }
 
   /** Add one batch at its packed coordinates. The existing tray supplies any drag offset. */
   appendExplodedEquipment(): boolean {
@@ -489,6 +495,10 @@ export class SceneRenderer {
 
   setStation(data: StationData, trackCells: Set<number> = new Set(), effective?: Cell[]): void {
     this.requestRender()
+    if (this.pendingModuleStages) {
+      this.pendingModuleStages.stages.return(undefined)
+      this.pendingModuleStages = null
+    }
     refreshCityTrainMark(this.ctx.modelMats.trainMark, data.cityStyle)
     refreshNanjingTrainMark(this.ctx.modelMats.nanjingTrainMark, data.cityStyle)
     const previousData = this.ctx.stationData
@@ -524,16 +534,29 @@ export class SceneRenderer {
     if (signOnly === null && !equipmentOnly) {
       this.chunks.meshStation(groundOnly)
     }
+    let stagingDense = false
     if (this.standalonePresentation && !previousData) {
       const stages = this.modules.buildModuleStages(data, false, undefined, isExplodedStructure)
       if (!stages.next().done) this.explodedModuleStages = stages
     } else if (!retainedModules) {
-      this.modules.buildModules(
-        data,
-        trackCells,
-        true,
-        signOnly === null ? undefined : new Set(data.modules.map((m) => m.id).filter((id) => id !== signOnly)),
-      )
+      const canStageDense = !this.standalonePresentation && signOnly === null && !equipmentOnly &&
+        !this.suspended && typeof requestAnimationFrame === 'function' &&
+        isDenseStation(data.modules.length) &&
+        (!previousData || Math.abs(previousData.modules.length - data.modules.length) > 1000)
+      if (canStageDense) {
+        const stages = this.modules.buildModuleStages(data, true, undefined, undefined, { sliceBudgetMs: 16, batchDoors: true })
+        if (!stages.next().done) {
+          this.pendingModuleStages = { stages, data }
+          stagingDense = true
+        }
+      } else {
+        this.modules.buildModules(
+          data,
+          trackCells,
+          true,
+          signOnly === null ? undefined : new Set(data.modules.map((m) => m.id).filter((id) => id !== signOnly)),
+        )
+      }
     }
     // `meshStation` clears the level key because it rebuilds the meshes the slice
     // dresses; both fast paths above skip it, so clear it here instead — otherwise
@@ -543,6 +566,17 @@ export class SceneRenderer {
     if ((signOnly !== null || equipmentOnly) && !retainedModules) this.ctx.levelKey = ''
     if (signOnly !== null) this.repaintSignPreview(data, signOnly)
     this.grid.buildGrid()
+    if (!stagingDense) {
+      this.finishStationBuild(data, false)
+    } else {
+      this.cameraSys.setPickables([...this.chunks.chunkMeshes, ...this.chunks.wallPick.children, ...this.lifts.liftPickMeshes])
+      this.level.applyLevel()
+      this.sectionSys.applyClip()
+    }
+  }
+
+  private finishStationBuild(data: StationData, clearLevelKey: boolean): void {
+    if (clearLevelKey) this.ctx.levelKey = ''
     this.cameraSys.setPickables([...this.chunks.chunkMeshes, ...this.chunks.wallPick.children, ...this.lifts.liftPickMeshes])
     this.level.applyLevel()
     // A rebuild mints fresh chunk, crowd and module materials, which are not
@@ -565,6 +599,7 @@ export class SceneRenderer {
       // still builds any consist that arrives before it.
       if (!this.suspended) this.scheduleFleetPreparation(data)
     }
+    this.requestRender()
   }
 
   /** Prepare the bounded service fleet after the station is on screen. */
@@ -1161,6 +1196,18 @@ export class SceneRenderer {
     if (this.ctx.disposed) return
     this.raf = requestAnimationFrame(this.animate)
     if (this.suspended) return
+    if (this.pendingModuleStages) {
+      const { stages, data } = this.pendingModuleStages
+      if (data !== this.ctx.stationData) {
+        stages.return(undefined)
+        this.pendingModuleStages = null
+      } else if (stages.next().done) {
+        this.pendingModuleStages = null
+        this.finishStationBuild(data, true)
+      } else {
+        return
+      }
+    }
     const now = performance.now()
     const dt = this.lastFrame > 0 ? Math.min(0.05, (now - this.lastFrame) / 1000) : 0
     this.lastFrame = now
@@ -1261,6 +1308,8 @@ export class SceneRenderer {
   }
 
   dispose(): void {
+    this.pendingModuleStages?.stages.return(undefined)
+    this.pendingModuleStages = null
     this.explodedModuleStages?.return(undefined)
     this.explodedModuleStages = null
     this.explodedLayout?.dispose()

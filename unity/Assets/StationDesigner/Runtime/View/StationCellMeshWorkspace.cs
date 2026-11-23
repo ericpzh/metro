@@ -328,6 +328,38 @@ namespace Metro.View {
             }
         }
 
+        /// <summary>
+        /// Mesh a single 16x16 chunk band directly on demand (used by lazy cell picking so
+        /// large stations avoid retaining ~250 MiB of CPU triangle arrays across all chunks).
+        /// </summary>
+        public void MeshSingleChunkDirect(ChunkBandKey ck, Action<StationCellMeshGroup, StationCellMeshBuffers> onGroup) {
+            if (onGroup == null) throw new ArgumentNullException(nameof(onGroup));
+            suspendedCache.Clear();
+            masonryRoofCache.Clear();
+            activeGroupSink = null;
+            activeChunkCallback = null;
+            activeDirectCallback = (_, group, buffers) => onGroup(group, buffers);
+            activeChunkKey = ck;
+            try {
+                batchFaces.Clear();
+                faceRecordIndex.Clear();
+                if (ck.IsGround) {
+                    if (buildGround && virtualGround) MeshSingleGroundChunk(ck.ChunkX, ck.ChunkY, ck.Storey);
+                } else {
+                    MeshSingleBandChunk(ck.ChunkX, ck.ChunkY, ck.Storey);
+                }
+            } finally {
+                activeDirectCallback = null;
+                activeChunkCallback = null;
+                activeGroupSink = null;
+                batchFaces.Clear();
+                faceRecordIndex.Clear();
+                suspendedCache.Clear();
+                masonryRoofCache.Clear();
+                builderPool.Clear();
+            }
+        }
+
         List<ChunkBandKey> CollectAllChunkKeys() {
             var set = new HashSet<ChunkBandKey>();
             foreach (var pair in chunkCells) {

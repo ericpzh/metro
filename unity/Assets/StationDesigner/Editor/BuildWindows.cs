@@ -51,7 +51,7 @@ namespace Metro.Editor {
                 target = BuildTarget.StandaloneWindows64,
                 options = configuration == "Development" ? BuildOptions.Development : BuildOptions.CompressWithLz4HC,
             };
-            var report = BuildWithDeferredTrains(options, scenePath);
+            var report = BuildWithDeferredTrains(options, scenePath, "MetroWindowsTrains", applyWindowsIcons: true);
             File.WriteAllText(output + ".report.json", JsonUtility.ToJson(new Summary {
                 result = report.summary.result.ToString(),
                 totalSize = report.summary.totalSize,
@@ -65,36 +65,39 @@ namespace Metro.Editor {
 
         const string AppIconAssetPath = "Assets/StationDesigner/Editor/StationDesignerIcon.png";
 
-        static BuildReport BuildWithDeferredTrains(BuildPlayerOptions options, string scenePath) {
-            // Keep the authoring scene and catalogue intact. In the Windows player, eager
-            // scene references integrate all formation hierarchies before the first frame.
-            string stagingPath = "Assets/__MetroWindowsBuild_" + Guid.NewGuid().ToString("N");
+        internal static BuildReport BuildWithDeferredTrains(BuildPlayerOptions options, string scenePath, string resourceFolder, bool applyWindowsIcons) {
+            // Keep the authoring scene and catalogue intact. Eager scene references integrate all
+            // 50 train formation hierarchies into memory before the first frame (~300+ MiB on WebGL).
+            string stagingPath = "Assets/__MetroBuild_" + Guid.NewGuid().ToString("N");
             string stagingName = Path.GetFileName(stagingPath);
             if (string.IsNullOrEmpty(AssetDatabase.CreateFolder("Assets", stagingName)))
-                throw new IOException("Could not create Windows build staging folder");
+                throw new IOException("Could not create build staging folder");
             var previousScenes = EditorSceneManager.GetSceneManagerSetup();
-            var previousIcons = PlayerSettings.GetIcons(NamedBuildTarget.Standalone, IconKind.Any);
+            var previousIcons = applyWindowsIcons ? PlayerSettings.GetIcons(NamedBuildTarget.Standalone, IconKind.Any) : null;
             try {
-                var appIcon = AssetDatabase.LoadAssetAtPath<Texture2D>(AppIconAssetPath);
-                if (appIcon != null) {
-                    int[] iconSizes = PlayerSettings.GetIconSizes(NamedBuildTarget.Standalone, IconKind.Any);
-                    var icons = new Texture2D[Math.Max(1, iconSizes.Length)];
-                    for (int i = 0; i < icons.Length; i++) icons[i] = appIcon;
-                    PlayerSettings.SetIcons(NamedBuildTarget.Standalone, icons, IconKind.Any);
+                if (applyWindowsIcons) {
+                    var appIcon = AssetDatabase.LoadAssetAtPath<Texture2D>(AppIconAssetPath);
+                    if (appIcon != null) {
+                        int[] iconSizes = PlayerSettings.GetIconSizes(NamedBuildTarget.Standalone, IconKind.Any);
+                        var icons = new Texture2D[Math.Max(1, iconSizes.Length)];
+                        for (int i = 0; i < icons.Length; i++) icons[i] = appIcon;
+                        PlayerSettings.SetIcons(NamedBuildTarget.Standalone, icons, IconKind.Any);
+                    }
                 }
                 string stagedScenePath = stagingPath + "/" + Path.GetFileName(scenePath);
                 if (!AssetDatabase.CopyAsset(scenePath, stagedScenePath))
-                    throw new IOException("Could not copy Windows player scene");
+                    throw new IOException("Could not copy player scene");
                 var scene = EditorSceneManager.OpenScene(stagedScenePath);
                 var host = UnityEngine.Object.FindAnyObjectByType<StationGameHost>();
                 if (!host || !host.trainCatalogue) throw new InvalidOperationException("Scene has no train catalogue");
-                host.trainCatalogue = StageTrainCatalogue(host.trainCatalogue, stagingPath);
+                host.trainCatalogue = StageTrainCatalogue(host.trainCatalogue, stagingPath, resourceFolder);
                 if (!EditorSceneManager.SaveScene(scene))
-                    throw new IOException("Could not save Windows player scene");
+                    throw new IOException("Could not save player scene");
                 options.scenes = new[] { stagedScenePath };
                 return BuildPipeline.BuildPlayer(options);
             } finally {
-                PlayerSettings.SetIcons(NamedBuildTarget.Standalone, previousIcons, IconKind.Any);
+                if (applyWindowsIcons && previousIcons != null)
+                    PlayerSettings.SetIcons(NamedBuildTarget.Standalone, previousIcons, IconKind.Any);
                 try {
                     if (Array.Exists(previousScenes, setup => setup.isActive))
                         EditorSceneManager.RestoreSceneManagerSetup(previousScenes);
@@ -102,17 +105,16 @@ namespace Metro.Editor {
                 }
                 finally {
                     if (!AssetDatabase.DeleteAsset(stagingPath))
-                        Debug.LogError("Could not remove Windows build staging folder: " + stagingPath);
+                        Debug.LogError("Could not remove build staging folder: " + stagingPath);
                 }
             }
         }
 
-        static TrainCatalogue StageTrainCatalogue(TrainCatalogue source, string stagingPath) {
-            const string resourceFolder = "MetroWindowsTrains";
+        static TrainCatalogue StageTrainCatalogue(TrainCatalogue source, string stagingPath, string resourceFolder) {
             string resources = stagingPath + "/Resources";
             if (string.IsNullOrEmpty(AssetDatabase.CreateFolder(stagingPath, "Resources")) ||
                 string.IsNullOrEmpty(AssetDatabase.CreateFolder(resources, resourceFolder)))
-                throw new IOException("Could not create Windows train resources folder");
+                throw new IOException("Could not create train resources folder");
 
             var staged = ScriptableObject.CreateInstance<TrainCatalogue>();
             var entries = new List<TrainCatalogue.Entry>();

@@ -367,7 +367,8 @@ export class ModuleSystem extends SceneSystem {
   }
 
   *buildModuleStages(data: StationData, reuse = false, keepIds?: Set<string>,
-    structure?: (module: Module) => boolean): Generator<void> {
+    structure?: (module: Module) => boolean,
+    options?: { sliceBudgetMs?: number; batchDoors?: boolean }): Generator<void> {
     this.restoreMovingModule()
     this.retainedBatches=false
     // Prepare once while opening/editing the immutable document, never on the
@@ -518,11 +519,18 @@ export class ModuleSystem extends SceneSystem {
       if(entry){entry.blobs.push(blob);entry.ids.push(mod.id)}
       else blobsByKey.set(key,{levelZ:mod.z,ground,blobs:[blob],ids:[mod.id]})
     }
+    const sliceBudgetMs = options?.sliceBudgetMs ?? 0
+    const batchDoors = options?.batchDoors ?? !structure
     const initial = structure ? data.modules.filter(structure) : data.modules
     const deferred = structure ? data.modules.filter(module => !structure(module)) : []
-    let batchStart = 0
-    for (const [index, mod] of (structure ? [...initial, ...deferred] : initial).entries()) {
-      if (structure && index >= initial.length && (index === initial.length || performance.now() - batchStart >= 8)) {
+    const ordered = structure ? [...initial, ...deferred] : initial
+    let batchStart = performance.now()
+    for (let index = 0; index < ordered.length; index++) {
+      const mod = ordered[index]!
+      if (structure && index >= initial.length && (index === initial.length || performance.now() - batchStart >= (sliceBudgetMs || 8))) {
+        yield
+        batchStart = performance.now()
+      } else if (!structure && sliceBudgetMs > 0 && index > 0 && (index & 63) === 0 && performance.now() - batchStart >= sliceBudgetMs) {
         yield
         batchStart = performance.now()
       }
@@ -551,7 +559,7 @@ export class ModuleSystem extends SceneSystem {
         }
         prepareArtwork(group)
         batchStaticModule(group, mod.type)
-        if (mod.type === 'platform-edge' && !structure) batchPlatformDoors(group)
+        if (mod.type === 'platform-edge' && batchDoors) batchPlatformDoors(group)
         group.userData.ownedMaterials = this.ctx.ownedMats.slice(ownedStart)
       }
       group.userData.moduleId = mod.id

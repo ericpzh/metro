@@ -731,7 +731,8 @@ export function Viewport(): React.ReactElement {
     // so a scan of `station.cells` alone would leave the plane real to the crowd
     // and to the mesher but invisible to the pointer: no red box, no paintable
     // top face, no zoned ground, no block to remove.
-    const geometry = geometryRef.current.resolve(toData(station))
+    const baseData = toData(station)
+    const geometry = geometryRef.current.resolve(baseData)
     const ground = geometry.ground
     solidRef.current = geometry.solids
     // The 分区 brush's own set, off the same effective list and by the same rule
@@ -741,8 +742,9 @@ export function Viewport(): React.ReactElement {
     thinRef.current = geometry.thins
     // The board the editor is arranging, drawn where the sign it belongs to hangs —
     // while the move effect hides a lifted piece without changing drawn data.
-    const modules = st.signPreview ? station.modules
-      .map((m) => signModuleWithPreview(m, st.signPreview)) : station.modules
+    const stationData = st.signPreview
+      ? toData({ ...station, modules: station.modules.map((m) => signModuleWithPreview(m, st.signPreview)) })
+      : baseData
     // Hand the street this effect already built to the mesher: `prepareStation`
     // would materialise the same window again per commit, the second
     // window-wide pass of this edit (the walk graph builds the third, in the
@@ -751,7 +753,7 @@ export function Viewport(): React.ReactElement {
     // the first renderer mount (for example the benchmark's Hide UI preset)
     // participates in the initial level walk instead of waiting for a toggle.
     scene.setHideUI(st.hideUI)
-    scene.setStation(toData({ ...station, modules }), undefined, ground)
+    scene.setStation(stationData, undefined, ground)
     scene.setAutoCeiling(st.autoCeiling)
     scene.setHideGround(st.hideGround)
     scene.setHideRoof(st.hideRoof)

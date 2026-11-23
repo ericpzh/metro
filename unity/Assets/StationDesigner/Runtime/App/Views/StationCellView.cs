@@ -50,6 +50,11 @@ namespace Metro.App.Views {
         public bool ReleaseUploadBuffers;
         /// <summary>Drop Unity's readable native CPU mesh copy after upload (picking uses WorldVertices/WorldIndices).</summary>
         public bool MarkMeshNoLongerReadable;
+        /// <summary>
+        /// When built from a <see cref="StationCellMeshWorkspace"/>, drop per-group CPU pick arrays
+        /// after GPU upload and remesh only ray-hit chunks on demand into a bounded LRU cache.
+        /// </summary>
+        public bool LazyPickGeometry;
     }
 
     /// <summary>One emitted run of geometry and the Unity objects that draw it.</summary>
@@ -180,6 +185,15 @@ namespace Metro.App.Views {
     /// station root. Meshes are the view's own; materials belong to the finish library.
     /// </summary>
     public sealed class StationCellView : IDisposable {
+        const int PickCacheCapacity = 32;
+
+        sealed class PickGroupGeometry {
+            public Vector3[] WorldVertices;
+            public int[] WorldIndices;
+            public StationCellFaceRecord[] LocalFaces;
+            public int[] LocalTriangleFaces;
+        }
+
         readonly List<StationCellGroupView> groups = new List<StationCellGroupView>();
         readonly Dictionary<StationCellMeshWorkspace.ChunkBandKey, List<StationCellGroupView>> groupsByChunk =
             new Dictionary<StationCellMeshWorkspace.ChunkBandKey, List<StationCellGroupView>>();
@@ -188,6 +202,9 @@ namespace Metro.App.Views {
         readonly List<StationCellFaceRecord> faces;
         StationCellMeshResult mesh;
         StationCellViewRequest buildRequest;
+        StationCellMeshWorkspace pickWorkspace;
+        Dictionary<StationCellMeshWorkspace.ChunkBandKey, Dictionary<string, PickGroupGeometry>> pickChunkCache;
+        LinkedList<StationCellMeshWorkspace.ChunkBandKey> pickCacheOrder;
         Transform root;
         Func<Vector3, Vector3> toWorld;
         int totalTriangles;
@@ -329,6 +346,7 @@ namespace Metro.App.Views {
             StationCellMeshWorkspace workspace,
             Action<string> markLoad) {
             buildRequest = request;
+            pickWorkspace = workspace;
             toWorld = request.ToWorld ?? StationCoordinates.Point;
             var rootObject = new GameObject(string.IsNullOrEmpty(request.Name) ? "Station cells" : request.Name);
             root = rootObject.transform;
@@ -339,17 +357,21 @@ namespace Metro.App.Views {
 
             markLoad?.Invoke("cells.stream-mesh.begin");
             if (request.ReleaseUploadBuffers) {
+                var scratchVertices = request.LazyPickGeometry ? new List<Vector3>(1024) : null;
+                var scratchIndices = request.LazyPickGeometry ? new List<int>(2048) : null;
                 var scratchNormals = new List<Vector3>(1024);
                 var scratchColors = new List<Color>(1024);
                 var scratchUvs = new List<Vector2>(1024);
                 workspace.ForEachChunkMeshDirect((ck, group, buffers) => {
                     var entry = CreateGroupViewDirect(request, group, buffers, RoleRoot(group.Role),
-                        scratchNormals, scratchColors, scratchUvs);
+                        scratchVertices, scratchIndices, scratchNormals, scratchColors, scratchUvs);
                     groups.Add(entry);
                     totalTriangles += entry.Triangles;
                     if (!groupsByChunk.TryGetValue(ck, out var bucket)) groupsByChunk[ck] = bucket = new List<StationCellGroupView>(4);
                     bucket.Add(entry);
                 });
+                scratchVertices?.Clear();
+                scratchIndices?.Clear();
                 scratchNormals.Clear();
                 scratchColors.Clear();
                 scratchUvs.Clear();
@@ -373,6 +395,8 @@ namespace Metro.App.Views {
             StationCellMeshGroup group,
             StationCellMeshBuffers buffers,
             Transform parentTransform,
+            List<Vector3> scratchVertices,
+            List<int> scratchIndices,
             List<Vector3> scratchNormals,
             List<Color> scratchColors,
             List<Vector2> scratchUvs) {
@@ -388,8 +412,26 @@ namespace Metro.App.Views {
             renderer.shadowCastingMode = ShadowCastingMode.Off;
             renderer.receiveShadows = true;
             renderer.sharedMaterial = material;
-            var builtMesh = BuildMeshDirect(group.GroupKey, buffers, request.MarkMeshNoLongerReadable,
-                scratchNormals, scratchColors, scratchUvs, out var worldVertices, out var worldIndices);
+            Vector3[] worldVertices;
+            int[] worldIndices;
+            Mesh builtMesh;
+            if (request.LazyPickGeometry && scratchVertices != null && scratchIndices != null) {
+                builtMesh = BuildMeshDirectLazy(group.GroupKey, buffers, request.MarkMeshNoLongerReadable,
+                    scratchVertices, scratchIndices, scratchNormals, scratchColors, scratchUvs);
+                worldVertices = null;
+                worldIndices = null;
+                if (!group.HasAnchor && group.LocalFaces != null && group.LocalTriangleFaces != null &&
+                    group.LocalTriangleFaces.Length > 0 && group.LocalTriangleFaces[0] >= 0 &&
+                    group.LocalTriangleFaces[0] < group.LocalFaces.Length) {
+                    group.Anchor = group.LocalFaces[group.LocalTriangleFaces[0]].CellKey;
+                    group.HasAnchor = true;
+                }
+                group.LocalFaces = null;
+                group.LocalTriangleFaces = null;
+            } else {
+                builtMesh = BuildMeshDirect(group.GroupKey, buffers, request.MarkMeshNoLongerReadable,
+                    scratchNormals, scratchColors, scratchUvs, out worldVertices, out worldIndices);
+            }
             filter.sharedMesh = builtMesh;
             if (request.Finishes != null && !request.Finishes.IsKnown(group.FinishId)) unknownFinishes.Add(group.FinishId);
             return new StationCellGroupView {
@@ -465,6 +507,9 @@ namespace Metro.App.Views {
 
             for (int k = 0; k < dirtyKeys.Count; k++) {
                 var ck = dirtyKeys[k];
+                if (pickChunkCache != null && pickChunkCache.Remove(ck)) {
+                    pickCacheOrder?.Remove(ck);
+                }
                 if (groupsByChunk.TryGetValue(ck, out var oldBucket)) {
                     for (int i = 0; i < oldBucket.Count; i++) {
                         var oldEntry = oldBucket[i];
@@ -522,13 +567,23 @@ namespace Metro.App.Views {
             faces.Clear();
             var dedup = new Dictionary<(int X, int Y, int Z, StationFace Face, string FinishId, StationSurfaceRole Role, bool Slope), int>();
             for (int g = 0; g < groups.Count; g++) {
-                var data = groups[g].Data;
-                if (data?.LocalFaces == null || data.LocalTriangleFaces == null) continue;
-                var remapped = new int[data.LocalTriangleFaces.Length];
-                for (int t = 0; t < data.LocalTriangleFaces.Length; t++) {
-                    int li = data.LocalTriangleFaces[t];
-                    if (li < 0 || li >= data.LocalFaces.Length) { remapped[t] = -1; continue; }
-                    var rec = data.LocalFaces[li];
+                var group = groups[g];
+                var data = group.Data;
+                var localFaces = data?.LocalFaces;
+                var localTriangleFaces = data?.LocalTriangleFaces;
+                if ((localFaces == null || localTriangleFaces == null) && pickWorkspace != null) {
+                    var lazy = ResolveLazyPick(group);
+                    if (lazy != null) {
+                        localFaces = lazy.LocalFaces;
+                        localTriangleFaces = lazy.LocalTriangleFaces;
+                    }
+                }
+                if (localFaces == null || localTriangleFaces == null) continue;
+                var remapped = new int[localTriangleFaces.Length];
+                for (int t = 0; t < localTriangleFaces.Length; t++) {
+                    int li = localTriangleFaces[t];
+                    if (li < 0 || li >= localFaces.Length) { remapped[t] = -1; continue; }
+                    var rec = localFaces[li];
                     var key = (rec.X, rec.Y, rec.Z, rec.Face, rec.FinishId ?? "", rec.Role, rec.Slope);
                     if (!dedup.TryGetValue(key, out int gi)) {
                         gi = faces.Count;
@@ -543,6 +598,99 @@ namespace Metro.App.Views {
                 mesh.Faces.Clear();
                 mesh.Faces.AddRange(faces);
             }
+        }
+
+        PickGroupGeometry ResolveLazyPick(StationCellGroupView group) {
+            if (pickWorkspace == null || group?.Data == null) return null;
+            var ck = ChunkKeyOf(group.Data);
+            if (pickChunkCache == null) {
+                pickChunkCache = new Dictionary<StationCellMeshWorkspace.ChunkBandKey, Dictionary<string, PickGroupGeometry>>(PickCacheCapacity);
+                pickCacheOrder = new LinkedList<StationCellMeshWorkspace.ChunkBandKey>();
+            }
+            if (!pickChunkCache.TryGetValue(ck, out var chunkMap)) {
+                chunkMap = new Dictionary<string, PickGroupGeometry>(4, StringComparer.Ordinal);
+                pickWorkspace.MeshSingleChunkDirect(ck, (meshGroup, buffers) => {
+                    var pos = buffers.Positions;
+                    var srcIdx = buffers.Indices;
+                    int vc = pos.Count / 3;
+                    var verts = new Vector3[vc];
+                    for (int i = 0; i < vc; i++) {
+                        int o3 = i * 3;
+                        verts[i] = toWorld(new Vector3(pos[o3], pos[o3 + 1], pos[o3 + 2]));
+                    }
+                    int ic = srcIdx.Count;
+                    var inds = new int[ic];
+                    for (int t = 0; t < ic; t += 3) {
+                        inds[t] = srcIdx[t];
+                        inds[t + 1] = srcIdx[t + 2];
+                        inds[t + 2] = srcIdx[t + 1];
+                    }
+                    chunkMap[meshGroup.GroupKey] = new PickGroupGeometry {
+                        WorldVertices = verts,
+                        WorldIndices = inds,
+                        LocalFaces = meshGroup.LocalFaces,
+                        LocalTriangleFaces = meshGroup.LocalTriangleFaces,
+                    };
+                });
+                if (pickChunkCache.Count >= PickCacheCapacity && pickCacheOrder.First != null) {
+                    var oldest = pickCacheOrder.First.Value;
+                    pickCacheOrder.RemoveFirst();
+                    pickChunkCache.Remove(oldest);
+                }
+                pickChunkCache[ck] = chunkMap;
+                pickCacheOrder.AddLast(ck);
+            }
+            return chunkMap.TryGetValue(group.Data.GroupKey, out var geom) ? geom : null;
+        }
+
+        Mesh BuildMeshDirectLazy(
+            string groupKey,
+            StationCellMeshBuffers buffers,
+            bool markNoLongerReadable,
+            List<Vector3> scratchVertices,
+            List<int> scratchIndices,
+            List<Vector3> scratchNormals,
+            List<Color> scratchColors,
+            List<Vector2> scratchUvs) {
+            var pos = buffers.Positions;
+            var norm = buffers.Normals;
+            var col = buffers.Colors;
+            var uv = buffers.Uvs;
+            var srcIdx = buffers.Indices;
+            int vertexCount = pos.Count / 3;
+            scratchVertices.Clear();
+            if (scratchVertices.Capacity < vertexCount) scratchVertices.Capacity = vertexCount;
+            scratchNormals.Clear();
+            if (scratchNormals.Capacity < vertexCount) scratchNormals.Capacity = vertexCount;
+            scratchColors.Clear();
+            if (scratchColors.Capacity < vertexCount) scratchColors.Capacity = vertexCount;
+            scratchUvs.Clear();
+            if (scratchUvs.Capacity < vertexCount) scratchUvs.Capacity = vertexCount;
+            for (int i = 0; i < vertexCount; i++) {
+                int o3 = i * 3;
+                int o2 = i * 2;
+                scratchVertices.Add(toWorld(new Vector3(pos[o3], pos[o3 + 1], pos[o3 + 2])));
+                scratchNormals.Add(toWorld(new Vector3(norm[o3], norm[o3 + 1], norm[o3 + 2])));
+                scratchColors.Add(new Color(col[o3], col[o3 + 1], col[o3 + 2], 1f));
+                scratchUvs.Add(new Vector2(uv[o2], uv[o2 + 1]));
+            }
+            int indexCount = srcIdx.Count;
+            scratchIndices.Clear();
+            if (scratchIndices.Capacity < indexCount) scratchIndices.Capacity = indexCount;
+            for (int t = 0; t < indexCount; t += 3) {
+                scratchIndices.Add(srcIdx[t]);
+                scratchIndices.Add(srcIdx[t + 2]);
+                scratchIndices.Add(srcIdx[t + 1]);
+            }
+            var mesh = new Mesh { name = groupKey };
+            if (vertexCount > 65000) mesh.indexFormat = IndexFormat.UInt32;
+            mesh.SetVertices(scratchVertices);
+            mesh.SetNormals(scratchNormals);
+            mesh.SetColors(scratchColors);
+            mesh.SetUVs(0, scratchUvs);
+            mesh.SetTriangles(scratchIndices, 0, calculateBounds: true);
+            if (markNoLongerReadable) mesh.UploadMeshData(true);
+            return mesh;
         }
 
         Material Resolve(StationCellViewRequest request, string finishId) {
@@ -715,6 +863,16 @@ namespace Metro.App.Views {
                 var cull = MaterialCullMode(group.Renderer.sharedMaterial);
                 var indices = group.WorldIndices;
                 var vertices = group.WorldVertices;
+                var localFaces = data.LocalFaces;
+                var localTriangleFaces = data.LocalTriangleFaces;
+                if ((indices == null || vertices == null) && pickWorkspace != null) {
+                    var lazy = ResolveLazyPick(group);
+                    if (lazy == null) continue;
+                    vertices = lazy.WorldVertices;
+                    indices = lazy.WorldIndices;
+                    localFaces = lazy.LocalFaces;
+                    localTriangleFaces = lazy.LocalTriangleFaces;
+                }
                 if (indices == null || vertices == null) continue;
                 var toWorldMatrix = identity ? Matrix4x4.identity : groupTransform.localToWorldMatrix;
                 for (var t = 0; t < indices.Length; t += 3) {
@@ -737,9 +895,9 @@ namespace Metro.App.Views {
                     found = true;
                     StationCellFaceRecord record;
                     int triIdx = t / 3;
-                    if (data.LocalFaces != null && data.LocalTriangleFaces != null && triIdx < data.LocalTriangleFaces.Length) {
-                        int localIdx = data.LocalTriangleFaces[triIdx];
-                        record = localIdx >= 0 && localIdx < data.LocalFaces.Length ? data.LocalFaces[localIdx] : default;
+                    if (localFaces != null && localTriangleFaces != null && triIdx < localTriangleFaces.Length) {
+                        int localIdx = localTriangleFaces[triIdx];
+                        record = localIdx >= 0 && localIdx < localFaces.Length ? localFaces[localIdx] : default;
                     } else {
                         var faceIndex = data.TriangleFaces != null && triIdx < data.TriangleFaces.Length ? data.TriangleFaces[triIdx] : -1;
                         record = faceIndex >= 0 && faceIndex < faces.Count ? faces[faceIndex] : default;
@@ -849,6 +1007,9 @@ namespace Metro.App.Views {
             faces.Clear();
             roleRoots.Clear();
             storeyRoots.Clear();
+            pickChunkCache?.Clear();
+            pickCacheOrder?.Clear();
+            pickWorkspace = null;
             mesh = null;
             buildRequest = null;
         }
@@ -1093,6 +1254,7 @@ namespace Metro.App.Views {
                 BuildPickMap = true,
                 ReleaseUploadBuffers = true,
                 MarkMeshNoLongerReadable = Application.isPlaying,
+                LazyPickGeometry = Application.isPlaying && (Application.platform == RuntimePlatform.WebGLPlayer || context.Document.CellCount >= 25000),
             };
             var view = StationCellView.BuildFromWorkspace(request, context.RoleRoot(RoleName), workspace, markLoad);
             var state = new CellState {
