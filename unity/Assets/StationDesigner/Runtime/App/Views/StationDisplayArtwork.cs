@@ -55,12 +55,13 @@ namespace Metro.App.Views {
             /// <summary>The canonical (upright) plate copies this world owns.</summary>
             internal readonly List<Mesh> Canonicals = new List<Mesh>();
             /// <summary>The painted plate textures this world owns (a television's board).</summary>
-            internal readonly List<Texture2D> Textures = new List<Texture2D>();
+            internal readonly List<Texture> Textures = new List<Texture>();
             /// <summary>Painted plate textures by content key, so two faces share one board.</summary>
-            internal readonly Dictionary<string, Texture2D> PlateTextures =
-                new Dictionary<string, Texture2D>(StringComparer.Ordinal);
-            /// <summary>Shared digital clock texture for all digital clocks in this world.</summary>
+            internal readonly Dictionary<string, Texture> PlateTextures =
+                new Dictionary<string, Texture>(StringComparer.Ordinal);
+            /// <summary>Shared digital clock texture and reusable CPU pixel buffer for this world.</summary>
             internal Texture2D SharedDigitalClockTexture;
+            internal Color32[] SharedDigitalClockBuffer;
             internal string SharedDigitalClockKey = "";
             /// <summary>Round-robin cursor for fair budgeted TV plate updates across frames.</summary>
             internal int TvTickCursor;
@@ -137,10 +138,14 @@ namespace Metro.App.Views {
             }
             scope.Canonicals.Clear();
             foreach (var texture in scope.Textures) {
+                if (texture is RenderTexture rt && rt.IsCreated()) rt.Release();
                 if (texture) SafeDestroy(texture);
             }
             scope.Textures.Clear();
             scope.PlateTextures.Clear();
+            scope.SharedDigitalClockTexture = null;
+            scope.SharedDigitalClockBuffer = null;
+            scope.SharedDigitalClockKey = "";
             scope.Surfaces.Clear();
             scope.Bases.Clear();
             if (scope.gameObject) SafeDestroy(scope.gameObject);
@@ -578,8 +583,17 @@ namespace Metro.App.Views {
             return null;
         }
 
+        /// <summary>The texture a bound material carries (Texture2D or RenderTexture).</summary>
+        public static Texture BoundTexture(Material material) {
+            if (!material) return null;
+            if (material.HasProperty("_BaseMap")) return material.GetTexture("_BaseMap");
+            if (material.HasProperty("baseColorTexture")) return material.GetTexture("baseColorTexture");
+            if (material.HasProperty("_MainTex")) return material.GetTexture("_MainTex");
+            return material.mainTexture;
+        }
+
         /// <summary>Point a material at a texture through whichever slot its shader has.</summary>
-        public static void SetTexture(Material material, Texture2D texture) {
+        public static void SetTexture(Material material, Texture texture) {
             if (!material) return;
             var property = TextureProperty(material);
             if (property != null) material.SetTexture(property, texture);

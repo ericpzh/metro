@@ -14,21 +14,47 @@ import { useLanguage } from '../../i18n.ts'
 import { FaDoorOpen, FaEdit, FaRegEye } from 'react-icons/fa'
 import { HiOutlineRefresh, HiSwitchVertical } from 'react-icons/hi'
 import { IoMdCheckmark, IoMdClose, IoMdMove } from 'react-icons/io'
-import { useState } from 'react'
+import { useState, useSyncExternalStore } from 'react'
 import { useStore, moduleLabel } from '../../store.ts'
 import { isMovableModule } from '../../../sim/placement.ts'
+import { stationHostCommit, subscribeStationHostCommit, type HostCarriedMove } from '../../stationHostBridge.ts'
 import { refreshTrackForSelection } from './refreshPlatform.ts'
 import { LiftDoorModal } from './LiftDoorModal.tsx'
+
+function subscribeHostCarried(listener: () => void): () => void {
+  let innerUnsub: (() => void) | null = null
+  const attach = (): void => {
+    innerUnsub?.()
+    innerUnsub = stationHostCommit()?.subscribeCarriedMove?.(listener) ?? null
+  }
+  attach()
+  const outerUnsub = subscribeStationHostCommit(() => {
+    attach()
+    listener()
+  })
+  return () => {
+    innerUnsub?.()
+    outerUnsub()
+  }
+}
+
+function getHostCarriedSnapshot(): HostCarriedMove | null {
+  const port = stationHostCommit()
+  if (!port || !port.ownsStation()) return null
+  return port.getCarriedMove?.() ?? null
+}
 
 export function InfoCard(): React.ReactElement {
   useLanguage()
   const selected = useStore((s) => s.selected)
   const followAgentId = useStore((s) => s.followAgentId)
-  const stationModules = useStore((s) => (s.selected?.kind === 'module' ? s.station.modules : null))
   const moveDraft = useStore((s) => s.moveDraft)
+  const hostCarried = useSyncExternalStore(subscribeHostCarried, getHostCarriedSnapshot, () => null)
+  const stationModules = useStore((s) => (s.selected?.kind === 'module' || hostCarried !== null ? s.station.modules : null))
   const openSignEditor = useStore((s) => s.openSignEditor)
   // The selected piece, when the selection is a placed module — what 移动 acts on.
   const selectedModule = selected?.kind === 'module' && stationModules ? stationModules.find((m) => m.id === selected.key) : undefined
+  const hostCarriedModule = hostCarried !== null && stationModules ? stationModules.find((m) => m.id === hostCarried.moduleId) : undefined
   const refreshTrack = stationModules ? refreshTrackForSelection(stationModules, selectedModule) : undefined
   const liftModule = selectedModule?.type === 'lift' ? selectedModule : undefined
   const isSign = selectedModule?.type === 'sign'
@@ -38,13 +64,28 @@ export function InfoCard(): React.ReactElement {
   // The lift's own controls take the card over the moment a piece is in the air, so
   // they are read from the lift rather than from the selection: whatever is selected,
   // the tick and the cross are always where the 移动 button was.
-  const canDrop = moveDraft !== null && moveDraft.at !== null && moveDraft.candidate !== null && moveDraft.reason === ''
+  const activeMove = moveDraft
+    ? {
+        module: moveDraft.module,
+        at: moveDraft.at,
+        canDrop: moveDraft.at !== null && moveDraft.candidate !== null && moveDraft.reason === '',
+        reason: moveDraft.reason,
+      }
+    : hostCarried && hostCarriedModule
+      ? {
+          module: hostCarriedModule,
+          at: hostCarried.at,
+          canDrop: hostCarried.canDrop,
+          reason: hostCarried.reason,
+        }
+      : null
+  const canDrop = activeMove !== null && activeMove.canDrop
 
   return (
     <>
-      {selected ? (
+      {selected || activeMove ? (
         <div className="card infoSelectionCard">
-          {moveDraft ? (
+          {activeMove ? (
             // 移动 (§9.5): while a piece is in the air this card **is** the move's
             // control surface — the same place the 移动 button was pressed, so
             // there is nothing to look for anywhere else. The 3D view shows the
@@ -54,15 +95,15 @@ export function InfoCard(): React.ReactElement {
               <div className="infoCardDetails">
               <div className="kv">
                 <span>{t('move')}</span>
-                <b>{translate(moduleLabel(moveDraft.module))}</b>
+                <b>{translate(moduleLabel(activeMove.module))}</b>
               </div>
               <div className="kv">
                 <span>{t('position')}</span>
                 <b className={canDrop ? undefined : 'bad'}>
-                  {translate(moveDraft.at ? `(${moveDraft.at.x}, ${moveDraft.at.y}, ${moveDraft.at.z})` : msg('move_to_the_new_location'))}
+                  {translate(activeMove.at ? `(${activeMove.at.x}, ${activeMove.at.y}, ${activeMove.at.z})` : msg('move_to_the_new_location'))}
                 </b>
               </div>
-              {moveDraft.reason !== '' && <div className="moveReason small">{translate(moveDraft.reason)}</div>}
+              {activeMove.reason !== '' && <div className="moveReason small">{translate(activeMove.reason)}</div>}
               </div>
               <div className="infoCardActions">
                 <button
@@ -84,7 +125,7 @@ export function InfoCard(): React.ReactElement {
                 </button>
               </div>
             </div>
-          ) : (
+          ) : selected ? (
             <>
             <div className="infoCardLayout">
               <div className="infoCardDetails">
@@ -175,7 +216,7 @@ export function InfoCard(): React.ReactElement {
               </div>
             </div>
             </>
-          )}
+          ) : null}
         </div>
       ) : (
         <div className="muted small">{t('nothing_selected_yet')}</div>

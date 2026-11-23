@@ -201,25 +201,44 @@ namespace Metro.View {
             return rightLow <= rightHigh ? Mathf.Min(rightHigh, Mathf.Max(rightLow, depth * .5f)) : rightHigh;
         }
 
-        /// <summary>The platform edge that boards a track (`cfg.from`, else a direction match).</summary>
-        public static StationModuleRecord PlatformEdgeFor(StationDocument document, StationModuleRecord track,
-            string lineId, string direction) {
-            if (document == null || track == null) return null;
-            StationModuleRecord byDirection = null;
+        /// <summary>
+        /// Shared berth platform-edge selection rule for document records (mirrors
+        /// <see cref="StationTrainPose.SelectBerthPlatformEdges"/> and <c>World.computeLineAnchors</c>):
+        /// explicit <c>cfg.from == track.Id</c> edges win whenever any exist; otherwise unbound legacy
+        /// edges (<c>cfg.from</c> empty and <c>cfg.dir == direction</c>) are selected.
+        /// </summary>
+        public static void SelectBerthPlatformEdges(StationDocument document, StationModuleRecord track,
+            string lineId, string direction, List<StationModuleRecord> output) {
+            if (output == null) return;
+            output.Clear();
+            if (document == null || track == null || track.Config.Bool("tunnel") || track.Config.Bool("bridge")) return;
             var modules = document.Modules;
+            List<StationModuleRecord> legacy = null;
             for (int i = 0; i < modules.Count; i++) {
                 var module = modules[i];
                 if (module == null || !string.Equals(module.Type, "platform-edge", StringComparison.Ordinal)) continue;
                 if (!string.Equals(module.Config.Text("line"), lineId, StringComparison.Ordinal)) continue;
                 var from = module.Config.Text("from");
                 if (from.Length > 0) {
-                    if (string.Equals(from, track.Id, StringComparison.Ordinal)) return module;
+                    if (string.Equals(from, track.Id, StringComparison.Ordinal)) output.Add(module);
                     continue;
                 }
-                if (byDirection != null) continue;
-                if (string.Equals(module.Config.Text("dir"), direction, StringComparison.Ordinal)) byDirection = module;
+                if (output.Count == 0 && string.Equals(module.Config.Text("dir"), direction, StringComparison.Ordinal)) {
+                    if (legacy == null) legacy = new List<StationModuleRecord>(2);
+                    legacy.Add(module);
+                }
             }
-            return byDirection;
+            if (output.Count == 0 && legacy != null) {
+                for (int i = 0; i < legacy.Count; i++) output.Add(legacy[i]);
+            }
+        }
+
+        /// <summary>The first platform edge selected for this berth (explicit `cfg.from`, else legacy `dir`).</summary>
+        public static StationModuleRecord PlatformEdgeFor(StationDocument document, StationModuleRecord track,
+            string lineId, string direction) {
+            var selected = new List<StationModuleRecord>(2);
+            SelectBerthPlatformEdges(document, track, lineId, direction, selected);
+            return selected.Count > 0 ? selected[0] : null;
         }
 
         /// <summary>`trackTrainCentreV`'s platform clearance, metres.</summary>
@@ -229,6 +248,7 @@ namespace Metro.View {
         /// `thirdRailSide`: local +1 / −1 edge for the conductor rail. A tunnel or bridge
         /// takes the travel right; a platform rail takes the side with no screen doors and
         /// only falls back to the travel right when both (or neither) side carries one.
+        /// Explicit berth ownership (<c>cfg.from == track.Id</c>) wins over unbound legacy edges.
         /// </summary>
         public static int ThirdRailSide(ModuleFacts track, IReadOnlyList<ModuleFacts> station, string lineDirection) {
             if (track == null) return -1;
@@ -236,22 +256,36 @@ namespace Metro.View {
             if (direction.Length == 0) direction = string.IsNullOrEmpty(lineDirection) ? "up" : lineDirection;
             int right = string.Equals(direction, "down", StringComparison.OrdinalIgnoreCase) ? 1 : -1;
             if (track.Config.Bool("tunnel") || track.Config.Bool("bridge")) return right;
-            bool hasLeft = false, hasRight = false;
+            bool explicitFound = false;
+            bool explicitLeft = false, explicitRight = false;
+            bool legacyLeft = false, legacyRight = false;
             if (station != null) {
+                var lineId = track.Config.Text("line");
                 for (int i = 0; i < station.Count; i++) {
                     var edge = station[i];
                     if (edge == null || !string.Equals(edge.Type, "platform-edge", StringComparison.Ordinal)) continue;
-                    if (string.Equals(edge.Config.Text("psd"), "none", StringComparison.Ordinal)) continue;
+                    if (!string.Equals(edge.Config.Text("line"), lineId, StringComparison.Ordinal)) continue;
                     var from = edge.Config.Text("from");
-                    bool relevant = from.Length > 0
-                        ? string.Equals(from, track.Id, StringComparison.Ordinal)
-                        : string.Equals(edge.Config.Text("line"), track.Config.Text("line"), StringComparison.Ordinal) &&
-                          string.Equals(edge.Config.Text("dir"), direction, StringComparison.Ordinal);
-                    if (!relevant) continue;
-                    if (string.Equals(edge.Config.Text("side"), "left", StringComparison.Ordinal)) hasLeft = true;
-                    else hasRight = true;
+                    bool psdPresent = !string.Equals(edge.Config.Text("psd"), "none", StringComparison.Ordinal);
+                    bool isLeft = string.Equals(edge.Config.Text("side"), "left", StringComparison.Ordinal);
+                    if (from.Length > 0) {
+                        if (!string.Equals(from, track.Id, StringComparison.Ordinal)) continue;
+                        explicitFound = true;
+                        if (psdPresent) {
+                            if (isLeft) explicitLeft = true;
+                            else explicitRight = true;
+                        }
+                        continue;
+                    }
+                    if (!explicitFound && psdPresent &&
+                        string.Equals(edge.Config.Text("dir"), direction, StringComparison.Ordinal)) {
+                        if (isLeft) legacyLeft = true;
+                        else legacyRight = true;
+                    }
                 }
             }
+            bool hasLeft = explicitFound ? explicitLeft : legacyLeft;
+            bool hasRight = explicitFound ? explicitRight : legacyRight;
             if (hasLeft && !hasRight) return -1;
             if (hasRight && !hasLeft) return 1;
             return right;

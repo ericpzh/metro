@@ -60,16 +60,26 @@ for measurement rules and [perf-benchmarks.md](perf-benchmarks.md) for commands.
   (`OutdoorModuleRenderer`), openings (`gate`, `door`, `cubicle` in
   `OpeningModuleRenderer`; `platform-edge`/`psd-end` keep conservative fallback),
   authored road networks + ambient road traffic (`StationLocalEdit.TryApplyRoadSet`
-  + `StationRoadRenderer.TryStageLocalDelta`), equipment contact shadows
+  with semantic `RoadRecordUnchanged` diffing, `StationRoadComponents.Partition`
+  connected-component partitioning, and component-scoped
+  `StationRoadRenderer.TryStageLocalDelta` / `RoadVehicleViews.BuildMultiComponent`),
+  equipment contact shadows
   (`StationContactShadowRenderer`), and zone overlay bands
   (`StationZoneMap.FloorsAt` + `CachedZoneBand` in `StationOverlayRenderer`).
-  On shipped `zoo.metro.json` (4,299 modules, 7 renderers, Unity 6000.6.8f1
-  `-nographics` EditMode `StationRoadDeltaPerfTests.MeasureRoadPreviewCommitEraseAndUndoOnZoo`,
-  1 warmup + 3 trials), moving roads from full-save rebuild to incremental local
-  delta cuts median road add from `731.97 ms → 47.84 ms` (15.3×), erase from
-  `737.57 ms → 52.04 ms` (14.2×), undo erase from `561.27 ms → 49.36 ms`
-  (11.4×), undo add from `557.75 ms → 53.33 ms` (10.5×), and preview from
-  `10.93 ms → 2.86 ms`, shifting `local_edits/full_edits` from `0/12 → 12/0`.
+  On shipped `zoo.metro.json` (4,299 modules, 2 disconnected road networks, Unity
+  6000.6.8f1 `-nographics` EditMode
+  `StationRoadDeltaPerfTests.MeasureRoadPreviewCommitEraseAndUndoOnZoo`,
+  1 warmup + 3 trials), moving roads from full-save rebuild to component-bounded
+  incremental local delta cuts median road add from `731.97 ms → 43.44 ms`
+  (16.8×), erase from `737.57 ms → 54.38 ms` (13.6×), undo erase from
+  `561.27 ms → 55.63 ms` (10.1×), undo add from `557.75 ms → 55.20 ms` (10.1×),
+  and preview from `10.93 ms → 2.90 ms`, shifting `local_edits/full_edits` from
+  `0/12 → 12/0` while rebuilding only `1/2` road components (`rebuilt_roads=1,
+  retained_roads=1`). On a 4-network disconnected road fixture (8 roads across 4
+  crossed networks, `MeasureBoundedComponentRoadPerfOnDisconnectedNetworks`,
+  1 warmup + 5 trials), single-network edits stay bounded to `1/4` components
+  (`rebuilt_roads=2, retained_roads=6`) with `preview=0.13 ms`, `add=28.97 ms`,
+  `erase=25.13 ms`, `undo_erase=28.26 ms`, `undo_add=27.63 ms`.
 - **GPU instancing & train compaction**: Grade `lawn`/`sidewalk` tiles, static
   equipment (`64 × 64 m` spatial chunks, `BatchThreshold = 6`), and straight
   fences/trees batch via `StationInstancedSurfaceBatch`
@@ -87,16 +97,44 @@ for measurement rules and [perf-benchmarks.md](perf-benchmarks.md) for commands.
 
 ## Crowds, displays & exploded view memory
 
-- **Crowd animation (`PassengerCrowdView.cs`)**: Sets fixed `localBounds` with
-  `updateWhenOffscreen = false`, skips `SampleAnimation` on hidden storeys and
-  unchanged `(ClipName, ClipTime)`, distance-quantizes PlayMode skeletal
-  sampling beyond `45 m` / `85 m`, and suppresses redundant `Transform` writes.
-- **Live clocks, TVs & signs**: `StationClockArtwork` shares one digital clock
-  texture per world and skips unchanged analogue hand rotations;
-  `StationDisplayTvArtwork` skips hidden faces, budgets PlayMode paints
-  round-robin (`4/frame`), and evicts unused plate textures above `64`;
-  `StationSignTextureCache` drains a FIFO decode queue at up to `4/frame` in
-  PlayMode and drops stale responses before PNG decode.
+- **Desktop standalone simulation worker & hot loops (`StationLoadCoordinator.cs`, `StationServiceRuntime.cs`)**:
+  On Windows standalone (`#if !UNITY_WEBGL`, opt-out via `-metroSimSync`), `StationSimulationHost`
+  runs `StationSimulationSession.Advance` on a dedicated background worker thread and publishes
+  lock-free immutable `StationPublishedSimFrame` snapshots with a synchronous edit/command barrier.
+  `StationServiceRuntime` uses flat stamped 3D cell grids (with lossless dictionary overflow fallback)
+  for `PriceCrowd` and `SeparateWalkers`.
+- **Crowd animation & SRP batching (`PassengerCrowdView.cs`)**: Sets fixed `localBounds` with
+  `updateWhenOffscreen = false` and `shadowCastingMode = Off` (covered by instanced contact shadows),
+  caches `PassengerAppearance.Look` and static `PassengerSupportResolver` cell queries, hoists camera
+  LOD parameters, skips Transform writes for hidden actors, reuses tick-boundary poses on sub-tick
+  frames with a paused fast path, replaces per-actor `MaterialPropertyBlock`s with bounded 20-step
+  shared toned materials (SRP Batcher compatible across `Base`/`Ghost`/`Clear`), and applies
+  frustum culling + a globally shared 96-sample/frame steady `SampleAnimation` budget.
+- **Live clocks, TVs & signs**: `StationClockArtwork` paints 7-segment LED digits on the CPU into
+  one reused `Texture2D` per scope with a cached per-day calendar strip and lightweight
+  `ClockSnapshot()`; `StationDisplayTvArtwork` / `StationTvPlatePainter` pools an isolated offscreen
+  camera/canvas and GPU-copies depth-capable `RenderTexture`s (zero `ReadPixels()` in PlayMode),
+  skips hidden faces, budgets PlayMode paints round-robin (`4/frame`), and evicts unused plate
+  textures above `64`; `ModuleMotionDispatch` makes displacement probing opt-in (`MeasureDisplacement = false`
+  on runtime sinks), caches per-tick frame indices and swing-door targets, and dirty-skips unchanged
+  or hidden bindings (same for `VerticalModuleRenderer.ApplyAll`).
+- **Desktop URP & instancing (`StationGameHost.cs`, `StationWorldView.cs`, `StationModuleGroups.cs`)**:
+  Standalone desktop runtime disables `supportsCameraDepthTexture`, `supportsCameraOpaqueTexture`,
+  and `ScreenSpaceAmbientOcclusion` (skipping the DepthNormals prepass without shader recompilation),
+  uses `2` shadow cascades, disables shadow casting on interior static roles (`openings`, `equipment`,
+  `displays`, `signs`, `vertical`) and instanced surface/equipment batches, coarsens surface chunks
+  to `64 × 64`, and caps ambient audio publishing to `10 Hz`.
+- **Measured Unity Desktop standalone results (`.preview/perf/plan38-bench-pass3/`, RTX 4080 SUPER,
+  i7-14700KF, D3D12, `1600×900`, 16×, `native` FSR, 478–479 ticks/30 s):**
+  - `zoo` Low Regular: **173.3 → 215.0 FPS** (1% low 77.7, worst 30.6 ms)
+  - `tanwei` Low Regular: **97.3 → 161.7 FPS** (1% low 67.0, worst 28.4 ms)
+  - `tianhe` Low Regular: **25.0 → 50.7 FPS** (+103%, 1% low 23.4, worst 55.7 ms; peak RAM 7.30 → 6.11 GB)
+  - `tianhe` High Regular: **25.1 → 48.6–50.0 FPS** (+94–99%)
+  - `tianhe` Low Exploded: **34.9 → 76.4 FPS** (+119%, 1% low 29.5, worst 50.1 ms — **≥ 75 FPS target met**)
+  - `tianhe` High Exploded: **35.3 → 75.9 FPS** (+115%, 1% low 29.0, worst 42.0 ms — **≥ 75 FPS target met**)
+  *(Remaining ~3 ms gap on Tianhe Regular to reach ≥ 60 FPS is driven by the ~18k individual
+  non-readable glTFast `MeshRenderer`s across `openings`/`vertical`/`equipment`/`displays`/`signs`,
+  which require renderer-level GPU instancing rather than runtime `StaticBatchingUtility`, or Win64 IL2CPP.)*
 - **Exploded view (`StationExplodedTrayBuilder.cs`, `StationExplodedView.cs`)**:
   Borrows the active `StationFinishLibrary`, builds only service-track consists
   using `CompactConsistInstance`, keeps `StationInstancedSurfaceBatch` props
@@ -127,6 +165,21 @@ for measurement rules and [perf-benchmarks.md](perf-benchmarks.md) for commands.
   world build from `946 → 341 MiB`, and after simulation stage from `1,141 → 504 MiB`,
   passing all 30/30 Tianhe WebGL benchmark combinations (`regular` + `explode`, all
   3 detail tiers × 5 FSR modes) on attempt 1.
+- **Coalesced WebGL autosave (`game/src/unity-web/webglAutosave.ts`)**: Local
+  delta commits (`face.paint`, block/module edits, undo/redo) never call
+  `serialize(station)` synchronously inside `adopt()` / `noteCommit()`; encoding
+  reuses full host `documentText` when present or coalesces outside the input
+  path via `requestIdleCallback`/`setTimeout` fenced on `(sessionId,
+  stationEpoch, revision)`, while `pagehide`, `visibilitychange(hidden)`,
+  `beforeunload`, and interval timers still flush synchronously without waiting
+  for bridge replies. Replacement commits (`demo.load`, `station.load`,
+  `station.new`) invalidate `AUTOSAVE_KEY` before writing so quota failures
+  never resurrect a stale station on reload. On packaged Tianhe Park WebGL
+  (headless Chrome SwiftShader, 1 warmup + 6 local delta `face.paint`/undo/redo
+  edits + `pagehide` flush), moving encoding out of commit adoption cuts JS
+  adopt dispatch median from `73.20 ms → 1.65 ms` (44.4×, max `82.70 → 2.00 ms`)
+  and end-to-end edit-to-adopt median from `362.45 ms → 275.85 ms` (`-86.60 ms`),
+  with separate unload-time `pagehide` flush completing in `108.90 ms`.
 - **Brotli deploy bundles** (`tools/unity-web/stage-deploy.mjs`,
   `local-worker.mjs`, `unity/wrangler.jsonc`): Stages only public
   `StationGameLocal.unity` packs (rejecting local-only `StationGameLocalWeb*`

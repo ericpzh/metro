@@ -473,7 +473,7 @@ namespace Metro.App {
                         if (handled) {
                             if (host.CurrentRevision != revisionBefore) {
                                 trace?.Commit(host.CurrentRevision);
-                                string reply = CommitOrReject(command, host.CurrentResult());
+                                string reply = CommitOrReject(command, host.CurrentResult(), payload);
                                 trace?.Mark("commit-serialized");
                                 trace?.EndCommandScope();
                                 committedTrace = trace;
@@ -540,14 +540,19 @@ namespace Metro.App {
             };
         }
 
-        string CommitOrReject(StationCommand command, StationLoadResult result) {
+        string CommitOrReject(StationCommand command, StationLoadResult result, JObject extraFields = null) {
             if (!result.Accepted) {
                 var rejection = result.Rejection;
                 return Reject(command.Id, command.SessionId, rejection.Code, rejection.Reason, host.CurrentRevision);
             }
             bool forceFullDocument = string.Equals(command.Type, "station.resync", StringComparison.Ordinal);
-            return Envelope("commit", command.Id, command.SessionId, true, null,
-                host.BuildCommitPayload(forceFullDocument, useRawJsonCache: true));
+            var commitPayload = host.BuildCommitPayload(forceFullDocument, useRawJsonCache: true);
+            if (extraFields != null) {
+                foreach (var prop in extraFields.Properties()) {
+                    if (commitPayload[prop.Name] == null) commitPayload[prop.Name] = prop.Value.DeepClone();
+                }
+            }
+            return Envelope("commit", command.Id, command.SessionId, true, null, commitPayload);
         }
 
         string Ack(string id, string sessionId, JObject payload) =>

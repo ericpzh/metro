@@ -250,6 +250,8 @@ namespace Metro.App.Views {
         internal BandRig Band;
         internal LiftRig Lift;
         internal List<BandStep> Steps;
+        internal bool BandDirty = true;
+        internal double LastAppliedBandPhase = double.NaN;
         internal readonly List<VerticalPartRef> parts = new List<VerticalPartRef>();
         internal readonly List<Mesh> Meshes = new List<Mesh>();
         internal Func<int, Material> MaterialFor;
@@ -3551,17 +3553,34 @@ namespace Metro.App.Views {
             int applied = 0;
             for (int i = 0; i < world.Views.Count; i++) {
                 var view = world.Views[i];
-                if (view == null || bandsOnly && view.Kind == VerticalModuleKind.Lift) continue;
+                if (view == null) continue;
+                if (bandsOnly && view.Band == null) continue;
                 var state = new ModuleMotionState {
                     ModuleId = view.ModuleId, Seconds = simTimeSeconds, Running = running, DirectionSign = 1,
                     CabinFraction = float.NaN, DoorFraction = float.NaN, PhaseMeters = double.NaN, CabinHeight = double.NaN,
                 };
                 if (view.Band != null) {
+                    if (view.Root != null && !view.Root.gameObject.activeInHierarchy) {
+                        view.BandDirty = true;
+                        continue;
+                    }
                     // Accumulate from the load, exactly as `rollEscalator` does; the
                     // station clock may start at 06:30 rather than zero.
                     double metres = view.Band.TravelSign * VerticalModuleViews.EscalatorSpeed * (simTimeSeconds - world.ClockOrigin);
-                    state.PhaseMeters = VerticalModuleViews.Wrap(metres, view.Band.ChainLength);
-                } else if (view.Kind == VerticalModuleKind.Lift) {
+                    double phase = VerticalModuleViews.Wrap(metres, view.Band.ChainLength);
+                    if (!view.BandDirty && !double.IsNaN(view.LastAppliedBandPhase) &&
+                        Math.Abs(phase - view.LastAppliedBandPhase) < 1e-5) {
+                        continue;
+                    }
+                    state.PhaseMeters = phase;
+                    if (view.Apply(state)) {
+                        view.LastAppliedBandPhase = phase;
+                        view.BandDirty = false;
+                        applied++;
+                    }
+                    continue;
+                }
+                if (view.Kind == VerticalModuleKind.Lift) {
                     state.CabinFraction = 0f;
                     state.DoorFraction = 0f;
                 }

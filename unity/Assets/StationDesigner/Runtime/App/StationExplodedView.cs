@@ -386,13 +386,13 @@ namespace Metro.App {
                 simTime - (1.0 - fraction) * StationSimConstants.SimSecondsPerTick,
                 fraction,
                 sim?.Playing ?? false);
-            builder.TickLivePoses(simHost?.Session, clock, forceSnap);
+            builder.TickPublishedPoses(simHost?.PublishedFrame, clock, forceSnap);
         }
 
         public void Tick(StationDocument document, StationIndex index, StationFrameClock clock) {
             if (!IsReady || builder == null) return;
             var simHost = host?.Simulation as StationSimulationHost;
-            builder.TickLivePoses(simHost?.Session, clock, forceSnap: false);
+            builder.TickPublishedPoses(simHost?.PublishedFrame, clock, forceSnap: false);
         }
 
         void Update() {

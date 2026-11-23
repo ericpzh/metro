@@ -94,7 +94,6 @@ namespace Metro.App {
             public bool Erase;
             /// <summary>True when the drag builds a counter (`ZoneTool`'s facility branch).</summary>
             public bool Facility;
-            public string ShopCutId = "";
             public string Kind = "";
             public int Front;
             public float PressX, PressY;
@@ -118,7 +117,7 @@ namespace Metro.App {
         }
 
         static bool IsFacility(string brush) =>
-            StationFacilityRules.IsFacilityBrush(brush);
+            StationFacilityRules.IsBoothBrush(brush);
 
         /// <summary>
         /// Arm a zone gesture from one press. A press on a cell that is not floor paints nothing
@@ -132,7 +131,26 @@ namespace Metro.App {
             if (world == null) { reason = "no-session"; return false; }
             if (hit == null || !hit.HasCell) { reason = "no-cell"; return false; }
             var brush = ArmedBrush();
-            if (IsFacility(brush)) return BeginFacility(host, world, hit, pointer, button, out reason);
+            if (button == 2) {
+                var index = host.Index;
+                var room = StationFacilityPlanner.At(index, hit.Cell.X, hit.Cell.Y, hit.Cell.Z);
+                if (room != null && string.Equals(room.Type, "booth", StringComparison.Ordinal)) {
+                    var removal = StationFacilityPlanner.PlanRemoval(index, room.Id);
+                    if (removal.HasWork) {
+                        if (!StationEditSession.TryApplyCells(host, removal.ToPatch(), "remove counter", null,
+                                out _, out var removeCode)) {
+                            reason = removeCode;
+                            return false;
+                        }
+                        ForgetWorld();
+                        preview = new StationZonePreview();
+                        StationEditSession.Zone = null;
+                        return true;
+                    }
+                }
+            } else if (IsFacility(brush)) {
+                return BeginFacility(host, world, hit, pointer, button, out reason);
+            }
             var cell = hit.CellKey;
             bool erase = button == 2 || StationZoneIds.IsErase(brush);
             if (!world.IsFloor(cell)) {
@@ -159,10 +177,9 @@ namespace Metro.App {
         }
 
         /// <summary>
-        /// Arm a counter drag, or bulldoze the counter under the secondary button. A counter is a
-        /// module, not a floor label (`ZoneTool`'s `isFacilityBrush` branch): the drag builds or
-        /// extends a `booth`, and the right button removes one — on a cell that is not a counter
-        /// the secondary button is the ordinary label eraser, exactly as in the reference.
+        /// Arm a counter drag (`ZoneTool`'s `isFacilityBrush` branch): the drag builds or extends
+        /// a `booth` (`ticket` or `info`). Right-click booth removal and floor-label erasing are
+        /// handled in <see cref="Begin"/> before entering this branch.
         /// </summary>
         static bool BeginFacility(StationGameHost host, StationZoneWorld world, StationSceneHit hit,
             StationPointerEvent pointer, int button, out string reason) {
@@ -170,57 +187,6 @@ namespace Metro.App {
             var index = host.Index;
             int x = hit.Cell.X, y = hit.Cell.Y, z = hit.Cell.Z;
             var brush = ArmedBrush();
-            if (button == 2) {
-                var room = StationFacilityPlanner.At(index, x, y, z);
-                if (room != null && string.Equals(room.Type, "booth", StringComparison.Ordinal)) {
-                    var removal = StationFacilityPlanner.PlanRemoval(index, room.Id);
-                    if (removal.HasWork) {
-                        if (!StationEditSession.TryApplyCells(host, removal.ToPatch(), "remove counter", null,
-                                out _, out var removeCode)) {
-                            reason = removeCode;
-                            return false;
-                        }
-                        ForgetWorld();
-                        preview = new StationZonePreview();
-                        StationEditSession.Zone = null;
-                        return true;
-                    }
-                }
-                if (room != null && string.Equals(room.Type, "shop", StringComparison.Ordinal)) {
-                    gesture = new StationZoneGesture {
-                        Anchor = new StationCellKey(x, y, room.Z),
-                        Button = 2,
-                        Paint = brush,
-                        Erase = true,
-                        ShopCutId = room.Id,
-                        Kind = room.Config.Text("kind"),
-                        PressX = pointer.X,
-                        PressY = pointer.Y,
-                        PressTimeMs = pointer.TimeMs,
-                        Revision = host.CurrentRevision,
-                    };
-                    Aim(host, hit, pointer, true);
-                    return true;
-                }
-                // Not a counter: the same 无分区 eraser the fare brushes arm.
-                var floorCell = new StationCellKey(x, y, z);
-                if (!world.IsFloor(floorCell)) {
-                    preview = new StationZonePreview {
-                        Anchor = floorCell, Paint = StationZoneIds.None, Erase = true,
-                        Colour = ColourFor(StationZoneIds.None, true), Notice = "not-floor",
-                    };
-                    StationEditSession.Zone = preview;
-                    reason = "not-floor";
-                    return false;
-                }
-                gesture = new StationZoneGesture {
-                    Anchor = floorCell, Button = 2, Paint = StationZoneIds.None, Erase = true,
-                    PressX = pointer.X, PressY = pointer.Y, PressTimeMs = pointer.TimeMs,
-                    Revision = host.CurrentRevision,
-                };
-                Aim(host, hit, pointer, true);
-                return true;
-            }
             // §5.7: a room stands on the **block under the pointer**, not on the storey the
             // player is editing, and a press on the room's own wall walks down to that block.
             int standZ = StationFacilityPlanner.StandZ(index, x, y, z);
@@ -272,36 +238,6 @@ namespace Metro.App {
                 StationEditSession.Zone = preview;
                 return;
             }
-            if (!string.IsNullOrEmpty(gesture.ShopCutId)) {
-                var index = host.Index;
-                var corner = new StationCellKey(hit.Cell.X, hit.Cell.Y, gesture.Anchor.Z);
-                var rect = new StationFacilityRect(gesture.Anchor.X, gesture.Anchor.Y, corner.X, corner.Y, gesture.Anchor.Z);
-                var cutPreview = new StationZonePreview {
-                    Anchor = gesture.Anchor,
-                    Paint = gesture.Paint,
-                    Erase = true,
-                    Facility = gesture.Kind,
-                    Colour = 0xff7a7a,
-                };
-                if (index != null && index.TryGetModule(gesture.ShopCutId, out var shop) && shop != null) {
-                    if (StationFacilityRules.Covers(shop, rect)) {
-                        var own = StationFacilityRules.RectOf(shop);
-                        cutPreview.Width = own.Width;
-                        cutPreview.Height = own.Height;
-                        var roomCells = StationFacilityRules.Cells(own);
-                        cutPreview.Rect.AddRange(roomCells);
-                        cutPreview.Cells.AddRange(roomCells);
-                    } else {
-                        var openings = StationFacilityPlanner.OpeningCells(index, shop, rect);
-                        cutPreview.Width = rect.Width;
-                        cutPreview.Height = rect.Height;
-                        cutPreview.Cells.AddRange(openings);
-                    }
-                }
-                preview = cutPreview;
-                StationEditSession.Zone = preview;
-                return;
-            }
             if (gesture.Facility) {
                 var corner = new StationCellKey(hit.Cell.X, hit.Cell.Y, gesture.Anchor.Z);
                 var rect = new StationFacilityRect(gesture.Anchor.X, gesture.Anchor.Y, corner.X, corner.Y, gesture.Anchor.Z);
@@ -338,39 +274,6 @@ namespace Metro.App {
                 return false;
             }
             var target = hit != null && hit.HasCell ? hit.CellKey : current.Anchor;
-            if (!string.IsNullOrEmpty(current.ShopCutId)) {
-                var index = host.Index;
-                var rect = new StationFacilityRect(current.Anchor.X, current.Anchor.Y, target.X, target.Y, current.Anchor.Z);
-                if (index == null || !index.TryGetModule(current.ShopCutId, out var shop) || shop == null) {
-                    reason = "no-module";
-                    preview = new StationZonePreview();
-                    StationEditSession.Zone = null;
-                    return false;
-                }
-                StationFacilityPlan cutPlan;
-                string cutLabel;
-                if (StationFacilityRules.Covers(shop, rect)) {
-                    cutPlan = StationFacilityPlanner.PlanRemoval(index, shop.Id);
-                    cutLabel = "remove room";
-                } else {
-                    cutPlan = StationFacilityPlanner.PlanCarveOpenings(index, shop.Id, rect);
-                    cutLabel = "cut room opening";
-                }
-                if (!cutPlan.Ok || !cutPlan.HasWork) {
-                    reason = cutPlan.Reason.Length > 0 ? cutPlan.Reason : "nothing-to-do";
-                    preview = new StationZonePreview();
-                    StationEditSession.Zone = null;
-                    return false;
-                }
-                if (!StationEditSession.TryApplyCells(host, cutPlan.ToPatch(), cutLabel, null, out _, out code)) {
-                    reason = code;
-                    return false;
-                }
-                ForgetWorld();
-                preview = new StationZonePreview();
-                StationEditSession.Zone = null;
-                return true;
-            }
             if (current.Facility) {
                 var rect = new StationFacilityRect(current.Anchor.X, current.Anchor.Y, target.X, target.Y, current.Anchor.Z);
                 var facilityPlan = StationFacilityPlanner.Plan(host.Index, current.Kind, rect, current.Front);

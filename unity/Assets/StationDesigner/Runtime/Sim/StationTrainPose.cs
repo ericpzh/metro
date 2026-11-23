@@ -26,6 +26,8 @@ namespace Metro.Sim {
         public int DirectionSign;
         public double HalfLength, ApproachRun, DepartRun;
         public bool HasPlatform;
+        /// <summary>Track-local platform sides owned by this berth: bit 0 = left (+y), bit 1 = right (−y).</summary>
+        public int TrackDoorSides;
         /// <summary>Bitmask of active consist door banks: bit 0 = local +1 bank, bit 1 = local -1 bank (0..3).</summary>
         public int DoorBankMask;
         public double PlatformX, PlatformY, PlatformZ;
@@ -93,10 +95,56 @@ namespace Metro.Sim {
         static int Depth(StationModuleFact track) => Math.Max(1, track.Depth);
         static bool IsTunnelOrBridge(StationModuleFact track) => track.Tunnel || track.Bridge;
 
-        /// <summary>`platformEdgeFor`: the edge that boards this track (`cfg.from`, else a direction match).</summary>
+        /// <summary>
+        /// Shared berth platform-edge selection rule (mirrors <c>World.computeLineAnchors</c>):
+        /// explicit <c>platform-edge</c> runs bound via <c>cfg.from == track.Id</c> take strict
+        /// precedence whenever any exist for this berth; only when none exist are unbound legacy
+        /// edges (<c>cfg.from</c> empty and <c>cfg.dir == direction</c>) selected.
+        /// </summary>
+        public static void SelectBerthPlatformEdges(StationSessionDocument document, StationModuleFact track,
+            string lineId, string direction, List<StationModuleFact> output) {
+            if (output == null) return;
+            output.Clear();
+            if (document == null || track.Tunnel || track.Bridge) return;
+            var edges = document.ModulesOfType("platform-edge");
+            List<StationModuleFact> legacy = null;
+            for (int i = 0; i < edges.Count; i++) {
+                var edge = edges[i];
+                if (!string.Equals(edge.LineId, lineId, StringComparison.Ordinal)) continue;
+                var from = edge.RailId ?? "";
+                if (from.Length > 0) {
+                    if (string.Equals(from, track.Id, StringComparison.Ordinal)) output.Add(edge);
+                    continue;
+                }
+                if (output.Count == 0 && string.Equals(edge.Dir, direction, StringComparison.Ordinal)) {
+                    if (legacy == null) legacy = new List<StationModuleFact>(2);
+                    legacy.Add(edge);
+                }
+            }
+            if (output.Count == 0 && legacy != null) {
+                for (int i = 0; i < legacy.Count; i++) output.Add(legacy[i]);
+            }
+        }
+
+        /// <summary>
+        /// Track-local platform side bitmask from a selected berth edge list:
+        /// bit 0 = track +y (<c>left</c>), bit 1 = track -y (<c>right</c>).
+        /// </summary>
+        public static int DoorSidesMask(IReadOnlyList<StationModuleFact> edges) {
+            int mask = 0;
+            if (edges == null) return 0;
+            for (int i = 0; i < edges.Count; i++) {
+                if (string.Equals(edges[i].Side, "left", StringComparison.Ordinal)) mask |= 1;
+                else mask |= 2;
+                if (mask == 3) break;
+            }
+            return mask;
+        }
+
+        /// <summary>`platformEdgeFor`: the first edge selected for this berth (explicit `cfg.from`, else legacy `dir`).</summary>
         public static int PlatformEdgeFor(StationSessionDocument document, StationModuleFact track, string lineId,
             string direction) {
-            if (document == null) return -1;
+            if (document == null || track.Tunnel || track.Bridge) return -1;
             int byDirection = -1;
             for (int i = 0; i < document.Modules.Count; i++) {
                 var module = document.Modules[i];
@@ -114,26 +162,14 @@ namespace Metro.Sim {
         }
 
         /// <summary>
-        /// Bitmask of track-local sides with bound <c>platform-edge</c> runs: bit 0 = track +y (<c>left</c>),
-        /// bit 1 = track -y (<c>right</c>). Returns 0 (no platform), 1, 2, or 3 (both sides).
+        /// Bitmask of track-local sides owned by this berth: bit 0 = track +y (<c>left</c>),
+        /// bit 1 = track -y (<c>right</c>). Explicit <c>cfg.from</c> edges win over unbound legacy edges.
         /// </summary>
         public static int TrackDoorSides(StationSessionDocument document, StationModuleFact track, string lineId, string direction) {
             if (document == null || track.Tunnel || track.Bridge) return 0;
-            int mask = 0;
-            var edges = document.ModulesOfType("platform-edge");
-            for (int i = 0; i < edges.Count; i++) {
-                var edge = edges[i];
-                if (!string.Equals(edge.LineId, lineId, StringComparison.Ordinal)) continue;
-                var from = edge.RailId ?? "";
-                bool matches = from.Length > 0
-                    ? string.Equals(from, track.Id, StringComparison.Ordinal)
-                    : string.Equals(edge.Dir, direction, StringComparison.Ordinal);
-                if (!matches) continue;
-                if (string.Equals(edge.Side, "left", StringComparison.Ordinal)) mask |= 1;
-                else mask |= 2;
-                if (mask == 3) break;
-            }
-            return mask;
+            var selected = new List<StationModuleFact>(2);
+            SelectBerthPlatformEdges(document, track, lineId, direction, selected);
+            return DoorSidesMask(selected);
         }
 
         /// <summary>Maps track-local <see cref="TrackDoorSides"/> into consist-local door bank bits using travel heading.</summary>
@@ -146,27 +182,12 @@ namespace Metro.Sim {
         static bool TryPlatformEdgeFact(StationSessionDocument document, StationModuleFact track, string lineId,
             string direction, out StationModuleFact foundEdge) {
             foundEdge = default;
-            if (document == null) return false;
-            var edges = document.ModulesOfType("platform-edge");
-            bool haveByDir = false;
-            for (int i = 0; i < edges.Count; i++) {
-                var module = edges[i];
-                if (!string.Equals(module.LineId, lineId, StringComparison.Ordinal)) continue;
-                var from = module.RailId ?? "";
-                if (from.Length > 0) {
-                    if (string.Equals(from, track.Id, StringComparison.Ordinal)) {
-                        foundEdge = module;
-                        return true;
-                    }
-                    continue;
-                }
-                if (haveByDir) continue;
-                if (string.Equals(module.Dir, direction, StringComparison.Ordinal)) {
-                    foundEdge = module;
-                    haveByDir = true;
-                }
-            }
-            return haveByDir;
+            if (document == null || track.Tunnel || track.Bridge) return false;
+            var selected = new List<StationModuleFact>(2);
+            SelectBerthPlatformEdges(document, track, lineId, direction, selected);
+            if (selected.Count == 0) return false;
+            foundEdge = selected[0];
+            return true;
         }
 
         /// <summary>`trackTrainCentreV`: the vehicle centre across the bed, from its local −y edge.</summary>
@@ -260,9 +281,12 @@ namespace Metro.Sim {
             ConnectedRun(document, track, out double back, out double forward);
             var direction = track.Dir ?? "";
             if (direction.Length == 0) direction = haveLine ? line.Direction : "up";
-            bool hasEdge = TryPlatformEdgeFact(document, track, line.Id ?? "", direction, out var edge);
+            var selectedEdges = new List<StationModuleFact>(2);
+            SelectBerthPlatformEdges(document, track, line.Id ?? "", direction, selectedEdges);
+            bool hasEdge = selectedEdges.Count > 0;
+            var edge = hasEdge ? selectedEdges[0] : default;
             int dirSign = DirectionSign(track, line, haveLine);
-            int trackSides = TrackDoorSides(document, track, line.Id ?? "", direction);
+            int trackSides = DoorSidesMask(selectedEdges);
             int bankMask = ConsistDoorBankMask(trackSides, dirSign);
             var entry = new StationTrainBerth {
                 LineId = line.Id ?? track.LineId ?? "",
@@ -279,6 +303,7 @@ namespace Metro.Sim {
                 ApproachRun = back,
                 DepartRun = forward,
                 HasPlatform = hasEdge,
+                TrackDoorSides = trackSides,
                 DoorBankMask = bankMask,
             };
             if (hasEdge) {

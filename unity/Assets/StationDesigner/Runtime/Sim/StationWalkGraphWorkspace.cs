@@ -1421,9 +1421,8 @@ namespace Metro.Sim {
                 if (fixtureAccess != null && fixtureAccess.TryGetValue(pkJ, out long fixFrontJ) && fixFrontJ != pkI) continue;
                 bool fromGate = gateLanes.TryGetValue(pkI, out var fromLane);
                 bool toGate = gateLanes.TryGetValue(pkJ, out var toLane);
-                if (!StationWalkGraphBuilder.GateStepAllowed(fromGate, fromLane.Rotation, fromLane.Mode,
-                        toGate, toLane.Rotation, toLane.Mode,
-                        nx - x, ny - y, zoneI, nodeZone[j], options.ZoneBarriers)) continue;
+                if (!StationWalkGraphBuilder.GateStepAllowed(fromGate, fromLane.Mode,
+                        toGate, toLane.Mode, zoneI, nodeZone[j], options.ZoneBarriers)) continue;
                 if (CrossesRampWall(x + 0.5, y + 0.5, nx + 0.5, ny + 0.5, z)) continue;
                 double spd = (speedI + nodeSpeed[j]) * 0.5;
                 to.Add(j);

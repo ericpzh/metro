@@ -281,11 +281,8 @@ namespace Metro.Sim {
             return 0;
         }
 
-        internal static bool GateStepAllowed(bool fromGate, int fromRotation, int fromMode,
-            bool toGate, int toRotation, int toMode, int dx, int dy, int fromZone, int toZone,
-            bool zoneBarriers) {
-            if (fromGate && GateTravelDirection(fromRotation, dx, dy) == 0) return false;
-            if (toGate && GateTravelDirection(toRotation, dx, dy) == 0) return false;
+        internal static bool GateStepAllowed(bool fromGate, int fromMode,
+            bool toGate, int toMode, int fromZone, int toZone, bool zoneBarriers) {
             if (!zoneBarriers) return true;
             int dir = CrossingDir(fromZone, toZone);
             if (dir == 0) return true;
@@ -294,22 +291,8 @@ namespace Metro.Sim {
             return false;
         }
 
-        internal static bool GateStepAllowed(bool fromGate, int fromRotation,
-            bool toGate, int toRotation, int dx, int dy, int fromZone, int toZone,
-            bool zoneBarriers) =>
-            GateStepAllowed(fromGate, fromRotation, 0, toGate, toRotation, 0, dx, dy, fromZone, toZone, zoneBarriers);
-
         internal static bool CrossesFareLine(int fromZone, int toZone) =>
             CrossingDir(fromZone, toZone) != 0;
-
-        internal static int GateTravelDirection(int rotation, int dx, int dy) {
-            switch ((rotation % 4 + 4) % 4) {
-                case 1: return -dx;
-                case 2: return -dy;
-                case 3: return dx;
-                default: return dy;
-            }
-        }
 
         public static StationWalkGraphWorkspace BuildWorkspace(StationSessionDocument document, StationWalkGraphOptions options = null) =>
             StationWalkGraphWorkspace.Build(document, options);
@@ -522,8 +505,7 @@ namespace Metro.Sim {
                         (fixtureAccess.TryGetValue(thereKey, out var thereFront) && !string.Equals(thereFront, hereKey, StringComparison.Ordinal))) continue;
                     bool fromGate = gateLanes.TryGetValue(hereKey, out var fromLane);
                     bool toGate = gateLanes.TryGetValue(thereKey, out var toLane);
-                    if (!GateStepAllowed(fromGate, fromLane.Rotation, fromLane.Mode,
-                            toGate, toLane.Rotation, toLane.Mode, step.dx, step.dy,
+                    if (!GateStepAllowed(fromGate, fromLane.Mode, toGate, toLane.Mode,
                             graph.NodeZone[i], graph.NodeZone[j], options.ZoneBarriers)) continue;
                     if (CrossesExitWall(exitWalls, x + 0.5, y + 0.5, nx + 0.5, ny + 0.5, z)) continue;
                     if (CrossesRampWall(rampWalls, x + 0.5, y + 0.5, nx + 0.5, ny + 0.5, z)) continue;

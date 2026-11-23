@@ -1479,7 +1479,11 @@ namespace Metro.Sim {
             StationSimConstants.TrainDepartSeconds,
         };
 
-        public StationMotionFrame Snapshot() {
+        /// <summary>
+        /// Lightweight clock-only snapshot (avoids building train/escalator/lift/door arrays
+        /// when only the clock readout is needed, e.g. digital/analogue clocks and clock JSON).
+        /// </summary>
+        public StationClockFrame ClockSnapshot() {
             if (hasCachedSnapshot &&
                 cachedSnapshotTick == tick &&
                 cachedSnapshotRevision == sessionRevision &&
@@ -1488,10 +1492,10 @@ namespace Metro.Sim {
                 cachedSnapshotSpeed == Speed &&
                 cachedSnapshotSimTime == Clock.SimTime &&
                 ReferenceEquals(cachedSnapshotDoc, document)) {
-                return cachedSnapshot;
+                return cachedSnapshot.Clock;
             }
             var stamp = Clock.Stamp();
-            var clock = new StationClockFrame {
+            return new StationClockFrame {
                 SimTimeSeconds = Clock.SimTime,
                 DayIndex = stamp.DayIndex,
                 Playing = Playing,
@@ -1513,6 +1517,20 @@ namespace Metro.Sim {
                 Peaks = Clock.Peaks,
                 DemandRate = Clock.DemandRate(Clock.SimTime, stamp.DayType == SimDayType.Workday),
             };
+        }
+
+        public StationMotionFrame Snapshot() {
+            if (hasCachedSnapshot &&
+                cachedSnapshotTick == tick &&
+                cachedSnapshotRevision == sessionRevision &&
+                cachedSnapshotEpoch == presentationEpoch &&
+                cachedSnapshotPlaying == Playing &&
+                cachedSnapshotSpeed == Speed &&
+                cachedSnapshotSimTime == Clock.SimTime &&
+                ReferenceEquals(cachedSnapshotDoc, document)) {
+                return cachedSnapshot;
+            }
+            var clock = ClockSnapshot();
             var trainFrames = new List<StationTrainFrame>();
             if (document != null) {
                 for (int i = 0; i < document.Lines.Count; i++) {
@@ -1642,8 +1660,11 @@ namespace Metro.Sim {
                         break;
                     }
                 }
-                string resolvedTrackId = StationServiceDoors.ResolveEdgeTrack(document, edge, lineFact, haveLine);
-                var active = ActiveTrain(edge.LineId, resolvedTrackId);
+                string resolvedTrackId = StationServiceDoors.OwnerTrackForEdge(document, edge, lineFact, haveLine);
+                bool hasServiceTracks = StationServiceDoors.ServiceTracks(document, edge.LineId ?? "").Count > 0;
+                var active = !hasServiceTracks || !string.IsNullOrEmpty(resolvedTrackId)
+                    ? ActiveTrain(edge.LineId, resolvedTrackId)
+                    : null;
                 double fraction = active.HasValue ? DoorFractionOf(active.Value.Phase, active.Value.T) : 0;
                 frames[i] = new StationDoorFrame {
                     PlatformId = edge.Id, LineId = edge.LineId, TrackId = resolvedTrackId,
@@ -1710,7 +1731,7 @@ namespace Metro.Sim {
         /// </summary>
         public string ClockPayloadJson() {
             var sb = new StringBuilder(512);
-            ClockJson(sb, Snapshot().Clock);
+            ClockJson(sb, ClockSnapshot());
             return sb.ToString();
         }
 

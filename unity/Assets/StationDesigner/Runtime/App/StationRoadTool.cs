@@ -17,6 +17,9 @@ namespace Metro.App {
     /// preview and its release can never validate against two different stations.
     /// </summary>
     public static class StationRoadEditService {
+        static StationDocument cachedGraphDoc;
+        static RoadGraph cachedGraph;
+
         /// <summary>Resolve one stroke's ghost, with no document write.</summary>
         public static bool TryPreview(StationGameHost host, RoadEditRequest request,
             out RoadEditPreview preview, out string code) {
@@ -66,8 +69,14 @@ namespace Metro.App {
             return records;
         }
 
-        public static RoadGraph Graph(StationDocument document) =>
-            document == null ? null : StationRoadDocument.Read(Records(document), ModuleIds(document));
+        public static RoadGraph Graph(StationDocument document) {
+            if (document == null) return null;
+            if (ReferenceEquals(cachedGraphDoc, document) && cachedGraph != null) return cachedGraph;
+            var graph = StationRoadDocument.Read(Records(document), ModuleIds(document));
+            cachedGraphDoc = document;
+            cachedGraph = graph;
+            return graph;
+        }
 
         /// <summary>Placement facts from the committed document: floor, street holes and rail beds.</summary>
         sealed class SurfaceFacts : IRoadSurfaceContext {

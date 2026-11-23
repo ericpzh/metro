@@ -92,9 +92,17 @@ namespace Metro.App.Views {
             public Quaternion PoseCorrection = Quaternion.identity;
         }
 
+        sealed class ComponentPool {
+            public int Serial;
+            public Transform Root;
+            public readonly Dictionary<string, Pool> Pools = new Dictionary<string, Pool>(StringComparer.Ordinal);
+            public int SampledCount;
+        }
+
         readonly List<Material> ownedMaterials = new List<Material>();
         readonly List<Mesh> ownedMeshes = new List<Mesh>();
         readonly Dictionary<string, Pool> pools = new Dictionary<string, Pool>(StringComparer.Ordinal);
+        readonly Dictionary<int, ComponentPool> componentPools = new Dictionary<int, ComponentPool>();
         readonly Dictionary<string, int> countScratch = new Dictionary<string, int>(StringComparer.Ordinal);
         readonly List<RoadVehiclePose> poses = new List<RoadVehiclePose>();
         readonly List<RoadVehiclePose> sampled = new List<RoadVehiclePose>();
@@ -103,6 +111,7 @@ namespace Metro.App.Views {
         Shader shader;
         StationWorldView world;
         bool low;
+        bool multiComponent;
 
         public StationRoadTraffic Traffic { get; private set; }
         /// <summary>The catalogue the prefabs were resolved from; null means explicit fallback.</summary>
@@ -144,6 +153,23 @@ namespace Metro.App.Views {
         /// <paramref name="reportMissing"/> when the host supplies one); the matching
         /// variant then uses the generated fallback body explicitly.
         /// </summary>
+        /// <summary>
+        /// Build a persistent multi-component vehicle host whose pools are partitioned per
+        /// connected road component so editing one road network retains disconnected vehicle
+        /// pools and transforms intact (plan 39 §9).
+        /// </summary>
+        public static RoadVehicleViews BuildMultiComponent(Transform parent, Shader shader,
+            bool lowDetail, RuntimeCatalogue catalogue, Action<string, string> reportMissing) {
+            if (parent == null) throw new ArgumentNullException(nameof(parent));
+            var view = parent.gameObject.AddComponent<RoadVehicleViews>();
+            view.multiComponent = true;
+            view.shader = shader;
+            view.low = lowDetail;
+            view.Catalogue = catalogue;
+            view.ResolveAllPrefabs(catalogue, reportMissing);
+            return view;
+        }
+
         public static RoadVehicleViews Build(Transform parent, StationRoadTraffic traffic, Shader shader,
             bool lowDetail, RuntimeCatalogue catalogue, Action<string, string> reportMissing) {
             if (parent == null) throw new ArgumentNullException(nameof(parent));
@@ -152,18 +178,163 @@ namespace Metro.App.Views {
             view.shader = shader;
             view.low = lowDetail;
             view.Catalogue = catalogue;
+            view.ResolveAllPrefabs(catalogue, reportMissing);
+            return view;
+        }
+
+        void ResolveAllPrefabs(RuntimeCatalogue catalogue, Action<string, string> reportMissing) {
             for (int i = 0; i < RoadVehicleViewKeys.Variants.Length; i++) {
                 var variant = RoadVehicleViewKeys.Variants[i];
                 var key = RoadVehicleViewKeys.All[i];
-                if (view.ResolvePrefab(variant) != null) continue;
+                if (ResolvePrefab(variant) != null) continue;
                 var detail = catalogue == null
                     ? $"{key} ({variant}): no runtime catalogue was supplied"
                     : $"{key} ({variant}): catalogue has no prefab for {RoadVehicleViewKeys.PrefabPath(key)}";
-                view.missingPrefabs.Add($"{key} ({variant})");
+                missingPrefabs.Add($"{key} ({variant})");
                 Debug.LogWarning("RoadVehicleViews: " + detail + "; using the generated fallback body.");
                 reportMissing?.Invoke("missing-vehicle-prefab", detail);
             }
-            return view;
+        }
+
+        public void SetPrimaryTraffic(StationRoadTraffic traffic) {
+            Traffic = traffic;
+        }
+
+        public bool TryGetComponentPoolRoot(int componentSerial, out Transform root) {
+            if (componentPools.TryGetValue(componentSerial, out var pool) && pool.Root != null) {
+                root = pool.Root;
+                return true;
+            }
+            root = null;
+            return false;
+        }
+
+        ComponentPool EnsureComponentPool(int componentSerial) {
+            if (componentPools.TryGetValue(componentSerial, out var existing)) return existing;
+            var root = new GameObject("vehicles-net " + componentSerial).transform;
+            root.SetParent(transform, false);
+            var created = new ComponentPool { Serial = componentSerial, Root = root };
+            componentPools.Add(componentSerial, created);
+            return created;
+        }
+
+        Pool PoolForComponent(ComponentPool comp, string variant) {
+            if (comp.Pools.TryGetValue(variant, out var pool)) return pool;
+            var root = new GameObject("vehicles " + variant).transform;
+            root.SetParent(comp.Root, false);
+            var prefab = ResolvePrefab(variant);
+            pool = new Pool {
+                Root = root,
+                Prefab = prefab,
+                PoseCorrection = prefab != null ? PoseCorrection(prefab) : Quaternion.identity,
+            };
+            comp.Pools.Add(variant, pool);
+            return pool;
+        }
+
+        /// <summary>
+        /// Sample and pose a single road component into its isolated <see cref="ComponentPool"/>
+        /// without touching any other component's transforms, visibility targets, or pools.
+        /// Call <see cref="RefreshWorldCounts"/> once after updating one or more components.
+        /// </summary>
+        public void RenderComponentForWorld(int componentSerial, StationRoadTraffic traffic, int idOffset,
+            double simTimeSeconds, StationWorldView stationWorld) {
+            if (traffic == null) return;
+            BindWorld(stationWorld);
+            var comp = EnsureComponentPool(componentSerial);
+            traffic.Sample(simTimeSeconds, sampled);
+            SampledTime = simTimeSeconds;
+            comp.SampledCount = sampled.Count;
+            countScratch.Clear();
+
+            var grid = stationWorld?.Visibility != null
+                ? stationWorld.Visibility.State.Grid
+                : StationLevelGrid.FromDocument(stationWorld?.Document?.LevelBase ?? 0, stationWorld?.Document?.StoreyHeight ?? 5);
+
+            for (int i = 0; i < sampled.Count; i++) {
+                var pose = sampled[i];
+                pose.Id += idOffset;
+                var variant = string.IsNullOrEmpty(pose.Variant) ? "sedan" : pose.Variant;
+                var pool = PoolForComponent(comp, variant);
+                int index = countScratch.TryGetValue(variant, out var held) ? held : 0;
+                while (pool.Slots.Count <= index) {
+                    pool.Slots.Add(CreateSlot(variant, pool.Root, pool.Prefab, pool.PoseCorrection));
+                }
+                var slot = pool.Slots[index];
+                countScratch[variant] = index + 1;
+
+                slot.Pose = pose;
+                slot.Variant = variant;
+                slot.ActiveThisSample = true;
+                slot.Instance.localPosition = new Vector3((float)pose.X, (float)pose.Z, (float)pose.Y);
+                slot.Instance.localRotation = Quaternion.Euler(0, (float)(-pose.Heading * 180.0 / Math.PI), 0) * pool.PoseCorrection;
+                if (!slot.Instance.gameObject.activeSelf) slot.Instance.gameObject.SetActive(true);
+                var key = slot.Instance.GetComponent<RoadVehicleKey>();
+                if (key) { key.vehicleId = pose.Id; key.variant = variant; }
+
+                int band = StationModuleLevels.Band(grid, pose.RoadZ);
+                bool dirty = !slot.Bound || slot.Target.Parked || slot.LastBand != band ||
+                    (stationWorld?.Visibility != null && stationWorld.Visibility.SectionClipping);
+                slot.BandSlot[0] = band;
+                slot.Target.levels = slot.BandSlot;
+                slot.Target.gradeOwned = true;
+                slot.Target.parked = false;
+                slot.LastBand = band;
+
+                if (stationWorld != null) {
+                    if (!slot.Bound) {
+                        slot.Bound = true;
+                        stationWorld.BindRuntimeTarget(slot.Target);
+                    } else if (dirty) {
+                        stationWorld.ApplyRuntimeTarget(slot.Target);
+                    }
+                } else {
+                    slot.Target.Apply(StationDrawMode.Base, null);
+                }
+            }
+
+            foreach (var pair in comp.Pools) {
+                int used = countScratch.TryGetValue(pair.Key, out var u) ? u : 0;
+                var slots = pair.Value.Slots;
+                for (int i = used; i < slots.Count; i++) {
+                    var slot = slots[i];
+                    slot.ActiveThisSample = false;
+                    slot.LastBand = int.MinValue;
+                    if (slot.Bound) {
+                        slot.Bound = false;
+                        stationWorld?.UnbindRuntimeTarget(slot.Target);
+                    } else if (slot.Target != null) {
+                        slot.Target.parked = true;
+                    }
+                    if (slot.Instance != null && slot.Instance.gameObject.activeSelf) {
+                        slot.Instance.gameObject.SetActive(false);
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Retire one component's vehicle pool cleanly during an affected-component swap.
+        /// Disconnected component pools remain live and untouched.
+        /// </summary>
+        public void RemoveComponentPool(int componentSerial, StationWorldView stationWorld, StationLocalViewCommit commit) {
+            if (!componentPools.TryGetValue(componentSerial, out var comp)) return;
+            componentPools.Remove(componentSerial);
+            foreach (var pool in comp.Pools.Values) {
+                var slots = pool.Slots;
+                for (int i = 0; i < slots.Count; i++) {
+                    var slot = slots[i];
+                    slot.ActiveThisSample = false;
+                    if (slot.Bound) {
+                        slot.Bound = false;
+                        stationWorld?.UnbindRuntimeTarget(slot.Target);
+                    }
+                }
+            }
+            if (comp.Root != null) {
+                if (commit != null) commit.RetiredViews.Add(comp.Root.gameObject);
+                else DestroyNow(comp.Root.gameObject);
+            }
         }
 
         public void BindWorld(StationWorldView stationWorld) {
@@ -461,7 +632,7 @@ namespace Metro.App.Views {
             poses.Clear();
             FilteredVehicles = 0;
             Cars = Buses = Scooters = Bicycles = Mopeds = PrefabVehicleViews = FallbackVehicleViews = 0;
-            foreach (var pool in pools.Values) {
+            void AccumulatePool(Pool pool) {
                 var slots = pool.Slots;
                 for (int i = 0; i < slots.Count; i++) {
                     var slot = slots[i];
@@ -483,6 +654,16 @@ namespace Metro.App.Views {
                     if (slot.Variant == "bicycle") Bicycles++;
                     else if (slot.Variant == "moped") Mopeds++;
                 }
+            }
+            if (multiComponent) {
+                int totalSampled = 0;
+                foreach (var comp in componentPools.Values) {
+                    totalSampled += comp.SampledCount;
+                    foreach (var pool in comp.Pools.Values) AccumulatePool(pool);
+                }
+                SampledVehicles = totalSampled;
+            } else {
+                foreach (var pool in pools.Values) AccumulatePool(pool);
             }
             Riders = Mopeds + Bicycles;
             VisibleVehicles = poses.Count;
@@ -553,7 +734,7 @@ namespace Metro.App.Views {
 
         /// <summary>The pooled instance currently showing a simulation vehicle id, if any.</summary>
         public bool TryGetRenderedVehicle(int vehicleId, out Transform instance) {
-            foreach (var pool in pools.Values) {
+            bool SearchPool(Pool pool, out Transform found) {
                 foreach (var slot in pool.Slots) {
                     var candidate = slot.Instance;
                     if (!candidate || !candidate.gameObject.activeSelf) continue;
@@ -562,7 +743,20 @@ namespace Metro.App.Views {
                         continue;
                     }
                     var key = candidate.GetComponent<RoadVehicleKey>();
-                    if (key && key.vehicleId == vehicleId) { instance = candidate; return true; }
+                    if (key && key.vehicleId == vehicleId) { found = candidate; return true; }
+                }
+                found = null;
+                return false;
+            }
+            if (multiComponent) {
+                foreach (var comp in componentPools.Values) {
+                    foreach (var pool in comp.Pools.Values) {
+                        if (SearchPool(pool, out instance)) return true;
+                    }
+                }
+            } else {
+                foreach (var pool in pools.Values) {
+                    if (SearchPool(pool, out instance)) return true;
                 }
             }
             instance = null;
@@ -571,6 +765,12 @@ namespace Metro.App.Views {
 
         /// <summary>Camera/view filtering hook; vehicles never carry document state.</summary>
         public void SetVisible(bool visible) {
+            if (multiComponent) {
+                foreach (var comp in componentPools.Values) {
+                    if (comp.Root != null) comp.Root.gameObject.SetActive(visible);
+                }
+                return;
+            }
             foreach (var pool in pools.Values) pool.Root.gameObject.SetActive(visible);
         }
 
@@ -591,6 +791,16 @@ namespace Metro.App.Views {
                         if (pool.Slots[i].Bound) {
                             pool.Slots[i].Bound = false;
                             world.UnbindRuntimeTarget(pool.Slots[i].Target);
+                        }
+                    }
+                }
+                foreach (var comp in componentPools.Values) {
+                    foreach (var pool in comp.Pools.Values) {
+                        for (int i = 0; i < pool.Slots.Count; i++) {
+                            if (pool.Slots[i].Bound) {
+                                pool.Slots[i].Bound = false;
+                                world.UnbindRuntimeTarget(pool.Slots[i].Target);
+                            }
                         }
                     }
                 }

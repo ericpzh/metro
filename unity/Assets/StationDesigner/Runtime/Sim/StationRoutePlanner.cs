@@ -355,35 +355,29 @@ namespace Metro.Sim {
         }
 
         internal bool GatePassage(int from, int to, out int direction) {
-            int dx = (int)Math.Floor(graph.NodeX[to] - graph.NodeX[from] + 0.5);
-            int dy = (int)Math.Floor(graph.NodeY[to] - graph.NodeY[from] + 0.5);
             direction = 0;
             bool fromGate = false;
-            int fromRot = 0, fromMode = 0;
+            int fromMode = 0;
             if (graph.ServerForNode.TryGetValue(from, out int start)) {
                 var server = graph.Servers[start];
                 if (server.Kind == "gate") {
                     fromGate = true;
-                    fromRot = server.GateRotation;
                     fromMode = server.GateMode;
                 }
             }
             bool toGate = false;
-            int toRot = 0, toMode = 0;
+            int toMode = 0;
             if (graph.ServerForNode.TryGetValue(to, out int end)) {
                 var server = graph.Servers[end];
                 if (server.Kind == "gate") {
                     toGate = true;
-                    toRot = server.GateRotation;
                     toMode = server.GateMode;
                     direction = StationWalkGraphBuilder.GateApproach(graph, from, to);
                 }
             }
-            if (!fromGate && !toGate) return true;
             return StationWalkGraphBuilder.GateStepAllowed(
-                fromGate, fromRot, fromMode,
-                toGate, toRot, toMode,
-                dx, dy, graph.NodeZone[from], graph.NodeZone[to], graph.ZoneBarriers);
+                fromGate, fromMode, toGate, toMode,
+                graph.NodeZone[from], graph.NodeZone[to], graph.ZoneBarriers);
         }
 
         internal double LastSearchCost(int goal) => gScore[goal];

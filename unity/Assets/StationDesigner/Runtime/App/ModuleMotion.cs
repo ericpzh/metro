@@ -393,10 +393,38 @@ namespace Metro.App {
             public float Moved;
             public List<ProbeNode> Probe;
             public string Detail = "";
+            public bool HasAppliedPose;
+            public bool AppliedDirty = true;
+            public float LastPhase;
+            public float LastCabin;
+            public float LastDoor;
+            public double LastClock;
+            public bool HasSwingCoord;
+            public Vector3 SwingDocCoord;
+            public StationPassengerFrame[] LastSwingPassengers;
+            public float LastSwingTarget;
         }
 
         readonly List<Binding> bindings = new List<Binding>();
         readonly Dictionary<string, Binding> byId = new Dictionary<string, Binding>(StringComparer.Ordinal);
+
+        readonly Dictionary<string, StationEscalatorFrame> escIndex = new Dictionary<string, StationEscalatorFrame>(StringComparer.Ordinal);
+        readonly Dictionary<string, StationLiftFrame> liftIndex = new Dictionary<string, StationLiftFrame>(StringComparer.Ordinal);
+        readonly Dictionary<string, StationDoorFrame> doorIndex = new Dictionary<string, StationDoorFrame>(StringComparer.Ordinal);
+        readonly Dictionary<string, StationTrainFrame> trainIndex = new Dictionary<string, StationTrainFrame>(StringComparer.Ordinal);
+        readonly Dictionary<string, StationGateFrame> gateIndex = new Dictionary<string, StationGateFrame>(StringComparer.Ordinal);
+        StationEscalatorFrame[] indexedEscalators;
+        StationLiftFrame[] indexedLifts;
+        StationDoorFrame[] indexedDoors;
+        StationTrainFrame[] indexedTrains;
+        StationGateFrame[] indexedGates;
+
+        /// <summary>
+        /// When true (default for reports and tests), each drive records world-space leaf
+        /// displacement into <see cref="ModuleMotionProbe.Moved"/>. Runtime frame sinks set
+        /// this false to avoid per-frame world Transform queries and enable dirty-skipping.
+        /// </summary>
+        public bool MeasureDisplacement { get; set; } = true;
 
         /// <summary>Bindings held (one per module or train id).</summary>
         public int Count => bindings.Count;
@@ -582,11 +610,11 @@ namespace Metro.App {
         public int Apply(StationMotionFrame frame, float alpha) {
             if (alpha < 0f) alpha = 0f;
             else if (alpha > 1f) alpha = 1f;
-            var escalators = IndexEscalators(frame.Escalators);
-            var lifts = IndexLifts(frame.Lifts);
-            var doors = IndexDoors(frame.Doors);
-            var trains = IndexTrains(frame.Trains);
-            var gates = IndexGates(frame.Gates);
+            var escalators = RefreshEscalators(frame.Escalators);
+            var lifts = RefreshLifts(frame.Lifts);
+            var doors = RefreshDoors(frame.Doors);
+            var trains = RefreshTrains(frame.Trains);
+            var gates = RefreshGates(frame.Gates);
             long tick = frame.Clock.Tick;
             bool playing = frame.Clock.Playing;
             int applied = 0;
@@ -690,6 +718,7 @@ namespace Metro.App {
                 ? ModuleMotionChannel.FrameDoors
                 : binding.Family == ModuleMotionFamily.GateWings ? ModuleMotionChannel.FrameGates
                 : ModuleMotionChannel.PendingCrowd;
+            binding.AppliedDirty = true;
             DriveOpening(binding, 1f);
             binding.Applied++;
             return true;
@@ -703,6 +732,9 @@ namespace Metro.App {
                 binding.Applied = 0;
                 binding.Moved = 0f;
                 binding.Probe = null;
+                binding.HasAppliedPose = false;
+                binding.AppliedDirty = true;
+                binding.LastSwingPassengers = null;
                 if (binding.Vertical != null) {
                     switch (binding.Vertical.Kind) {
                         case VerticalModuleKind.Escalator:
@@ -756,6 +788,16 @@ namespace Metro.App {
         public void Clear() {
             bindings.Clear();
             byId.Clear();
+            indexedEscalators = null;
+            indexedLifts = null;
+            indexedDoors = null;
+            indexedTrains = null;
+            indexedGates = null;
+            escIndex.Clear();
+            liftIndex.Clear();
+            doorIndex.Clear();
+            trainIndex.Clear();
+            gateIndex.Clear();
         }
 
         /// <summary>
@@ -765,7 +807,12 @@ namespace Metro.App {
         /// position the station no longer has (RCA 14 §5.2).
         /// </summary>
         public void ForgetSamples() {
-            for (int i = 0; i < bindings.Count; i++) bindings[i].Sample = default;
+            for (int i = 0; i < bindings.Count; i++) {
+                bindings[i].Sample = default;
+                bindings[i].HasAppliedPose = false;
+                bindings[i].AppliedDirty = true;
+                bindings[i].LastSwingPassengers = null;
+            }
         }
 
         public string Describe() =>
@@ -774,50 +821,67 @@ namespace Metro.App {
 
         /* ------------------------------------------------------------ internals */
 
-        static Dictionary<string, StationEscalatorFrame> IndexEscalators(StationEscalatorFrame[] frames) {
-            var index = new Dictionary<string, StationEscalatorFrame>(StringComparer.Ordinal);
-            if (frames == null) return index;
-            for (int i = 0; i < frames.Length; i++)
-                if (!string.IsNullOrEmpty(frames[i].Id)) index[frames[i].Id] = frames[i];
-            return index;
+        Dictionary<string, StationEscalatorFrame> RefreshEscalators(StationEscalatorFrame[] frames) {
+            if (ReferenceEquals(frames, indexedEscalators)) return escIndex;
+            indexedEscalators = frames;
+            escIndex.Clear();
+            if (frames != null) {
+                for (int i = 0; i < frames.Length; i++)
+                    if (!string.IsNullOrEmpty(frames[i].Id)) escIndex[frames[i].Id] = frames[i];
+            }
+            return escIndex;
         }
 
-        static Dictionary<string, StationLiftFrame> IndexLifts(StationLiftFrame[] frames) {
-            var index = new Dictionary<string, StationLiftFrame>(StringComparer.Ordinal);
-            if (frames == null) return index;
-            for (int i = 0; i < frames.Length; i++)
-                if (!string.IsNullOrEmpty(frames[i].Id)) index[frames[i].Id] = frames[i];
-            return index;
+        Dictionary<string, StationLiftFrame> RefreshLifts(StationLiftFrame[] frames) {
+            if (ReferenceEquals(frames, indexedLifts)) return liftIndex;
+            indexedLifts = frames;
+            liftIndex.Clear();
+            if (frames != null) {
+                for (int i = 0; i < frames.Length; i++)
+                    if (!string.IsNullOrEmpty(frames[i].Id)) liftIndex[frames[i].Id] = frames[i];
+            }
+            return liftIndex;
         }
 
-        static Dictionary<string, StationDoorFrame> IndexDoors(StationDoorFrame[] frames) {
-            var index = new Dictionary<string, StationDoorFrame>(StringComparer.Ordinal);
-            if (frames == null) return index;
-            for (int i = 0; i < frames.Length; i++)
-                if (!string.IsNullOrEmpty(frames[i].PlatformId)) index[frames[i].PlatformId] = frames[i];
-            return index;
+        Dictionary<string, StationDoorFrame> RefreshDoors(StationDoorFrame[] frames) {
+            if (ReferenceEquals(frames, indexedDoors)) return doorIndex;
+            indexedDoors = frames;
+            doorIndex.Clear();
+            if (frames != null) {
+                for (int i = 0; i < frames.Length; i++)
+                    if (!string.IsNullOrEmpty(frames[i].PlatformId)) doorIndex[frames[i].PlatformId] = frames[i];
+            }
+            return doorIndex;
         }
 
-        static Dictionary<string, StationTrainFrame> IndexTrains(StationTrainFrame[] frames) {
-            var index = new Dictionary<string, StationTrainFrame>(StringComparer.Ordinal);
-            if (frames == null) return index;
-            for (int i = 0; i < frames.Length; i++)
-                if (!string.IsNullOrEmpty(frames[i].Id)) index[frames[i].Id] = frames[i];
-            return index;
+        Dictionary<string, StationTrainFrame> RefreshTrains(StationTrainFrame[] frames) {
+            if (ReferenceEquals(frames, indexedTrains)) return trainIndex;
+            indexedTrains = frames;
+            trainIndex.Clear();
+            if (frames != null) {
+                for (int i = 0; i < frames.Length; i++)
+                    if (!string.IsNullOrEmpty(frames[i].Id)) trainIndex[frames[i].Id] = frames[i];
+            }
+            return trainIndex;
         }
 
-        static Dictionary<string, StationGateFrame> IndexGates(StationGateFrame[] frames) {
-            var index = new Dictionary<string, StationGateFrame>(StringComparer.Ordinal);
-            if (frames == null) return index;
-            for (int i = 0; i < frames.Length; i++)
-                if (!string.IsNullOrEmpty(frames[i].Id)) index[frames[i].Id] = frames[i];
-            return index;
+        Dictionary<string, StationGateFrame> RefreshGates(StationGateFrame[] frames) {
+            if (ReferenceEquals(frames, indexedGates)) return gateIndex;
+            indexedGates = frames;
+            gateIndex.Clear();
+            if (frames != null) {
+                for (int i = 0; i < frames.Length; i++)
+                    if (!string.IsNullOrEmpty(frames[i].Id)) gateIndex[frames[i].Id] = frames[i];
+            }
+            return gateIndex;
         }
 
         /// <summary>The source's swing-door radius and storey tolerance (`CrowdSystem`).</summary>
         const float SwingReach = 1.25f;
+        const double SwingReachSq = SwingReach * SwingReach;
         const float SwingStorey = .5f;
         const float CubicleOccupiedRadius = .35f;
+        const double CubicleOccupiedRadiusSq = CubicleOccupiedRadius * CubicleOccupiedRadius;
 
         /// <summary>
         /// Port of `CrowdSystem.detectGateCrossings`' swing-door half: a leaf opens while a
@@ -828,7 +892,12 @@ namespace Metro.App {
         static float SwingTarget(Binding binding, StationPassengerFrame[] passengers) {
             var holder = binding.Opening != null ? binding.Opening.Holder : null;
             if (holder == null || passengers == null) return 0f;
-            var at = StationCoordinates.WorldToDocument(holder.position);
+            if (ReferenceEquals(binding.LastSwingPassengers, passengers)) return binding.LastSwingTarget;
+            if (!binding.HasSwingCoord) {
+                binding.SwingDocCoord = StationCoordinates.WorldToDocument(holder.position);
+                binding.HasSwingCoord = true;
+            }
+            var at = binding.SwingDocCoord;
             bool cubicle = binding.Opening.Kind == OpeningKind.Cubicle;
             bool occupied = false, near = false;
             for (int i = 0; i < passengers.Length; i++) {
@@ -836,15 +905,22 @@ namespace Metro.App {
                 if (!passenger.Visible) continue;
                 if (Math.Abs(passenger.Z - at.z) > SwingStorey) continue;
                 double dx = passenger.X - at.x, dy = passenger.Y - at.y;
-                double distance = Math.Sqrt(dx * dx + dy * dy);
+                double distSq = dx * dx + dy * dy;
                 if (cubicle) {
-                    if (distance < CubicleOccupiedRadius) occupied = true;
-                } else if (distance <= SwingReach &&
+                    if (distSq < CubicleOccupiedRadiusSq) {
+                        occupied = true;
+                        break;
+                    }
+                } else if (distSq <= SwingReachSq &&
                     (passenger.State == StationPassengerState.Walking || passenger.State == StationPassengerState.Queuing)) {
                     near = true;
+                    break;
                 }
             }
-            return occupied ? 0f : near ? 1f : 0f;
+            float result = occupied ? 0f : near ? 1f : 0f;
+            binding.LastSwingPassengers = passengers;
+            binding.LastSwingTarget = result;
+            return result;
         }
 
         static double ChainOf(Binding binding) {
@@ -940,9 +1016,23 @@ namespace Metro.App {
             return result < 0 ? result + modulus : result;
         }
 
+        static bool IsBindingActive(Binding binding) {
+            if (binding.Vertical != null && binding.Vertical.Root != null)
+                return binding.Vertical.Root.gameObject.activeInHierarchy;
+            if (binding.Opening != null && binding.Opening.Holder != null)
+                return binding.Opening.Holder.gameObject.activeInHierarchy;
+            if (binding.Legacy != null)
+                return binding.Legacy.gameObject.activeInHierarchy;
+            return true;
+        }
+
         void DriveBelt(Binding binding, float alpha) {
             var sample = binding.Sample;
             float phase = (float)InterpolatePhase(sample, alpha, ChainOf(binding));
+            if (!MeasureDisplacement) {
+                if (!IsBindingActive(binding)) { binding.AppliedDirty = true; return; }
+                if (binding.HasAppliedPose && !binding.AppliedDirty && Mathf.Abs(phase - binding.LastPhase) < 1e-5f) return;
+            }
             if (binding.Vertical != null) {
                 binding.Vertical.Apply(new ModuleMotionState {
                     ModuleId = binding.Id, Seconds = 0, Running = true, DirectionSign = 1,
@@ -952,56 +1042,90 @@ namespace Metro.App {
             } else if (binding.Legacy != null) {
                 binding.Legacy.ApplyBeltPhase(phase, sample.Direction);
             }
+            binding.LastPhase = phase;
+            binding.HasAppliedPose = true;
+            binding.AppliedDirty = false;
             binding.Applied++;
-            Measure(binding);
+            if (MeasureDisplacement) Measure(binding);
         }
 
         void DriveLift(Binding binding, float alpha) {
             var sample = binding.Sample;
             float cabin = (float)Interpolate(sample.PreviousCabin, sample.Cabin, alpha);
             float door = (float)Interpolate(sample.PreviousDoor, sample.Door, alpha);
+            if (!MeasureDisplacement) {
+                if (!IsBindingActive(binding)) { binding.AppliedDirty = true; return; }
+                if (binding.HasAppliedPose && !binding.AppliedDirty &&
+                    Mathf.Abs(cabin - binding.LastCabin) < 1e-5f &&
+                    Mathf.Abs(door - binding.LastDoor) < 1e-5f) return;
+            }
             if (binding.Vertical != null) {
                 binding.Vertical.Apply(ModuleMotionState.Lift(binding.Id, cabin, door));
             } else if (binding.Legacy != null) {
                 binding.Legacy.ApplyCabinFraction(cabin);
             }
+            binding.LastCabin = cabin;
+            binding.LastDoor = door;
+            binding.HasAppliedPose = true;
+            binding.AppliedDirty = false;
             binding.Applied++;
-            Measure(binding);
+            if (MeasureDisplacement) Measure(binding);
         }
 
         void DriveOpening(Binding binding, float alpha) {
             var sample = binding.Sample;
             float door = (float)Interpolate(sample.PreviousDoor, sample.Door, alpha);
+            if (!MeasureDisplacement) {
+                if (!IsBindingActive(binding)) { binding.AppliedDirty = true; return; }
+                if (binding.HasAppliedPose && !binding.AppliedDirty && Mathf.Abs(door - binding.LastDoor) < 1e-5f) return;
+            }
             if (binding.Opening != null) {
                 binding.Opening.Apply(OpeningState.Uniform(door));
             } else if (binding.Legacy != null) {
                 if (binding.Legacy.kind == ModuleMotion.Kind.GateWings) binding.Legacy.ApplyGate(door);
                 else binding.Legacy.ApplyScreen(door);
             }
+            binding.LastDoor = door;
+            binding.HasAppliedPose = true;
+            binding.AppliedDirty = false;
             binding.Applied++;
-            Measure(binding);
+            if (MeasureDisplacement) Measure(binding);
         }
 
         void DriveTrain(Binding binding, float alpha) {
             var sample = binding.Sample;
             float door = (float)Interpolate(sample.PreviousDoor, sample.Door, alpha);
+            if (!MeasureDisplacement) {
+                if (!IsBindingActive(binding)) { binding.AppliedDirty = true; return; }
+                if (binding.HasAppliedPose && !binding.AppliedDirty && Mathf.Abs(door - binding.LastDoor) < 1e-5f) return;
+            }
             // One bank only: the source addresss each bank separately, and the frame
             // publishes one fraction per consist (`doorSides` is not ported yet), so the
             // bank the caller named as the platform side moves and its opposite stays shut.
             int mask = binding.TrainBankMask & 3;
             binding.Train.Apply((mask & 1) != 0 ? door : 0f, (mask & 2) != 0 ? door : 0f);
+            binding.LastDoor = door;
+            binding.HasAppliedPose = true;
+            binding.AppliedDirty = false;
             binding.Applied++;
-            Measure(binding);
+            if (MeasureDisplacement) Measure(binding);
         }
 
         void DriveClock(Binding binding, float alpha) {
             var sample = binding.Sample;
             double seconds = Interpolate(sample.PreviousClock, sample.Clock, alpha);
+            if (!MeasureDisplacement) {
+                if (!IsBindingActive(binding)) { binding.AppliedDirty = true; return; }
+                if (binding.HasAppliedPose && !binding.AppliedDirty && Math.Abs(seconds - binding.LastClock) < 1e-5) return;
+            }
             if (binding.Legacy != null) {
                 binding.Legacy.ApplyClockSeconds((float)Wrap(seconds, 86400));
             }
+            binding.LastClock = seconds;
+            binding.HasAppliedPose = true;
+            binding.AppliedDirty = false;
             binding.Applied++;
-            Measure(binding);
+            if (MeasureDisplacement) Measure(binding);
         }
 
         /// <summary>
@@ -1113,7 +1237,7 @@ namespace Metro.App {
     /// the interpolation history so nothing blends across the discontinuity.
     /// </summary>
     public sealed class ModuleMotionFrameSink : IStationFrameSink, IStationActiveDuringExplodedView {
-        readonly ModuleMotionDispatch dispatch = new ModuleMotionDispatch();
+        readonly ModuleMotionDispatch dispatch = new ModuleMotionDispatch { MeasureDisplacement = false };
         StationDocument document;
         StationSimulationSession session;
         StationMotionFrame frame;
@@ -1138,8 +1262,10 @@ namespace Metro.App {
                 }
                 var host = StationGameHost.ResolveActive();
                 if (host == null) return;
-                var live = (host.Simulation as StationSimulationHost)?.Session;
-                if (live == null) return;
+                var simHost = host.Simulation as StationSimulationHost;
+                var published = simHost?.PublishedFrame;
+                if (published == null) return;
+                var live = simHost.Session;
                 // A new session (station switch) or an invalidated history (seek,
                 // restart, rebuilt document) must snap, not blend.
                 bool reset = !ReferenceEquals(live, session) || clock.Epoch != lastEpoch;
@@ -1151,9 +1277,9 @@ namespace Metro.App {
                 }
                 // Only a tick boundary refreshes the source frame; every rendered frame
                 // samples it at the scheduler fraction.
-                if (!hasFrame || clock.Tick != lastTick) {
-                    frame = live.Snapshot();
-                    lastTick = clock.Tick;
+                if (!hasFrame || published.Tick != lastTick) {
+                    frame = published.Motion;
+                    lastTick = published.Tick;
                     hasFrame = true;
                 }
                 dispatch.Apply(frame, (float)clock.Fraction);

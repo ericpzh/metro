@@ -137,17 +137,55 @@ namespace Metro.App.Views {
             }
         }
 
+        /// <summary>
+        /// Owned view objects, meshes, signals, diagnostics and counters for one connected road
+        /// component (plan 39 §9). Retained components keep these objects alive across edits to
+        /// disconnected networks; replaced components hand only their own GameObjects and Meshes
+        /// to <see cref="StationLocalViewCommit"/> on commit.
+        /// </summary>
+        public sealed class ComponentViewData {
+            public int Serial;
+            public RoadGraph SubGraph;
+            public RoadNetwork SubNetwork;
+            public readonly Dictionary<string, GameObject> RoadRoots = new Dictionary<string, GameObject>(StringComparer.Ordinal);
+            public readonly List<Mesh> OwnedMeshes = new List<Mesh>();
+            public readonly List<SignalHead> Signals = new List<SignalHead>();
+            public readonly List<Diagnostic> Diagnostics = new List<Diagnostic>();
+            public int Roads;
+            public int Segments;
+            public int Arrows;
+            public int Crosswalks;
+            public int StopLines;
+            public int MarkingSpans;
+        }
+
         readonly List<Material> ownedMaterials = new List<Material>();
         readonly List<Mesh> ownedMeshes = new List<Mesh>();
         readonly List<SignalHead> signals = new List<SignalHead>();
         readonly List<Diagnostic> diagnostics = new List<Diagnostic>();
         readonly Dictionary<string, GameObject> roots = new Dictionary<string, GameObject>(StringComparer.Ordinal);
+        readonly List<ComponentViewData> activeComponents = new List<ComponentViewData>();
+        readonly List<StationRoadRecord> allAuthored = new List<StationRoadRecord>();
+        bool componentMode;
+        bool aggregatesDirty;
+        RoadGraph cachedGraph;
+        RoadNetwork cachedNetwork;
         Material[] paints;
         Transform previewRoot;
         Material previewAdd, previewDelete;
 
-        public RoadGraph Graph { get; private set; }
-        public RoadNetwork Network { get; private set; }
+        public RoadGraph Graph {
+            get {
+                EnsureAggregates();
+                return cachedGraph;
+            }
+        }
+        public RoadNetwork Network {
+            get {
+                EnsureAggregates();
+                return cachedNetwork;
+            }
+        }
         public IReadOnlyList<Diagnostic> Diagnostics => diagnostics;
         public IReadOnlyList<SignalHead> Signals => signals;
         public int Roads { get; private set; }
@@ -157,6 +195,29 @@ namespace Metro.App.Views {
         public int Crosswalks { get; private set; }
         public int StopLines { get; private set; }
         public int MarkingSpans { get; private set; }
+
+        void EnsureAggregates() {
+            if (!componentMode || !aggregatesDirty) return;
+            var subGraphs = new List<RoadGraph>(activeComponents.Count);
+            var subNetworks = new List<RoadNetwork>(activeComponents.Count);
+            for (int i = 0; i < activeComponents.Count; i++) {
+                if (activeComponents[i].SubGraph != null) subGraphs.Add(activeComponents[i].SubGraph);
+                if (activeComponents[i].SubNetwork != null) subNetworks.Add(activeComponents[i].SubNetwork);
+            }
+            cachedGraph = StationRoadComponents.ComposeGraph(allAuthored, subGraphs);
+            cachedNetwork = StationRoadComponents.ComposeNetwork(subNetworks);
+            aggregatesDirty = false;
+        }
+
+        /// <summary>Create an empty persistent road view ready for component-scoped staging/swaps.</summary>
+        public static StationRoadView CreateEmpty(Transform parent, Shader shader, Shader unlitShader = null) {
+            if (parent == null) throw new ArgumentNullException(nameof(parent));
+            var view = parent.gameObject.AddComponent<StationRoadView>();
+            view.componentMode = true;
+            view.aggregatesDirty = true;
+            view.paints = view.CreatePaints(shader, unlitShader);
+            return view;
+        }
 
         /// <summary>Build from the current save projection's module facts.</summary>
         public static StationRoadView Build(Transform parent, IReadOnlyList<ModuleFacts> modules, Shader shader,
@@ -178,8 +239,8 @@ namespace Metro.App.Views {
             if (parent == null) throw new ArgumentNullException(nameof(parent));
             if (graph == null) throw new ArgumentNullException(nameof(graph));
             var view = parent.gameObject.AddComponent<StationRoadView>();
-            view.Graph = graph;
-            view.Network = StationRoadLayout.Network(graph);
+            view.cachedGraph = graph;
+            view.cachedNetwork = StationRoadLayout.Network(graph);
             view.paints = view.CreatePaints(shader, unlitShader);
             view.BuildAll(parent);
             return view;
@@ -220,62 +281,152 @@ namespace Metro.App.Views {
         }
 
         void BuildAll(Transform parent) {
-            foreach (var diagnostic in Graph.Diagnostics) {
-                diagnostics.Add(new Diagnostic { ModuleId = diagnostic.ModuleId, Code = diagnostic.Code, Detail = diagnostic.Detail });
+            var comp = StageComponent(parent, 0, cachedGraph, cachedNetwork);
+            for (int i = 0; i < comp.Diagnostics.Count; i++) diagnostics.Add(comp.Diagnostics[i]);
+            foreach (var pair in comp.RoadRoots) roots[pair.Key] = pair.Value;
+            for (int i = 0; i < comp.OwnedMeshes.Count; i++) ownedMeshes.Add(comp.OwnedMeshes[i]);
+            for (int i = 0; i < comp.Signals.Count; i++) signals.Add(comp.Signals[i]);
+            Roads = comp.Roads;
+            Segments = comp.Segments;
+            Arrows = comp.Arrows;
+            Crosswalks = comp.Crosswalks;
+            StopLines = comp.StopLines;
+            MarkingSpans = comp.MarkingSpans;
+        }
+
+        /// <summary>
+        /// Stage one connected road component under <paramref name="stagingParent"/> without
+        /// mutating any live state on this <see cref="StationRoadView"/>. Reads only shared
+        /// materials (<c>paints</c>) and returns an isolated <see cref="ComponentViewData"/>.
+        /// </summary>
+        public ComponentViewData StageComponent(Transform stagingParent, int componentSerial,
+            RoadGraph subGraph, RoadNetwork subNetwork) {
+            var comp = new ComponentViewData {
+                Serial = componentSerial,
+                SubGraph = subGraph,
+                SubNetwork = subNetwork,
+            };
+            if (subGraph == null || subNetwork == null) return comp;
+            foreach (var diagnostic in subGraph.Diagnostics) {
+                comp.Diagnostics.Add(new Diagnostic { ModuleId = diagnostic.ModuleId, Code = diagnostic.Code, Detail = diagnostic.Detail });
                 Debug.LogWarning($"Road {diagnostic.ModuleId} unresolved: {diagnostic.Code} ({diagnostic.Detail})");
             }
-            foreach (var record in Graph.Authored) {
+            var junctionSides = StationRoadLayout.JunctionSides(subNetwork);
+            foreach (var record in subGraph.Authored) {
                 if (!record.IsWellFormed(out var code, out var detail)) {
-                    diagnostics.Add(new Diagnostic { ModuleId = record.Id, Code = code, Detail = detail });
+                    comp.Diagnostics.Add(new Diagnostic { ModuleId = record.Id, Code = code, Detail = detail });
                     Debug.LogWarning($"Road {record.Id} unresolved: {code} ({detail})");
                     continue;
                 }
-                BuildRoad(parent, record);
-                Roads++;
+                BuildRoadInto(stagingParent, record, subGraph.Authored, subNetwork, junctionSides, comp);
+                comp.Roads++;
             }
-            Segments = Graph.Segments.Count;
+            comp.Segments = subGraph.Segments.Count;
+            return comp;
         }
 
-        void BuildRoad(Transform parent, StationRoadRecord record) {
+        /// <summary>
+        /// Atomically swap retired road components for newly staged ones on this persistent view.
+        /// Retired road GameObjects and Meshes are detached (owned by caller's commit retirement);
+        /// newly staged road GameObjects are reparented directly under this view's transform.
+        /// </summary>
+        public void CommitComponentSwap(IReadOnlyList<ComponentViewData> retired,
+            IReadOnlyList<ComponentViewData> added, IReadOnlyList<StationRoadRecord> nextAllAuthored) {
+            if (retired != null && retired.Count > 0) {
+                var retiredSet = new HashSet<ComponentViewData>(retired);
+                for (int i = activeComponents.Count - 1; i >= 0; i--) {
+                    if (retiredSet.Contains(activeComponents[i])) activeComponents.RemoveAt(i);
+                }
+                for (int r = 0; r < retired.Count; r++) {
+                    foreach (var roadId in retired[r].RoadRoots.Keys) roots.Remove(roadId);
+                }
+            }
+            if (added != null) {
+                for (int a = 0; a < added.Count; a++) {
+                    var comp = added[a];
+                    foreach (var pair in comp.RoadRoots) {
+                        if (pair.Value != null) pair.Value.transform.SetParent(transform, false);
+                        roots[pair.Key] = pair.Value;
+                    }
+                    activeComponents.Add(comp);
+                }
+            }
+
+            allAuthored.Clear();
+            if (nextAllAuthored != null) {
+                for (int i = 0; i < nextAllAuthored.Count; i++) allAuthored.Add(nextAllAuthored[i]);
+            }
+
+            signals.Clear();
+            diagnostics.Clear();
+            int roads = 0, segments = 0, arrows = 0, crosswalks = 0, stopLines = 0, markingSpans = 0;
+            for (int i = 0; i < activeComponents.Count; i++) {
+                var comp = activeComponents[i];
+                roads += comp.Roads;
+                segments += comp.Segments;
+                arrows += comp.Arrows;
+                crosswalks += comp.Crosswalks;
+                stopLines += comp.StopLines;
+                markingSpans += comp.MarkingSpans;
+                for (int s = 0; s < comp.Signals.Count; s++) signals.Add(comp.Signals[s]);
+                for (int d = 0; d < comp.Diagnostics.Count; d++) diagnostics.Add(comp.Diagnostics[d]);
+            }
+            Roads = roads;
+            Segments = segments;
+            Arrows = arrows;
+            Crosswalks = crosswalks;
+            StopLines = stopLines;
+            MarkingSpans = markingSpans;
+            aggregatesDirty = true;
+        }
+
+        public bool TryGetRoadRoot(string moduleId, out GameObject root) {
+            if (moduleId != null && roots.TryGetValue(moduleId, out root) && root != null) return true;
+            root = null;
+            return false;
+        }
+
+        void BuildRoadInto(Transform parent, StationRoadRecord record, IReadOnlyList<StationRoadRecord> componentAuthored,
+            RoadNetwork componentNetwork, IReadOnlyList<RoadJunctionSide> junctionSides, ComponentViewData comp) {
             var layout = StationRoadLayout.Layout(record);
             // The source draws a full authored rectangle per record; split segments are
             // graph facts for editing/traffic, not extra saved geometry.
             var root = new GameObject("road " + record.Id).transform;
             root.SetParent(parent, false);
-            roots[record.Id] = root.gameObject;
+            comp.RoadRoots[record.Id] = root.gameObject;
             var piece = root.gameObject.AddComponent<RoadPiece>();
             piece.moduleId = record.Id;
             piece.sourceId = record.Id;
             piece.role = "road";
 
-            float surface = (float)record.Z + 1.025f + Roads * .00002f;
+            float surface = (float)record.Z + 1.025f + comp.Roads * .00002f;
             var deck = new MeshData();
             double x0 = record.X, x1 = record.X + record.W, y0 = record.Y, y1 = record.Y + record.D;
             deck.Quad(new Vector3((float)x0, surface, (float)y0), new Vector3((float)x1, surface, (float)y0),
                 new Vector3((float)x1, surface, (float)y1), new Vector3((float)x0, surface, (float)y1));
-            AddMesh(root, deck, Paint.Deck, record.Id, "deck");
+            AddMesh(root, deck, Paint.Deck, record.Id, "deck", comp.OwnedMeshes);
 
             // Side curbs follow the same clipping as the paint, so a crossing opens a
             // real gap in the kerb instead of a wall through the junction.
             var curbs = new MeshData();
             foreach (double across in new[] {.06, layout.Width - .06}) {
-                foreach (var span in StationRoadLayout.InkIntervals(record, Graph.Authored, across, 0)) {
+                foreach (var span in StationRoadLayout.InkIntervals(record, componentAuthored, across, 0)) {
                     Slab(curbs, record, across, (span.Lo + span.Hi) / 2, .12, span.Hi - span.Lo, (float)record.Z + .965f, .13f);
                 }
             }
-            AddMesh(root, curbs, Paint.Curb, record.Id, "curb");
+            AddMesh(root, curbs, Paint.Curb, record.Id, "curb", comp.OwnedMeshes);
 
             var white = new MeshData();
             var yellow = new MeshData();
             void Ink(double across, bool dashed, bool yellowPaint) {
                 var target = yellowPaint ? yellow : white;
-                foreach (var span in StationRoadLayout.InkIntervals(record, Graph.Authored, across, StationRoadLayout.CrosswalkDepth + 1.5)) {
+                foreach (var span in StationRoadLayout.InkIntervals(record, componentAuthored, across, StationRoadLayout.CrosswalkDepth + 1.5)) {
                     for (double from = dashed ? Math.Floor(span.Lo / 6) * 6 : span.Lo; from < span.Hi; from += dashed ? 6 : layout.Length + 1) {
                         double lo = Math.Max(span.Lo, from);
                         double hi = Math.Min(span.Hi, dashed ? from + 3 : span.Hi);
                         if (hi <= lo) continue;
                         Slab(target, record, across, (lo + hi) / 2, .12, hi - lo, (float)record.Z + 1.035f, .008f);
-                        MarkingSpans++;
+                        comp.MarkingSpans++;
                     }
                 }
             }
@@ -293,8 +444,9 @@ namespace Metro.App.Views {
             // Arrival arrows, stop lines and signal poles come from the lane network,
             // not from the arrow-per-lane preview (source RoadModel behaviour).
             var approaches = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var side in StationRoadLayout.JunctionSides(Network)) {
-                var junction = Network.Junctions[side.Junction];
+            for (int sIdx = 0; sIdx < junctionSides.Count; sIdx++) {
+                var side = junctionSides[sIdx];
+                var junction = componentNetwork.Junctions[side.Junction];
                 if (junction.Uncontrolled || junction.Z != record.Z || side.Road != record.Id) continue;
                 double along = side.Boundary + side.Out * (StationRoadLayout.CrosswalkDepth / 2 + .8);
                 double roadWidth = side.Axis ? record.W : record.D;
@@ -304,20 +456,21 @@ namespace Metro.App.Views {
                         side.Axis ? .5 : StationRoadLayout.CrosswalkDepth,
                         side.Axis ? StationRoadLayout.CrosswalkDepth : .5,
                         (float)record.Z + 1.045f, .012f);
-                    Crosswalks++;
+                    comp.Crosswalks++;
                 }
             }
-            foreach (var edge in Network.Edges) {
+            for (int eIdx = 0; eIdx < componentNetwork.Edges.Count; eIdx++) {
+                var edge = componentNetwork.Edges[eIdx];
                 if (edge.Road.Id != record.Id || edge.Junction >= 0) continue;
                 RoadEdge connector = null;
                 foreach (int next in edge.Next) {
-                    var candidate = Network.Edges[next];
+                    var candidate = componentNetwork.Edges[next];
                     if (candidate.Junction >= 0) { connector = candidate; break; }
                 }
                 if (connector == null) continue;
-                var junction = Network.Junctions[connector.Junction];
+                var junction = componentNetwork.Junctions[connector.Junction];
                 if (junction.Uncontrolled) continue;
-                var turns = StationRoadLayout.EdgeMovements(Network, edge);
+                var turns = StationRoadLayout.EdgeMovements(componentNetwork, edge);
                 if (edge.Length > StationRoadLayout.CrosswalkDepth + 3) {
                     double setback = Math.Min(7, edge.Length - 1.5);
                     double distance = Math.Min(setback, (edge.Length + StationRoadLayout.CrosswalkDepth + 1.5) / 2);
@@ -325,7 +478,7 @@ namespace Metro.App.Views {
                     double ay = edge.End.Y - (edge.Axis ? edge.Sign * distance : 0);
                     double scale = Math.Min(1, Math.Min(layout.LaneWidth / 3, (edge.Length - StationRoadLayout.CrosswalkDepth - 1.5) / 3.2));
                     AddArrow(white, record, turns, ax, ay, (float)record.Z + 1.06f, edge.Axis, edge.Sign, scale);
-                    Arrows++;
+                    comp.Arrows++;
                 }
                 string key = connector.Junction + ":" + edge.Axis + ":" + edge.Sign;
                 if (!approaches.Add(key)) continue;
@@ -339,15 +492,15 @@ namespace Metro.App.Views {
                     stop - (edge.Axis ? record.Y : record.X),
                     edge.Axis ? stopWidth : .2, edge.Axis ? .2 : stopWidth,
                     (float)record.Z + 1.045f, .012f);
-                StopLines++;
+                comp.StopLines++;
                 double side = (edge.Axis ? record.X : record.Y) +
                     (edge.Sign * (edge.Axis ? 1 : -1) > 0 ? (edge.Axis ? record.W : record.D) + .5 : -.5);
                 int rot = edge.Axis ? (edge.Sign > 0 ? 0 : 2) : (edge.Sign > 0 ? 3 : 1);
                 BuildSignal(root, junction, edge.Axis, edge.Axis ? side : approachAlong,
-                    edge.Axis ? approachAlong : side, record.Z, rot);
+                    edge.Axis ? approachAlong : side, record.Z, rot, comp.OwnedMeshes, comp.Signals);
             }
-            AddMesh(root, white, Paint.White, record.Id, "markings");
-            AddMesh(root, yellow, Paint.Yellow, record.Id, "markings-yellow");
+            AddMesh(root, white, Paint.White, record.Id, "markings", comp.OwnedMeshes);
+            AddMesh(root, yellow, Paint.Yellow, record.Id, "markings-yellow", comp.OwnedMeshes);
 
             var collider = root.gameObject.AddComponent<BoxCollider>();
             collider.center = new Vector3((float)(record.X + record.W / 2.0), surface - .01f, (float)(record.Y + record.D / 2.0));
@@ -398,7 +551,8 @@ namespace Metro.App.Views {
             return false;
         }
 
-        void BuildSignal(Transform parent, RoadJunction junction, bool axis, double x, double y, double z, int rot) {
+        void BuildSignal(Transform parent, RoadJunction junction, bool axis, double x, double y, double z, int rot,
+            List<Mesh> meshSink, List<SignalHead> signalSink) {
             var root = new GameObject("road-signal " + junction.Id).transform;
             root.SetParent(parent, false);
             root.localPosition = new Vector3((float)x, (float)z + 1f, (float)y);
@@ -411,7 +565,7 @@ namespace Metro.App.Views {
             body.Box(new Vector3(0, .06f, 0), new Vector3(.32f, .12f, .32f));
             body.Box(new Vector3(0, 1.45f, 0), new Vector3(.09f, 2.9f, .09f));
             body.Box(new Vector3(0, 2.97f, 0), new Vector3(.42f, 1.06f, .26f));
-            AddMesh(root, body, Paint.Dark, piece.moduleId, "signal-body");
+            AddMesh(root, body, Paint.Dark, piece.moduleId, "signal-body", meshSink);
             var lenses = new Renderer[3];
             for (int i = 0; i < 3; i++) {
                 var lens = new GameObject("traffic-lens-" + i, typeof(MeshFilter), typeof(MeshRenderer));
@@ -420,19 +574,19 @@ namespace Metro.App.Views {
                 var mesh = new MeshData();
                 mesh.Box(Vector3.zero, new Vector3(.25f, .25f, .05f));
                 var built = mesh.Build("traffic lens");
-                ownedMeshes.Add(built);
+                meshSink.Add(built);
                 lens.GetComponent<MeshFilter>().sharedMesh = built;
                 var renderer = lens.GetComponent<MeshRenderer>();
                 renderer.sharedMaterial = paints[(int)Paint.Unlit];
                 lenses[i] = renderer;
             }
-            signals.Add(new SignalHead { Junction = junction, Axis = axis, Lenses = lenses });
+            signalSink.Add(new SignalHead { Junction = junction, Axis = axis, Lenses = lenses });
         }
 
-        void AddMesh(Transform parent, MeshData data, Paint paint, string moduleId, string role) {
+        void AddMesh(Transform parent, MeshData data, Paint paint, string moduleId, string role, List<Mesh> meshSink) {
             var mesh = data.Build(role);
             if (mesh == null) return;
-            ownedMeshes.Add(mesh);
+            meshSink.Add(mesh);
             var go = new GameObject(role, typeof(MeshFilter), typeof(MeshRenderer));
             go.transform.SetParent(parent, false);
             go.GetComponent<MeshFilter>().sharedMesh = mesh;
@@ -445,8 +599,18 @@ namespace Metro.App.Views {
 
         /// <summary>Updates signal lens materials from C's station clock; not a document edit.</summary>
         public void SetSimTime(double simTimeSeconds) {
-            for (int i = 0; i < signals.Count; i++) {
-                var head = signals[i];
+            ApplySignalTime(signals, simTimeSeconds);
+        }
+
+        /// <summary>Updates signal lens materials for one newly installed road component only.</summary>
+        public void SetComponentSimTime(ComponentViewData comp, double simTimeSeconds) {
+            if (comp == null) return;
+            ApplySignalTime(comp.Signals, simTimeSeconds);
+        }
+
+        void ApplySignalTime(List<SignalHead> targetSignals, double simTimeSeconds) {
+            for (int i = 0; i < targetSignals.Count; i++) {
+                var head = targetSignals[i];
                 var phase = StationRoadLayout.Signal(head.Junction, head.Axis, simTimeSeconds);
                 if (phase == head.Phase) continue;
                 head.Phase = phase;
@@ -541,6 +705,11 @@ namespace Metro.App.Views {
 
         void OnDestroy() {
             ClearPreview();
+            for (int i = 0; i < activeComponents.Count; i++) {
+                Kill(activeComponents[i].OwnedMeshes);
+                activeComponents[i].OwnedMeshes.Clear();
+            }
+            activeComponents.Clear();
             Kill(ownedMeshes);
             Kill(ownedMaterials);
             ownedMeshes.Clear();
@@ -555,158 +724,513 @@ namespace Metro.App.Views {
         }
     }
 
+    /// <summary>Deterministic work-count record for the latest road build or local delta (plan 39 §9).</summary>
+    public struct StationRoadDeltaMetrics {
+        public bool UsedIncremental;
+        public int RebuiltComponents;
+        public int RetainedComponents;
+        public int RetiredComponents;
+        public int RebuiltRoads;
+        public int RetainedRoads;
+        public int RetiredRoads;
+        public int RebuiltJunctions;
+        public int RetainedJunctions;
+        public int RebuiltTrafficNetworks;
+        public int RetainedTrafficNetworks;
+        public int RebuiltVehiclePools;
+        public int RetainedVehiclePools;
+    }
+
     /// <summary>
     /// Packet G's station-world renderer. It registers under role <c>"roads"</c>,
-    /// builds both authored Zoo roads (and every road in any other document) from
-    /// their real layout, registers one record per source module, and exposes the
-    /// traffic view for packet C's clock.
-    ///
-    /// Registration is process-wide via <see cref="StationRoadFeature"/>, so the
-    /// generic host picks it up without a scene reference or a lead edit.
+    /// partitions authored roads into independent connected components, builds each
+    /// component's geometry and ambient traffic separately, and bounds local deltas
+    /// (add, erase, direction reversal, join, split, undo, redo) to affected components
+    /// while retaining disconnected views, vehicles and traffic clocks (plan 39 §9).
     /// </summary>
     public sealed class StationRoadRenderer : Metro.App.IStationViewRenderer, Metro.App.IStationLocalViewRenderer {
+        sealed class RoadComponentState {
+            public int Serial;
+            public int VehicleIdOffset;
+            public StationRoadRecord[] Records = System.Array.Empty<StationRoadRecord>();
+            public StationRoadComponents.Bounds2D Bounds;
+            public RoadGraph SubGraph;
+            public RoadNetwork SubNetwork;
+            public StationRoadView.ComponentViewData ViewData;
+            public StationRoadTraffic Traffic;
+        }
+
+        public StationRoadDeltaMetrics LastDelta { get; private set; }
+        public int LocalDeltaCommits { get; private set; }
+        public int FullBuilds { get; private set; }
+        public int TotalRebuiltComponents { get; private set; }
+        public int TotalRetainedComponents { get; private set; }
+        public int TotalRebuiltRoads { get; private set; }
+        public int TotalRetainedRoads { get; private set; }
+        public int TotalRebuiltTrafficNetworks { get; private set; }
+        public int TotalRetainedTrafficNetworks { get; private set; }
+
+        public int ComponentCount => newest != null ? newest.Components.Count : 0;
+
+        public bool TryGetRoadView(string roadId, out GameObject roadObject) {
+            roadObject = null;
+            var view = newest?.View;
+            return view != null && view.TryGetRoadRoot(roadId, out roadObject);
+        }
+
+        public bool TryGetComponentTraffic(string roadId, out StationRoadTraffic traffic) {
+            traffic = null;
+            var state = newest;
+            if (state == null || string.IsNullOrEmpty(roadId)) return false;
+            if (state.RoadIdToComponent.TryGetValue(roadId, out var comp) && comp.Traffic != null) {
+                traffic = comp.Traffic;
+                return true;
+            }
+            return false;
+        }
+
+        public bool TryGetComponentVehiclePoolRoot(string roadId, out Transform poolRoot) {
+            poolRoot = null;
+            var state = newest;
+            if (state == null || state.Vehicles == null || string.IsNullOrEmpty(roadId)) return false;
+            if (state.RoadIdToComponent.TryGetValue(roadId, out var comp)) {
+                return state.Vehicles.TryGetComponentPoolRoot(comp.Serial, out poolRoot);
+            }
+            return false;
+        }
+
+        public IReadOnlyList<string> GetComponentRoadIds(string roadId) {
+            var state = newest;
+            if (state == null || string.IsNullOrEmpty(roadId) ||
+                !state.RoadIdToComponent.TryGetValue(roadId, out var comp)) {
+                return System.Array.Empty<string>();
+            }
+            var ids = new string[comp.Records.Length];
+            for (int i = 0; i < comp.Records.Length; i++) ids[i] = comp.Records[i].Id;
+            return ids;
+        }
+
+        static HashSet<string> CollectAllModuleIds(StationDocument document) {
+            var ids = new HashSet<string>(StringComparer.Ordinal);
+            if (document == null) return ids;
+            for (int i = 0; i < document.Modules.Count; i++) {
+                var m = document.Modules[i];
+                if (m != null && !string.IsNullOrEmpty(m.Id)) ids.Add(m.Id);
+            }
+            return ids;
+        }
+
+        static bool RecordInteractsWithComponent(StationRoadRecord candidate, RoadComponentState comp) {
+            if (candidate == null || comp == null || comp.Records.Length == 0) return false;
+            var candBounds = StationRoadComponents.Bounds2D.Of(candidate);
+            if (!candBounds.OverlapsPadded(comp.Bounds, StationRoadComponents.InkMargin)) return false;
+            for (int i = 0; i < comp.Records.Length; i++) {
+                if (StationRoadComponents.RoadsDirectlyInteract(candidate, comp.Records[i])) return true;
+            }
+            return false;
+        }
+
+        public static bool ForceFallbackOnce { get; set; }
+
         public bool TryStageLocalDelta(
             Metro.App.StationLocalDeltaContext context,
             out Metro.App.IStationLocalRendererStage stage,
             out string fallbackReason) {
             stage = null;
             fallbackReason = null;
+            if (ForceFallbackOnce) {
+                ForceFallbackOnce = false;
+                fallbackReason = "road-forced-fallback";
+                return false;
+            }
             var delta = context.Delta;
-            bool touchedRoad = false;
+            var changedRoadIds = new HashSet<string>(StringComparer.Ordinal);
             for (int i = 0; i < delta.RemovedModules.Count; i++) {
-                if (context.PrevIndex.TryGetModule(delta.RemovedModules[i], out var oldMod) &&
-                    oldMod != null && oldMod.Type == "road") {
-                    touchedRoad = true;
-                    break;
+                var id = delta.RemovedModules[i];
+                if (context.PrevIndex.TryGetModule(id, out var oldMod) &&
+                    oldMod != null && string.Equals(oldMod.Type, "road", StringComparison.Ordinal)) {
+                    changedRoadIds.Add(id);
                 }
             }
-            if (!touchedRoad) {
-                for (int i = 0; i < delta.ChangedModules.Count; i++) {
-                    var mod = delta.ChangedModules[i];
-                    if (mod != null && mod.Type == "road") {
-                        touchedRoad = true;
-                        break;
-                    }
+            for (int i = 0; i < delta.ChangedModules.Count; i++) {
+                var mod = delta.ChangedModules[i];
+                if (mod == null) continue;
+                if (string.Equals(mod.Type, "road", StringComparison.Ordinal)) {
+                    changedRoadIds.Add(mod.Id);
+                } else if (context.PrevIndex.TryGetModule(mod.Id, out var prevMod) &&
+                    prevMod != null && string.Equals(prevMod.Type, "road", StringComparison.Ordinal)) {
+                    changedRoadIds.Add(mod.Id);
                 }
             }
-            if (!touchedRoad) return true;
+            if (changedRoadIds.Count == 0) return true;
 
-            if (!states.TryGetValue(context.World, out var state) || state == null || state.RoleRoot == null) {
+            if (!states.TryGetValue(context.World, out var state) || state == null ||
+                state.RoleRoot == null || state.ContentRoot == null || state.View == null) {
                 fallbackReason = "no-road-state";
                 return false;
             }
 
             var nextRoadModules = context.NextIndex.ModulesOfType("road");
             var nextRecords = new List<StationRoadRecord>(nextRoadModules.Count);
+            var nextById = new Dictionary<string, StationRoadRecord>(nextRoadModules.Count, StringComparer.Ordinal);
             for (int i = 0; i < nextRoadModules.Count; i++) {
                 var module = nextRoadModules[i];
-                if (module != null && module.Type == "road") {
-                    nextRecords.Add(StationRoadRecord.FromFacts(module.Facts));
+                if (module == null || !string.Equals(module.Type, "road", StringComparison.Ordinal)) continue;
+                var rec = StationRoadRecord.FromFacts(module.Facts);
+                if (nextById.ContainsKey(rec.Id)) {
+                    fallbackReason = "road-duplicate-ids";
+                    return false;
+                }
+                nextRecords.Add(rec);
+                nextById.Add(rec.Id, rec);
+            }
+
+            // Step 2: Seed affected previous components & road IDs from the PREVIOUS graph.
+            var affectedPrev = new HashSet<RoadComponentState>();
+            var affectedRoadIds = new HashSet<string>(changedRoadIds, StringComparer.Ordinal);
+            var bfsQueue = new Queue<StationRoadRecord>();
+            var enqueued = new HashSet<string>(StringComparer.Ordinal);
+
+            void AbsorbComponent(RoadComponentState comp) {
+                if (comp == null || !affectedPrev.Add(comp)) return;
+                for (int r = 0; r < comp.Records.Length; r++) {
+                    var rid = comp.Records[r].Id;
+                    affectedRoadIds.Add(rid);
+                    if (nextById.TryGetValue(rid, out var nextRec) && enqueued.Add(rid)) {
+                        bfsQueue.Enqueue(nextRec);
+                    }
                 }
             }
 
-            var stagedContent = new GameObject("roads-content");
-            stagedContent.transform.SetParent(context.StagingRoot, false);
-            stagedContent.SetActive(false);
-
-            Shader shader = state.Shader != null ? state.Shader : Shader.Find("Universal Render Pipeline/Lit");
-            var stagedView = StationRoadView.BuildRecords(stagedContent.transform, nextRecords, shader);
-            foreach (var diagnostic in stagedView.Diagnostics) {
-                context.Diagnostics.Add(new StationDiagnostic(diagnostic.Code ?? "road",
-                    StationDiagnosticSeverity.Warning, "road", diagnostic.ModuleId ?? "", diagnostic.Detail ?? ""));
+            foreach (var id in changedRoadIds) {
+                if (state.RoadIdToComponent.TryGetValue(id, out var prevComp)) {
+                    AbsorbComponent(prevComp);
+                }
+                if (nextById.TryGetValue(id, out var nextRec) && enqueued.Add(id)) {
+                    bfsQueue.Enqueue(nextRec);
+                }
             }
 
-            StationRoadTraffic stagedTraffic = null;
-            RoadVehicleViews stagedVehicles = null;
-            if (nextRecords.Count > 0) {
-                var network = StationRoadLayout.Network(nextRecords);
-                int seed = unchecked((int)(context.NextDocument != null ? context.NextDocument.Seed : 0));
-                stagedTraffic = new StationRoadTraffic(StationRoadLayout.TrafficNetwork(network), seed);
-                stagedVehicles = RoadVehicleViews.Build(stagedContent.transform, stagedTraffic, shader, false,
+            // Step 3: Expand through the NEXT graph into any untouched components that now interact
+            // with an affected road (joins, chained bridges, ink-margin overlaps).
+            void ExpandNextGraph() {
+                while (bfsQueue.Count > 0) {
+                    var current = bfsQueue.Dequeue();
+                    for (int c = 0; c < state.Components.Count; c++) {
+                        var comp = state.Components[c];
+                        if (affectedPrev.Contains(comp)) continue;
+                        if (RecordInteractsWithComponent(current, comp)) {
+                            AbsorbComponent(comp);
+                        }
+                    }
+                }
+            }
+
+            // Step 4: Partition ONLY affected next records and verify junction-box closure
+            // against every retained component (fixed point).
+            var allModuleIds = CollectAllModuleIds(context.NextDocument);
+            List<List<StationRoadRecord>> replacementGroups;
+            List<RoadGraph> subGraphs;
+            List<RoadNetwork> subNetworks;
+
+            while (true) {
+                ExpandNextGraph();
+                var affectedNextRecords = new List<StationRoadRecord>();
+                for (int i = 0; i < nextRecords.Count; i++) {
+                    if (affectedRoadIds.Contains(nextRecords[i].Id)) affectedNextRecords.Add(nextRecords[i]);
+                }
+                replacementGroups = StationRoadComponents.Partition(affectedNextRecords);
+                subGraphs = new List<RoadGraph>(replacementGroups.Count);
+                subNetworks = new List<RoadNetwork>(replacementGroups.Count);
+                bool absorbedExtra = false;
+                for (int g = 0; g < replacementGroups.Count; g++) {
+                    var subGraph = StationRoadDocument.Read(replacementGroups[g], allModuleIds);
+                    var subNet = StationRoadLayout.Network(subGraph);
+                    subGraphs.Add(subGraph);
+                    subNetworks.Add(subNet);
+                    for (int j = 0; j < subNet.Junctions.Count; j++) {
+                        var junction = subNet.Junctions[j];
+                        for (int c = 0; c < state.Components.Count; c++) {
+                            var retained = state.Components[c];
+                            if (affectedPrev.Contains(retained)) continue;
+                            if (StationRoadComponents.JunctionTouchesComponent(junction,
+                                    retained.Records, retained.SubNetwork?.Junctions)) {
+                                AbsorbComponent(retained);
+                                absorbedExtra = true;
+                            }
+                        }
+                    }
+                }
+                if (!absorbedExtra) break;
+            }
+
+            // Verify retained components still hold valid live view objects before staging.
+            int retainedComponents = 0;
+            int retainedRoads = 0;
+            int retainedJunctions = 0;
+            for (int c = 0; c < state.Components.Count; c++) {
+                var comp = state.Components[c];
+                if (affectedPrev.Contains(comp)) continue;
+                retainedComponents++;
+                retainedRoads += comp.Records.Length;
+                if (comp.SubNetwork != null) retainedJunctions += comp.SubNetwork.Junctions.Count;
+                for (int r = 0; r < comp.Records.Length; r++) {
+                    var rid = comp.Records[r].Id;
+                    if (!state.View.TryGetRoadRoot(rid, out _)) {
+                        fallbackReason = "road-state-inconsistent";
+                        return false;
+                    }
+                }
+            }
+
+            var stagedContainer = new GameObject("roads-stage");
+            stagedContainer.transform.SetParent(context.StagingRoot, false);
+            stagedContainer.SetActive(false);
+
+            int seed = unchecked((int)(context.NextDocument != null ? context.NextDocument.Seed : 0));
+            int nextSerialCursor = state.NextComponentSerial;
+            var stagedComponents = new List<RoadComponentState>(replacementGroups.Count);
+            int rebuiltRoads = 0;
+            int rebuiltJunctions = 0;
+            for (int g = 0; g < replacementGroups.Count; g++) {
+                int compSerial = ++nextSerialCursor;
+                var subGraph = subGraphs[g];
+                var subNet = subNetworks[g];
+                var viewData = state.View.StageComponent(stagedContainer.transform, compSerial, subGraph, subNet);
+                for (int d = 0; d < viewData.Diagnostics.Count; d++) {
+                    var diag = viewData.Diagnostics[d];
+                    context.Diagnostics.Add(new StationDiagnostic(diag.Code ?? "road",
+                        StationDiagnosticSeverity.Warning, "road", diag.ModuleId ?? "", diag.Detail ?? ""));
+                }
+                var recordsArr = replacementGroups[g].ToArray();
+                var compTraffic = new StationRoadTraffic(StationRoadLayout.TrafficNetwork(subNet), seed);
+                stagedComponents.Add(new RoadComponentState {
+                    Serial = compSerial,
+                    VehicleIdOffset = compSerial * 100000,
+                    Records = recordsArr,
+                    Bounds = StationRoadComponents.Bounds2D.OfRecords(recordsArr),
+                    SubGraph = subGraph,
+                    SubNetwork = subNet,
+                    ViewData = viewData,
+                    Traffic = compTraffic,
+                });
+                rebuiltRoads += recordsArr.Length;
+                rebuiltJunctions += subNet.Junctions.Count;
+            }
+
+            RoadVehicleViews newlyStagedVehicles = null;
+            if (state.Vehicles == null && nextRecords.Count > 0) {
+                Shader shader = state.Shader != null ? state.Shader : Shader.Find("Universal Render Pipeline/Lit");
+                var vehiclesGo = new GameObject("roads-vehicles");
+                vehiclesGo.transform.SetParent(stagedContainer.transform, false);
+                newlyStagedVehicles = RoadVehicleViews.BuildMultiComponent(vehiclesGo.transform, shader, false,
                     state.Catalogue,
                     (code, detail) => context.Diagnostics.Add(new StationDiagnostic(code ?? "unresolved",
                         StationDiagnosticSeverity.Warning, "renderer", Role, detail ?? "")));
             }
 
-            stage = new RoadLocalStage(this, state, stagedContent, stagedView, stagedTraffic, stagedVehicles,
-                nextRecords.ToArray(), context.NextDocument != null ? context.NextDocument.LevelBase : state.LevelBase);
+            var retiredList = new List<RoadComponentState>(affectedPrev.Count);
+            int retiredRoads = 0;
+            foreach (var comp in affectedPrev) {
+                retiredList.Add(comp);
+                retiredRoads += comp.Records.Length;
+            }
+
+            var metrics = new StationRoadDeltaMetrics {
+                UsedIncremental = true,
+                RebuiltComponents = stagedComponents.Count,
+                RetainedComponents = retainedComponents,
+                RetiredComponents = retiredList.Count,
+                RebuiltRoads = rebuiltRoads,
+                RetainedRoads = retainedRoads,
+                RetiredRoads = retiredRoads,
+                RebuiltJunctions = rebuiltJunctions,
+                RetainedJunctions = retainedJunctions,
+                RebuiltTrafficNetworks = stagedComponents.Count,
+                RetainedTrafficNetworks = retainedComponents,
+                RebuiltVehiclePools = stagedComponents.Count,
+                RetainedVehiclePools = retainedComponents,
+            };
+
+            stage = new RoadLocalStage(this, state, stagedContainer, retiredList, stagedComponents,
+                newlyStagedVehicles, nextRecords.ToArray(), nextSerialCursor,
+                context.NextDocument != null ? context.NextDocument.LevelBase : state.LevelBase, metrics);
             return true;
         }
 
         sealed class RoadLocalStage : Metro.App.IStationLocalRendererStage {
             readonly StationRoadRenderer renderer;
             readonly State state;
-            readonly GameObject stagedContent;
-            readonly StationRoadView stagedView;
-            readonly StationRoadTraffic stagedTraffic;
-            readonly RoadVehicleViews stagedVehicles;
+            readonly GameObject stagedContainer;
+            readonly List<RoadComponentState> retiredComponents;
+            readonly List<RoadComponentState> stagedComponents;
+            readonly RoadVehicleViews newlyStagedVehicles;
             readonly StationRoadRecord[] nextRecords;
+            readonly int nextSerialCursor;
             readonly int levelBase;
+            readonly StationRoadDeltaMetrics metrics;
             bool committed;
 
-            public RoadLocalStage(StationRoadRenderer renderer, State state, GameObject stagedContent,
-                StationRoadView stagedView, StationRoadTraffic stagedTraffic, RoadVehicleViews stagedVehicles,
-                StationRoadRecord[] nextRecords, int levelBase) {
+            public RoadLocalStage(StationRoadRenderer renderer, State state, GameObject stagedContainer,
+                List<RoadComponentState> retiredComponents, List<RoadComponentState> stagedComponents,
+                RoadVehicleViews newlyStagedVehicles, StationRoadRecord[] nextRecords, int nextSerialCursor,
+                int levelBase, StationRoadDeltaMetrics metrics) {
                 this.renderer = renderer;
                 this.state = state;
-                this.stagedContent = stagedContent;
-                this.stagedView = stagedView;
-                this.stagedTraffic = stagedTraffic;
-                this.stagedVehicles = stagedVehicles;
+                this.stagedContainer = stagedContainer;
+                this.retiredComponents = retiredComponents;
+                this.stagedComponents = stagedComponents;
+                this.newlyStagedVehicles = newlyStagedVehicles;
                 this.nextRecords = nextRecords;
+                this.nextSerialCursor = nextSerialCursor;
                 this.levelBase = levelBase;
+                this.metrics = metrics;
             }
 
             public void Commit(Metro.App.StationWorldView world, Metro.App.StationLocalViewCommit commit) {
                 committed = true;
-                world.RetireRecordsWhere(r => string.Equals(r.Role, renderer.Role, StringComparison.Ordinal),
-                    commit, retireViewObjects: false);
-                if (state.ContentRoot != null) {
-                    commit.RetiredViews.Add(state.ContentRoot);
+
+                // 1. Retire ONLY affected road records from StationWorldView (picker + visibility).
+                var retiredRoadIds = new HashSet<string>(StringComparer.Ordinal);
+                var retiredViewDatas = new List<StationRoadView.ComponentViewData>(retiredComponents.Count);
+                for (int i = 0; i < retiredComponents.Count; i++) {
+                    var oldComp = retiredComponents[i];
+                    if (oldComp.ViewData != null) retiredViewDatas.Add(oldComp.ViewData);
+                    for (int r = 0; r < oldComp.Records.Length; r++) {
+                        retiredRoadIds.Add(oldComp.Records[r].Id);
+                        state.RoadIdToComponent.Remove(oldComp.Records[r].Id);
+                    }
+                    state.Components.Remove(oldComp);
+                }
+                if (retiredRoadIds.Count > 0) {
+                    world.RetireRecordsWhere(
+                        r => string.Equals(r.Role, renderer.Role, StringComparison.Ordinal) &&
+                             retiredRoadIds.Contains(r.ModuleId),
+                        commit,
+                        retireViewObjects: false);
                 }
 
-                stagedContent.transform.SetParent(state.RoleRoot, false);
-                stagedContent.SetActive(true);
-                if (stagedVehicles != null) {
-                    stagedVehicles.BindWorld(world);
+                // 2. Retire ONLY affected road GameObjects, Meshes, and Vehicle pools.
+                for (int i = 0; i < retiredComponents.Count; i++) {
+                    var oldComp = retiredComponents[i];
+                    if (oldComp.ViewData != null) {
+                        foreach (var go in oldComp.ViewData.RoadRoots.Values) {
+                            if (go != null) commit.RetiredViews.Add(go);
+                        }
+                        for (int m = 0; m < oldComp.ViewData.OwnedMeshes.Count; m++) {
+                            if (oldComp.ViewData.OwnedMeshes[m] != null) {
+                                commit.RetiredMeshes.Add(oldComp.ViewData.OwnedMeshes[m]);
+                            }
+                        }
+                        oldComp.ViewData.OwnedMeshes.Clear();
+                    }
+                    state.Vehicles?.RemoveComponentPool(oldComp.Serial, world, commit);
                 }
 
-                for (int i = 0; i < nextRecords.Length; i++) {
-                    var record = nextRecords[i];
-                    var view = stagedContent.transform.Find("road " + record.Id);
-                    if (!view) continue;
-                    var box = new StationBox(record.X, record.Y, record.Z, record.X + record.W, record.Y + record.D, record.Z + 1.07);
-                    int level = (int)Math.Round(record.Z);
-                    world.AddLocalRecord(new Metro.App.StationViewRecord {
-                        Role = renderer.Role,
-                        ModuleId = record.Id,
-                        Part = "",
-                        View = view.gameObject,
-                        Bounds = box,
-                        HasBounds = true,
-                        LevelMin = level,
-                        LevelMax = level,
-                    }, commit);
+                // 3. Install newly staged Vehicle host if transitioning 0 -> N roads.
+                if (newlyStagedVehicles != null && state.Vehicles == null) {
+                    newlyStagedVehicles.transform.SetParent(state.ContentRoot.transform, false);
+                    newlyStagedVehicles.gameObject.SetActive(true);
+                    newlyStagedVehicles.BindWorld(world);
+                    state.Vehicles = newlyStagedVehicles;
                 }
 
-                state.ContentRoot = stagedContent;
-                state.View = stagedView;
-                state.Traffic = stagedTraffic;
-                state.Vehicles = stagedVehicles;
+                // 4. Atomically swap affected components into persistent StationRoadView.
+                var addedViewDatas = new List<StationRoadView.ComponentViewData>(stagedComponents.Count);
+                for (int i = 0; i < stagedComponents.Count; i++) {
+                    var newComp = stagedComponents[i];
+                    addedViewDatas.Add(newComp.ViewData);
+                    state.Components.Add(newComp);
+                    for (int r = 0; r < newComp.Records.Length; r++) {
+                        state.RoadIdToComponent[newComp.Records[r].Id] = newComp;
+                    }
+                }
+                state.View.CommitComponentSwap(retiredViewDatas, addedViewDatas, nextRecords);
+
+                // 5. Register ONLY newly built/replaced road GameObjects in StationWorldView.
+                for (int i = 0; i < stagedComponents.Count; i++) {
+                    var newComp = stagedComponents[i];
+                    for (int r = 0; r < newComp.Records.Length; r++) {
+                        var record = newComp.Records[r];
+                        if (!newComp.ViewData.RoadRoots.TryGetValue(record.Id, out var go) || go == null) continue;
+                        go.SetActive(true);
+                        var box = new StationBox(record.X, record.Y, record.Z,
+                            record.X + record.W, record.Y + record.D, record.Z + 1.07);
+                        int level = (int)Math.Round(record.Z);
+                        world.AddLocalRecord(new Metro.App.StationViewRecord {
+                            Role = renderer.Role,
+                            ModuleId = record.Id,
+                            Part = "",
+                            View = go,
+                            Bounds = box,
+                            HasBounds = true,
+                            LevelMin = level,
+                            LevelMax = level,
+                        }, commit);
+                    }
+                }
+
+                if (stagedContainer != null) {
+                    if (Application.isPlaying) UnityEngine.Object.Destroy(stagedContainer);
+                    else UnityEngine.Object.DestroyImmediate(stagedContainer);
+                }
+
+                state.NextComponentSerial = Math.Max(state.NextComponentSerial, nextSerialCursor);
                 state.Records = nextRecords;
                 state.LevelBase = levelBase;
-                double priorTime = state.SampledTime;
-                state.SampledTime = double.NaN;
-                if (!double.IsNaN(priorTime)) {
-                    renderer.Update(priorTime);
+                state.Traffic = state.Components.Count > 0 ? state.Components[0].Traffic : null;
+                state.Vehicles?.SetPrimaryTraffic(state.Traffic);
+
+                // 6. Sync signals and traffic ONLY for newly installed components at the current clock;
+                //    untouched components retain their live views, vehicles and traffic clocks verbatim.
+                if (!double.IsNaN(state.SampledTime)) {
+                    for (int i = 0; i < stagedComponents.Count; i++) {
+                        var newComp = stagedComponents[i];
+                        state.View.SetComponentSimTime(newComp.ViewData, state.SampledTime);
+                        if (newComp.Traffic != null) {
+                            newComp.Traffic.Advance(state.SampledTime);
+                            state.Vehicles?.RenderComponentForWorld(newComp.Serial, newComp.Traffic,
+                                newComp.VehicleIdOffset, state.SampledTime, world);
+                        }
+                    }
+                    state.Vehicles?.RefreshWorldCounts();
                 }
+
+                renderer.RecordDeltaMetrics(metrics);
             }
 
             public void Dispose() {
-                if (committed || stagedContent == null) return;
-                if (Application.isPlaying) UnityEngine.Object.Destroy(stagedContent);
-                else UnityEngine.Object.DestroyImmediate(stagedContent);
+                if (committed) return;
+                for (int i = 0; i < stagedComponents.Count; i++) {
+                    var vd = stagedComponents[i].ViewData;
+                    if (vd == null) continue;
+                    for (int m = 0; m < vd.OwnedMeshes.Count; m++) {
+                        var mesh = vd.OwnedMeshes[m];
+                        if (!mesh) continue;
+                        if (Application.isPlaying) UnityEngine.Object.Destroy(mesh);
+                        else UnityEngine.Object.DestroyImmediate(mesh);
+                    }
+                    vd.OwnedMeshes.Clear();
+                }
+                if (stagedContainer != null) {
+                    if (Application.isPlaying) UnityEngine.Object.Destroy(stagedContainer);
+                    else UnityEngine.Object.DestroyImmediate(stagedContainer);
+                }
             }
+        }
+
+        void RecordDeltaMetrics(StationRoadDeltaMetrics metrics) {
+            LastDelta = metrics;
+            if (metrics.UsedIncremental) LocalDeltaCommits++;
+            else FullBuilds++;
+            TotalRebuiltComponents += metrics.RebuiltComponents;
+            TotalRetainedComponents += metrics.RetainedComponents;
+            TotalRebuiltRoads += metrics.RebuiltRoads;
+            TotalRetainedRoads += metrics.RetainedRoads;
+            TotalRebuiltTrafficNetworks += metrics.RebuiltTrafficNetworks;
+            TotalRetainedTrafficNetworks += metrics.RetainedTrafficNetworks;
+            StationEditTrace.AddRoadDelta(metrics.RebuiltComponents, metrics.RetainedComponents,
+                metrics.RebuiltRoads, metrics.RetainedRoads);
         }
 
         /// <summary>
@@ -723,6 +1247,10 @@ namespace Metro.App.Views {
             public StationRoadView View;
             public RoadVehicleViews Vehicles;
             public StationRoadTraffic Traffic;
+            public readonly List<RoadComponentState> Components = new List<RoadComponentState>();
+            public readonly Dictionary<string, RoadComponentState> RoadIdToComponent =
+                new Dictionary<string, RoadComponentState>(StringComparer.Ordinal);
+            public int NextComponentSerial;
             public StationRoadRecord[] Records = System.Array.Empty<StationRoadRecord>();
             public int Serial;
             /// <summary>The committed document the storey bands are measured against.</summary>
@@ -766,23 +1294,78 @@ namespace Metro.App.Views {
                 Serial = ++serial,
                 LevelBase = context.Document != null ? context.Document.LevelBase : 0,
             };
-            state.View = StationRoadView.BuildRecords(contentGo.transform, records, shader);
-            foreach (var diagnostic in state.View.Diagnostics)
-                context.ReportUnresolved(diagnostic.Code, "road", diagnostic.ModuleId, diagnostic.Detail);
-            foreach (var record in state.Records) {
-                var view = contentGo.transform.Find("road " + record.Id);
-                if (!view) continue;
+
+            state.View = StationRoadView.CreateEmpty(contentGo.transform, shader);
+            var groups = StationRoadComponents.Partition(records);
+            var allModuleIds = CollectAllModuleIds(context.Document);
+            int seed = unchecked((int)(context.Document != null ? context.Document.Seed : 0));
+            var builtViewDatas = new List<StationRoadView.ComponentViewData>(groups.Count);
+            int totalJunctions = 0;
+
+            for (int g = 0; g < groups.Count; g++) {
+                int compSerial = ++state.NextComponentSerial;
+                var subGraph = StationRoadDocument.Read(groups[g], allModuleIds);
+                var subNet = StationRoadLayout.Network(subGraph);
+                var viewData = state.View.StageComponent(contentGo.transform, compSerial, subGraph, subNet);
+                for (int d = 0; d < viewData.Diagnostics.Count; d++) {
+                    var diag = viewData.Diagnostics[d];
+                    context.ReportUnresolved(diag.Code, "road", diag.ModuleId, diag.Detail);
+                }
+                var compRecords = groups[g].ToArray();
+                var compTraffic = new StationRoadTraffic(StationRoadLayout.TrafficNetwork(subNet), seed);
+                var compState = new RoadComponentState {
+                    Serial = compSerial,
+                    VehicleIdOffset = compSerial * 100000,
+                    Records = compRecords,
+                    Bounds = StationRoadComponents.Bounds2D.OfRecords(compRecords),
+                    SubGraph = subGraph,
+                    SubNetwork = subNet,
+                    ViewData = viewData,
+                    Traffic = compTraffic,
+                };
+                state.Components.Add(compState);
+                builtViewDatas.Add(viewData);
+                totalJunctions += subNet.Junctions.Count;
+                for (int r = 0; r < compRecords.Length; r++) {
+                    state.RoadIdToComponent[compRecords[r].Id] = compState;
+                }
+            }
+            state.View.CommitComponentSwap(null, builtViewDatas, records);
+
+            for (int i = 0; i < state.Records.Length; i++) {
+                var record = state.Records[i];
+                if (!state.View.TryGetRoadRoot(record.Id, out var viewGo) || viewGo == null) continue;
                 var box = new StationBox(record.X, record.Y, record.Z, record.X + record.W, record.Y + record.D, record.Z + 1.07);
                 int level = (int)Math.Round(record.Z);
-                context.World.RegisterModule(Role, record.Id, view.gameObject, "", box, level, level);
+                context.World.RegisterModule(Role, record.Id, viewGo, "", box, level, level);
             }
+
             if (records.Count > 0) {
-                var network = StationRoadLayout.Network(records);
-                state.Traffic = new StationRoadTraffic(StationRoadLayout.TrafficNetwork(network), unchecked((int)context.Document.Seed));
-                state.Vehicles = RoadVehicleViews.Build(contentGo.transform, state.Traffic, shader, false, context.Catalogue,
+                var vehiclesGo = new GameObject("roads-vehicles");
+                vehiclesGo.transform.SetParent(contentGo.transform, false);
+                state.Vehicles = RoadVehicleViews.BuildMultiComponent(vehiclesGo.transform, shader, false, context.Catalogue,
                     (code, detail) => context.ReportUnresolved(code, "renderer", Role, detail));
+                state.Traffic = state.Components.Count > 0 ? state.Components[0].Traffic : null;
+                state.Vehicles.SetPrimaryTraffic(state.Traffic);
                 state.Vehicles.BindWorld(context.World);
             }
+
+            RecordDeltaMetrics(new StationRoadDeltaMetrics {
+                UsedIncremental = false,
+                RebuiltComponents = state.Components.Count,
+                RetainedComponents = 0,
+                RetiredComponents = 0,
+                RebuiltRoads = records.Count,
+                RetainedRoads = 0,
+                RetiredRoads = 0,
+                RebuiltJunctions = totalJunctions,
+                RetainedJunctions = 0,
+                RebuiltTrafficNetworks = state.Components.Count,
+                RetainedTrafficNetworks = 0,
+                RebuiltVehiclePools = state.Components.Count,
+                RetainedVehiclePools = 0,
+            });
+
             states[context.World] = state;
             newest = state;
             Current = this;
@@ -790,19 +1373,25 @@ namespace Metro.App.Views {
 
         /// <summary>
         /// Host hook: one station-clock sample. Signal lenses and ambient vehicle
-        /// poses follow the same authoritative time; the caller owns the clock.
+        /// poses follow the same authoritative time across every active road component;
+        /// the caller owns the clock.
         /// </summary>
         public void Update(double simTimeSeconds) {
             var state = newest;
             if (state == null) return;
             if (state.View != null) state.View.SetSimTime(simTimeSeconds);
-            if (state.Traffic == null) return;
+            if (state.Components.Count == 0) return;
             if (!double.IsNaN(state.SampledTime) && Math.Abs(simTimeSeconds - state.SampledTime) <= 1e-9) return;
-            state.Traffic.Advance(simTimeSeconds);
-            if (state.Vehicles != null) {
-                if (state.World != null) state.Vehicles.RenderForWorld(simTimeSeconds, state.World);
-                else state.Vehicles.Render(simTimeSeconds, null);
+            for (int i = 0; i < state.Components.Count; i++) {
+                var comp = state.Components[i];
+                if (comp.Traffic == null) continue;
+                comp.Traffic.Advance(simTimeSeconds);
+                if (state.Vehicles != null) {
+                    state.Vehicles.RenderComponentForWorld(comp.Serial, comp.Traffic, comp.VehicleIdOffset,
+                        simTimeSeconds, state.World);
+                }
             }
+            state.Vehicles?.RefreshWorldCounts();
             state.SampledTime = simTimeSeconds;
         }
 
@@ -825,6 +1414,10 @@ namespace Metro.App.Views {
                 if (record.HasTo) row["to"] = new JArray(record.To.X, record.To.Y);
                 endpoints.Add(row);
             }
+            int totalSimCars = 0;
+            for (int i = 0; i < state.Components.Count; i++) {
+                if (state.Components[i].Traffic != null) totalSimCars += state.Components[i].Traffic.Cars.Count;
+            }
             return new JObject {
                 ["records"] = state.Records.Length,
                 ["segments"] = view != null ? view.Segments : 0,
@@ -832,7 +1425,7 @@ namespace Metro.App.Views {
                 ["signals"] = view != null ? view.SignalsBuilt : 0,
                 ["endpoints"] = endpoints,
                 ["simTime"] = double.IsNaN(state.SampledTime) ? JValue.CreateNull() : new JValue(state.SampledTime),
-                ["simCars"] = state.Traffic != null ? state.Traffic.Cars.Count : 0,
+                ["simCars"] = totalSimCars,
                 ["vehicles"] = new JObject {
                     ["visible"] = vehicles != null ? vehicles.VisibleVehicles : 0,
                     ["sampled"] = vehicles != null ? vehicles.SampledVehicles : 0,

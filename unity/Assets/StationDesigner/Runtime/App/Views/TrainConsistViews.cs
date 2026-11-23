@@ -41,6 +41,8 @@ namespace Metro.App.Views {
         public readonly List<Vector3> PlatformPoints = new List<Vector3>();
         /// <summary>True when the document binds a platform edge to this track.</summary>
         public bool HasPlatform;
+        /// <summary>Track-local platform sides owned by this berth: bit 0 = left (+y), bit 1 = right (−y).</summary>
+        public int TrackDoorSides;
         /// <summary>Consist door bank bitmask (bit 0 = +1, bit 1 = −1, 0..3).</summary>
         public int DoorBankMask;
         /// <summary>The bank that faces the platform when no edge exists (the source's `plus`).</summary>
@@ -453,28 +455,21 @@ namespace Metro.App.Views {
             ConnectedRun(document, track, out float back, out float forward);
             var direction = track.Config.Text("dir");
             if (direction.Length == 0) direction = line.Direction;
-            var edge = PlatformEdgeFor(document, track, line.Id, direction);
+            var selectedEdges = new List<StationModuleRecord>(2);
+            StationRailGeometry.SelectBerthPlatformEdges(document, track, line.Id, direction, selectedEdges);
+            var edge = selectedEdges.Count > 0 ? selectedEdges[0] : null;
             int dirSign = DirectionSign(track, line);
             var facts = new List<ModuleFacts>(document.Modules.Count);
             for (int i = 0; i < document.Modules.Count; i++) facts.Add(document.Modules[i].Facts);
             int trackSides = 0;
-            var platformPoints = new List<Vector3>();
-            if (!track.Config.Bool("tunnel") && !track.Config.Bool("bridge")) {
-                for (int i = 0; i < document.Modules.Count; i++) {
-                    var m = document.Modules[i];
-                    if (m == null || !string.Equals(m.Type, "platform-edge", StringComparison.Ordinal)) continue;
-                    if (!string.Equals(m.Config.Text("line"), line.Id, StringComparison.Ordinal)) continue;
-                    var from = m.Config.Text("from");
-                    bool matches = from.Length > 0
-                        ? string.Equals(from, track.Id, StringComparison.Ordinal)
-                        : string.Equals(m.Config.Text("dir"), direction, StringComparison.Ordinal);
-                    if (!matches) continue;
-                    bool isLeft = string.Equals(m.Config.Text("side"), "left", StringComparison.Ordinal);
-                    int bit = isLeft ? 1 : 2;
-                    if ((trackSides & bit) == 0) {
-                        trackSides |= bit;
-                        platformPoints.Add(new Vector3(m.X + .5f, m.Y + .5f, m.Z + .5f));
-                    }
+            var platformPoints = new List<Vector3>(selectedEdges.Count);
+            for (int i = 0; i < selectedEdges.Count; i++) {
+                var m = selectedEdges[i];
+                bool isLeft = string.Equals(m.Config.Text("side"), "left", StringComparison.Ordinal);
+                int bit = isLeft ? 1 : 2;
+                if ((trackSides & bit) == 0) {
+                    trackSides |= bit;
+                    platformPoints.Add(new Vector3(m.X + .5f, m.Y + .5f, m.Z + .5f));
                 }
             }
             berth = new TrainBerth {
@@ -483,11 +478,12 @@ namespace Metro.App.Views {
                 DirectionSign = dirSign,
                 HalfLength = TrainConsist.Length(line.Stock, line.Cars, modelScale) * .5f,
                 ApproachRun = back, DepartRun = forward,
-                HasPlatform = edge != null || platformPoints.Count > 0,
+                HasPlatform = edge != null,
+                TrackDoorSides = trackSides,
                 DoorBankMask = StationTrainPose.ConsistDoorBankMask(trackSides, dirSign),
                 PlatformPoint = edge != null
                     ? new Vector3(edge.X + .5f, edge.Y + .5f, edge.Z + .5f)
-                    : (platformPoints.Count > 0 ? platformPoints[0] : new Vector3(position.x, position.y - 1.5f, position.z)),
+                    : new Vector3(position.x, position.y - 1.5f, position.z),
                 DefaultPlatformBank = 1,
                 Track = track,
                 RailSurfaceZ = StationRailGeometry.RailSurfaceZ(track, modelScale),
@@ -618,7 +614,7 @@ namespace Metro.App.Views {
         readonly Dictionary<string, float> lastBankFraction = new Dictionary<string, float>(StringComparer.Ordinal);
         readonly List<TrainDoorEvent> doorEvents = new List<TrainDoorEvent>();
         readonly HashSet<string> activeIds = new HashSet<string>(StringComparer.Ordinal);
-        readonly ModuleMotionDispatch dispatch = new ModuleMotionDispatch();
+        readonly ModuleMotionDispatch dispatch = new ModuleMotionDispatch { MeasureDisplacement = false };
         readonly Dictionary<string, StaticCombinedPart[]> staticBodyCache =
             new Dictionary<string, StaticCombinedPart[]>(StringComparer.Ordinal);
         readonly List<Mesh> staticBodyMeshes = new List<Mesh>();
@@ -1091,21 +1087,12 @@ namespace Metro.App.Views {
                 }
             }
 
-            // The rig measures the promoted leaves against the stock's own door
-            // width; the bank that faces the platform is read off the placed object,
-            // so a reversed service opens its mirrored bank and the far side stays shut.
+            // The rig measures the promoted leaves against the stock's own door width;
+            // track-local platform sides are converted into consist-local door banks once
+            // at the consist boundary via StationTrainPose.ConsistDoorBankMask.
             var rig = new TrainDoorRig(instance, TrainDoorRig.ForLine(line.Stock, line.Cars, scale));
             view.Rig = rig;
-            int bankMask = 0;
-            if (berth.PlatformPoints.Count > 0) {
-                for (int p = 0; p < berth.PlatformPoints.Count; p++) {
-                    int b = TrainDoorRig.BankFacing(instance.transform, StationCoordinates.Point(berth.PlatformPoints[p]));
-                    bankMask |= b >= 0 ? 1 : 2;
-                }
-            } else if (berth.HasPlatform) {
-                int b = TrainDoorRig.BankFacing(instance.transform, StationCoordinates.Point(berth.PlatformPoint));
-                bankMask = b >= 0 ? 1 : 2;
-            }
+            int bankMask = berth.DoorBankMask;
             view.DoorBankMask = bankMask;
             view.PlatformBank = (bankMask & 1) != 0 ? 1 : ((bankMask & 2) != 0 ? -1 : berth.DefaultPlatformBank);
             rig.SetActiveBankMask(bankMask);
@@ -1625,23 +1612,25 @@ namespace Metro.App.Views {
             try {
                 var host = StationGameHost.ResolveActive();
                 if (host == null) return;
-                var live = (host.Simulation as StationSimulationHost)?.Session;
-                if (live == null) return;
+                var simHost = host.Simulation as StationSimulationHost;
+                var published = simHost?.PublishedFrame;
+                if (published == null) return;
+                var live = simHost.Session;
                 bool reset = !ReferenceEquals(live, session) || clock.Epoch != lastEpoch;
                 if (reset) {
                     // A new session or an invalidated history: snap to the frame's own
                     // pose instead of blending from a route the station no longer has.
                     session = live;
                     lastEpoch = clock.Epoch;
-                    lastTick = clock.Tick;
-                    frame = live.Snapshot();
+                    lastTick = published.Tick;
+                    frame = published.Motion;
                     hasFrame = true;
                     renderer.Apply(frame, 1f, true);
                     return;
                 }
-                if (!hasFrame || clock.Tick != lastTick) {
-                    frame = live.Snapshot();
-                    lastTick = clock.Tick;
+                if (!hasFrame || published.Tick != lastTick) {
+                    frame = published.Motion;
+                    lastTick = published.Tick;
                     hasFrame = true;
                 }
                 renderer.Apply(frame, (float)clock.Fraction, false);

@@ -222,7 +222,7 @@ namespace Metro.App.Views {
         readonly List<ConsistTrayBinding> consistBindings = new List<ConsistTrayBinding>();
         readonly Dictionary<string, ConsistTrayBinding> consistById = new Dictionary<string, ConsistTrayBinding>(StringComparer.Ordinal);
         readonly Dictionary<string, Material> consistLiveryPool = new Dictionary<string, Material>(StringComparer.Ordinal);
-        readonly ModuleMotionDispatch trainDoorDispatch = new ModuleMotionDispatch();
+        readonly ModuleMotionDispatch trainDoorDispatch = new ModuleMotionDispatch { MeasureDisplacement = false };
         bool trainMarkListenerAttached;
 
         // Deferred prop batch state (cleared once equipmentReady is true)
@@ -1928,18 +1928,7 @@ namespace Metro.App.Views {
 
                     var rig = new TrainDoorRig(instance, TrainDoorRig.ForLine(line.Stock, line.Cars, scale));
                     view.Rig = rig;
-                    int bankMask = 0;
-                    if (berth.PlatformPoints.Count > 0) {
-                        for (int p = 0; p < berth.PlatformPoints.Count; p++) {
-                            int b = TrainDoorRig.BankFacing(instance.transform,
-                                trays[trayIdx].LiveRoot.TransformPoint(StationCoordinates.Point(berth.PlatformPoints[p])));
-                            bankMask |= b >= 0 ? 1 : 2;
-                        }
-                    } else if (berth.HasPlatform) {
-                        int b = TrainDoorRig.BankFacing(instance.transform,
-                            trays[trayIdx].LiveRoot.TransformPoint(StationCoordinates.Point(berth.PlatformPoint)));
-                        bankMask = b >= 0 ? 1 : 2;
-                    }
+                    int bankMask = berth.DoorBankMask;
                     view.DoorBankMask = bankMask;
                     view.PlatformBank = (bankMask & 1) != 0 ? 1 : ((bankMask & 2) != 0 ? -1 : berth.DefaultPlatformBank);
                     rig.SetActiveBankMask(bankMask);
@@ -1995,6 +1984,38 @@ namespace Metro.App.Views {
         /// Updates passengers, train consists, lift cabins, and escalator rolling steps from the
         /// live simulation session without copying navigation state.
         /// </summary>
+        long lastLiveGeneration = long.MinValue;
+
+        public void TickPublishedPoses(StationPublishedSimFrame published, StationFrameClock clock, bool forceSnap = false) {
+            ThrowIfDisposed();
+            SyncEscalatorSteps();
+            if (published == null) return;
+
+            bool reset = forceSnap ||
+                         !hasCachedLiveSample ||
+                         published.Generation != lastLiveGeneration ||
+                         clock.Epoch != lastLiveEpoch;
+
+            if (reset || published.Tick != lastLiveTick) {
+                lastLiveGeneration = published.Generation;
+                cachedSession = null;
+                cachedMotionFrame = published.Motion;
+                cachedPassengerFrames = published.Motion.Passengers ?? Array.Empty<StationPassengerFrame>();
+                UpdatePassengerTickBuffers(cachedPassengerFrames, reset);
+                lastLiveTick = published.Tick;
+                lastLiveEpoch = clock.Epoch;
+                hasCachedLiveSample = true;
+            }
+
+            lastLiveAlpha = reset ? 1f : Mathf.Clamp01((float)clock.Fraction);
+            lastPresentationSeconds = clock.PresentationSeconds;
+            lastClockPlaying = clock.Playing;
+
+            ApplyTrainFrames(cachedMotionFrame, lastLiveAlpha, reset);
+            ApplyLiftFrames(cachedMotionFrame);
+            ApplyPassengerFrames(lastLiveAlpha, lastPresentationSeconds, snapAll: reset);
+        }
+
         public void TickLivePoses(StationSimulationSession session, StationFrameClock clock, bool forceSnap = false) {
             ThrowIfDisposed();
             SyncEscalatorSteps();

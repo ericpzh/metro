@@ -284,6 +284,31 @@ namespace Metro.Sim {
             return rails[0].Id;
         }
 
+        /// <summary>
+        /// Resolves which service track owns <paramref name="edge"/> under the shared berth-ownership
+        /// rule (<see cref="StationTrainPose.SelectBerthPlatformEdges"/>): a track with explicit
+        /// <c>cfg.from</c> edges owns only those explicit edges and does not claim unbound legacy edges
+        /// on the same direction. Returns <c>""</c> for line-only services (no service tracks) or
+        /// for unowned legacy edges suppressed by explicit berth ownership.
+        /// </summary>
+        public static string OwnerTrackForEdge(StationSessionDocument document, StationModuleFact edge,
+            StationLineFact line, bool haveLine) {
+            if (document == null) return "";
+            var lineId = edge.LineId ?? "";
+            var rails = ServiceTracks(document, lineId);
+            if (rails.Count == 0) return "";
+            var selected = new List<StationModuleFact>(2);
+            for (int i = 0; i < rails.Count; i++) {
+                var track = rails[i];
+                var trackDir = !string.IsNullOrEmpty(track.Dir) ? track.Dir : (haveLine ? line.Direction : "up");
+                StationTrainPose.SelectBerthPlatformEdges(document, track, lineId, trackDir, selected);
+                for (int e = 0; e < selected.Count; e++) {
+                    if (string.Equals(selected[e].Id, edge.Id, StringComparison.Ordinal)) return track.Id ?? "";
+                }
+            }
+            return "";
+        }
+
         /// <summary>Every eligible doorway of a (line, track) service, in document order.</summary>
         public static List<StationDoorSlot> ForService(StationSessionDocument document, StationWalkGraph graph,
             string lineId, string trackId, out List<string> diagnostics) {
@@ -309,14 +334,20 @@ namespace Metro.Sim {
             // A service with no track id on a line that runs no rail keeps every edge: there is
             // nothing to attribute its doors to (the source's line-only service).
             bool lineOnly = string.IsNullOrEmpty(trackId) && rails.Count == 0;
-            var edges = document.ModulesOfType("platform-edge");
+            IReadOnlyList<StationModuleFact> edges;
+            if (lineOnly) {
+                edges = document.ModulesOfType("platform-edge");
+            } else if (hasTrack) {
+                var trackDir = !string.IsNullOrEmpty(track.Dir) ? track.Dir : (haveLine ? line.Direction : "up");
+                var owned = new List<StationModuleFact>(2);
+                StationTrainPose.SelectBerthPlatformEdges(document, track, lineId, trackDir, owned);
+                edges = owned;
+            } else {
+                return slots;
+            }
             for (int i = 0; i < edges.Count; i++) {
                 var edge = edges[i];
                 if (!string.Equals(edge.LineId, lineId, StringComparison.Ordinal)) continue;
-                if (!lineOnly) {
-                    var resolved = ResolveEdgeTrack(document, edge, line, haveLine);
-                    if (!string.Equals(resolved, trackId, StringComparison.Ordinal)) continue;
-                }
                 var edgeSlots = ForEdge(document, graph, edge, hasTrack ? track : default, line, out string diagnostic);
                 if (diagnostic.Length > 0) diagnostics.Add(diagnostic);
                 for (int s = 0; s < edgeSlots.Count; s++) {

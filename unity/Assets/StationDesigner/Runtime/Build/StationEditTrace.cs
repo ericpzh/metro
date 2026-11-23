@@ -27,6 +27,10 @@ namespace Metro.Build {
         public int ClonedRecords;
         public int RebuiltChunks;
         public int RetainedChunks;
+        public int RebuiltRoadComponents;
+        public int RetainedRoadComponents;
+        public int RebuiltRoads;
+        public int RetainedRoads;
         public int InstantiatedPrefabs;
         public int GraphNodes;
         public int TouchedGraphNodes;
@@ -68,6 +72,14 @@ namespace Metro.Build {
             if (currentMetrics == null) return;
             if (rebuilt > 0) currentMetrics.RebuiltChunks += rebuilt;
             if (retained > 0) currentMetrics.RetainedChunks += retained;
+        }
+
+        public static void AddRoadDelta(int rebuiltComponents, int retainedComponents, int rebuiltRoads, int retainedRoads) {
+            if (currentMetrics == null) return;
+            if (rebuiltComponents > 0) currentMetrics.RebuiltRoadComponents += rebuiltComponents;
+            if (retainedComponents > 0) currentMetrics.RetainedRoadComponents += retainedComponents;
+            if (rebuiltRoads > 0) currentMetrics.RebuiltRoads += rebuiltRoads;
+            if (retainedRoads > 0) currentMetrics.RetainedRoads += retainedRoads;
         }
 
         public static void AddInstantiatedPrefabs(int count) {

@@ -81,6 +81,10 @@ export interface StationSnapshot {
   resyncNeeded?: boolean
   /** Duration in ms of the latest `adopt` call for profiling. */
   lastAdoptMs?: number
+  /** Command id of the latest accepted commit reply (for correlating startup / add-line commands). */
+  lastCommitId?: string
+  /** Created line id emitted by a correlated `edit.line.add` commit reply, or null. */
+  lastCommitLineId?: string | null
   state: Record<string, unknown>
   capabilities: Record<string, boolean>
   rejects: RejectRecord[]
@@ -138,6 +142,8 @@ const EMPTY: StationSnapshot = {
   adoptedRevision: -1,
   resyncNeeded: false,
   lastAdoptMs: 0,
+  lastCommitId: '',
+  lastCommitLineId: null,
   state: {},
   capabilities: {},
   rejects: [],
@@ -180,7 +186,7 @@ const commitListeners = new Set<(snapshot: StationSnapshot) => void>()
 // The shell mounts before Unity finishes booting, so the first demo open is sent
 // into this queue and flushed once the player registers. Nothing is dropped and
 // no command is replayed twice: the queue holds only commands, not documents.
-const queue: { type: string; payload?: unknown; expectedRevision?: number }[] = []
+const queue: { id: string; type: string; payload?: unknown; expectedRevision?: number }[] = []
 
 function retireRequestId(id: string): void {
   retiredRequestIds.add(id)
@@ -258,6 +264,8 @@ export function reduce(current: StationSnapshot, reply: Reply): StationSnapshot 
     ? payload.stationEpoch
     : current.stationEpoch
   if (kind === 'commit') {
+    const commitId = typeof reply.id === 'string' ? reply.id : ''
+    const commitLineId = typeof payload.lineId === 'string' && payload.lineId.length > 0 ? payload.lineId : null
     const hasDocument = typeof payload.document === 'string'
     const hasDelta = !hasDocument && payload.delta !== undefined
     if (hasDocument) {
@@ -277,6 +285,8 @@ export function reduce(current: StationSnapshot, reply: Reply): StationSnapshot 
         documentRevision: revision,
         delta: null,
         resyncNeeded: false,
+        lastCommitId: commitId,
+        lastCommitLineId: commitLineId,
         sourceId: typeof payload.sourceId === 'string' ? payload.sourceId : current.sourceId,
         sourceHash,
         sourceHashRevision,
@@ -309,6 +319,8 @@ export function reduce(current: StationSnapshot, reply: Reply): StationSnapshot 
         document: null,
         delta,
         resyncNeeded: false,
+        lastCommitId: commitId,
+        lastCommitLineId: commitLineId,
         sourceId: typeof payload.sourceId === 'string' ? payload.sourceId : current.sourceId,
         sourceHash,
         sourceHashRevision,
@@ -322,6 +334,8 @@ export function reduce(current: StationSnapshot, reply: Reply): StationSnapshot 
       ...current,
       revision,
       stationEpoch,
+      lastCommitId: commitId,
+      lastCommitLineId: commitLineId,
       sourceId: typeof payload.sourceId === 'string' ? payload.sourceId : current.sourceId,
       sourceHash: typeof payload.sourceHash === 'string'
         ? (payload.sourceHash.length > 0 ? payload.sourceHash : null)
@@ -501,7 +515,7 @@ export const stationBridge = {
     pending.clear()
     snapshot = { ...EMPTY, ready: true, sessionId: newSessionId() }
     listeners.forEach(listener => listener())
-    for (const command of queue.splice(0)) stationBridge.send(command.type, command.payload, { expectedRevision: command.expectedRevision })
+    for (const command of queue.splice(0)) stationBridge.send(command.type, command.payload, { id: command.id, expectedRevision: command.expectedRevision })
   },
   unregister(): void {
     player = null
@@ -514,11 +528,12 @@ export const stationBridge = {
   /** C# calls this through the WebGL bridge; a string keeps the JS boundary trivial. */
   receive(text: string): void { deliver(text) },
   send(type: string, payload?: unknown, options: { id?: string; expectedRevision?: number } = {}): string {
+    const id = options.id ?? `c-${++counter}`
     if (!player) {
-      queue.push({ type, payload, expectedRevision: options.expectedRevision })
-      return ''
+      queue.push({ id, type, payload, expectedRevision: options.expectedRevision })
+      return id
     }
-    const message = envelope(type, payload, options)
+    const message = envelope(type, payload, { ...options, id })
     pending.set(message.id, { type, at: Date.now() })
     player.SendMessage(objectName, 'BrowserCommand', JSON.stringify(message))
     return message.id

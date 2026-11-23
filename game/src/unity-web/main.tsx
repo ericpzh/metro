@@ -11,7 +11,7 @@ import { App } from '../app/windows/AppShell.tsx'
 import { ViewCube } from '../app/ViewCube.tsx'
 import type { ViewCubeAdapter } from '../app/ViewCubeAdapter.ts'
 import { useStore } from '../app/store.ts'
-import { initLanguage } from '../app/i18n.ts'
+import { getLanguage, initLanguage } from '../app/i18n.ts'
 import { isBenchmarkPath } from '../app/languageRoute.ts'
 import { msg } from '../sim/i18n.ts'
 import { measurePosition, measureText, wantsMeasure, type CellsPayload } from './pointerMeasure.ts'
@@ -39,7 +39,9 @@ import { applyHostStatistics, createStatisticsAdapter } from './statisticsAdapte
 import { readHostHistory, stationBridge } from './stationBridge.ts'
 import type { StationSnapshot } from './stationBridge.ts'
 import { applyStationDelta, seedStationCellIndex } from './stationDelta.ts'
-import { createWebGlAutosave, resolveWebGlStartupAction } from './webglAutosave.ts'
+import { createWebGlAutosave, resolveWebGlStartupAction, type WebGlAutosaveController } from './webglAutosave.ts'
+import { createLineSelectionTracker, type LineSelectionTracker } from './lineSelection.ts'
+import { createCarriedMoveAdapter } from './carriedMoveAdapter.ts'
 import { commitSignBoardsToHost, unityHostOwnsStation } from './signCommitAdapter.ts'
 import { registerStationHostCommit } from '../app/stationHostBridge.ts'
 import { beginPointerDrag } from '../app/pointerDrag.ts'
@@ -163,7 +165,29 @@ function runWithGameLoading(
 
 let adoptedStoreRevision = -1
 let adoptedStoreSession = ''
-let activeAutosave: { noteCommit: (input: { revision: number; stationEpoch: number; sourceId: string | null; documentText: string | null; station?: ReturnType<typeof useStore.getState>['station'] | null }) => void } | null = null
+let activeAutosave: WebGlAutosaveController | null = null
+let activeLineSelection: LineSelectionTracker | null = null
+
+function reconcileRailLineSelection(snapshot: StationSnapshot, lines: ReturnType<typeof useStore.getState>['station']['lines']): void {
+  const tracker = activeLineSelection
+  if (!tracker) return
+  const result = tracker.reconcile({
+    sessionId: snapshot.sessionId,
+    stationEpoch: snapshot.stationEpoch,
+    commitId: snapshot.lastCommitId ?? '',
+    createdLineId: snapshot.lastCommitLineId ?? null,
+    lines,
+    currentRailLineId: useStore.getState().railLineId,
+  })
+  if (result.createdLine) {
+    useStore.setState({
+      railLineId: result.nextRailLineId,
+      notice: msg('created_value_new_track_will_bind_automatically', result.createdLine.name),
+    })
+  } else if (result.changed) {
+    useStore.setState({ railLineId: result.nextRailLineId })
+  }
+}
 
 /**
  * Adopt a committed document or local delta into the shared store. The store is the
@@ -189,10 +213,13 @@ function adopt(snapshot: StationSnapshot): void {
     useStore.setState({ station: parsed.state, activeZ: level, speed, playing: running })
     adoptedStoreRevision = snapshot.revision
     adoptedStoreSession = snapshot.sessionId
+    reconcileRailLineSelection(snapshot, parsed.state.lines)
     activeAutosave?.noteCommit({
+      sessionId: snapshot.sessionId,
       revision: snapshot.revision,
       stationEpoch: snapshot.stationEpoch,
       sourceId: snapshot.sourceId,
+      commandId: snapshot.lastCommitId ?? null,
       documentText: snapshot.document,
       station: parsed.state,
     })
@@ -224,10 +251,13 @@ function adopt(snapshot: StationSnapshot): void {
     const running = state.playing === true || state.running === true || state.playing === 'true'
     useStore.setState({ station: nextStation, activeZ: level, speed, playing: running })
     adoptedStoreRevision = snapshot.revision
+    reconcileRailLineSelection(snapshot, nextStation.lines)
     activeAutosave?.noteCommit({
+      sessionId: snapshot.sessionId,
       revision: snapshot.revision,
       stationEpoch: snapshot.stationEpoch,
       sourceId: snapshot.sourceId,
+      commandId: snapshot.lastCommitId ?? null,
       documentText: null,
       station: nextStation,
     })
@@ -282,6 +312,18 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
   window.addEventListener('metro:station-state', onState)
   let openDesktopBenchmark: (() => void) | null = null
   let startupCancelled = false
+  // WebGL autosave (plan 37 §6.3, plan 39 §3 & §4): disabled on desktop overlay
+  // (native presenter owns it) and on benchmark routes. Created before host
+  // actions and reject listeners so every station-load command ID is correlated.
+  let webglStorage: Storage | null = null
+  try { webglStorage = typeof localStorage !== 'undefined' ? localStorage : null } catch { webglStorage = null }
+  const autosave = createWebGlAutosave({
+    enabled: !desktopOverlay && !isBenchmark,
+    storage: webglStorage,
+  })
+  activeAutosave = autosave
+  const lineSelection = createLineSelectionTracker()
+  activeLineSelection = lineSelection
   let cachedHistory = readHostHistory(stationBridge.getSnapshot())
   const getHostHistory = (): { canUndo: boolean; canRedo: boolean } => {
     const next = readHostHistory(stationBridge.getSnapshot())
@@ -318,7 +360,8 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
     },
     newStation: () => {
       startupCancelled = true
-      stationBridge.send('station.new')
+      const id = stationBridge.send('station.new')
+      autosave.trackCommand(id, 'replace')
     },
     openDemo: id => {
       startupCancelled = true
@@ -327,7 +370,10 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
         'Loading example station',
         '正在构建示例车站，请稍候。',
         'Building the example station. Please wait.',
-        () => { stationBridge.send('station.openDemo', { id }) },
+        () => {
+          const cmdId = stationBridge.send('station.openDemo', { id })
+          autosave.trackCommand(cmdId, 'replace')
+        },
       )
     },
     openSave: documentText => {
@@ -337,7 +383,10 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
         'Loading saved station',
         '正在打开存档并构建车站，请稍候。',
         'Opening your save and building the station. Please wait.',
-        () => { stationBridge.send('station.open', { document: documentText }) },
+        () => {
+          const cmdId = stationBridge.send('station.open', { document: documentText })
+          autosave.trackCommand(cmdId, 'replace')
+        },
       )
     },
     save: () => {
@@ -388,6 +437,8 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
     const latest = stationBridge.getSnapshot().rejects.at(-1)
     if (!latest || latest === lastReject) return
     lastReject = latest
+    autosave.noteReject(latest.id)
+    lineSelection.noteReject(latest.id)
     if (latest.type === 'station.open' || latest.type === 'station.openDemo' || latest.type === 'station.new' || latest.type === 'station.resync') {
       loadingToken += 1
       showGameLoading(false)
@@ -657,16 +708,6 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
   const unsubscribeEdit = stationBridge.subscribe(adoptEdit)
   adoptEdit()
 
-  // WebGL autosave (plan 37 §6.3): disabled on desktop overlay (native presenter owns it)
-  // and on benchmark routes.
-  let webglStorage: Storage | null = null
-  try { webglStorage = typeof localStorage !== 'undefined' ? localStorage : null } catch { webglStorage = null }
-  const autosave = createWebGlAutosave({
-    enabled: !desktopOverlay && !isBenchmark,
-    storage: webglStorage,
-  })
-  activeAutosave = autosave
-
   // Synchronize the active UI theme (`blueprint` / `site` / `studio`) to Unity's main
   // viewport void colour and fog on mount and on every Settings theme switch (plan 37 §6.2).
   const sendUiTheme = (): void => {
@@ -689,10 +730,18 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
   })
   queueMicrotask(() => {
     if (startupCancelled) return
-    if (startupAction.kind === 'benchmark') stationBridge.send('benchmark.mode', { active: true })
-    else if (startupAction.kind === 'openDemo') stationBridge.send('station.openDemo', { id: startupAction.id })
-    else if (startupAction.kind === 'openAutosave') stationBridge.send('station.open', { document: startupAction.document, sourceId: 'autosave' })
-    else stationBridge.send('station.resync')
+    if (startupAction.kind === 'benchmark') {
+      stationBridge.send('benchmark.mode', { active: true })
+    } else if (startupAction.kind === 'openDemo') {
+      const cmdId = stationBridge.send('station.openDemo', { id: startupAction.id })
+      autosave.trackCommand(cmdId, 'replace')
+    } else if (startupAction.kind === 'openAutosave') {
+      const cmdId = stationBridge.send('station.open', { document: startupAction.document, sourceId: 'autosave' })
+      autosave.trackCommand(cmdId, 'restore')
+    } else {
+      const cmdId = stationBridge.send('station.resync')
+      autosave.trackCommand(cmdId, 'resync')
+    }
   })
 
   const root = createRoot(element)
@@ -719,13 +768,24 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
     stationBridge.send(type, payload, rev >= 0 ? { expectedRevision: rev } : {})
     return true
   }
+  const carriedMoveAdapter = createCarriedMoveAdapter({
+    getSnapshot: () => stationBridge.getSnapshot(),
+    subscribe: listener => stationBridge.subscribe(listener),
+    ownsStation: () => unityHostOwnsStation(),
+    getLanguage: () => getLanguage(),
+  })
   registerStationHostCommit({
     ownsStation: () => unityHostOwnsStation(),
     commitSignBoards: (moduleId, boards) => commitSignBoardsToHost(moduleId, boards),
     commitExit: (moduleId, patch) => sendRevisionedEdit('edit.exit', { moduleId, ...patch }),
     commitCityStyle: city => sendRevisionedEdit('edit.city', { city }),
     commitStationName: (name, nameEn) => sendRevisionedEdit('edit.rename', { name, nameEn }),
-    commitAddLine: direction => sendRevisionedEdit('edit.line.add', direction ? { direction } : {}),
+    commitAddLine: direction => {
+      const snap = stationBridge.getSnapshot()
+      const cmdId = stationBridge.send('edit.line.add', direction ? { direction } : {}, snap.revision >= 0 ? { expectedRevision: snap.revision } : {})
+      if (cmdId) lineSelection.trackAdd(cmdId, snap.sessionId, snap.stationEpoch)
+      return true
+    },
     commitRemoveLine: lineId => sendRevisionedEdit('edit.line.remove', { lineId }),
     commitUpdateLine: (lineId, patch) => sendRevisionedEdit('edit.line.update', { lineId, patch }),
     commitLiftDoorSide: (moduleId, z, side) => sendRevisionedEdit('edit.lift.doors', { moduleId, z, side }),
@@ -785,12 +845,16 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
       stationBridge.send('edit.move.lightPosition', {})
       return true
     },
+    getCarriedMove: () => carriedMoveAdapter.getCarriedMove(),
+    subscribeCarriedMove: listener => carriedMoveAdapter.subscribeCarriedMove(listener),
   })
   const unmount = (): void => {
     if (activeShell !== null && activeShell.unmount === unmount) activeShell = null
     startupCancelled = true
     if (activeAutosave === autosave) activeAutosave = null
     autosave.dispose()
+    if (activeLineSelection === lineSelection) activeLineSelection = null
+    lineSelection.clear()
     unsubscribeTheme()
     registerStationHostCommit(null)
     stopAdopting()

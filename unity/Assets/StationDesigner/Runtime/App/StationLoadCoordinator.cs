@@ -714,39 +714,233 @@ namespace Metro.App {
     /// the session's flat projection from the typed document; the session itself
     /// never sees JSON, Prefabs or the scene.
     /// </summary>
+    /// <summary>
+    /// Coherent, immutable simulation frame published by <see cref="StationSimulationHost"/>
+    /// so main-thread presentation sinks, audio, bridge state, and benchmarks never read
+    /// mutable simulation state while the desktop worker thread is stepping.
+    /// </summary>
+    public sealed class StationPublishedSimFrame {
+        public long Generation;
+        public long Tick;
+        public long Epoch;
+        public bool Playing;
+        public int Speed;
+        public double SimTimeSeconds;
+        public double PresentationFraction;
+        public StationMotionFrame Motion;
+        public int WalkNodeCount;
+        public int QueuedTotal;
+        public int BoardedOnboard;
+        public string ClockPayloadJson;
+        public string CapabilitiesPayloadJson;
+    }
+
     public sealed class StationSimulationHost : IStationLocalSimulationHost, IStationSimulationCommands {
         public static Action<StationDocument> SimStageFailureInjector { get; set; }
 
+        /// <summary>
+        /// Optional override for desktop background worker mode. When null, Windows standalone
+        /// players enable the worker unless <c>-metroSimSync</c> is passed on the command line;
+        /// WebGL and Editor tests stay synchronous by default.
+        /// </summary>
+        public static bool? WorkerModeOverride { get; set; }
+
+        static bool? cliSyncFlag;
+        static bool ShouldUseWorker() {
+#if UNITY_WEBGL
+            return false;
+#else
+            if (WorkerModeOverride.HasValue) return WorkerModeOverride.Value;
+            if (!Application.isPlaying || Application.isEditor) return false;
+            if (!cliSyncFlag.HasValue) {
+                bool sync = false;
+                try {
+                    var args = Environment.GetCommandLineArgs();
+                    for (int i = 0; i < args.Length; i++) {
+                        if (string.Equals(args[i], "-metroSimSync", StringComparison.OrdinalIgnoreCase)) {
+                            sync = true;
+                            break;
+                        }
+                    }
+                } catch { /* ignore */ }
+                cliSyncFlag = sync;
+            }
+            return !cliSyncFlag.Value;
+#endif
+        }
+
+        readonly object sessionLock = new object();
+        readonly object pendingLock = new object();
         StationSimulationSession pendingSession;
         StagedStationDocumentEdit pendingEdit;
         StationDocument pendingDocument;
         bool pendingIsEdit;
         StationSimulationSession session;
         StationDocument committedDocument;
+        long generation;
+        StationPublishedSimFrame publishedFrame;
+        double pendingDeltaSeconds;
+        double subTickElapsedSeconds;
+        long lastSubTickSeen = long.MinValue;
+        volatile bool stagingHold;
+        volatile bool workerStop;
+        System.Threading.Thread workerThread;
+        System.Threading.AutoResetEvent wakeEvent;
+
+        public long WorkerTicksCompleted { get; private set; }
+        public bool IsWorkerActive => workerThread != null;
 
         public StationSimulationSession Session => session;
+
+        /// <summary>
+        /// Latest coherent published simulation frame. Lock-free on the main thread when the
+        /// desktop worker is active; on the synchronous path returns the cached frame for the
+        /// current tick.
+        /// </summary>
+        public StationPublishedSimFrame PublishedFrame {
+            get {
+                var current = System.Threading.Volatile.Read(ref publishedFrame);
+                if (current != null) return current;
+                if (session == null) return null;
+                lock (sessionLock) {
+                    if (session == null) return null;
+                    return PublishFrameLocked();
+                }
+            }
+        }
+
+        public T WithSessionLock<T>(Func<StationSimulationSession, T> reader, T fallback = default) {
+            if (reader == null) return fallback;
+            lock (sessionLock) {
+                if (session == null) return fallback;
+                return reader(session);
+            }
+        }
+
+        public void WithSessionLock(Action<StationSimulationSession> action) {
+            if (action == null) return;
+            lock (sessionLock) {
+                if (session == null) return;
+                action(session);
+            }
+        }
+
+        void EnsureWorkerStarted() {
+#if !UNITY_WEBGL
+            if (!ShouldUseWorker()) return;
+            if (workerThread != null) return;
+            workerStop = false;
+            wakeEvent = new System.Threading.AutoResetEvent(false);
+            workerThread = new System.Threading.Thread(WorkerLoop) {
+                IsBackground = true,
+                Name = "StationSimWorker",
+            };
+            workerThread.Start();
+#endif
+        }
+
+        void StopWorker() {
+#if !UNITY_WEBGL
+            var thread = workerThread;
+            if (thread == null) return;
+            workerStop = true;
+            try { wakeEvent?.Set(); } catch { /* ignore */ }
+            if (thread.IsAlive && !ReferenceEquals(thread, System.Threading.Thread.CurrentThread)) {
+                thread.Join(2000);
+            }
+            workerThread = null;
+            try { wakeEvent?.Dispose(); } catch { /* ignore */ }
+            wakeEvent = null;
+#endif
+        }
+
+#if !UNITY_WEBGL
+        void WorkerLoop() {
+            while (!workerStop) {
+                try {
+                    wakeEvent?.WaitOne(16);
+                } catch {
+                    break;
+                }
+                if (workerStop || stagingHold) continue;
+                double dt;
+                lock (pendingLock) {
+                    dt = pendingDeltaSeconds;
+                    pendingDeltaSeconds = 0;
+                }
+                if (dt <= 0) continue;
+                lock (sessionLock) {
+                    if (workerStop || stagingHold || session == null || !session.Playing) continue;
+                    int stepped = session.Advance(dt);
+                    if (stepped > 0) {
+                        WorkerTicksCompleted += stepped;
+                        PublishFrameLocked();
+                    }
+                }
+            }
+        }
+#endif
+
+        StationPublishedSimFrame PublishFrameLocked() {
+            if (session == null) {
+                System.Threading.Volatile.Write(ref publishedFrame, null);
+                return null;
+            }
+            var motion = session.Snapshot();
+            var next = new StationPublishedSimFrame {
+                Generation = generation,
+                Tick = session.Tick,
+                Epoch = session.PresentationEpoch,
+                Playing = session.Playing,
+                Speed = session.Speed,
+                SimTimeSeconds = session.Clock?.SimTime ?? 0,
+                PresentationFraction = session.PresentationFraction,
+                Motion = motion,
+                WalkNodeCount = session.WalkGraph?.NodeCount ?? 0,
+                QueuedTotal = session.Services?.QueueTotal ?? 0,
+                BoardedOnboard = session.Services?.Onboard ?? 0,
+                ClockPayloadJson = session.ClockPayloadJson(),
+                CapabilitiesPayloadJson = session.CapabilitiesPayloadJson(),
+            };
+            System.Threading.Volatile.Write(ref publishedFrame, next);
+            return next;
+        }
+
+        void DrainWorkerForStaging() {
+            stagingHold = true;
+            lock (pendingLock) { pendingDeltaSeconds = 0; }
+            lock (sessionLock) { /* barrier: any in-flight worker tick has finished */ }
+        }
 
         public void StageInstall(StationDocument document, StationIndex index, bool isEdit = false,
             StationDocumentEditKind? editKind = null) {
             using var editSample = StationEditProfiling.Measure("StationEdit.StageInstall");
             using var traceSample = StationEditTrace.Measure("Sim.StageInstall");
+            DrainWorkerForStaging();
             pendingSession = null;
             pendingEdit = null;
             pendingDocument = document;
             pendingIsEdit = false;
-            SimStageFailureInjector?.Invoke(document);
-            if (isEdit && session != null && committedDocument != null) {
-                StationEditTrace.NoteSimFallback("full-stage-install");
-                var kind = editKind ?? StationEditClassifier.Classify(committedDocument, document);
-                var projectedDoc = StationSessionProjection.Document(document, index);
-                var projectedDay = StationSessionProjection.Day(document.Day);
-                pendingEdit = session.StageDocumentEdit(projectedDoc, projectedDay, kind);
-                pendingIsEdit = true;
-                StationEditTrace.SetGraphCounts(pendingEdit.WalkGraph?.NodeCount ?? 0, pendingEdit.RebuiltNodeCount, 0);
-                return;
+            try {
+                SimStageFailureInjector?.Invoke(document);
+                if (isEdit && session != null && committedDocument != null) {
+                    StationEditTrace.NoteSimFallback("full-stage-install");
+                    var kind = editKind ?? StationEditClassifier.Classify(committedDocument, document);
+                    var projectedDoc = StationSessionProjection.Document(document, index);
+                    var projectedDay = StationSessionProjection.Day(document.Day);
+                    lock (sessionLock) {
+                        pendingEdit = session.StageDocumentEdit(projectedDoc, projectedDay, kind);
+                    }
+                    pendingIsEdit = true;
+                    StationEditTrace.SetGraphCounts(pendingEdit.WalkGraph?.NodeCount ?? 0, pendingEdit.RebuiltNodeCount, 0);
+                    return;
+                }
+                var setup = StationSessionProjection.Setup(document, index, "sim-" + (document.Source.Hash ?? ""));
+                pendingSession = new StationSimulationSession(setup);
+            } catch {
+                stagingHold = false;
+                throw;
             }
-            var setup = StationSessionProjection.Setup(document, index, "sim-" + (document.Source.Hash ?? ""));
-            pendingSession = new StationSimulationSession(setup);
         }
 
         public void StageLocalInstall(
@@ -757,61 +951,85 @@ namespace Metro.App {
             StationDocumentEditKind? editKind = null) {
             using var editSample = StationEditProfiling.Measure("StationEdit.StageLocalInstall");
             using var traceSample = StationEditTrace.Measure("Sim.StageLocalInstall");
+            DrainWorkerForStaging();
             pendingSession = null;
             pendingEdit = null;
             pendingDocument = document;
             pendingIsEdit = false;
-            SimStageFailureInjector?.Invoke(document);
-            if (session == null || committedDocument == null || committedRead == null || nextRead == null ||
-                !ReferenceEquals(committedDocument, committedRead.Document) || nextRead.LocalDelta == null) {
-                StationEditTrace.NoteSimFallback("missing-local-parent");
-                StageInstall(document, index, isEdit: true, editKind: editKind);
-                return;
+            try {
+                SimStageFailureInjector?.Invoke(document);
+                if (session == null || committedDocument == null || committedRead == null || nextRead == null ||
+                    !ReferenceEquals(committedDocument, committedRead.Document) || nextRead.LocalDelta == null) {
+                    StationEditTrace.NoteSimFallback("missing-local-parent");
+                    StageInstall(document, index, isEdit: true, editKind: editKind);
+                    return;
+                }
+                var kind = editKind ?? StationEditClassifier.ClassifyLocal(committedRead, nextRead);
+                var simDelta = StationSessionProjection.Delta(nextRead.LocalDelta, document, committedRead.Index, index);
+                var projectedDay = StationSessionProjection.Day(document.Day);
+                string nextStationId = string.IsNullOrEmpty(document.Source.Hash) ? null : document.Source.Hash;
+                lock (sessionLock) {
+                    pendingEdit = session.StageCellDelta(nextStationId, document.LevelBase, projectedDay, simDelta, kind);
+                }
+                pendingIsEdit = true;
+                if (pendingEdit.UsedIncrementalGraph) {
+                    StationEditTrace.NoteIncrementalGraph();
+                } else if (!string.IsNullOrEmpty(pendingEdit.FallbackReason)) {
+                    StationEditTrace.NoteSimFallback(pendingEdit.FallbackReason);
+                }
+                StationEditTrace.SetGraphCounts(pendingEdit.WalkGraph?.NodeCount ?? 0, pendingEdit.RebuiltNodeCount, 0);
+            } catch {
+                stagingHold = false;
+                throw;
             }
-            var kind = editKind ?? StationEditClassifier.ClassifyLocal(committedRead, nextRead);
-            var simDelta = StationSessionProjection.Delta(nextRead.LocalDelta, document, committedRead.Index, index);
-            var projectedDay = StationSessionProjection.Day(document.Day);
-            string nextStationId = string.IsNullOrEmpty(document.Source.Hash) ? null : document.Source.Hash;
-            pendingEdit = session.StageCellDelta(nextStationId, document.LevelBase, projectedDay, simDelta, kind);
-            pendingIsEdit = true;
-            if (pendingEdit.UsedIncrementalGraph) {
-                StationEditTrace.NoteIncrementalGraph();
-            } else if (!string.IsNullOrEmpty(pendingEdit.FallbackReason)) {
-                StationEditTrace.NoteSimFallback(pendingEdit.FallbackReason);
-            }
-            StationEditTrace.SetGraphCounts(pendingEdit.WalkGraph?.NodeCount ?? 0, pendingEdit.RebuiltNodeCount, 0);
         }
 
         public void CommitInstall() {
             using var editSample = StationEditProfiling.Measure("StationEdit.CommitInstall");
             using var traceSample = StationEditTrace.Measure("Sim.CommitInstall");
-            if (pendingIsEdit && session != null) {
-                session.CommitDocumentEdit(pendingEdit);
-                StationEditTrace.SetGraphCounts(session.WalkGraph?.NodeCount ?? 0, 0, session.Services?.LastReconciledPassengers ?? 0);
+            lock (sessionLock) {
+                if (pendingIsEdit && session != null) {
+                    session.CommitDocumentEdit(pendingEdit);
+                    StationEditTrace.SetGraphCounts(session.WalkGraph?.NodeCount ?? 0, 0, session.Services?.LastReconciledPassengers ?? 0);
+                    committedDocument = pendingDocument;
+                    pendingEdit = null;
+                    pendingDocument = null;
+                    pendingIsEdit = false;
+                    generation++;
+                    PublishFrameLocked();
+                    stagingHold = false;
+                    EnsureWorkerStarted();
+                    BindPassengerFeed();
+                    return;
+                }
+                session = pendingSession;
                 committedDocument = pendingDocument;
+                pendingSession = null;
                 pendingEdit = null;
                 pendingDocument = null;
                 pendingIsEdit = false;
+                generation++;
+                subTickElapsedSeconds = 0;
+                lastSubTickSeen = long.MinValue;
+                PublishFrameLocked();
+                stagingHold = false;
+                EnsureWorkerStarted();
                 BindPassengerFeed();
-                return;
             }
-            session = pendingSession;
-            committedDocument = pendingDocument;
-            pendingSession = null;
-            pendingEdit = null;
-            pendingDocument = null;
-            pendingIsEdit = false;
-            BindPassengerFeed();
         }
 
         public void AbortInstall() {
-            if (pendingIsEdit && session != null) {
-                session.AbortDocumentEdit();
+            lock (sessionLock) {
+                if (pendingIsEdit && session != null) {
+                    session.AbortDocumentEdit();
+                }
+                pendingSession = null;
+                pendingEdit = null;
+                pendingDocument = null;
+                pendingIsEdit = false;
+                stagingHold = false;
             }
-            pendingSession = null;
-            pendingEdit = null;
-            pendingDocument = null;
-            pendingIsEdit = false;
+            try { wakeEvent?.Set(); } catch { /* ignore */ }
         }
 
         /// <summary>
@@ -822,58 +1040,107 @@ namespace Metro.App {
         /// </summary>
         void BindPassengerFeed() {
             if (session == null) { PassengerPoseFeeds.Clear(); return; }
-            PassengerPoseFeeds.SetSource(new SessionPassengerFeed(session));
+            PassengerPoseFeeds.SetSource(new SessionPassengerFeed(this, session));
         }
 
         public void Tick(double realSeconds) {
-            if (session != null && realSeconds > 0) session.Advance(realSeconds);
+            if (session == null || realSeconds <= 0) return;
+            if (IsWorkerActive) {
+                var current = System.Threading.Volatile.Read(ref publishedFrame);
+                if (current == null || !current.Playing) return;
+                if (current.Tick != lastSubTickSeen) {
+                    lastSubTickSeen = current.Tick;
+                    subTickElapsedSeconds = 0;
+                } else {
+                    subTickElapsedSeconds += realSeconds;
+                }
+                lock (pendingLock) {
+                    pendingDeltaSeconds = Math.Min(1.0, pendingDeltaSeconds + realSeconds);
+                }
+                try { wakeEvent?.Set(); } catch { /* ignore */ }
+                return;
+            }
+            lock (sessionLock) {
+                if (session == null) return;
+                int stepped = session.Advance(realSeconds);
+                if (stepped > 0 || publishedFrame == null) PublishFrameLocked();
+            }
         }
 
         public void Release() {
-            session = null;
-            committedDocument = null;
-            pendingSession = null;
-            pendingEdit = null;
-            pendingDocument = null;
-            pendingIsEdit = false;
+            StopWorker();
+            lock (sessionLock) {
+                session = null;
+                committedDocument = null;
+                pendingSession = null;
+                pendingEdit = null;
+                pendingDocument = null;
+                pendingIsEdit = false;
+                stagingHold = false;
+                System.Threading.Volatile.Write(ref publishedFrame, null);
+            }
             PassengerPoseFeeds.Clear();
         }
 
-        public bool Playing => session != null && session.Playing;
-        public int Speed => session?.Speed ?? 1;
-        public double SimTimeSeconds => session?.Clock?.SimTime ?? 0;
-        public long SimulationTick => session?.Tick ?? 0;
-        public double PresentationFraction => session?.PresentationFraction ?? 0;
-        public long PresentationEpoch => session?.PresentationEpoch ?? 0;
-        public string ClockPayloadJson() => session?.ClockPayloadJson() ?? "{}";
-        public string CapabilitiesPayloadJson() => session?.CapabilitiesPayloadJson() ?? "";
+        public bool Playing => PublishedFrame?.Playing ?? (session != null && session.Playing);
+        public int Speed => PublishedFrame?.Speed ?? (session?.Speed ?? 1);
+        public double SimTimeSeconds => PublishedFrame?.SimTimeSeconds ?? (session?.Clock?.SimTime ?? 0);
+        public long SimulationTick => PublishedFrame?.Tick ?? (session?.Tick ?? 0);
+        public double PresentationFraction {
+            get {
+                var frame = PublishedFrame;
+                if (frame == null) return session?.PresentationFraction ?? 0;
+                if (!IsWorkerActive) return session?.PresentationFraction ?? frame.PresentationFraction;
+                if (!frame.Playing) return frame.PresentationFraction;
+                if (frame.Tick != lastSubTickSeen) return 0;
+                double frac = subTickElapsedSeconds * Math.Max(1, frame.Speed);
+                return frac < 0 ? 0 : frac > 1 ? 1 : frac;
+            }
+        }
+        public long PresentationEpoch => PublishedFrame?.Epoch ?? (session?.PresentationEpoch ?? 0);
+        public string ClockPayloadJson() => PublishedFrame?.ClockPayloadJson ?? "{}";
+        public string CapabilitiesPayloadJson() => PublishedFrame?.CapabilitiesPayloadJson ?? "";
 
         public bool ApplySimCommand(string type, JObject payload, out string rejectCode) {
             rejectCode = "";
-            if (session == null) { rejectCode = "no-session"; return false; }
-            var kind = StationSimulationSession.CommandFromType(type);
-            if (kind == SimCommandKind.Unknown) { rejectCode = "unsupported-command"; return false; }
-            if (kind == SimCommandKind.Seek && payload?["year"] != null && payload?["month"] != null && payload?["day"] != null) {
-                try {
-                    session.SeekToDate((int)payload["year"], (int)payload["month"], (int)payload["day"]);
-                    return true;
-                } catch (Exception) {
-                    rejectCode = "invalid-seek";
+            lock (sessionLock) {
+                if (session == null) { rejectCode = "no-session"; return false; }
+                var kind = StationSimulationSession.CommandFromType(type);
+                if (kind == SimCommandKind.Unknown) { rejectCode = "unsupported-command"; return false; }
+                if (kind == SimCommandKind.Seek && payload?["year"] != null && payload?["month"] != null && payload?["day"] != null) {
+                    try {
+                        session.SeekToDate((int)payload["year"], (int)payload["month"], (int)payload["day"]);
+                        lock (pendingLock) { pendingDeltaSeconds = 0; }
+                        subTickElapsedSeconds = 0;
+                        PublishFrameLocked();
+                        return true;
+                    } catch (Exception) {
+                        rejectCode = "invalid-seek";
+                        return false;
+                    }
+                }
+                bool playing = payload?["playing"] != null && payload["playing"].Type == JTokenType.Boolean && (bool)payload["playing"];
+                double value = 0;
+                if (payload?["simTimeSeconds"] != null) value = (double)payload["simTimeSeconds"];
+                else if (payload?["simTime"] != null) value = (double)payload["simTime"];
+                else if (payload?["value"] != null) value = (double)payload["value"];
+                else if (payload?["speed"] != null) value = (double)payload["speed"];
+                string reason;
+                if (!session.TryApplyCommand(kind, playing, value, out reason)) {
+                    rejectCode = string.IsNullOrEmpty(reason) ? "rejected" : reason;
                     return false;
                 }
+                if (kind == SimCommandKind.Seek || kind == SimCommandKind.Restart || !playing) {
+                    lock (pendingLock) { pendingDeltaSeconds = 0; }
+                    subTickElapsedSeconds = 0;
+                }
+                PublishFrameLocked();
+                if (session.Playing) {
+                    EnsureWorkerStarted();
+                    try { wakeEvent?.Set(); } catch { /* ignore */ }
+                }
+                return true;
             }
-            bool playing = payload?["playing"] != null && payload["playing"].Type == JTokenType.Boolean && (bool)payload["playing"];
-            double value = 0;
-            if (payload?["simTimeSeconds"] != null) value = (double)payload["simTimeSeconds"];
-            else if (payload?["simTime"] != null) value = (double)payload["simTime"];
-            else if (payload?["value"] != null) value = (double)payload["value"];
-            else if (payload?["speed"] != null) value = (double)payload["speed"];
-            string reason;
-            if (!session.TryApplyCommand(kind, playing, value, out reason)) {
-                rejectCode = string.IsNullOrEmpty(reason) ? "rejected" : reason;
-                return false;
-            }
-            return true;
         }
     }
 

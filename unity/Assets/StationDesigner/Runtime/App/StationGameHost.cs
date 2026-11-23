@@ -141,8 +141,47 @@ namespace Metro.App {
             }
         }
 
+        static bool desktopPipelineTuned;
+
+        static void ConfigureDesktopRenderPipeline() {
+#if !UNITY_WEBGL
+            if (desktopPipelineTuned || !Application.isPlaying || Application.isEditor) return;
+            desktopPipelineTuned = true;
+            try {
+                var rp = UnityEngine.Rendering.GraphicsSettings.currentRenderPipeline;
+                if (rp == null) return;
+                var t = rp.GetType();
+                t.GetProperty("supportsCameraDepthTexture")?.SetValue(rp, false);
+                t.GetProperty("supportsCameraOpaqueTexture")?.SetValue(rp, false);
+                t.GetProperty("shadowCascadeCount")?.SetValue(rp, 2);
+                // Disable ScreenSpaceAmbientOcclusion at runtime on standalone desktop so URP skips
+                // the full-scene DepthNormals prepass over 19k+ static renderers without altering
+                // serialized URP assets or triggering shader variant recompilation.
+                var rendererDataListField = t.GetField("m_RendererDataList",
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+                if (rendererDataListField?.GetValue(rp) is System.Array rendererList) {
+                    for (int i = 0; i < rendererList.Length; i++) {
+                        var rd = rendererList.GetValue(i);
+                        if (rd == null) continue;
+                        var featuresProp = rd.GetType().GetProperty("rendererFeatures");
+                        if (featuresProp?.GetValue(rd) is System.Collections.IEnumerable features) {
+                            foreach (var feature in features) {
+                                if (feature == null) continue;
+                                if (feature.GetType().Name.IndexOf("AmbientOcclusion", StringComparison.OrdinalIgnoreCase) >= 0) {
+                                    feature.GetType().GetMethod("SetActive", new[] { typeof(bool) })
+                                        ?.Invoke(feature, new object[] { false });
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch { /* ignore on non-URP pipelines */ }
+#endif
+        }
+
         void OnEnable() {
             Active = this;
+            ConfigureDesktopRenderPipeline();
             // A scene reload in the editor starts with a fresh coordinator; nothing is
             // loaded until a command (or station.resync) arrives.
         }
@@ -410,19 +449,19 @@ namespace Metro.App {
 
         void LateUpdate() {
             if (!IsLoaded || openInFlight || clientSessionId.Length == 0) return;
-            var session = (Simulation as StationSimulationHost)?.Session;
+            var published = (Simulation as StationSimulationHost)?.PublishedFrame;
             var exploded = StationExplodedView.ActiveStandalone;
             var camera = exploded?.ViewerCamera ?? StationEditScene.EditCamera(this);
-            if (session == null || camera == null) return;
+            if (published == null || camera == null) return;
 
             double now = Time.unscaledTimeAsDouble;
             if (now < nextAudioFrame) return;
-            nextAudioFrame = now + (session.Playing && session.Speed > 1 ? 1.0 / 30 : .1);
+            nextAudioFrame = now + 0.1;
 
             var position = StationCoordinates.WorldToDocument(camera.transform.position);
             var right = StationCoordinates.WorldToDocumentDirection(camera.transform.right);
             var trayPassengers = exploded?.Builder?.PresentedPassengers;
-            var passengers = exploded == null ? session.PassengerFrames() : null;
+            var passengers = exploded == null ? published.Motion.Passengers : null;
             int count = trayPassengers?.Count ?? passengers?.Length ?? 0;
             int stride = Mathf.Max(1, Mathf.CeilToInt(count / 256f));
             var samples = new JArray();
@@ -444,7 +483,7 @@ namespace Metro.App {
             var trains = exploded != null ? exploded.Builder?.PresentedConsists : TrainConsistRenderer.Current?.Consists;
             Vector3 nearest = default;
             float best = float.PositiveInfinity;
-            if (session.Playing && trains != null) {
+            if (published.Playing && trains != null) {
                 foreach (var train in trains) {
                     if (train.Phase == TrainPhase.None || train.Root == null || !train.Root.activeInHierarchy) continue;
                     var point = StationCoordinates.WorldToDocument(train.Root.transform.position);
@@ -467,7 +506,7 @@ namespace Metro.App {
             PublishAudio(new JObject {
                 ["position"] = AudioPoint(position), ["right"] = AudioPoint(right),
                 ["sources"] = sources, ["passengers"] = samples,
-                ["sampleWeight"] = stride, ["speed"] = session.Speed,
+                ["sampleWeight"] = stride, ["speed"] = published.Speed,
             });
         }
 
@@ -952,9 +991,9 @@ namespace Metro.App {
             // boarded when there is no session, so the empty case is still zero.
             var serviceHost = Simulation as StationSimulationHost;
             var liveSession = serviceHost != null ? serviceHost.Session : null;
-            var service = liveSession?.Services;
-            payload["queued"] = service != null ? service.QueueTotal : 0;
-            payload["boarded"] = service != null ? service.Onboard : 0;
+            var publishedState = serviceHost != null ? serviceHost.PublishedFrame : null;
+            payload["queued"] = publishedState != null ? publishedState.QueuedTotal : 0;
+            payload["boarded"] = publishedState != null ? publishedState.BoardedOnboard : 0;
             var clockJson = Simulation?.ClockPayloadJson();
             if (!string.IsNullOrEmpty(clockJson)) {
                 if (useRawJsonCache) payload["clock"] = new JRaw(clockJson);
@@ -1058,6 +1097,8 @@ namespace Metro.App {
                 StationPaintGame.Forget();
                 StationCellTool.ForgetWorld();
                 StationZoneTool.ForgetWorld();
+                StationPointerRouter.CancelActiveGesture(this, StationEditHost.Ensure());
+                StationEditSession.ClearSelection();
                 StationEditSession.ClearHistory();
                 activeLevel = info.Document == null ? 0 : info.Document.OpeningLevel;
                 if (frameCameraOnCommit && stationCamera != null && !info.CameraBounds.IsEmpty) FrameCamera(info.CameraBounds);

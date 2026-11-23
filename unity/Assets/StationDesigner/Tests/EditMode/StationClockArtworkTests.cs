@@ -282,11 +282,25 @@ namespace Metro.EditModeTests {
                 }
                 var tex0 = StationDisplayArtwork.PosterTexture(entry.Digital[0].sharedMaterial);
                 Assert.IsNotNull(tex0, "initial digital texture bound");
+                string name0 = tex0.name;
+                // Digit 5 ('0' at 06:30:00): top segment center at top-left (323, 19) -> Texture2D (323, 133).
+                var seg0Before = tex0.GetPixel(323, StationClockArtwork.DigitalHeight - 19);
+                Assert.Greater(seg0Before.r, 0.8f, "digit 5 top segment must be lit LED red for '0'");
                 int repaints = StationClockArtwork.Apply(scope, Clock(6 * 3600 + 30 * 60 + 1), 0);
                 Assert.AreEqual(1, repaints, "next second triggers digital repaint");
                 var tex1 = StationDisplayArtwork.PosterTexture(entry.Digital[0].sharedMaterial);
                 Assert.IsNotNull(tex1);
-                Assert.AreNotSame(tex0, tex1, "digital LED plane updated its texture on the new second");
+                Assert.AreSame(tex0, tex1, "digital LED plane reuses one Texture2D per scope");
+                Assert.AreNotEqual(name0, tex1.name, "reused digital texture name updated on the new second");
+                var seg0After = tex1.GetPixel(323, StationClockArtwork.DigitalHeight - 19);
+                Assert.Less(seg0After.r, 0.2f, "digit 5 top segment must be dark ground for '1'");
+                // Colon square at top-left (136..142, 40..46) -> Texture2D (139, 109) stays lit red.
+                var colon = tex1.GetPixel(139, StationClockArtwork.DigitalHeight - 43);
+                Assert.Greater(colon.r, 0.8f, "colon dot must be lit LED red");
+                // Paused seek across a day boundary repaints both digits and calendar strip.
+                int dayRepaints = StationClockArtwork.Apply(scope, Clock(7 * 3600 + 15 * 60, "2026-01-02", 5), 0);
+                Assert.AreEqual(1, dayRepaints, "day change triggers digital repaint");
+                Assert.AreSame(tex0, StationDisplayArtwork.PosterTexture(entry.Digital[0].sharedMaterial));
             } finally {
                 UnityEngine.Object.DestroyImmediate(host);
             }

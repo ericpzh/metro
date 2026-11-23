@@ -322,7 +322,9 @@ namespace Metro.App.Views {
                     sharedDigital = SharedDigitalTexture(scope, clock, digitalKey);
                 }
                 if (sharedDigital == null) continue;
+                bool textureRefChanged = !ReferenceEquals(entry.DigitalTexture, sharedDigital);
                 entry.DigitalTexture = sharedDigital;
+                bool createdMaterial = false;
                 if (!entry.DigitalMaterial) {
                     var template = entry.DigitalSurfaces.Count > 0 && entry.DigitalSurfaces[0]?.Template != null
                         ? entry.DigitalSurfaces[0].Template
@@ -335,11 +337,19 @@ namespace Metro.App.Views {
                     else if (entry.DigitalMaterial.HasProperty("baseColorFactor"))
                         entry.DigitalMaterial.SetColor("baseColorFactor", Color.white);
                     scope.Materials["clock-display|" + entry.ModuleId] = entry.DigitalMaterial;
+                    createdMaterial = true;
                 }
-                StationDisplayArtwork.SetTexture(entry.DigitalMaterial, sharedDigital);
+                if (createdMaterial || textureRefChanged) {
+                    StationDisplayArtwork.SetTexture(entry.DigitalMaterial, sharedDigital);
+                }
                 for (int d = 0; d < entry.Digital.Count; d++) {
-                    entry.Digital[d].sharedMaterial = entry.DigitalMaterial;
-                    world?.RecaptureArtwork(entry.Digital[d]);
+                    var renderer = entry.Digital[d];
+                    if (!renderer) continue;
+                    bool materialRebound = !ReferenceEquals(renderer.sharedMaterial, entry.DigitalMaterial);
+                    if (materialRebound) renderer.sharedMaterial = entry.DigitalMaterial;
+                    if (createdMaterial || textureRefChanged || materialRebound) {
+                        world?.RecaptureArtwork(renderer);
+                    }
                 }
                 entry.DigitalKey = digitalKey;
                 entry.Repaints++;
@@ -361,79 +371,178 @@ namespace Metro.App.Views {
         public static long TotalDigitalPaints { get; private set; }
         public static void ResetDigitalPaintCount() => TotalDigitalPaints = 0;
 
+        const int CalendarStripHeight = 49;
+        const int LedAreaHeight = DigitalHeight - CalendarStripHeight; // 103
+        const int OffscreenPainterLayer = 31;
+        static readonly Color32 LedGround = new Color32(16, 16, 19, 255);
+        static readonly Color32 LedRed = new Color32(255, 52, 36, 255);
+        static readonly Dictionary<string, Color32[]> calendarStripCache =
+            new Dictionary<string, Color32[]>(StringComparer.Ordinal);
+        static Color32[] ledGroundTemplate;
+
         static Texture2D SharedDigitalTexture(StationDisplayArtwork.Scope scope, StationClockFrame clock, string key) {
             if (scope.SharedDigitalClockTexture != null &&
                 string.Equals(scope.SharedDigitalClockKey, key, StringComparison.Ordinal)) {
                 return scope.SharedDigitalClockTexture;
             }
-            var next = PaintDigital(clock);
-            if (next == null) return scope.SharedDigitalClockTexture;
-            TotalDigitalPaints++;
-            if (scope.SharedDigitalClockTexture != null) {
-                scope.Textures.Remove(scope.SharedDigitalClockTexture);
-                if (Application.isPlaying) UnityEngine.Object.Destroy(scope.SharedDigitalClockTexture);
-                else UnityEngine.Object.DestroyImmediate(scope.SharedDigitalClockTexture);
+            if (scope.SharedDigitalClockBuffer == null ||
+                scope.SharedDigitalClockBuffer.Length != DigitalWidth * DigitalHeight) {
+                scope.SharedDigitalClockBuffer = new Color32[DigitalWidth * DigitalHeight];
             }
-            scope.SharedDigitalClockTexture = next;
+            if (scope.SharedDigitalClockTexture == null) {
+                var created = new Texture2D(DigitalWidth, DigitalHeight, TextureFormat.RGBA32, false) {
+                    name = "clock display " + Stable(key),
+                    wrapMode = TextureWrapMode.Clamp,
+                };
+                scope.SharedDigitalClockTexture = created;
+                scope.Textures.Add(created);
+            }
+            PaintDigitalInto(scope.SharedDigitalClockBuffer, scope.SharedDigitalClockTexture, clock, scope.Font);
+            TotalDigitalPaints++;
             scope.SharedDigitalClockKey = key;
-            scope.Textures.Add(next);
-            return next;
+            return scope.SharedDigitalClockTexture;
         }
 
         /// <summary>
         /// The digital dial, ported from `ClockModel.updateDigitalClock`: six seven-segment digits
         /// at the source's own digit positions and segment rectangles, the two colon pairs, and
         /// the calendar row beneath (`YYYY年 MM月 DD日 星期X`).
+        /// Rendered entirely on the CPU from a cached per-day calendar strip + 7-segment pixel
+        /// blitter so per-second updates never spawn cameras or trigger GPU ReadPixels stalls.
         /// </summary>
-        public static Texture2D PaintDigital(StationClockFrame clock) {
+        public static Texture2D PaintDigital(StationClockFrame clock) => PaintDigital(clock, null);
+
+        public static Texture2D PaintDigital(StationClockFrame clock, Font font) {
+            var buffer = new Color32[DigitalWidth * DigitalHeight];
+            var texture = new Texture2D(DigitalWidth, DigitalHeight, TextureFormat.RGBA32, false) {
+                name = "clock display " + Stable(DigitalKeyOf(clock)),
+                wrapMode = TextureWrapMode.Clamp,
+            };
+            PaintDigitalInto(buffer, texture, clock, font);
+            return texture;
+        }
+
+        static void PaintDigitalInto(Color32[] buffer, Texture2D texture, StationClockFrame clock, Font font) {
+            if (buffer == null || texture == null) return;
+            EnsureLedGroundTemplate();
+            // Bottom 49 rows (y = 0..48 in Texture2D coordinates) are the cached calendar strip.
+            var strip = GetOrRenderCalendarStrip(clock, font);
+            if (strip != null && strip.Length == DigitalWidth * CalendarStripHeight) {
+                Array.Copy(strip, 0, buffer, 0, strip.Length);
+            } else {
+                Array.Copy(ledGroundTemplate, 0, buffer, 0, DigitalWidth * CalendarStripHeight);
+            }
+            // Top 103 rows (y = 49..151 in Texture2D coordinates) are the LED digit ground.
+            Array.Copy(ledGroundTemplate, 0, buffer, DigitalWidth * CalendarStripHeight, DigitalWidth * LedAreaHeight);
+
+            var digits = LedDigits(clock);
+            for (int i = 0; i < digits.Length && i < LedDigitX.Length; i++) {
+                int digit = digits[i] - '0';
+                if (digit < 0 || digit >= LedMasks.Length) continue;
+                int mask = LedMasks[digit];
+                for (int segment = 0; segment < LedSegments.Length; segment++) {
+                    if ((mask & (1 << segment)) == 0) continue;
+                    var run = LedSegments[segment];
+                    FillTopLeftRect(buffer,
+                        LedDigitX[i] + run[0] - run[2] * 0.5f,
+                        53f + run[1] - run[3] * 0.5f,
+                        run[2], run[3], LedRed);
+                }
+            }
+            FillTopLeftRect(buffer, 136f, 40f, 6f, 6f, LedRed);
+            FillTopLeftRect(buffer, 136f, 66f, 6f, 6f, LedRed);
+            FillTopLeftRect(buffer, 245f, 40f, 6f, 6f, LedRed);
+            FillTopLeftRect(buffer, 245f, 66f, 6f, 6f, LedRed);
+
+            texture.name = "clock display " + Stable(DigitalKeyOf(clock));
+            texture.SetPixels32(buffer);
+            texture.Apply(false, false);
+        }
+
+        static void EnsureLedGroundTemplate() {
+            if (ledGroundTemplate != null && ledGroundTemplate.Length == DigitalWidth * LedAreaHeight) return;
+            ledGroundTemplate = new Color32[DigitalWidth * LedAreaHeight];
+            for (int i = 0; i < ledGroundTemplate.Length; i++) ledGroundTemplate[i] = LedGround;
+        }
+
+        static void FillTopLeftRect(Color32[] buffer, float x, float y, float width, float height, Color32 colour) {
+            int x0 = Mathf.Clamp(Mathf.RoundToInt(x), 0, DigitalWidth);
+            int x1 = Mathf.Clamp(Mathf.RoundToInt(x + width), 0, DigitalWidth);
+            int topY0 = Mathf.Clamp(Mathf.RoundToInt(y), 0, DigitalHeight);
+            int topY1 = Mathf.Clamp(Mathf.RoundToInt(y + height), 0, DigitalHeight);
+            if (x1 <= x0 || topY1 <= topY0) return;
+            int py0 = DigitalHeight - topY1;
+            int py1 = DigitalHeight - topY0;
+            for (int py = py0; py < py1; py++) {
+                int row = py * DigitalWidth;
+                for (int px = x0; px < x1; px++) {
+                    buffer[row + px] = colour;
+                }
+            }
+        }
+
+        static Color32[] GetOrRenderCalendarStrip(StationClockFrame clock, Font font) {
+            var resolvedFont = font != null ? font : StationTvPlatePainter.StationUiFont();
+            string fontKey = resolvedFont != null
+                ? (resolvedFont.name + "#" + System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(resolvedFont).ToString("x8", CultureInfo.InvariantCulture))
+                : "none";
+            string text = CalendarText(clock);
+            string cacheKey = text + "|" + fontKey;
+            if (calendarStripCache.TryGetValue(cacheKey, out var cached)) return cached;
+
+            if (calendarStripCache.Count >= 32) calendarStripCache.Clear();
+            var pixels = RenderCalendarStrip(text, resolvedFont);
+            calendarStripCache[cacheKey] = pixels;
+            return pixels;
+        }
+
+        static Color32[] RenderCalendarStrip(string text, Font font) {
             RenderTexture previous = RenderTexture.active;
             RenderTexture target = null;
             GameObject cameraObject = null, canvasObject = null;
-            Texture2D texture = null;
+            Texture2D scratch = null;
             try {
-                target = RenderTexture.GetTemporary(DigitalWidth, DigitalHeight, 0, RenderTextureFormat.ARGB32,
+                target = RenderTexture.GetTemporary(DigitalWidth, CalendarStripHeight, 16, RenderTextureFormat.ARGB32,
                     RenderTextureReadWrite.sRGB);
-                cameraObject = new GameObject("clock display camera");
+                var origin = new Vector3(-90000f, -90000f, -90000f);
+                cameraObject = new GameObject("clock calendar camera") {
+                    hideFlags = HideFlags.HideAndDontSave,
+                    layer = OffscreenPainterLayer,
+                };
                 var camera = cameraObject.AddComponent<Camera>();
+                camera.enabled = false;
                 camera.clearFlags = CameraClearFlags.SolidColor;
                 camera.backgroundColor = new Color(.063f, .063f, .075f, 1f);
                 camera.orthographic = true;
-                camera.orthographicSize = DigitalHeight * .5f;
+                camera.orthographicSize = CalendarStripHeight * .5f;
                 camera.nearClipPlane = .01f;
                 camera.farClipPlane = 100f;
-                camera.transform.position = new Vector3(DigitalWidth * .5f, DigitalHeight * .5f, -10f);
+                camera.cullingMask = 1 << OffscreenPainterLayer;
+                camera.allowHDR = false;
+                camera.allowMSAA = false;
+                camera.useOcclusionCulling = false;
+                camera.transform.position = origin + new Vector3(DigitalWidth * .5f, CalendarStripHeight * .5f, -10f);
                 camera.targetTexture = target;
-                canvasObject = new GameObject("clock display canvas", typeof(Canvas));
+
+                canvasObject = new GameObject("clock calendar canvas", typeof(Canvas)) {
+                    hideFlags = HideFlags.HideAndDontSave,
+                    layer = OffscreenPainterLayer,
+                };
                 var canvas = canvasObject.GetComponent<Canvas>();
                 canvas.renderMode = RenderMode.WorldSpace;
                 var rect = canvasObject.GetComponent<RectTransform>();
-                rect.sizeDelta = new Vector2(DigitalWidth, DigitalHeight);
-                rect.position = new Vector3(DigitalWidth * .5f, DigitalHeight * .5f, 0f);
+                rect.sizeDelta = new Vector2(DigitalWidth, CalendarStripHeight);
+                rect.position = origin + new Vector3(DigitalWidth * .5f, CalendarStripHeight * .5f, 0f);
                 rect.localScale = Vector3.one;
-                var root = canvasObject.transform;
-                // The calendar row's own ground, then the LED's.
-                Solid(root, 0f, 0f, DigitalWidth, DigitalHeight, new Color(.063f, .063f, .075f, 1f));
-                Solid(root, 0f, 0f, DigitalWidth, 103f, new Color(.063f, .063f, .075f, 1f));
-                var digits = LedDigits(clock);
-                for (int i = 0; i < digits.Length && i < LedDigitX.Length; i++) {
-                    int mask = LedMasks[digits[i] - '0'];
-                    for (int segment = 0; segment < LedSegments.Length; segment++) {
-                        if ((mask & (1 << segment)) == 0) continue;
-                        var run = LedSegments[segment];
-                        Solid(root, LedDigitX[i] + run[0] - run[2] * .5f, 53f + run[1] - run[3] * .5f, run[2], run[3],
-                            new Color(1f, .204f, .141f, 1f));
-                    }
-                }
-                foreach (var x in new[] { 136f, 245f }) {
-                    foreach (var y in new[] { 40f, 66f }) {
-                        Solid(root, x, y, 6f, 6f, new Color(1f, .204f, .141f, 1f));
-                    }
-                }
-                var row = new GameObject("calendar", typeof(RectTransform));
-                row.transform.SetParent(root, false);
+
+                var row = new GameObject("calendar", typeof(RectTransform)) {
+                    hideFlags = HideFlags.HideAndDontSave,
+                    layer = OffscreenPainterLayer,
+                };
+                row.transform.SetParent(canvasObject.transform, false);
                 var ui = row.AddComponent<Text>();
-                ui.font = StationTvPlatePainter.StationUiFont();
-                ui.text = CalendarText(clock);
+                ui.font = font;
+                ui.text = text;
                 ui.fontSize = 27;
                 ui.fontStyle = FontStyle.Bold;
                 ui.color = new Color(.898f, .890f, .874f, 1f);
@@ -445,36 +554,22 @@ namespace Metro.App.Views {
                 var rowRect = (RectTransform)row.transform;
                 rowRect.anchorMin = rowRect.anchorMax = new Vector2(0f, 1f);
                 rowRect.pivot = new Vector2(0f, 1f);
-                rowRect.sizeDelta = new Vector2(DigitalWidth, 49f);
-                rowRect.anchoredPosition = new Vector2(0f, -103f);
+                rowRect.sizeDelta = new Vector2(DigitalWidth, CalendarStripHeight);
+                rowRect.anchoredPosition = Vector2.zero;
+
+                Canvas.ForceUpdateCanvases();
                 camera.Render();
                 RenderTexture.active = target;
-                texture = new Texture2D(DigitalWidth, DigitalHeight, TextureFormat.RGBA32, false) {
-                    name = "clock display " + Stable(DigitalKeyOf(clock)),
-                    wrapMode = TextureWrapMode.Clamp,
-                };
-                texture.ReadPixels(new Rect(0, 0, DigitalWidth, DigitalHeight), 0, 0);
-                texture.Apply(false, false);
+                scratch = new Texture2D(DigitalWidth, CalendarStripHeight, TextureFormat.RGBA32, false);
+                scratch.ReadPixels(new Rect(0, 0, DigitalWidth, CalendarStripHeight), 0, 0);
+                return scratch.GetPixels32();
             } finally {
                 RenderTexture.active = previous;
+                if (scratch) UnityEngine.Object.DestroyImmediate(scratch);
                 if (cameraObject) UnityEngine.Object.DestroyImmediate(cameraObject);
                 if (canvasObject) UnityEngine.Object.DestroyImmediate(canvasObject);
                 if (target != null) RenderTexture.ReleaseTemporary(target);
             }
-            return texture;
-        }
-
-        static void Solid(Transform root, float x, float y, float width, float height, Color colour) {
-            var go = new GameObject("segment", typeof(RectTransform));
-            go.transform.SetParent(root, false);
-            var rect = (RectTransform)go.transform;
-            rect.anchorMin = rect.anchorMax = new Vector2(0f, 1f);
-            rect.pivot = new Vector2(0f, 1f);
-            rect.sizeDelta = new Vector2(width, height);
-            rect.anchoredPosition = new Vector2(x, -y);
-            var image = go.AddComponent<Image>();
-            image.color = colour;
-            image.raycastTarget = false;
         }
 
         // ---- the source's LED tables (`ClockModel.ts`) -------------------------------------
@@ -585,11 +680,11 @@ namespace Metro.App.Views {
                 var scope = current?.Displays;
                 if (scope == null) return;
                 var host = StationGameHost.ResolveActive();
-                var session = host != null ? (host.Simulation as StationSimulationHost)?.Session : null;
-                if (session == null) return;
-                var frame = session.Snapshot();
+                var simHost = host != null ? host.Simulation as StationSimulationHost : null;
+                var published = simHost?.PublishedFrame;
+                if (published == null) return;
                 double fraction = clock.Playing ? clock.Fraction * StationSimConstants.SimSecondsPerTick : 0;
-                Apply(scope, current.World, frame.Clock, fraction);
+                Apply(scope, current.World, published.Motion.Clock, fraction);
             }
         }
 

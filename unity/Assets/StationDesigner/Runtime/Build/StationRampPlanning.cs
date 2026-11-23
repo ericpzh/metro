@@ -392,5 +392,85 @@ namespace Metro.Build {
             }
             return outCells;
         }
+
+        /// <summary>Port of <c>sim/stairs.ts:stairQuarterTurn</c>.</summary>
+        public static bool StairQuarterTurn(StationModuleRecord m) {
+            var flights = FlightsOf(m);
+            if (flights.Count != 2) return false;
+            var first = flights[0];
+            var second = flights[1];
+            double dot = (first.To.X - first.From.X) * (second.To.X - second.From.X)
+                + (first.To.Y - first.From.Y) * (second.To.Y - second.From.Y);
+            return Math.Abs(dot) < 1e-9;
+        }
+
+        /// <summary>Port of <c>sim/stairs.ts:stairQuarterTurnCells</c>.</summary>
+        public static List<StationPoint> StairQuarterTurnCells(StationModuleRecord m) {
+            var outCells = new List<StationPoint>();
+            var flights = FlightsOf(m);
+            if (flights.Count < 2) return outCells;
+            var corner = flights[0].To;
+            double width = StairWidth(m);
+            int lanes = StairOnBlockGrid(width) ? StairRunBlocks(width) : 1;
+            var slide = StationStairSlides.Slides(m)[1];
+            bool alongX = Math.Abs(flights[1].To.X - flights[1].From.X) > 1e-9;
+            int ux = Math.Sign(flights[1].To.X - flights[1].From.X);
+            int uy = Math.Sign(flights[1].To.Y - flights[1].From.Y);
+            int depth = (int)Math.Round(alongX
+                ? Math.Abs(flights[1].From.X - corner.X)
+                : Math.Abs(flights[1].From.Y - corner.Y)) + 1;
+            double centre = (alongX ? corner.Y : corner.X) + 0.5 + (alongX ? slide.Dy : slide.Dx);
+            int first = (int)Math.Floor(centre - lanes / 2.0 + 0.5);
+            for (int across = 0; across < lanes; across++) {
+                for (int along = 0; along < depth; along++) {
+                    outCells.Add(alongX
+                        ? new StationPoint(corner.X + ux * along, first + across, corner.Z)
+                        : new StationPoint(first + across, corner.Y + uy * along, corner.Z));
+                }
+            }
+            return outCells;
+        }
+
+        /// <summary>
+        /// Port of <c>sim/stairs.ts:stairTurnCells</c>: every cell an interior turn landing covers.
+        /// Virtual on modern builds, and cleaned up on move/remove when a legacy save authored blocks there.
+        /// </summary>
+        public static List<StationPoint> StairTurnCells(StationModuleRecord m) {
+            var outCells = new List<StationPoint>();
+            if (m == null || !string.Equals(m.Type, "stair", StringComparison.Ordinal) || m.Config.Bool("block")) {
+                return outCells;
+            }
+            if (StairQuarterTurn(m)) return StairQuarterTurnCells(m);
+            var flights = FlightsOf(m);
+            if (flights.Count < 2) return outCells;
+            var slides = StationStairSlides.Slides(m);
+            double width = StairWidth(m);
+            double half = Math.Max(0.5, width / 2.0);
+            var style = m.Config.Text("style");
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i + 1 < flights.Count; i++) {
+                var a = flights[i].To;
+                var b = flights[i + 1].From;
+                double acx = a.X + 0.5 + slides[i].Dx;
+                double acy = a.Y + 0.5 + slides[i].Dy;
+                double bcx = b.X + 0.5 + slides[i + 1].Dx;
+                double bcy = b.Y + 0.5 + slides[i + 1].Dy;
+                bool alignedForward = string.Equals(style, "centerForward", StringComparison.Ordinal);
+                bool acrossIsX = Math.Abs(a.X - b.X) > 1e-9 || (alignedForward && Math.Abs(flights[i].From.X - a.X) < 1e-9);
+                bool acrossIsY = Math.Abs(a.Y - b.Y) > 1e-9 || (alignedForward && Math.Abs(flights[i].From.Y - a.Y) < 1e-9);
+                int x0 = acrossIsX ? (int)Math.Floor(Math.Min(acx, bcx) - half + 1e-9) : (int)Math.Round(Math.Min(a.X, b.X));
+                int x1 = acrossIsX ? (int)Math.Ceiling(Math.Max(acx, bcx) + half - 1e-9) - 1 : (int)Math.Round(Math.Max(a.X, b.X));
+                int y0 = acrossIsY ? (int)Math.Floor(Math.Min(acy, bcy) - half + 1e-9) : (int)Math.Round(Math.Min(a.Y, b.Y));
+                int y1 = acrossIsY ? (int)Math.Ceiling(Math.Max(acy, bcy) + half - 1e-9) - 1 : (int)Math.Round(Math.Max(a.Y, b.Y));
+                for (int x = x0; x <= x1; x++) {
+                    for (int y = y0; y <= y1; y++) {
+                        string k = x + "," + y + "," + a.Z.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                        if (!seen.Add(k)) continue;
+                        outCells.Add(new StationPoint(x, y, a.Z));
+                    }
+                }
+            }
+            return outCells;
+        }
     }
 }

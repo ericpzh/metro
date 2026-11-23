@@ -93,6 +93,11 @@ namespace Metro.App.Views {
         readonly HashSet<(int x, int y)> fallbackCellNonGradeGroundCells;
         readonly HashSet<(int x, int y, int z)> explicitGradeCells;
         readonly List<(int x0, int y0, int x1, int y1, int zLo, int zHi)> rampVolumes;
+        readonly HashSet<int> trackZs;
+        readonly Dictionary<(int fx, int fy, int supportZ, int rawCellZ), (int band, bool gradeOwned)> staticSupportCache =
+            new Dictionary<(int fx, int fy, int supportZ, int rawCellZ), (int band, bool gradeOwned)>();
+        int cachedGridLevelBase = int.MinValue;
+        int cachedGridStoreyHeight = int.MinValue;
 
         PassengerSupportResolver(
             StationDocument doc,
@@ -101,6 +106,7 @@ namespace Metro.App.Views {
             document = doc;
             index = stationIndex;
             tracksById = reuseModulesFrom.tracksById;
+            trackZs = reuseModulesFrom.trackZs;
             exitGroundCells = reuseModulesFrom.exitGroundCells;
             nonGradeGroundCells = reuseModulesFrom.nonGradeGroundCells;
             explicitGradeCells = reuseModulesFrom.explicitGradeCells;
@@ -123,6 +129,7 @@ namespace Metro.App.Views {
             this.document = document;
             index = stationIndex;
             tracksById = new Dictionary<string, StationModuleRecord>(StringComparer.Ordinal);
+            trackZs = new HashSet<int>();
             exitGroundCells = new HashSet<(int x, int y)>();
             nonGradeGroundCells = new HashSet<(int x, int y)>();
             explicitGradeCells = new HashSet<(int x, int y, int z)>();
@@ -134,6 +141,7 @@ namespace Metro.App.Views {
                 switch (module.Type) {
                     case "track":
                         if (!string.IsNullOrEmpty(module.Id)) tracksById[module.Id] = module;
+                        trackZs.Add(module.Z);
                         if (module.Z == StationViewFeature.GroundZ) {
                             foreach (var cell in StationFootprints.TrackCells(module)) {
                                 nonGradeGroundCells.Add(((int)Math.Floor(cell.X), (int)Math.Floor(cell.Y)));
@@ -301,8 +309,20 @@ namespace Metro.App.Views {
             int fx = (int)Math.Floor(pose.X);
             int fy = (int)Math.Floor(pose.Y);
             int supportZ = (int)Math.Floor(pose.Z - 1.0 + 1e-3);
+            int rawCellZ = (int)Math.Floor(pose.Z + 1e-3);
+            if (cachedGridLevelBase != grid.LevelBase || cachedGridStoreyHeight != grid.StoreyHeight) {
+                staticSupportCache.Clear();
+                cachedGridLevelBase = grid.LevelBase;
+                cachedGridStoreyHeight = grid.StoreyHeight;
+            }
+            var cacheKey = (fx, fy, supportZ, rawCellZ);
+            if (staticSupportCache.TryGetValue(cacheKey, out var cached)) {
+                band = cached.band;
+                secondBand = band;
+                gradeOwned = cached.gradeOwned;
+                return true;
+            }
             if (!HasSupportAt(fx, fy, supportZ)) {
-                int rawCellZ = (int)Math.Floor(pose.Z + 1e-3);
                 if (HasSupportAt(fx, fy, rawCellZ)) supportZ = rawCellZ;
             }
 
@@ -313,6 +333,7 @@ namespace Metro.App.Views {
             } else {
                 gradeOwned = explicitGradeCells.Contains((fx, fy, supportZ));
             }
+            staticSupportCache[cacheKey] = (band, gradeOwned);
             return true;
         }
 
@@ -322,12 +343,10 @@ namespace Metro.App.Views {
                 return true;
             }
             if (explicitGradeCells.Contains((x, y, z))) return true;
+            if (trackZs.Contains(z)) return true;
             for (int i = 0; i < rampVolumes.Count; i++) {
                 var r = rampVolumes[i];
                 if (x >= r.x0 && x <= r.x1 && y >= r.y0 && y <= r.y1 && z >= r.zLo && z <= r.zHi) return true;
-            }
-            foreach (var track in tracksById.Values) {
-                if (track != null && track.Z == z) return true;
             }
             return false;
         }
@@ -378,6 +397,15 @@ namespace Metro.App.Views {
         internal int MeshTier = -1;
         internal bool LastOtherLevelLod;
         internal PassengerDetail LastPoseDetail;
+        internal bool HasCachedLook;
+        internal PassengerDetail CachedLookDetail;
+        internal bool HasLodCache;
+        internal Vector3 LastLodCamPos;
+        internal Vector3 LastLodActorPos;
+        internal float LastLodViewScale;
+        internal PassengerDetail LastLodDetail;
+        internal bool LastLodFollowed;
+        internal int LastLodProfile;
 
         public Vector3 Position => Root != null ? Root.transform.position : Vector3.zero;
         public Quaternion Rotation => Root != null ? Root.transform.rotation : Quaternion.identity;
@@ -407,6 +435,39 @@ namespace Metro.App.Views {
         static readonly int BaseColorProp = Shader.PropertyToID("_BaseColor");
         static readonly int ColorProp = Shader.PropertyToID("_Color");
 
+        readonly struct LodCameraParams {
+            public readonly bool HasCamera;
+            public readonly Vector3 Position;
+            public readonly bool Orthographic;
+            public readonly float OrthoHeight;
+            public readonly float NearClip;
+            public readonly float TwoTanHalfFov;
+            public readonly int Profile;
+
+            public LodCameraParams(Camera camera) {
+                Profile = (StationGraphicsSettings.MinimumModelLod << 12) ^
+                    (StationGraphicsSettings.OtherLevelModelLod << 8) ^
+                    Mathf.RoundToInt(StationGraphicsSettings.ModelLodBias * 100f);
+                if (camera == null) {
+                    HasCamera = false;
+                    Position = Vector3.zero;
+                    Orthographic = false;
+                    OrthoHeight = 0f;
+                    NearClip = 0.01f;
+                    TwoTanHalfFov = 1f;
+                    return;
+                }
+                HasCamera = true;
+                Position = camera.transform.position;
+                Orthographic = camera.orthographic;
+                OrthoHeight = 2f * camera.orthographicSize;
+                NearClip = camera.nearClipPlane;
+                TwoTanHalfFov = 2f * Mathf.Tan(camera.fieldOfView * Mathf.Deg2Rad * 0.5f);
+            }
+
+            public float ViewScale => Orthographic ? OrthoHeight : TwoTanHalfFov;
+        }
+
         readonly Dictionary<int, PassengerCrowdActor> actors = new Dictionary<int, PassengerCrowdActor>();
         readonly Dictionary<string, List<PassengerCrowdActor>> inactiveByRecipe =
             new Dictionary<string, List<PassengerCrowdActor>>(StringComparer.Ordinal);
@@ -414,6 +475,14 @@ namespace Metro.App.Views {
         readonly List<int> goneScratch = new List<int>();
         readonly List<Diagnostic> diagnostics = new List<Diagnostic>();
         readonly HashSet<string> reported = new HashSet<string>(StringComparer.Ordinal);
+        readonly Plane[] frustumPlanes = new Plane[6];
+        readonly Dictionary<(Material baseMat, int toneBucket, StationDrawMode mode), Material> tonedMaterialCache =
+            new Dictionary<(Material, int, StationDrawMode), Material>();
+        readonly Dictionary<(Material[] baseArray, int toneBucket, StationDrawMode mode), Material[]> tonedArrayCache =
+            new Dictionary<(Material[], int, StationDrawMode), Material[]>();
+        const int MaxSteadyAnimationSamplesPerFrame = 96;
+        static int globalSamplesFrame = -1;
+        static int globalSteadySamplesBudgetLeft;
         readonly List<Matrix4x4> contactShadowMatrices = new List<Matrix4x4>();
         Matrix4x4[] contactShadowSlice;
         Material contactShadowMaterial;
@@ -500,9 +569,9 @@ namespace Metro.App.Views {
         /// Pose the complete actor set for one simulation frame. No wall clock is
         /// read: the same poses always produce the same clips and the same times.
         /// </summary>
-        public void Render(IReadOnlyList<PassengerPose> poses, double simTimeSeconds = 0) {
+        public void Render(IReadOnlyList<PassengerPose> poses, double simTimeSeconds = 0, bool checkGone = true) {
             LastSimTime = simTimeSeconds;
-            seen.Clear();
+            if (checkGone) seen.Clear();
             PosedThisFrame = 0;
             SampledThisFrame = 0;
             SkippedHiddenAnimationThisFrame = 0;
@@ -513,24 +582,64 @@ namespace Metro.App.Views {
                 ? StationViewFeature.ActiveExploded?.ViewerCamera : cam;
             bool hasCam = Application.isPlaying && cam != null;
             Vector3 camPos = hasCam ? cam.transform.position : Vector3.zero;
+            var lodParams = new LodCameraParams(lodCamera);
+            bool hasFrustum = Application.isPlaying && lodCamera != null;
+            if (hasFrustum) GeometryUtility.CalculateFrustumPlanes(lodCamera, frustumPlanes);
+            int frameNow = Time.frameCount;
+            if (globalSamplesFrame != frameNow) {
+                globalSamplesFrame = frameNow;
+                globalSteadySamplesBudgetLeft = Application.isPlaying ? MaxSteadyAnimationSamplesPerFrame : int.MaxValue;
+            }
+            var vis = world != null ? world.Visibility : null;
             int followId = rig?.Visibility != null ? rig.Visibility.State.FollowPassenger : 0;
+            int shadowFollowId = vis != null ? vis.State.FollowPassenger : -1;
+            bool everyStorey = vis == null || vis.State.HideUi || vis.State.Cutaway;
+            int activeLevel = vis != null ? vis.State.ActiveLevel : 0;
+            bool hideGround = vis != null && vis.State.HideGround;
+            bool sectionClip = vis != null && vis.SectionClipping;
+            var grid = vis != null ? vis.State.Grid : (world != null
+                ? StationLevelGrid.FromDocument(world.Document?.LevelBase ?? 0, world.Document?.StoreyHeight ?? 5)
+                : default);
+
+            contactShadowMatrices.Clear();
+            int visibleCount = 0;
             if (poses != null) {
                 for (int i = 0; i < poses.Count; i++) {
                     var pose = poses[i];
                     if (!pose.Visible) { Hide(pose.SimId); continue; }
                     var actor = GetOrSpawn(pose);
                     if (actor == null) continue;
-                    Pose(actor, pose, hasCam, camPos, followId, lodCamera);
+                    Pose(actor, pose, hasCam, camPos, hasFrustum, followId, in lodParams, checkGone, in grid, sectionClip);
+                    if (actor.Visible && actor.ActiveInFrame) {
+                        if (world == null || actor.Target == null || (actor.Target.LastMode != StationDrawMode.Hidden && actor.Skin != null && actor.Skin.enabled)) {
+                            visibleCount++;
+                            if (actor.SimId != shadowFollowId &&
+                                !(hideGround && actor.LastGradeOwned) &&
+                                (vis == null || StationVisibilityRules.ContactShadowVisible(actor.LastBand, activeLevel, everyStorey, grid))) {
+                                var pos = actor.LastPosition;
+                                if (!float.IsNaN(pos.x) && (!sectionClip || vis.IsPointKept(StationCoordinates.WorldToDocument(pos)))) {
+                                    float sx = Mathf.Max(.2f, (float)actor.Look.Width * .72f);
+                                    float sz = Mathf.Max(.2f, (float)actor.Look.Depth * .72f);
+                                    contactShadowMatrices.Add(Matrix4x4.TRS(
+                                        pos + Vector3.up * StationContactShadowAssets.PassengerLiftY,
+                                        Quaternion.identity,
+                                        new Vector3(sx, 1f, sz)));
+                                }
+                            }
+                        }
+                    }
                 }
             }
-            // The feed publishes a complete frame: an actor that left the frame is
-            // removed from view this frame (replay must not leave stale bodies).
-            goneScratch.Clear();
-            foreach (var pair in actors) {
-                if (!seen.Contains(pair.Key)) goneScratch.Add(pair.Key);
+            if (checkGone) {
+                // The feed publishes a complete frame: an actor that left the frame is
+                // removed from view this frame (replay must not leave stale bodies).
+                goneScratch.Clear();
+                foreach (var pair in actors) {
+                    if (!seen.Contains(pair.Key)) goneScratch.Add(pair.Key);
+                }
+                for (int i = 0; i < goneScratch.Count; i++) Hide(goneScratch[i]);
             }
-            for (int i = 0; i < goneScratch.Count; i++) Hide(goneScratch[i]);
-            RefreshVisibleCount();
+            VisibleActors = visibleCount;
         }
 
         void LateUpdate() {
@@ -596,11 +705,16 @@ namespace Metro.App.Views {
         PassengerCrowdActor GetOrSpawn(PassengerPose pose) {
             if (actors.TryGetValue(pose.SimId, out var existing)) {
                 RemoveFromInactivePool(existing);
-                var nextLook = PassengerAppearance.Look(catalogue, pose.SimId, pose.Detail);
-                if (!SameLook(existing.Look, nextLook)) {
-                    existing.Look = nextLook;
-                    existing.ScaleApplied = false;
-                    existing.LastToneMode = (StationDrawMode)(-1);
+                if (!existing.HasCachedLook || existing.CachedLookDetail != pose.Detail) {
+                    var nextLook = PassengerAppearance.Look(catalogue, pose.SimId, pose.Detail);
+                    existing.HasCachedLook = true;
+                    existing.CachedLookDetail = pose.Detail;
+                    if (!SameLook(existing.Look, nextLook)) {
+                        existing.Look = nextLook;
+                        existing.ScaleApplied = false;
+                        existing.LastToneMode = (StationDrawMode)(-1);
+                        existing.HasLodCache = false;
+                    }
                 }
                 if (pose.Detail == PassengerDetail.Low && existing.Entry?.simplifiedMesh?.mesh == null)
                     Diagnose("low-topology-unported", pose.SimId, "Low mesh is not rendered; Full topology is shown");
@@ -616,6 +730,8 @@ namespace Metro.App.Views {
                 pooled.SimId = pose.SimId;
                 pooled.Entry = entry;
                 pooled.Look = PassengerAppearance.Look(catalogue, pose.SimId, pose.Detail);
+                pooled.HasCachedLook = true;
+                pooled.CachedLookDetail = pose.Detail;
                 pooled.ScaleApplied = false;
                 pooled.AnimationDirty = true;
                 pooled.LastPosition = new Vector3(float.NaN, float.NaN, float.NaN);
@@ -627,6 +743,7 @@ namespace Metro.App.Views {
                 pooled.LastToneMode = (StationDrawMode)(-1);
                 pooled.LastOtherLevelLod = false;
                 pooled.MeshTier = -1;
+                pooled.HasLodCache = false;
                 ClearToneBlock(pooled);
                 if (pooled.Root != null) pooled.Root.name = "passenger " + pose.SimId + " " + entry.recipe;
                 actors[pose.SimId] = pooled;
@@ -654,6 +771,7 @@ namespace Metro.App.Views {
             // frustum culling offscreen actors without clipping or bone-skinning behind the camera.
             animation.enabled = false;
             skin.updateWhenOffscreen = false;
+            skin.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             skin.localBounds = new Bounds(new Vector3(0f, 0.9f, 0f), new Vector3(1.4f, 2.2f, 1.4f));
             var originals = skin.sharedMaterials != null ? (Material[])skin.sharedMaterials.Clone() : Array.Empty<Material>();
 
@@ -667,6 +785,8 @@ namespace Metro.App.Views {
                 SimId = pose.SimId, Recipe = entry.recipe, Root = root, Rig = animation.gameObject,
                 LegacyAnimation = animation, Skin = skin, Target = target, Entry = entry,
                 Look = PassengerAppearance.Look(catalogue, pose.SimId, pose.Detail),
+                HasCachedLook = true,
+                CachedLookDetail = pose.Detail,
                 OriginalMaterials = originals,
                 FullMaterials = originals,
                 FullMesh = skin.sharedMesh,
@@ -689,19 +809,31 @@ namespace Metro.App.Views {
             return actor;
         }
 
-        void SelectActorMesh(PassengerCrowdActor actor, PassengerDetail detail, Camera camera, int followId) {
+        void SelectActorMesh(PassengerCrowdActor actor, PassengerDetail detail, in LodCameraParams lod, int followId) {
             var reduced = actor.Entry.reducedMesh?.mesh != null ? actor.Entry.reducedMesh : null;
             var simplified = actor.Entry.simplifiedMesh?.mesh != null ? actor.Entry.simplifiedMesh : null;
             if (reduced == null && simplified == null) return;
             bool otherLevel = actor.Target != null && actor.Target.OtherLevelLod;
+            bool followed = actor.SimId == followId;
+            var actorPos = float.IsNaN(actor.LastPosition.x) ? actor.Position : actor.LastPosition;
+            float viewScale = lod.ViewScale;
+            if (actor.HasLodCache &&
+                actor.LastOtherLevelLod == otherLevel &&
+                actor.LastLodDetail == detail &&
+                actor.LastLodFollowed == followed &&
+                actor.LastLodProfile == lod.Profile &&
+                Mathf.Abs(actor.LastLodViewScale - viewScale) < 1e-5f &&
+                (actorPos - actor.LastLodActorPos).sqrMagnitude < 1e-4f &&
+                (lod.Position - actor.LastLodCamPos).sqrMagnitude < 1e-4f) {
+                return;
+            }
             int desired = 0;
-            if (actor.SimId != followId) {
+            if (!followed) {
                 if (detail == PassengerDetail.Low) desired = 2;
-                else if (camera != null) {
-                    float depth = Vector3.Distance(actor.Position, camera.transform.position);
-                    float viewHeight = camera.orthographic ? 2f * camera.orthographicSize :
-                        2f * Mathf.Max(camera.nearClipPlane, depth) *
-                            Mathf.Tan(camera.fieldOfView * Mathf.Deg2Rad * .5f);
+                else if (lod.HasCamera) {
+                    float depth = Vector3.Distance(actorPos, lod.Position);
+                    float viewHeight = lod.Orthographic ? lod.OrthoHeight :
+                        Mathf.Max(lod.NearClip, depth) * lod.TwoTanHalfFov;
                     int previous = actor.LastOtherLevelLod == otherLevel ? actor.MeshTier : -1;
                     desired = StationGraphicsSettings.SelectTier(
                         (float)actor.Look.Height / Mathf.Max(.01f, viewHeight), previous, 3, otherLevel);
@@ -713,6 +845,13 @@ namespace Metro.App.Views {
             var mesh = chosen?.mesh ?? actor.FullMesh;
             actor.MeshTier = desired;
             actor.LastOtherLevelLod = otherLevel;
+            actor.HasLodCache = true;
+            actor.LastLodCamPos = lod.Position;
+            actor.LastLodActorPos = actorPos;
+            actor.LastLodViewScale = viewScale;
+            actor.LastLodDetail = detail;
+            actor.LastLodFollowed = followed;
+            actor.LastLodProfile = lod.Profile;
             if (actor.Skin.sharedMesh == mesh) return;
             ClearToneBlock(actor);
             actor.OriginalMaterials = chosen?.materials ?? actor.FullMaterials;
@@ -722,17 +861,14 @@ namespace Metro.App.Views {
             SyncActorTone(actor, actor.Target != null ? actor.Target.LastMode : StationDrawMode.Base);
         }
 
-        void Pose(PassengerCrowdActor actor, PassengerPose pose, bool hasCam, Vector3 camPos, int followId, Camera lodCamera) {
-            seen.Add(actor.SimId);
+        void Pose(PassengerCrowdActor actor, PassengerPose pose, bool hasCam, Vector3 camPos, bool hasFrustum, int followId, in LodCameraParams lodParams, bool trackSeen, in StationLevelGrid grid, bool sectionClip) {
+            if (trackSeen) seen.Add(actor.SimId);
             actor.LastPoseDetail = pose.Detail;
 
             int band = 0;
             int secondBand = 0;
             bool gradeOwned = false;
             if (world != null) {
-                var grid = world.Visibility != null
-                    ? world.Visibility.State.Grid
-                    : StationLevelGrid.FromDocument(world.Document?.LevelBase ?? 0, world.Document?.StoreyHeight ?? 5);
                 if (supportResolver != null) {
                     if (!supportResolver.Resolve(in pose, grid, TrainConsistRenderer.Current, out band, out secondBand, out gradeOwned)) {
                         HideActor(actor);
@@ -745,29 +881,12 @@ namespace Metro.App.Views {
                 }
             }
 
-            var worldPos = StationCoordinates.Point(new Vector3((float)pose.X, (float)pose.Y, (float)pose.Z));
-            if (float.IsNaN(actor.LastPosition.x) || (worldPos - actor.LastPosition).sqrMagnitude > 1e-8f) {
-                actor.Root.transform.position = worldPos;
-                actor.LastPosition = worldPos;
-            }
-            if (double.IsNaN(actor.LastHeading) || Math.Abs(pose.Heading - actor.LastHeading) > 1e-5) {
-                actor.Root.transform.rotation = PassengerAppearance.Rotation(pose.Heading);
-                actor.LastHeading = pose.Heading;
-            }
-            if (!actor.ScaleApplied) {
-                actor.Root.transform.localScale = PassengerAppearance.LocalScale(actor.Look);
-                actor.ScaleApplied = true;
-            }
-            if (!actor.Root.activeSelf) actor.Root.SetActive(true);
-            if (actor.Skin != null)
-                actor.Skin.forceRenderingOff = followId == pose.SimId;
-
             if (world != null && actor.Target != null) {
                 bool wasActive = actor.ActiveInFrame;
                 actor.ActiveInFrame = true;
                 bool dirty = !actor.TargetBound || !wasActive || actor.Target.Parked ||
                     actor.LastBand != band || actor.LastSecondBand != secondBand || actor.LastGradeOwned != gradeOwned ||
-                    (world.Visibility != null && world.Visibility.SectionClipping);
+                    sectionClip;
                 if (secondBand != band) {
                     actor.BandPair[0] = band;
                     actor.BandPair[1] = secondBand;
@@ -813,7 +932,24 @@ namespace Metro.App.Views {
                 return;
             }
 
-            SelectActorMesh(actor, pose.Detail, lodCamera, followId);
+            var worldPos = StationCoordinates.Point(new Vector3((float)pose.X, (float)pose.Y, (float)pose.Z));
+            if (float.IsNaN(actor.LastPosition.x) || (worldPos - actor.LastPosition).sqrMagnitude > 1e-8f) {
+                actor.Root.transform.position = worldPos;
+                actor.LastPosition = worldPos;
+            }
+            if (double.IsNaN(actor.LastHeading) || Math.Abs(pose.Heading - actor.LastHeading) > 1e-5) {
+                actor.Root.transform.rotation = PassengerAppearance.Rotation(pose.Heading);
+                actor.LastHeading = pose.Heading;
+            }
+            if (!actor.ScaleApplied) {
+                actor.Root.transform.localScale = PassengerAppearance.LocalScale(actor.Look);
+                actor.ScaleApplied = true;
+            }
+            if (!actor.Root.activeSelf) actor.Root.SetActive(true);
+            if (actor.Skin != null)
+                actor.Skin.forceRenderingOff = followId == pose.SimId;
+
+            SelectActorMesh(actor, pose.Detail, in lodParams, followId);
 
             double activityTime = pose.ActivitySeconds;
             if (pose.RideSeconds > 0 &&
@@ -845,13 +981,31 @@ namespace Metro.App.Views {
             }
 
             bool sameClip = actor.Sampled && !actor.AnimationDirty && string.Equals(actor.ClipName, clipName, StringComparison.Ordinal);
-            float minDelta = 1e-4f;
-            if (sameClip && hasCam) {
-                float distSq = (worldPos - camPos).sqrMagnitude;
-                if (distSq > 85f * 85f) minDelta = 0.125f;
-                else if (distSq > 45f * 45f) minDelta = 0.065f;
+            bool isFollowed = actor.SimId == followId;
+            if (hasFrustum && !isFollowed) {
+                var bounds = new Bounds(worldPos + new Vector3(0f, 0.9f, 0f), new Vector3(1.8f, 2.4f, 1.8f));
+                if (!GeometryUtility.TestPlanesAABB(frustumPlanes, bounds)) {
+                    actor.AnimationDirty = true;
+                    SkippedHiddenAnimationThisFrame++;
+                    PosedThisFrame++;
+                    if (!actor.Registered) {
+                        actor.Registered = true;
+                        spawned?.Invoke(actor, pose);
+                    }
+                    return;
+                }
             }
-            if (!sameClip || Mathf.Abs(actor.ClipTime - time) >= minDelta) {
+            float minDelta = 1e-4f;
+            if (sameClip && hasCam && !isFollowed) {
+                float distSq = (worldPos - camPos).sqrMagnitude;
+                if (distSq > 65f * 65f) minDelta = 0.125f;
+                else if (distSq > 32f * 32f) minDelta = 0.066f;
+                else if (Application.isPlaying) minDelta = 0.033f;
+            }
+            bool mustSample = !sameClip || isFollowed;
+            bool deltaExceeded = Mathf.Abs(actor.ClipTime - time) >= minDelta;
+            if (mustSample || (deltaExceeded && globalSteadySamplesBudgetLeft > 0)) {
+                if (!mustSample) globalSteadySamplesBudgetLeft--;
                 chosen.SampleAnimation(actor.Rig, Mathf.Min(time, Mathf.Max(0f, chosen.length - 0.00001f)));
                 actor.ClipName = clipName;
                 actor.ClipTime = time;
@@ -878,7 +1032,8 @@ namespace Metro.App.Views {
                 var lodCamera = StationExplodedView.IsStandaloneActive
                     ? StationViewFeature.ActiveExploded?.ViewerCamera : cam;
                 int followId = rig?.Visibility != null ? rig.Visibility.State.FollowPassenger : 0;
-                SelectActorMesh(actor, actor.LastPoseDetail, lodCamera, followId);
+                var lodParams = new LodCameraParams(lodCamera);
+                SelectActorMesh(actor, actor.LastPoseDetail, in lodParams, followId);
             }
             SyncActorTone(actor, mode);
         }
@@ -909,6 +1064,7 @@ namespace Metro.App.Views {
             actor.LastSecondBand = int.MinValue;
             actor.LastGradeOwned = false;
             actor.LastToneMode = (StationDrawMode)(-1);
+            actor.HasLodCache = false;
             if (actor.TargetBound) {
                 actor.TargetBound = false;
                 world?.UnbindRuntimeTarget(actor.Target);
@@ -976,6 +1132,51 @@ namespace Metro.App.Views {
             actor.LastToneMode = (StationDrawMode)(-1);
         }
 
+        Material[] GetSharedTonedMaterials(Material[] originals, int toneBucket, StationDrawMode mode) {
+            var arrKey = (originals, toneBucket, mode);
+            if (tonedArrayCache.TryGetValue(arrKey, out var cachedArr)) return cachedArr;
+            float tone = toneBucket / 20f;
+            bool translucent = mode == StationDrawMode.Ghost || mode == StationDrawMode.Clear;
+            float opacity = mode == StationDrawMode.Clear
+                ? StationVisibilityPalette.ClearOpacity
+                : StationVisibilityPalette.GhostOpacity;
+            var result = new Material[originals.Length];
+            for (int i = 0; i < originals.Length; i++) {
+                var material = originals[i];
+                if (material == null) { result[i] = null; continue; }
+                var matKey = (material, toneBucket, mode);
+                if (!tonedMaterialCache.TryGetValue(matKey, out var toned) || toned == null) {
+                    toned = new Material(material) { name = material.name + " tone" + toneBucket + "_" + mode };
+                    int property = -1;
+                    if (toned.HasProperty(GltfBaseProp)) property = GltfBaseProp;
+                    else if (toned.HasProperty(BaseColorProp)) property = BaseColorProp;
+                    else if (toned.HasProperty(ColorProp)) property = ColorProp;
+                    if (property >= 0) {
+                        var original = toned.GetColor(property);
+                        var tinted = new Color(original.r * tone, original.g * tone, original.b * tone, original.a);
+                        if (translucent) {
+                            float resolvedAlpha = original.a < .999f ? original.a * opacity : opacity;
+                            if (original.a >= .999f) tinted = Color.Lerp(tinted, new Color(.42f, .455f, .502f, 1f), .7f);
+                            tinted.a = resolvedAlpha;
+                        }
+                        toned.SetColor(property, tinted);
+                    }
+                    tonedMaterialCache[matKey] = toned;
+                }
+                result[i] = toned;
+            }
+            tonedArrayCache[arrKey] = result;
+            return result;
+        }
+
+        void DisposeTonedMaterials() {
+            foreach (var mat in tonedMaterialCache.Values) {
+                if (mat != null) DestroyNow(mat);
+            }
+            tonedMaterialCache.Clear();
+            tonedArrayCache.Clear();
+        }
+
         void SyncActorTone(PassengerCrowdActor actor, StationDrawMode mode) {
             if (actor == null || actor.Skin == null || mode == StationDrawMode.Hidden) return;
             double tone = actor.Look.Tone;
@@ -985,10 +1186,25 @@ namespace Metro.App.Views {
                 actor.LastToneMode = mode;
                 return;
             }
-            if (actor.HadToneBlock && actor.LastToneMode == mode) return;
-
             var materials = actor.OriginalMaterials;
             if (materials == null || materials.Length == 0) return;
+
+            // Without an active section plane, use bounded shared toned materials (20-step buckets)
+            // instead of per-actor MaterialPropertyBlocks so URP's SRP Batcher batches all passengers
+            // across Base, Ghost, and Clear modes.
+            if (!hasSectionPlane) {
+                if (actor.HadToneBlock) ClearToneBlock(actor);
+                if (actor.LastToneMode == mode) return;
+                var sourceMats = mode == StationDrawMode.Base ? materials : (actor.Skin.sharedMaterials ?? materials);
+                if (sourceMats == null || sourceMats.Length == 0) return;
+                int bucket = Mathf.Clamp(Mathf.RoundToInt((float)tone * 20f), 10, 30);
+                var sharedToned = GetSharedTonedMaterials(sourceMats, bucket, mode);
+                actor.Skin.sharedMaterials = sharedToned;
+                actor.LastToneMode = mode;
+                return;
+            }
+
+            if (actor.HadToneBlock && actor.LastToneMode == mode) return;
             toneBlock ??= new MaterialPropertyBlock();
             bool translucent = mode == StationDrawMode.Ghost || mode == StationDrawMode.Clear;
             float opacity = mode == StationDrawMode.Clear
@@ -1048,6 +1264,7 @@ namespace Metro.App.Views {
             seen.Clear();
             contactShadowMatrices.Clear();
             if (contactShadowMaterial != null) { DestroyNow(contactShadowMaterial); contactShadowMaterial = null; }
+            DisposeTonedMaterials();
             diagnostics.Clear();
             reported.Clear();
             VisibleActors = 0;
@@ -1068,6 +1285,7 @@ namespace Metro.App.Views {
             seen.Clear();
             contactShadowMatrices.Clear();
             if (contactShadowMaterial != null) { DestroyNow(contactShadowMaterial); contactShadowMaterial = null; }
+            DisposeTonedMaterials();
             diagnostics.Clear();
             reported.Clear();
         }
@@ -1116,6 +1334,35 @@ namespace Metro.App.Views {
             public readonly List<(double X, double Y, double Z)> RoutePoints = new List<(double, double, double)>();
         }
 
+        struct PausedPresentationKey : IEquatable<PausedPresentationKey> {
+            public StationDocument Document;
+            public PassengerSupportResolver Support;
+            public int ActiveLevel;
+            public bool ShowLevels, HideGround, HideUi, Cutaway, SectionClip;
+            public int FollowId;
+            public int GraphicsProfile;
+            public Vector3 CamPos;
+            public float CamViewScale;
+            public Vector3 SectionNormal;
+            public Vector3 SectionPoint;
+
+            public bool Equals(PausedPresentationKey other) =>
+                ReferenceEquals(Document, other.Document) &&
+                ReferenceEquals(Support, other.Support) &&
+                ActiveLevel == other.ActiveLevel &&
+                ShowLevels == other.ShowLevels &&
+                HideGround == other.HideGround &&
+                HideUi == other.HideUi &&
+                Cutaway == other.Cutaway &&
+                SectionClip == other.SectionClip &&
+                FollowId == other.FollowId &&
+                GraphicsProfile == other.GraphicsProfile &&
+                (CamPos - other.CamPos).sqrMagnitude < 1e-6f &&
+                Mathf.Abs(CamViewScale - other.CamViewScale) < 1e-5f &&
+                (SectionNormal - other.SectionNormal).sqrMagnitude < 1e-6f &&
+                (SectionPoint - other.SectionPoint).sqrMagnitude < 1e-6f;
+        }
+
         readonly Dictionary<StationWorldView, State> states = new Dictionary<StationWorldView, State>();
         readonly List<PassengerPose> poses = new List<PassengerPose>();
         readonly List<PassengerPose> presented = new List<PassengerPose>();
@@ -1125,7 +1372,12 @@ namespace Metro.App.Views {
         State lastTickState;
         long lastTick = long.MinValue;
         long lastEpoch = long.MinValue;
+        double lastPresentedAlpha = double.NaN;
         bool hasTick;
+        bool hasPresented;
+        bool hasLastReadSession;
+        StationSimulationSession lastReadSession;
+        PausedPresentationKey lastPausedKey;
         State newest;
         int serial;
 
@@ -1233,18 +1485,38 @@ namespace Metro.App.Views {
             if (view == null) return;
             var feed = PassengerPoseFeeds.Source;
             if (feed == null) return;
-            poses.Clear();
-            bool published;
-            try {
-                published = feed.TryRead(poses);
-            } catch (Exception error) {
-                state.Context?.ReportUnresolved("passenger-feed-failed", "actor", "feed", error.Message);
-                return;
-            }
-            if (!published) return;
+            var sessionFeed = feed as SessionPassengerFeed;
+            var liveSession = sessionFeed != null ? sessionFeed.Session : null;
+            if (sessionFeed != null && liveSession == null) return;
 
             bool reset = !hasTick || clock.Epoch != lastEpoch || !ReferenceEquals(feed, lastFeed) ||
-                !ReferenceEquals(state, lastTickState);
+                !ReferenceEquals(state, lastTickState) ||
+                (sessionFeed != null && (!hasLastReadSession || !ReferenceEquals(liveSession, lastReadSession)));
+            bool tickChanged = reset || clock.Tick != lastTick;
+
+            if (!clock.Playing && !tickChanged && hasPresented && sessionFeed != null &&
+                Math.Abs(clock.Fraction - lastPresentedAlpha) < 1e-6) {
+                var key = CapturePausedKey(state, document);
+                if (key.Equals(lastPausedKey)) {
+                    UpdateSelectedRoute(state, sessionFeed, clock.Tick);
+                    return;
+                }
+            }
+
+            if (tickChanged || sessionFeed == null) {
+                poses.Clear();
+                bool published;
+                try {
+                    published = feed.TryRead(poses);
+                } catch (Exception error) {
+                    state.Context?.ReportUnresolved("passenger-feed-failed", "actor", "feed", error.Message);
+                    return;
+                }
+                if (!published) return;
+                hasLastReadSession = sessionFeed != null;
+                lastReadSession = liveSession;
+            }
+
             if (reset) {
                 if (hasTick && StationEditSession.SelectionKind == "agent") StationEditSession.ClearSelection();
                 previousPoses.Clear();
@@ -1313,10 +1585,39 @@ namespace Metro.App.Views {
                 blend.WalkWeight = startedWalking ? current.WalkWeight : Lerp(prior.WalkWeight, current.WalkWeight, alpha);
                 presented.Add(blend);
             }
-            view.Render(presented, clock.PresentationSeconds);
-            UpdateSelectedRoute(state, feed as SessionPassengerFeed, clock.Tick);
+            view.Render(presented, clock.PresentationSeconds, checkGone: tickChanged || sessionFeed == null);
+            lastPresentedAlpha = clock.Fraction;
+            hasPresented = true;
+            lastPausedKey = CapturePausedKey(state, document);
+            UpdateSelectedRoute(state, sessionFeed, clock.Tick);
             state.LastPoseSamples = poses.Count;
             state.LastPresentedPoses = view.PosedThisFrame;
+        }
+
+        static PausedPresentationKey CapturePausedKey(State state, StationDocument document) {
+            var vis = state?.World?.Visibility;
+            var rig = StationViewFeature.Active;
+            var cam = rig != null && rig.viewCamera != null ? rig.viewCamera : Camera.main;
+            var lodCam = StationExplodedView.IsStandaloneActive
+                ? StationViewFeature.ActiveExploded?.ViewerCamera : cam;
+            return new PausedPresentationKey {
+                Document = document,
+                Support = state?.Support,
+                ActiveLevel = vis != null ? vis.State.ActiveLevel : 0,
+                ShowLevels = vis != null && vis.State.ShowLevels,
+                HideGround = vis != null && vis.State.HideGround,
+                HideUi = vis != null && vis.State.HideUi,
+                Cutaway = vis != null && vis.State.Cutaway,
+                SectionClip = vis != null && vis.SectionClipping,
+                FollowId = vis != null ? vis.State.FollowPassenger : 0,
+                GraphicsProfile = (StationGraphicsSettings.MinimumModelLod << 12) ^
+                    (StationGraphicsSettings.OtherLevelModelLod << 8) ^
+                    Mathf.RoundToInt(StationGraphicsSettings.ModelLodBias * 100f),
+                CamPos = lodCam != null ? lodCam.transform.position : Vector3.zero,
+                CamViewScale = lodCam != null ? (lodCam.orthographic ? lodCam.orthographicSize : lodCam.fieldOfView) : 0f,
+                SectionNormal = vis != null ? vis.Section.Normal : Vector3.zero,
+                SectionPoint = vis != null ? vis.Section.Point : Vector3.zero,
+            };
         }
 
         static Vector3 RoutePoint(double x, double y, double z) =>
@@ -1332,7 +1633,10 @@ namespace Metro.App.Views {
             if (state.RouteId != id || state.RouteTick != tick) {
                 state.RouteId = id;
                 state.RouteTick = tick;
-                if (!feed.Session.Services.TryReadPassengerRoute(id, state.RoutePoints)) {
+                bool ok = feed.SimHost != null
+                    ? feed.SimHost.WithSessionLock(s => s.Services != null && s.Services.TryReadPassengerRoute(id, state.RoutePoints))
+                    : feed.Session.Services.TryReadPassengerRoute(id, state.RoutePoints);
+                if (!ok) {
                     StationEditSession.ClearSelection();
                     return;
                 }

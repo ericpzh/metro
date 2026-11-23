@@ -152,6 +152,222 @@ test('createWebGlAutosave clears previous station BEFORE writing on stationEpoch
   autosave.dispose()
 })
 
+test('plan 39 §3: first accepted demo/open/new replacement invalidates stale autosave BEFORE writing, even on quota failure', () => {
+  // Seed storage with Station A, start Unity on a demo route, and force first write of B to fail with quota.
+  const storage = memoryStorage({ [AUTOSAVE_KEY]: VALID_SAVE_A })
+  let throwOnSet = true
+  const guardedStorage = {
+    getItem: key => storage.getItem(key),
+    removeItem: key => storage.removeItem(key),
+    setItem(key, value) {
+      if (throwOnSet) throw new Error('QuotaExceededError')
+      storage.setItem(key, value)
+    },
+  }
+
+  const autosave = createWebGlAutosave({
+    enabled: true,
+    storage: guardedStorage,
+    windowTarget: null,
+    documentTarget: null,
+    setIntervalFn: () => 1,
+    clearIntervalFn: () => {},
+  })
+
+  // Correlated startup demo open superseding stored Station A:
+  autosave.trackCommand('c-1', 'replace')
+  autosave.noteCommit({
+    sessionId: 's-1',
+    revision: 1,
+    stationEpoch: 1,
+    sourceId: 'zoo',
+    commandId: 'c-1',
+    documentText: VALID_SAVE_B,
+  })
+  // Old slot A MUST be invalidated; reload must never restore A!
+  assert.equal(storage.peek(AUTOSAVE_KEY), null, 'reload after quota-failed replacement must never restore stale station A')
+  assert.equal(readValidAutosaveText(guardedStorage), null)
+
+  // Retry succeeds once storage quota clears.
+  throwOnSet = false
+  assert.equal(autosave.flush(), true)
+  assert.equal(storage.peek(AUTOSAVE_KEY), VALID_SAVE_B)
+
+  // Refused explicit open leaves B intact and clean.
+  autosave.trackCommand('c-2', 'replace')
+  autosave.noteReject('c-2')
+  assert.equal(storage.peek(AUTOSAVE_KEY), VALID_SAVE_B)
+  assert.equal(autosave.flush(), false)
+
+  // Repeated open of the SAME sourceId ('zoo' -> 'zoo') still invalidates & replaces cleanly.
+  const VALID_SAVE_B2 = serialize(makeStation('Beta Reopened', 'Beta2'))
+  throwOnSet = true
+  autosave.trackCommand('c-3', 'replace')
+  autosave.noteCommit({
+    sessionId: 's-1',
+    revision: 2,
+    stationEpoch: 2,
+    sourceId: 'zoo',
+    commandId: 'c-3',
+    documentText: VALID_SAVE_B2,
+  })
+  assert.equal(storage.peek(AUTOSAVE_KEY), null)
+  throwOnSet = false
+  assert.equal(autosave.flush(), true)
+  assert.equal(storage.peek(AUTOSAVE_KEY), VALID_SAVE_B2)
+
+  // Warm resync refreshes cached envelope without wiping stored slot or marking clean dirty.
+  autosave.trackCommand('c-4', 'resync')
+  autosave.noteCommit({
+    sessionId: 's-1',
+    revision: 2,
+    stationEpoch: 2,
+    sourceId: 'zoo',
+    commandId: 'c-4',
+    documentText: VALID_SAVE_B2,
+  })
+  assert.equal(storage.peek(AUTOSAVE_KEY), VALID_SAVE_B2)
+  assert.equal(autosave.flush(), false)
+  autosave.dispose()
+
+  // Fresh startup restoring valid autosave starts clean (no redundant write).
+  const restoreOpsStart = storage.ops.length
+  const restored = createWebGlAutosave({
+    enabled: true,
+    storage,
+    windowTarget: null,
+    documentTarget: null,
+    setIntervalFn: () => 1,
+    clearIntervalFn: () => {},
+  })
+  restored.trackCommand('c-10', 'restore')
+  restored.noteCommit({
+    sessionId: 's-2',
+    revision: 1,
+    stationEpoch: 1,
+    sourceId: 'autosave',
+    commandId: 'c-10',
+    documentText: VALID_SAVE_B2,
+  })
+  assert.equal(storage.ops.length, restoreOpsStart, 'correlated autosave restore must not rewrite storage')
+  assert.equal(restored.flush(), false)
+  restored.dispose()
+})
+
+test('plan 39 §4: burst of local delta edits triggers zero encodes during adoption, coalesces outside input, and flushes newest revision synchronously on pagehide/beforeunload', () => {
+  const storage = memoryStorage()
+  const win = makeFakeTarget()
+  const doc = makeFakeTarget()
+  let encodeCalls = 0
+  const scheduled = []
+  let cancelCount = 0
+
+  const autosave = createWebGlAutosave({
+    enabled: true,
+    storage,
+    windowTarget: win,
+    documentTarget: doc,
+    setIntervalFn: () => 1,
+    clearIntervalFn: () => {},
+    scheduleEncodeFn: fn => {
+      const handle = { fn, cancelled: false }
+      scheduled.push(handle)
+      return handle
+    },
+    cancelEncodeFn: handle => {
+      handle.cancelled = true
+      cancelCount++
+    },
+    serializeFn: st => {
+      encodeCalls++
+      return serialize(st)
+    },
+  })
+
+  // Initial full host envelope reuses documentText with zero serialize calls.
+  autosave.noteCommit({
+    sessionId: 's-1',
+    revision: 1,
+    stationEpoch: 1,
+    sourceId: 'zoo',
+    documentText: VALID_SAVE_A,
+  })
+  assert.equal(encodeCalls, 0)
+
+  // Burst of 6 local delta edits (including undo & redo) MUST perform zero synchronous encodes during adoption.
+  for (let rev = 2; rev <= 7; rev++) {
+    autosave.noteCommit({
+      sessionId: 's-1',
+      revision: rev,
+      stationEpoch: 1,
+      sourceId: 'zoo',
+      documentText: null,
+      station: makeStation(`Burst Rev ${rev}`),
+    })
+  }
+  assert.equal(encodeCalls, 0, 'commit adoption must never synchronously encode delta snapshots')
+  assert.equal(cancelCount, 5, 'older scheduled encodes must be coalesced away')
+
+  // Firing an already-superseded scheduled callback is revision-fenced and does nothing.
+  scheduled[0].fn()
+  assert.equal(encodeCalls, 0)
+
+  // Firing the latest coalesced callback encodes exactly once outside input handling.
+  scheduled.at(-1).fn()
+  assert.equal(encodeCalls, 1)
+
+  // Flush reuses the pre-encoded snapshot (still 1 encode total) and writes rev 7.
+  assert.equal(autosave.flush(), true)
+  assert.equal(encodeCalls, 1)
+  assert.match(storage.peek(AUTOSAVE_KEY) ?? '', /Burst Rev 7/)
+
+  // Now commit an undo (rev 8) and trigger immediate `pagehide` BEFORE scheduled encode runs:
+  // synchronous fallback must encode rev 8 immediately without waiting for any bridge response.
+  const undoStation = makeStation('Final Undo Rev 8')
+  autosave.noteCommit({
+    sessionId: 's-1',
+    revision: 8,
+    stationEpoch: 1,
+    sourceId: 'zoo',
+    documentText: null,
+    station: undoStation,
+  })
+  assert.equal(encodeCalls, 1, 'still zero encode during adoption of undo')
+  win.emit('pagehide')
+  assert.equal(encodeCalls, 2, 'synchronous pagehide fallback encodes newest dirty revision')
+  const reopened = readValidAutosaveText(storage)
+  assert.ok(reopened)
+  assert.equal(reopened, serialize(undoStation), 'reopened autosave matches v1 export for rev 8')
+
+  // Commit rev 9 and verify `beforeunload` also flushes synchronously.
+  autosave.noteCommit({
+    sessionId: 's-1',
+    revision: 9,
+    stationEpoch: 1,
+    sourceId: 'zoo',
+    documentText: null,
+    station: makeStation('Final Redo Rev 9'),
+  })
+  win.emit('beforeunload')
+  assert.match(storage.peek(AUTOSAVE_KEY) ?? '', /Final Redo Rev 9/)
+
+  // Dispose cancels pending encode and fences teardown cleanly.
+  autosave.noteCommit({
+    sessionId: 's-1',
+    revision: 10,
+    stationEpoch: 1,
+    sourceId: 'zoo',
+    documentText: null,
+    station: makeStation('After Dispose Rev 10'),
+  })
+  const staleAfterDispose = scheduled.at(-1)
+  autosave.dispose()
+  assert.equal(win.listenerCount('beforeunload'), 0)
+  const callsBeforeStale = encodeCalls
+  staleAfterDispose.fn()
+  assert.equal(encodeCalls, callsBeforeStale, 'disposed autosave ignores late scheduled encode')
+})
+
 test('stationBridge reducer tracks stationEpoch and readHostHistory reflects authoritative C# undo/redo state', () => {
   const initial = {
     ready: true,

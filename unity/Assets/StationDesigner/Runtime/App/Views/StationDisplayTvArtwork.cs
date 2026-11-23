@@ -235,10 +235,10 @@ namespace Metro.App.Views {
                 var scope = current?.Displays;
                 if (scope != null) {
                     var host = StationGameHost.ResolveActive();
-                    var session = host != null ? (host.Simulation as StationSimulationHost)?.Session : null;
+                    var published = (host?.Simulation as StationSimulationHost)?.PublishedFrame;
                     var doc = document ?? host?.Document;
-                    if (session != null && doc != null) {
-                        RefreshPlates(scope, current.World, doc, session.Snapshot(), true);
+                    if (published != null && doc != null) {
+                        RefreshPlates(scope, current.World, doc, published.Motion, true);
                     }
                 }
                 return Publish();
@@ -614,6 +614,7 @@ namespace Metro.App.Views {
                     scope.PlateTextures.Remove(key);
                     if (tex != null) {
                         scope.Textures.Remove(tex);
+                        if (tex is RenderTexture rt && rt.IsCreated()) rt.Release();
                         if (Application.isPlaying) UnityEngine.Object.Destroy(tex);
                         else UnityEngine.Object.DestroyImmediate(tex);
                     }
@@ -655,7 +656,7 @@ namespace Metro.App.Views {
             string key = "tv-plate|" + data.Key + "#" + template.name;
             if (scope.Materials.TryGetValue(key, out var cached) && cached) return cached;
             if (!scope.PlateTextures.TryGetValue(data.Key, out var texture) || !texture) {
-                texture = StationTvPlatePainter.Paint(data, scope.Font);
+                texture = StationTvPlatePainter.PaintRuntime(data, scope.Font);
                 if (!texture) return null;
                 scope.PlateTextures[data.Key] = texture;
                 scope.Textures.Add(texture);
@@ -709,9 +710,9 @@ namespace Metro.App.Views {
                 StationMotionFrame frame = default;
                 bool haveFrame = false;
                 var host = StationGameHost.ResolveActive();
-                var session = host != null ? (host.Simulation as StationSimulationHost)?.Session : null;
-                if (session != null) {
-                    frame = session.Snapshot();
+                var published = (host?.Simulation as StationSimulationHost)?.PublishedFrame;
+                if (published != null) {
+                    frame = published.Motion;
                     haveFrame = true;
                 } else if (document != null) {
                     int total = Math.Max(0, (int)Math.Floor(clock.SimSeconds));

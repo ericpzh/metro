@@ -329,11 +329,132 @@ namespace Metro.Sim {
         readonly Dictionary<string, double> sparseLiftWaitScratch = new Dictionary<string, double>(StringComparer.Ordinal);
         readonly HashSet<int> sparseReferencedCoarseIds = new HashSet<int>();
         int walkReplans, queueReplans, gateReplans, patienceReplans;
-        readonly Dictionary<(int X, int Y, int Z), int> collisionHeads = new Dictionary<(int X, int Y, int Z), int>();
+        sealed class StampedCellGrid {
+            const int MaxCells = 1 << 20;
+            int minX, minY, minZ;
+            int sizeX, sizeY, sizeZ;
+            int strideZ;
+            int[] values = Array.Empty<int>();
+            int[] stamps = Array.Empty<int>();
+            int stamp = 1;
+            readonly int emptyValue;
+            readonly Dictionary<(int X, int Y, int Z), int> overflow = new Dictionary<(int X, int Y, int Z), int>();
+
+            public StampedCellGrid(int emptyValue) {
+                this.emptyValue = emptyValue;
+            }
+
+            public void Configure(StationWalkGraph g) {
+                Clear();
+                if (g == null || g.NodeCount == 0) {
+                    sizeX = sizeY = sizeZ = 0;
+                    return;
+                }
+                int loX = int.MaxValue, hiX = int.MinValue;
+                int loY = int.MaxValue, hiY = int.MinValue;
+                int loZ = int.MaxValue, hiZ = int.MinValue;
+                for (int i = 0; i < g.NodeCount; i++) {
+                    int nx = (int)Math.Floor(g.NodeX[i]);
+                    int ny = (int)Math.Floor(g.NodeY[i]);
+                    int nz = (int)Math.Round(g.NodeZ[i], MidpointRounding.AwayFromZero);
+                    if (nx < loX) loX = nx; if (nx > hiX) hiX = nx;
+                    if (ny < loY) loY = ny; if (ny > hiY) hiY = ny;
+                    if (nz < loZ) loZ = nz; if (nz > hiZ) hiZ = nz;
+                }
+                minX = loX - 4; minY = loY - 4; minZ = loZ - 3;
+                long sx = (long)(hiX + 4) - minX + 1;
+                long sy = (long)(hiY + 4) - minY + 1;
+                long sz = (long)(hiZ + 3) - minZ + 1;
+                if (sx <= 0 || sy <= 0 || sz <= 0 || sx * sy * sz > MaxCells) {
+                    sizeX = sizeY = sizeZ = 0;
+                    return;
+                }
+                sizeX = (int)sx;
+                sizeY = (int)sy;
+                sizeZ = (int)sz;
+                strideZ = sizeX * sizeY;
+                int total = strideZ * sizeZ;
+                if (values.Length < total) {
+                    values = new int[total];
+                    stamps = new int[total];
+                }
+                stamp = 1;
+                Array.Clear(stamps, 0, total);
+            }
+
+            public void Clear() {
+                if (overflow.Count > 0) overflow.Clear();
+                if (++stamp == int.MaxValue) {
+                    stamp = 1;
+                    if (stamps.Length > 0) Array.Clear(stamps, 0, stamps.Length);
+                }
+            }
+
+            public void Increment(int x, int y, int z) {
+                int lx = x - minX, ly = y - minY, lz = z - minZ;
+                if ((uint)lx < (uint)sizeX && (uint)ly < (uint)sizeY && (uint)lz < (uint)sizeZ) {
+                    int idx = lz * strideZ + ly * sizeX + lx;
+                    if (stamps[idx] != stamp) {
+                        stamps[idx] = stamp;
+                        values[idx] = 1;
+                    } else {
+                        values[idx]++;
+                    }
+                    return;
+                }
+                var key = (x, y, z);
+                overflow.TryGetValue(key, out int count);
+                overflow[key] = count + 1;
+            }
+
+            public int GetCount(int x, int y, int z) {
+                int lx = x - minX, ly = y - minY, lz = z - minZ;
+                if ((uint)lx < (uint)sizeX && (uint)ly < (uint)sizeY && (uint)lz < (uint)sizeZ) {
+                    int idx = lz * strideZ + ly * sizeX + lx;
+                    return stamps[idx] == stamp ? values[idx] : 0;
+                }
+                overflow.TryGetValue((x, y, z), out int count);
+                return count;
+            }
+
+            public int SwapHead(int x, int y, int z, int nextHead) {
+                int lx = x - minX, ly = y - minY, lz = z - minZ;
+                if ((uint)lx < (uint)sizeX && (uint)ly < (uint)sizeY && (uint)lz < (uint)sizeZ) {
+                    int idx = lz * strideZ + ly * sizeX + lx;
+                    int prev = stamps[idx] == stamp ? values[idx] : emptyValue;
+                    stamps[idx] = stamp;
+                    values[idx] = nextHead;
+                    return prev;
+                }
+                var key = (x, y, z);
+                int prevOverflow = overflow.TryGetValue(key, out int h) ? h : emptyValue;
+                overflow[key] = nextHead;
+                return prevOverflow;
+            }
+
+            public int GetHead(int x, int y, int z) {
+                int lx = x - minX, ly = y - minY, lz = z - minZ;
+                if ((uint)lx < (uint)sizeX && (uint)ly < (uint)sizeY && (uint)lz < (uint)sizeZ) {
+                    int idx = lz * strideZ + ly * sizeX + lx;
+                    return stamps[idx] == stamp ? values[idx] : emptyValue;
+                }
+                return overflow.TryGetValue((x, y, z), out int h) ? h : emptyValue;
+            }
+        }
+
+        readonly StampedCellGrid collisionHeads = new StampedCellGrid(-1);
         int[] collisionNext = Array.Empty<int>();
         readonly Queue<int> detourQueue = new Queue<int>(32);
         readonly Dictionary<int, int> detourFirstStep = new Dictionary<int, int>(32);
-        readonly Dictionary<(int X, int Y, int Z), int> nearbyCrowd = new Dictionary<(int X, int Y, int Z), int>();
+        readonly StampedCellGrid nearbyCrowd = new StampedCellGrid(0);
+        StationWalkGraph configuredGridGraph;
+
+        void EnsureCellGrids() {
+            if (ReferenceEquals(configuredGridGraph, graph)) return;
+            configuredGridGraph = graph;
+            collisionHeads.Configure(graph);
+            nearbyCrowd.Configure(graph);
+        }
         SimulationRng rng;
         uint seed;
         double simTime;
@@ -2197,17 +2318,18 @@ namespace Metro.Sim {
 
         void SeparateWalkers() {
             if (graph == null || passengers.Count < 2) return;
+            EnsureCellGrids();
             collisionHeads.Clear();
             if (collisionNext.Length < passengers.Count)
                 Array.Resize(ref collisionNext, Math.Max(64, passengers.Count * 2));
             for (int i = 0; i < passengers.Count; i++) {
                 var p = passengers[i];
                 if (!CanSeparate(p)) continue;
-                var cell = ((int)Math.Floor(p.X), (int)Math.Floor(p.Y), JsRound(p.Z) - 1);
-                collisionNext[i] = collisionHeads.TryGetValue(cell, out int head) ? head : -1;
-                collisionHeads[cell] = i;
+                int cx = (int)Math.Floor(p.X), cy = (int)Math.Floor(p.Y), cz = JsRound(p.Z) - 1;
+                collisionNext[i] = collisionHeads.SwapHead(cx, cy, cz, i);
             }
             const double space = .8;
+            const double spaceSq = space * space;
             for (int i = 0; i < passengers.Count; i++) {
                 var p = passengers[i];
                 if (!CanSeparate(p)) continue;
@@ -2216,14 +2338,16 @@ namespace Metro.Sim {
                 double px = 0, py = 0;
                 int neighbors = 0;
                 for (int dy = -1; dy <= 1; dy++) for (int dx = -1; dx <= 1; dx++) {
-                    if (!collisionHeads.TryGetValue((x + dx, y + dy, z), out int j)) continue;
+                    int j = collisionHeads.GetHead(x + dx, y + dy, z);
+                    if (j < 0) continue;
                     for (; j >= 0 && neighbors < 24; j = collisionNext[j]) {
                         if (j == i) continue;
                         var other = passengers[j];
                         if (Math.Abs(p.Z - other.Z) > .3) continue;
                         double vx = p.X - other.X, vy = p.Y - other.Y;
-                        double distance = Math.Sqrt(vx * vx + vy * vy);
-                        if (distance >= space) continue;
+                        double distSq = vx * vx + vy * vy;
+                        if (distSq >= spaceSq) continue;
+                        double distance = Math.Sqrt(distSq);
                         neighbors++;
                         if (distance < 1e-6) {
                             double angle = p.Id * 2.399963229728653;
@@ -2315,6 +2439,7 @@ namespace Metro.Sim {
         }
 
         void PriceCrowd() {
+            EnsureCellGrids();
             nearbyCrowd.Clear();
             planner?.InvalidateCongestionCache();
             InvalidateExactRouteCache();
@@ -2323,15 +2448,13 @@ namespace Metro.Sim {
                 if (p.Phase != Phase.Walking && p.Phase != Phase.Queuing && p.Phase != Phase.LiftQueuing) continue;
                 int x = (int)Math.Floor(p.X), y = (int)Math.Floor(p.Y), z = JsRound(p.Z);
                 for (int dy = -2; dy <= 2; dy++) for (int dx = -2; dx <= 2; dx++) {
-                    var key = (x + dx, y + dy, z);
-                    nearbyCrowd.TryGetValue(key, out int count);
-                    nearbyCrowd[key] = count + 1;
+                    nearbyCrowd.Increment(x + dx, y + dy, z);
                 }
             }
         }
 
         int LocalCrowdCount(double x, double y, double z) {
-            nearbyCrowd.TryGetValue(((int)Math.Floor(x), (int)Math.Floor(y), JsRound(z)), out int count);
+            int count = nearbyCrowd.GetCount((int)Math.Floor(x), (int)Math.Floor(y), JsRound(z));
             return Math.Max(0, count - 1);
         }
 
@@ -2341,8 +2464,8 @@ namespace Metro.Sim {
         }
 
         double CongestionAt(int node) {
-            nearbyCrowd.TryGetValue(((int)Math.Floor(graph.NodeX[node]), (int)Math.Floor(graph.NodeY[node]),
-                JsRound(graph.NodeZ[node])), out int count);
+            int count = nearbyCrowd.GetCount((int)Math.Floor(graph.NodeX[node]), (int)Math.Floor(graph.NodeY[node]),
+                JsRound(graph.NodeZ[node]));
             return StationRoutePlanner.CongestionCost(count);
         }
 
@@ -4512,6 +4635,21 @@ namespace Metro.Sim {
                 dy = passenger.GateApproachDy;
                 return;
             }
+            if (passenger != null && gate != null && graph != null &&
+                (uint)gate.Node < (uint)graph.NodeCount) {
+                double gdx = graph.NodeX[gate.Node] - passenger.X;
+                double gdy = graph.NodeY[gate.Node] - passenger.Y;
+                if (Math.Abs(gdx) > 1e-3 || Math.Abs(gdy) > 1e-3) {
+                    if (Math.Abs(gdx) >= Math.Abs(gdy)) {
+                        dx = gdx >= 0 ? 1 : -1;
+                        dy = 0;
+                    } else {
+                        dx = 0;
+                        dy = gdy >= 0 ? 1 : -1;
+                    }
+                    return;
+                }
+            }
             int side = passenger != null && passenger.GateDir != 0 ? passenger.GateDir : 1;
             int rot = gate != null ? (gate.Rotation % 4 + 4) % 4 : 0;
             dx = rot == 1 ? -side : rot == 3 ? side : 0;
@@ -4535,7 +4673,7 @@ namespace Metro.Sim {
             double reached = 0;
             for (int n = 1; n <= Math.Ceiling(tail); n++) {
                 if (!graph.TryNode(cx - dx * n, cy - dy * n, z, out int next) ||
-                    graph.ServerForNode.ContainsKey(next) || Array.IndexOf(graph.AdjTo[last], next) < 0) break;
+                    graph.ServerForNode.ContainsKey(next) || Array.IndexOf(graph.AdjTo[next], last) < 0) break;
                 last = next;
                 reached = n;
             }

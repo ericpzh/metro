@@ -23,10 +23,16 @@ namespace Metro.App {
         public string Key => ContributorKey;
 
         public JObject BuildPayload(StationDocument document, StationIndex index) {
-            var session = sessionSource();
-            if (session == null || document == null) {
-                return UnavailablePayload();
+            if (document == null) return UnavailablePayload();
+            var host = StationGameHost.ResolveActive();
+            if (host?.Simulation is StationSimulationHost simHost) {
+                return simHost.WithSessionLock(s => BuildFromSession(s), UnavailablePayload());
             }
+            return BuildFromSession(sessionSource());
+        }
+
+        static JObject BuildFromSession(StationSimulationSession session) {
+            if (session == null) return UnavailablePayload();
             var m = session.Statistics;
             var h = session.History;
             return new JObject {

@@ -154,70 +154,210 @@ namespace Metro.App.Views {
             return new Color(((rgb >> 16) & 0xFF) / 255f, ((rgb >> 8) & 0xFF) / 255f, (rgb & 0xFF) / 255f);
         }
 
-        /// <summary>Paint one plate to an RGBA texture (the caller owns it).</summary>
+        const int OffscreenPainterLayer = 31;
+        static readonly Vector3 PainterOrigin = new Vector3(-100000f, -100000f, -100000f);
+
+        sealed class PainterRig {
+            public GameObject CameraObject;
+            public Camera Camera;
+            public GameObject CanvasObject;
+            public RenderTexture ScratchTarget;
+            public readonly Text[] CardLabels = new Text[3];
+            public readonly Text[] CardSubLabels = new Text[3];
+            public readonly Text[] CardTermini = new Text[3];
+            public readonly Text[] CardStatuses = new Text[3];
+            public Text StationText;
+            public Text CourtesyText;
+            public Text DateText;
+            public Text ClockText;
+
+            public bool IsAlive => CameraObject != null && Camera != null && CanvasObject != null;
+
+            public void Dispose() {
+                if (Camera != null) Camera.targetTexture = null;
+                if (ScratchTarget != null) {
+                    if (ScratchTarget.IsCreated()) ScratchTarget.Release();
+                    SafeDestroy(ScratchTarget);
+                    ScratchTarget = null;
+                }
+                if (CameraObject != null) SafeDestroy(CameraObject);
+                if (CanvasObject != null) SafeDestroy(CanvasObject);
+                CameraObject = null;
+                Camera = null;
+                CanvasObject = null;
+            }
+        }
+
+        static PainterRig pooledRig;
+
+        static void SafeDestroy(UnityEngine.Object obj) {
+            if (!obj) return;
+            if (Application.isPlaying) UnityEngine.Object.Destroy(obj);
+            else UnityEngine.Object.DestroyImmediate(obj);
+        }
+
+        /// <summary>Release the pooled offscreen TV painter rig (safe to call on shutdown or tests).</summary>
+        public static void DisposePool() {
+            if (pooledRig == null) return;
+            pooledRig.Dispose();
+            pooledRig = null;
+        }
+
+        static PainterRig EnsureRig() {
+            if (pooledRig != null && pooledRig.IsAlive) {
+                if (pooledRig.ScratchTarget == null || !pooledRig.ScratchTarget.IsCreated()) {
+                    pooledRig.ScratchTarget = CreateScratchTarget();
+                }
+                return pooledRig;
+            }
+            pooledRig?.Dispose();
+            var rig = new PainterRig {
+                ScratchTarget = CreateScratchTarget(),
+            };
+            rig.CameraObject = new GameObject("tv plate camera (pooled)") {
+                hideFlags = HideFlags.HideAndDontSave,
+                layer = OffscreenPainterLayer,
+            };
+            var camera = rig.CameraObject.AddComponent<Camera>();
+            camera.enabled = false;
+            camera.clearFlags = CameraClearFlags.SolidColor;
+            // The reference ground is `#258cdd`; the aperture is painted over it.
+            camera.backgroundColor = new Color(.145f, .549f, .867f, 1f);
+            camera.orthographic = true;
+            camera.orthographicSize = Height * .5f;
+            camera.nearClipPlane = .01f;
+            camera.farClipPlane = 100f;
+            camera.cullingMask = 1 << OffscreenPainterLayer;
+            camera.allowHDR = false;
+            camera.allowMSAA = false;
+            camera.useOcclusionCulling = false;
+            camera.transform.position = PainterOrigin + new Vector3(Width * .5f, Height * .5f, -10f);
+            rig.Camera = camera;
+
+            rig.CanvasObject = new GameObject("tv plate canvas (pooled)", typeof(Canvas)) {
+                hideFlags = HideFlags.HideAndDontSave,
+                layer = OffscreenPainterLayer,
+            };
+            var canvas = rig.CanvasObject.GetComponent<Canvas>();
+            canvas.renderMode = RenderMode.WorldSpace;
+            var rect = rig.CanvasObject.GetComponent<RectTransform>();
+            rect.sizeDelta = new Vector2(Width, Height);
+            rect.position = PainterOrigin + new Vector3(Width * .5f, Height * .5f, 0f);
+            rect.localScale = Vector3.one;
+            var root = rig.CanvasObject.transform;
+            var layout = Layout();
+            var fallbackFont = StationUiFont();
+
+            // `drawStationDisplay`: `g.fillRect(layout.poster.x, 0, layout.poster.w, layout.strip.y)`
+            // paints `#080a0c` all the way down to the footer strip (`0.90 H`), leaving the
+            // dark band below the `0.82 H` content window (`Layout().Poster.H` remains `0.82 H`).
+            Panel(root, "poster", new PlateRect {
+                X = layout.Poster.X, Y = 0f, W = layout.Poster.W, H = layout.Strip.Y,
+            }, new Color(.031f, .039f, .047f, 1f), null);
+            var cardColor = new Color(.945f, .949f, .941f, 1f);
+            var inkColor = new Color(.063f, .078f, .094f);
+            for (int card = 0; card < 3; card++) {
+                var box = layout.Card(card);
+                Panel(root, "card " + card, box, cardColor, RoundedSprite());
+                rig.CardLabels[card] = Row(root, fallbackFont, "", 28, Inset(box, 6f, 6f, 6f, 33f), FontStyle.Bold, inkColor);
+                rig.CardSubLabels[card] = Row(root, fallbackFont, "", 15, Inset(box, 8f, 37f, 8f, 22f), FontStyle.Bold, inkColor);
+                rig.CardTermini[card] = Row(root, fallbackFont, "", 32, Inset(box, 8f, 62f, 8f, 40f), FontStyle.Normal, inkColor);
+                rig.CardStatuses[card] = Row(root, fallbackFont, "", 32, Inset(box, 8f, box.H - 44f, 8f, 40f), FontStyle.Normal, inkColor);
+            }
+            Panel(root, "station", layout.Station, cardColor, RoundedSprite());
+            rig.StationText = Row(root, fallbackFont, "", 27, Inset(layout.Station, 8f, 0f, 8f, layout.Station.H), FontStyle.Normal, inkColor);
+            rig.CourtesyText = Row(root, fallbackFont, "", 26,
+                new PlateRect { X = layout.Strip.X + 16f, Y = layout.Strip.Y, W = layout.Strip.W - 24f, H = layout.Strip.H },
+                FontStyle.Normal, new Color(.933f, .965f, 1f), TextAnchor.MiddleLeft);
+            var footerInk = new Color(.024f, .137f, .275f);
+            rig.DateText = Row(root, fallbackFont, "", 18,
+                new PlateRect { X = layout.Clock.X, Y = layout.Clock.Y + 2f, W = layout.Clock.W, H = 22f },
+                FontStyle.Bold, footerInk);
+            rig.ClockText = Row(root, fallbackFont, "", 29,
+                new PlateRect { X = layout.Clock.X, Y = layout.Clock.Y + 21f, W = layout.Clock.W, H = 32f },
+                FontStyle.Bold, footerInk);
+
+            pooledRig = rig;
+            return rig;
+        }
+
+        static RenderTexture CreateScratchTarget() {
+            var rt = new RenderTexture(Width, Height, 16, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB) {
+                name = "tv plate scratch rt",
+                hideFlags = HideFlags.HideAndDontSave,
+                useMipMap = false,
+                autoGenerateMips = false,
+                wrapMode = TextureWrapMode.Clamp,
+                filterMode = FilterMode.Bilinear,
+            };
+            rt.Create();
+            return rt;
+        }
+
+        static void PopulateAndRender(PainterRig rig, PlateData data, Font font, RenderTexture target) {
+            var face = font != null ? font : StationUiFont();
+            var words = StationDisplayWords.For(data.Locale);
+            var arrivals = data.Arrivals ?? new StationTvArrival[3];
+            for (int card = 0; card < 3; card++) {
+                var arrival = card < arrivals.Length ? arrivals[card] : default;
+                SetRow(rig.CardLabels[card], face, words.CardLabel(card));
+                SetRow(rig.CardSubLabels[card], face, words.CardSubLabel(card));
+                SetRow(rig.CardTermini[card], face, data.HasLine ? data.Terminus : words.NoLines);
+                SetRow(rig.CardStatuses[card], face, data.HasLine ? words.StatusText(arrival) : words.NoServices);
+            }
+            SetRow(rig.StationText, face, data.Station);
+            SetRow(rig.CourtesyText, face, words.Courtesy);
+            SetRow(rig.DateText, face, data.Date);
+            SetRow(rig.ClockText, face, data.Clock);
+
+            rig.Camera.targetTexture = target;
+            Canvas.ForceUpdateCanvases();
+            rig.Camera.Render();
+            rig.Camera.targetTexture = null;
+        }
+
+        static void SetRow(Text ui, Font font, string text) {
+            if (!ui) return;
+            if (!ReferenceEquals(ui.font, font)) ui.font = font;
+            string next = text ?? "";
+            if (!string.Equals(ui.text, next, StringComparison.Ordinal)) ui.text = next;
+        }
+
+        /// <summary>
+        /// Runtime GPU-owned plate paint: renders with the pooled camera into a depth-capable
+        /// target and copies on the GPU into a dedicated RenderTexture (zero ReadPixels stalls).
+        /// Falls back to CPU-readable <see cref="Paint"/> outside PlayMode for EditMode tests.
+        /// </summary>
+        public static Texture PaintRuntime(PlateData data, Font font) {
+            if (!Application.isPlaying) return Paint(data, font);
+            var rig = EnsureRig();
+            var scratch = rig.ScratchTarget;
+            PopulateAndRender(rig, data, font, scratch);
+            var plateRt = new RenderTexture(Width, Height, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB) {
+                name = "tv plate " + Stable(data.Key),
+                useMipMap = false,
+                autoGenerateMips = false,
+                wrapMode = TextureWrapMode.Clamp,
+                filterMode = FilterMode.Bilinear,
+                anisoLevel = 4,
+            };
+            plateRt.Create();
+            if ((SystemInfo.copyTextureSupport & UnityEngine.Rendering.CopyTextureSupport.Basic) != 0) {
+                Graphics.CopyTexture(scratch, 0, 0, plateRt, 0, 0);
+            } else {
+                Graphics.Blit(scratch, plateRt);
+            }
+            return plateRt;
+        }
+
+        /// <summary>Paint one plate to a CPU-readable RGBA Texture2D (the caller owns it).</summary>
         public static Texture2D Paint(PlateData data, Font font) {
             RenderTexture previous = RenderTexture.active;
-            RenderTexture target = null;
-            GameObject cameraObject = null, canvasObject = null;
             Texture2D texture = null;
-            var face = font != null ? font : StationUiFont();
             try {
-                target = RenderTexture.GetTemporary(Width, Height, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
-                cameraObject = new GameObject("tv plate camera");
-                var camera = cameraObject.AddComponent<Camera>();
-                camera.clearFlags = CameraClearFlags.SolidColor;
-                // The reference ground is `#258cdd`; the aperture is painted over it.
-                camera.backgroundColor = new Color(.145f, .549f, .867f, 1f);
-                camera.orthographic = true;
-                camera.orthographicSize = Height * .5f;
-                camera.nearClipPlane = .01f;
-                camera.farClipPlane = 100f;
-                camera.transform.position = new Vector3(Width * .5f, Height * .5f, -10f);
-                camera.targetTexture = target;
-                canvasObject = new GameObject("tv plate canvas", typeof(Canvas));
-                var canvas = canvasObject.GetComponent<Canvas>();
-                canvas.renderMode = RenderMode.WorldSpace;
-                var rect = canvasObject.GetComponent<RectTransform>();
-                rect.sizeDelta = new Vector2(Width, Height);
-                rect.position = new Vector3(Width * .5f, Height * .5f, 0f);
-                rect.localScale = Vector3.one;
-                var root = canvasObject.transform;
-                var layout = Layout();
-                var words = StationDisplayWords.For(data.Locale);
-                // `drawStationDisplay`: `g.fillRect(layout.poster.x, 0, layout.poster.w, layout.strip.y)`
-                // paints `#080a0c` all the way down to the footer strip (`0.90 H`), leaving the
-                // dark band below the `0.82 H` content window (`Layout().Poster.H` remains `0.82 H`).
-                Panel(root, "poster", new PlateRect {
-                    X = layout.Poster.X, Y = 0f, W = layout.Poster.W, H = layout.Strip.Y,
-                }, new Color(.031f, .039f, .047f, 1f), null);
-                var arrivals = data.Arrivals ?? new StationTvArrival[3];
-                for (int card = 0; card < 3; card++) {
-                    var box = layout.Card(card);
-                    Panel(root, "card " + card, box, new Color(.945f, .949f, .941f, 1f), RoundedSprite());
-                    var arrival = card < arrivals.Length ? arrivals[card] : default;
-                    Row(root, face, words.CardLabel(card), 28, Inset(box, 6f, 6f, 6f, 33f), FontStyle.Bold,
-                        new Color(.063f, .078f, .094f));
-                    Row(root, face, words.CardSubLabel(card), 15, Inset(box, 8f, 37f, 8f, 22f), FontStyle.Bold,
-                        new Color(.063f, .078f, .094f));
-                    Row(root, face, data.HasLine ? data.Terminus : words.NoLines, 32, Inset(box, 8f, 62f, 8f, 40f),
-                        FontStyle.Normal, new Color(.063f, .078f, .094f));
-                    Row(root, face, data.HasLine ? words.StatusText(arrival) : words.NoServices, 32,
-                        Inset(box, 8f, box.H - 44f, 8f, 40f), FontStyle.Normal, new Color(.063f, .078f, .094f));
-                }
-                Panel(root, "station", layout.Station, new Color(.945f, .949f, .941f, 1f), RoundedSprite());
-                Row(root, face, data.Station, 27, Inset(layout.Station, 8f, 0f, 8f, layout.Station.H),
-                    FontStyle.Normal, new Color(.063f, .078f, .094f));
-                Row(root, face, words.Courtesy, 26,
-                    new PlateRect { X = layout.Strip.X + 16f, Y = layout.Strip.Y, W = layout.Strip.W - 24f, H = layout.Strip.H },
-                    FontStyle.Normal, new Color(.933f, .965f, 1f), TextAnchor.MiddleLeft);
-                Row(root, face, data.Date, 18,
-                    new PlateRect { X = layout.Clock.X, Y = layout.Clock.Y + 2f, W = layout.Clock.W, H = 22f },
-                    FontStyle.Bold, new Color(.024f, .137f, .275f));
-                Row(root, face, data.Clock, 29,
-                    new PlateRect { X = layout.Clock.X, Y = layout.Clock.Y + 21f, W = layout.Clock.W, H = 32f },
-                    FontStyle.Bold, new Color(.024f, .137f, .275f));
-                Canvas.ForceUpdateCanvases();
-                camera.Render();
+                var rig = EnsureRig();
+                var target = rig.ScratchTarget;
+                PopulateAndRender(rig, data, font, target);
                 RenderTexture.active = target;
                 texture = new Texture2D(Width, Height, TextureFormat.RGBA32, false) {
                     name = "tv plate " + Stable(data.Key),
@@ -229,9 +369,6 @@ namespace Metro.App.Views {
                 texture.Apply(false, false);
             } finally {
                 RenderTexture.active = previous;
-                if (cameraObject) UnityEngine.Object.DestroyImmediate(cameraObject);
-                if (canvasObject) UnityEngine.Object.DestroyImmediate(canvasObject);
-                if (target != null) RenderTexture.ReleaseTemporary(target);
             }
             return texture;
         }
@@ -256,7 +393,10 @@ namespace Metro.App.Views {
         /// coordinate.
         /// </summary>
         static RectTransform Panel(Transform root, string name, PlateRect box, Color colour, Sprite sprite) {
-            var go = new GameObject(name, typeof(RectTransform));
+            var go = new GameObject(name, typeof(RectTransform)) {
+                hideFlags = HideFlags.HideAndDontSave,
+                layer = OffscreenPainterLayer,
+            };
             go.transform.SetParent(root, false);
             var rect = (RectTransform)go.transform;
             rect.anchorMin = rect.anchorMax = new Vector2(0f, 1f);
@@ -279,7 +419,10 @@ namespace Metro.App.Views {
         /// </summary>
         static Text Row(Transform root, Font font, string text, int size, PlateRect box, FontStyle style,
             Color colour, TextAnchor anchor = TextAnchor.MiddleCenter) {
-            var go = new GameObject("text", typeof(RectTransform));
+            var go = new GameObject("text", typeof(RectTransform)) {
+                hideFlags = HideFlags.HideAndDontSave,
+                layer = OffscreenPainterLayer,
+            };
             go.transform.SetParent(root, false);
             var ui = go.AddComponent<Text>();
             ui.font = font;

@@ -21,8 +21,15 @@ namespace Metro.App.Views {
     public sealed class SessionPassengerFeed : IPassengerPoseFeed {
         readonly Func<StationSimulationSession> source;
         readonly StationSimulationSession session;
+        readonly StationSimulationHost simHost;
 
         public SessionPassengerFeed(StationSimulationSession session) {
+            this.session = session ?? throw new ArgumentNullException(nameof(session));
+            source = () => this.session;
+        }
+
+        public SessionPassengerFeed(StationSimulationHost host, StationSimulationSession session) {
+            simHost = host;
             this.session = session ?? throw new ArgumentNullException(nameof(session));
             source = () => this.session;
         }
@@ -33,6 +40,8 @@ namespace Metro.App.Views {
 
         /// <summary>The session this feed publishes, or null once it has been released.</summary>
         public StationSimulationSession Session => source();
+        /// <summary>The simulation host owning this session, when bound through a host.</summary>
+        public StationSimulationHost SimHost => simHost;
 
         /// <summary>
         /// Fill the complete current actor set. False means "no crowd is published"
@@ -42,9 +51,16 @@ namespace Metro.App.Views {
         /// </summary>
         public bool TryRead(List<PassengerPose> poses) {
             if (poses == null) return false;
-            var current = source();
-            if (current == null) return false;
-            var frames = current.PassengerFrames();
+            StationPassengerFrame[] frames;
+            if (simHost != null) {
+                var published = simHost.PublishedFrame;
+                if (published == null) return false;
+                frames = published.Motion.Passengers;
+            } else {
+                var current = source();
+                if (current == null) return false;
+                frames = current.PassengerFrames();
+            }
             poses.Clear();
             if (frames == null) return true;
             for (int i = 0; i < frames.Length; i++) poses.Add(Map(frames[i]));
@@ -95,16 +111,29 @@ namespace Metro.App.Views {
 
         public string Key => "crowd";
 
-        public JObject BuildPayload(Metro.Build.StationDocument document, Metro.Build.StationIndex index) =>
-            Build(source());
+        public JObject BuildPayload(Metro.Build.StationDocument document, Metro.Build.StationIndex index) {
+            var host = StationGameHost.ResolveActive();
+            if (host?.Simulation is StationSimulationHost simHost) {
+                var published = simHost.PublishedFrame;
+                if (published != null) {
+                    return simHost.WithSessionLock(s => Build(s, published.Motion.Passengers, published.Motion.Gates));
+                }
+                return simHost.WithSessionLock(s => Build(s));
+            }
+            return Build(source());
+        }
 
         /// <summary>The bounded crowd payload for one session, or null when there is none.</summary>
-        public static JObject Build(StationSimulationSession session) {
+        public static JObject Build(StationSimulationSession session) =>
+            Build(session, null, null);
+
+        static JObject Build(StationSimulationSession session,
+            StationPassengerFrame[] cachedFrames, StationGateFrame[] cachedGates) {
             if (session == null) return null;
             var services = session.Services;
             if (services == null) return null;
-            var frames = session.PassengerFrames();
-            var gates = session.GateFrames();
+            var frames = cachedFrames ?? session.PassengerFrames();
+            var gates = cachedGates ?? session.GateFrames();
             // The profile that is actually bound: the public scene has no catalogue, so
             // it truthfully reports `bound: false` and no recipe ids instead of inventing
             // a stand-in identity (H3's local/public separation, visible over the bridge).

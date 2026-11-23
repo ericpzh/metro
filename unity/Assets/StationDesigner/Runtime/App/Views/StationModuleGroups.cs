@@ -949,6 +949,11 @@ namespace Metro.App.Views {
                 int layer = go.layer;
                 bool useMeshLods = mesh.lodCount > 1;
                 var renderParams = default(RenderParams);
+                var shadowMode = batch.ShadowCasting;
+#if !UNITY_WEBGL
+                if (Application.isPlaying && !Application.isEditor)
+                    shadowMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+#endif
                 if (useMeshLods) {
                     if (!lodCameraSampled) {
                         lodCamera = StationExplodedView.IsStandaloneActive
@@ -968,7 +973,7 @@ namespace Metro.App.Views {
                     renderParams = new RenderParams(mat) {
                         layer = layer,
                         matProps = block,
-                        shadowCastingMode = batch.ShadowCasting,
+                        shadowCastingMode = shadowMode,
                         receiveShadows = true,
                         worldBounds = bounds,
                         forceMeshLod = tier,
@@ -982,7 +987,7 @@ namespace Metro.App.Views {
                         Graphics.RenderMeshInstanced(renderParams, mesh, batch.SubmeshIndex, slice, slice.Length);
                     else
                         Graphics.DrawMeshInstanced(mesh, batch.SubmeshIndex, mat, slice, slice.Length, block,
-                            batch.ShadowCasting, true, layer);
+                            shadowMode, true, layer);
                 }
             }
         }
@@ -1044,7 +1049,7 @@ namespace Metro.App.Views {
         protected override string Group => StationModuleClaims.Surfaces;
         public override string Role => StationModuleClaims.Surfaces;
 
-        const int ChunkSize = 16;
+        const int ChunkSize = 64;
 
         sealed class SurfaceChunkBucket {
             public readonly List<GameObject> Views = new List<GameObject>();
@@ -3933,8 +3938,8 @@ namespace Metro.App.Views {
         /// </summary>
         static StationMotionFrame InitialMotionFrame() {
             var host = UnityEngine.Object.FindAnyObjectByType<StationGameHost>();
-            var session = host != null ? (host.Simulation as StationSimulationHost)?.Session : null;
-            if (session != null) return session.Snapshot();
+            var published = (host?.Simulation as StationSimulationHost)?.PublishedFrame;
+            if (published != null) return published.Motion;
             return new StationMotionFrame { Clock = ClockFrame() };
         }
 
@@ -3944,8 +3949,8 @@ namespace Metro.App.Views {
         /// </summary>
         static StationClockFrame ClockFrame() {
             var host = UnityEngine.Object.FindAnyObjectByType<StationGameHost>();
-            var session = host != null ? (host.Simulation as StationSimulationHost)?.Session : null;
-            if (session != null) return session.Snapshot().Clock;
+            var published = (host?.Simulation as StationSimulationHost)?.PublishedFrame;
+            if (published != null) return published.Motion.Clock;
             const double boot = 6 * 3600 + 30 * 60;
             return new StationClockFrame {
                 Playing = false, DateKey = "2026-01-01", Weekday = 4, Clock = "06:30",

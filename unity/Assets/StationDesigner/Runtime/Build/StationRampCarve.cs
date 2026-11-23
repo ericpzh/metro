@@ -146,10 +146,13 @@ namespace Metro.Build {
         /// <summary>
         /// `<c>carveRampOpenings</c>`: drop every reached cell (a wall or any ramp/lift landing is
         /// never carved) and tag each opened column's new ceiling. Passing
-        /// <paramref name="excludeModuleId"/> ignores an old copy of a moved module.
+        /// <paramref name="excludeModuleId"/> ignores an old copy of a moved module, and
+        /// <paramref name="preRemoved"/> skips cells already being dropped in the same transaction
+        /// (such as abandoned legacy stair turn landings) so they are neither double-dropped nor
+        /// tagged as opening ceilings.
         /// </summary>
         public static List<StationCellWrite> Carve(StationIndex index, IEnumerable<StationModuleRecord> extra = null,
-            string excludeModuleId = null) {
+            string excludeModuleId = null, ISet<StationCellKey> preRemoved = null) {
             var writes = new List<StationCellWrite>();
             if (index == null) return writes;
             var runs = new List<Run>();
@@ -183,6 +186,7 @@ namespace Metro.Build {
             var opened = new Dictionary<string, int>();
             foreach (var cell in index.Document.Cells) {
                 if (cell == null || !cell.IsSolid) continue;
+                if (preRemoved != null && preRemoved.Contains(cell.Key)) continue;
                 if (StationCellRules.IsWallBlock(cell.Tags)) continue;
                 if (protect.Contains(cell.Key)) continue;
                 bool reached = false;
@@ -202,6 +206,7 @@ namespace Metro.Build {
             var ceiling = new Dictionary<string, StationCellRecord>();
             foreach (var cell in index.Document.Cells) {
                 if (cell == null || !cell.IsSolid || kill.Contains(cell.Key)) continue;
+                if (preRemoved != null && preRemoved.Contains(cell.Key)) continue;
                 if (!opened.TryGetValue(cell.X + "," + cell.Y, out var openedZ)) continue;
                 if (cell.Z <= openedZ) continue;
                 ceiling.TryGetValue(cell.X + "," + cell.Y, out var held);
@@ -214,6 +219,95 @@ namespace Metro.Build {
                 writes.Add(StationCellWrite.AddTags(cell.Key, new[] { OpeningCeiling }));
             }
             return writes;
+        }
+
+        /// <summary>
+        /// Collects every integer cell still needed by remaining modules (mirrors <c>Equipment.ts:cellsInUse</c>):
+        /// every remaining module's footprint plus every remaining turning stair's turn-landing cells,
+        /// and optionally the moved stair's own new outer footprint (excluding its virtual turn landing).
+        /// </summary>
+        public static HashSet<StationCellKey> CellsInUse(StationIndex index, string excludeModuleId,
+            StationModuleRecord replacement = null) {
+            var keep = new HashSet<StationCellKey>();
+            if (index?.Document == null) return keep;
+            static void AddIntegerPoint(HashSet<StationCellKey> set, StationPoint p) {
+                if (Math.Abs(p.Z - Math.Round(p.Z)) >= 1e-6) return;
+                set.Add(new StationCellKey((int)Math.Round(p.X), (int)Math.Round(p.Y), (int)Math.Round(p.Z)));
+            }
+            foreach (var m in index.Document.Modules) {
+                if (m == null) continue;
+                if (!string.IsNullOrEmpty(excludeModuleId) && string.Equals(m.Id, excludeModuleId, StringComparison.Ordinal)) continue;
+                if (StationFootprints.TryFootprint(m, out var fp, out _)) {
+                    for (int i = 0; i < fp.Length; i++) AddIntegerPoint(keep, fp[i]);
+                }
+                if (string.Equals(m.Type, "stair", StringComparison.Ordinal) && !m.Config.Bool("block")) {
+                    var turns = StationRampRules.StairTurnCells(m);
+                    for (int i = 0; i < turns.Count; i++) AddIntegerPoint(keep, turns[i]);
+                }
+            }
+            if (replacement != null && StationFootprints.TryFootprint(replacement, out var repFp, out _)) {
+                for (int i = 0; i < repFp.Length; i++) AddIntegerPoint(keep, repFp[i]);
+            }
+            return keep;
+        }
+
+        /// <summary>
+        /// Identifies authored cells at the old turn landing of a saved turning stair that are no
+        /// longer needed by any remaining module (or by the moved stair's own new outer landings).
+        /// Mirrors <c>Equipment.ts:stairLandingCells</c> + <c>removeModule</c> / <c>moveEquipment</c>.
+        /// </summary>
+        public static List<StationCellKey> PlanLegacyLandingCleanup(StationIndex index, StationModuleRecord oldStair,
+            StationModuleRecord replacement = null) {
+            var drops = new List<StationCellKey>();
+            if (index == null || oldStair == null) return drops;
+            if (!string.Equals(oldStair.Type, "stair", StringComparison.Ordinal) || oldStair.Config.Bool("block")) {
+                return drops;
+            }
+            var turnCells = StationRampRules.StairTurnCells(oldStair);
+            if (turnCells.Count == 0) return drops;
+            var candidates = new List<StationCellKey>(turnCells.Count);
+            var seen = new HashSet<StationCellKey>();
+            for (int i = 0; i < turnCells.Count; i++) {
+                var p = turnCells[i];
+                if (Math.Abs(p.Z - Math.Round(p.Z)) >= 1e-6) continue;
+                var key = new StationCellKey((int)Math.Round(p.X), (int)Math.Round(p.Y), (int)Math.Round(p.Z));
+                if (!seen.Add(key)) continue;
+                var existing = index.GetCell(key);
+                if (existing == null || !existing.IsSolid) continue;
+                candidates.Add(key);
+            }
+            if (candidates.Count == 0) return drops;
+            var keep = CellsInUse(index, oldStair.Id, replacement);
+            for (int i = 0; i < candidates.Count; i++) {
+                if (!keep.Contains(candidates[i])) drops.Add(candidates[i]);
+            }
+            return drops;
+        }
+
+        /// <summary>
+        /// Plans a single-transaction ramp move patch: cleans up abandoned legacy stair turn landings,
+        /// materializes any destination exit-floor landings, carves the destination corridor against
+        /// the post-cleanup cell set, and replaces the moved module in one atomic commit.
+        /// </summary>
+        public static StationCellPatch PlanRampMove(StationIndex index, StationModuleRecord original,
+            StationEditDraft candidate) {
+            var patch = new StationCellPatch();
+            if (index == null || original == null || candidate == null) return patch;
+            var candidateRecord = StationModulePlacement.ToRecord(candidate);
+            patch.ModuleReplaces.Add(candidate);
+            var preRemoved = new HashSet<StationCellKey>();
+            foreach (var key in PlanLegacyLandingCleanup(index, original, candidateRecord)) {
+                preRemoved.Add(key);
+                patch.Writes.Add(StationCellWrite.Drop(key));
+            }
+            foreach (var write in MaterializeExitFloorLandings(index, candidateRecord)) {
+                if (preRemoved.Contains(write.Key)) continue;
+                patch.Writes.Add(write);
+            }
+            foreach (var write in Carve(index, new[] { candidateRecord }, excludeModuleId: original.Id, preRemoved: preRemoved)) {
+                patch.Writes.Add(write);
+            }
+            return patch;
         }
 
         /// <summary>

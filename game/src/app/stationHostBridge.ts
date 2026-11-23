@@ -22,6 +22,14 @@ export interface ExitPatch {
   open?: boolean
 }
 
+/** Host-owned carried-module preview state displayed in the InfoCard (plan 39 §6). */
+export interface HostCarriedMove {
+  moduleId: string
+  at: { x: number; y: number; z: number } | null
+  canDrop: boolean
+  reason: string
+}
+
 /** What the app needs from a host that owns the committed document. */
 export interface StationHostCommitPort {
   /** True once the host has committed a station in this page. */
@@ -69,18 +77,30 @@ export interface StationHostCommitPort {
   rotateCarried?(): boolean
   cycleCarriedLightPosition?(): boolean
   confirmMove?(): boolean
+  /** Read the host's live carried-module preview state (separate from the committed document). */
+  getCarriedMove?(): HostCarriedMove | null
+  /** Subscribe to changes in the host's carried-module preview state. */
+  subscribeCarriedMove?(listener: () => void): () => void
 }
 
 let current: StationHostCommitPort | null = null
+const portListeners = new Set<() => void>()
 
 /** The registered host, or null for the plain TypeScript app. */
 export function stationHostCommit(): StationHostCommitPort | null {
   return current
 }
 
+/** Subscribe to host port registration / teardown so UI adapters stay reactive. */
+export function subscribeStationHostCommit(listener: () => void): () => void {
+  portListeners.add(listener)
+  return () => { portListeners.delete(listener) }
+}
+
 /** Called by the player shell at mount and with `null` at unmount. */
 export function registerStationHostCommit(port: StationHostCommitPort | null): void {
   current = port
+  portListeners.forEach(listener => listener())
 }
 
 /**

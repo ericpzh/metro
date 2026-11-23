@@ -646,8 +646,28 @@ namespace Metro.App {
             using var editSample = StationEditProfiling.Measure("StationEdit.Activate");
             if (IsDisposed) return;
             activated = true;
+#if !UNITY_WEBGL
+            if (Application.isPlaying && !Application.isEditor) {
+                DisableInteriorRoleShadows("openings");
+                DisableInteriorRoleShadows("equipment");
+                DisableInteriorRoleShadows("displays");
+                DisableInteriorRoleShadows("signs");
+                DisableInteriorRoleShadows("vertical");
+            }
+#endif
             rootObject.SetActive(true);
         }
+
+#if !UNITY_WEBGL
+        void DisableInteriorRoleShadows(string role) {
+            if (!roleRoots.TryGetValue(role, out var root) || root == null) return;
+            var renderers = root.GetComponentsInChildren<Renderer>(true);
+            for (int i = 0; i < renderers.Length; i++) {
+                var r = renderers[i];
+                if (r != null) r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            }
+        }
+#endif
 
         public Transform RoleRoot(string role) {
             if (string.IsNullOrEmpty(role)) role = "other";

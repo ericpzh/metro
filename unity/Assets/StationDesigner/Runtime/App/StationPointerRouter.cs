@@ -323,10 +323,10 @@ namespace Metro.App {
                 return true;
             }
             if (type == "pointer.leave") {
-                // A leave with a press in flight is a gap in tracking, not a cancel: the
-                // reference keeps the armed gesture (`pointerInput.ts` only reports a leave with
-                // no captured pointer). A plain leave parks the ghost.
-                if (!StationCellTool.HasGesture) {
+                // A leave with a press in flight or a carried piece is a gap in tracking, not a
+                // cancel: the reference keeps the armed gesture and parks the carried draft so the
+                // player can reach the InfoCard's Confirm / Cancel controls (`MoveController`).
+                if (!StationCellTool.HasGesture && !StationEditSession.HasCarried) {
                     StationCellTool.Leave();
                     StationPaintTool.Leave();
                     StationZoneTool.Leave();
@@ -335,6 +335,8 @@ namespace Metro.App {
                     StationSurfaceTool.Leave();
                     StationEditSession.ForgetPointer();
                     ClearPlan(host, editHost);
+                } else if (StationEditSession.HasCarried) {
+                    StationEditSession.ForgetPointer();
                 }
                 StationEditSession.Trace(type, StationToolSelection.Active, null, null,
                     revisionBefore, host.CurrentRevision, StationScenePicker.PickCount - picksBefore);
@@ -835,6 +837,17 @@ namespace Metro.App {
             JObject reply, out string code, out string reason) {
             code = null; reason = null;
             StationEditSession.Picked = null;
+            if (StationEditSession.HasCarried) {
+                if (pointer.Button == 2) {
+                    CancelMove(host, editHost);
+                    host.PublishStateNow();
+                    return;
+                }
+                if (pointer.Button == 0) {
+                    CommitMove(host, editHost, world, ray, pickContext, hit, reply, out code, out reason);
+                    return;
+                }
+            }
             // A 删除 press keeps the reference's **family-specific** delete semantics before it
             // becomes a module sweep or a block rectangle (plan 30 §2): a road segment lifts the
             // segment, a roof/stair tile lifts its area, and a 盲道 path / 围栏 run / 场地分隔 is
@@ -1073,8 +1086,11 @@ namespace Metro.App {
             if (string.Equals(tool, "zone", StringComparison.Ordinal)) {
                 // A right tap on the brush takes the label off exactly like arming 无分区: the
                 // same gesture, cancelled into the eraser (`ZoneTool`'s `info.button === 2`).
+                // Immediate booth removal in Begin completes without opening a drag gesture.
                 StationZoneTool.Begin(host, hit, pointer, 2, out reason);
-                StationZoneTool.Finish(host, hit, pointer, out code, out reason);
+                if (StationZoneTool.HasGesture) {
+                    StationZoneTool.Finish(host, hit, pointer, out code, out reason);
+                }
                 StationZoneTool.Publish();
                 if (!string.IsNullOrEmpty(reason) && code == null) reply["reason"] = reason;
                 return;
@@ -1124,7 +1140,12 @@ namespace Metro.App {
             in StationPickContext pickContext, StationPointerEvent pointer, string tool, StationSceneHit hit,
             JObject reply, out string code, out string reason) {
             code = null; reason = null;
-            if (StationEditSession.HasCarried || (tool != "select" && tool != "pick" && tool != "move")) editHost.Preview?.ClearHover();
+            if (StationEditSession.HasCarried) {
+                editHost.Preview?.ClearHover();
+                AimMove(host, editHost, world, ray, pickContext, hit);
+                return;
+            }
+            if (tool != "select" && tool != "pick" && tool != "move") editHost.Preview?.ClearHover();
             if (StationPaintTool.HasGesture || string.Equals(tool, "paint", StringComparison.Ordinal)) {
                 StationPaintTool.Aim(host, hit, pointer);
                 StationPaintTool.Publish();
@@ -1678,27 +1699,30 @@ namespace Metro.App {
             code = null; reason = null;
             if (!host.Index.TryGetModule(StationEditSession.CarriedId, out var module)) {
                 CancelMove(host, editHost);
+                host.PublishStateNow();
                 reason = "not-found";
                 return;
             }
             var plan = StationModulePlacement.Resolve(host.Index,
                 RequestFor(world, ray, pickContext, hit, module, StationEditSession.CarriedRotation));
+            CommitResolvedMove(host, editHost, module, plan, out code, out reason);
+        }
+
+        static void CommitResolvedMove(StationGameHost host, StationEditHost editHost, StationModuleRecord module,
+            StationPlacementPlan plan, out string code, out string reason) {
+            code = null; reason = null;
             StationEditSession.Plan = plan;
-            if (!plan.Ok) {
-                StationEditSession.MoveReason = plan.Reason;
-                reason = plan.Reason;
+            if (plan == null || !plan.Ok || plan.Candidate == null) {
+                string fail = plan != null && !string.IsNullOrEmpty(plan.Reason) ? plan.Reason : "no-hit";
+                StationEditSession.MoveReason = fail;
+                reason = fail;
                 editHost.Bind(host);
-                editHost.Preview?.Show(plan);
+                if (plan != null) editHost.Preview?.Show(plan);
+                host.PublishStateNow();
                 return;
             }
             if (StationModuleFamilies.IsRamp(plan.Candidate.Type) && !plan.Candidate.Bool("block")) {
-                var patch = new StationCellPatch();
-                var candidateRecord = StationModulePlacement.ToRecord(plan.Candidate);
-                patch.ModuleReplaces.Add(plan.Candidate);
-                foreach (var write in StationRampCarve.MaterializeExitFloorLandings(host.Index, candidateRecord))
-                    patch.Writes.Add(write);
-                foreach (var write in StationRampCarve.Carve(host.Index, new[] { candidateRecord }, excludeModuleId: module.Id))
-                    patch.Writes.Add(write);
+                var patch = StationRampCarve.PlanRampMove(host.Index, module, plan.Candidate);
                 if (!StationEditSession.TryApplyCells(host, patch, "move", null, out _, out code)) {
                     reason = code;
                     return;
@@ -1715,7 +1739,19 @@ namespace Metro.App {
 
         internal static bool ConfirmMove(StationGameHost host, JObject payload, out string code, out string reason) {
             code = reason = null;
-            if (!StationEditSession.HasCarried || !StationEditSession.HasPointer) return true;
+            if (!StationEditSession.HasCarried) return true;
+            if (host?.Index == null || !host.Index.TryGetModule(StationEditSession.CarriedId, out var module)) {
+                CancelMove(host, StationEditHost.Ensure());
+                host?.PublishStateNow();
+                reason = "not-found";
+                return true;
+            }
+            var parked = StationEditSession.Plan;
+            if (parked != null && parked.IsMove) {
+                CommitResolvedMove(host, StationEditHost.Ensure(), module, parked, out code, out reason);
+                return string.IsNullOrEmpty(code);
+            }
+            if (!StationEditSession.HasPointer) return true;
             StationEditScene.ResolveView(host, out _, out var camera, out var activeLevel, out var visibility);
             if (camera == null) return true;
             var world = host.Coordinator?.World;
@@ -1756,6 +1792,21 @@ namespace Metro.App {
                 reason = "no-module";
                 reply["edit"] = StationEditSession.ToJson();
                 return;
+            }
+            if (string.Equals(hit.Module.Type, "stair", StringComparison.Ordinal) && !hit.Module.Config.Bool("block")) {
+                var drops = StationRampCarve.PlanLegacyLandingCleanup(host.Index, hit.Module);
+                if (drops.Count > 0) {
+                    var patch = new StationCellPatch();
+                    patch.RemoveModuleIds.Add(hit.Module.Id);
+                    for (int i = 0; i < drops.Count; i++) patch.Writes.Add(StationCellWrite.Drop(drops[i]));
+                    if (!StationEditSession.TryApplyCells(host, patch, "delete", null, out _, out code)) {
+                        reason = code;
+                        return;
+                    }
+                    StationEditSession.ClearSelection();
+                    ClearSelectionHighlight(editHost);
+                    return;
+                }
             }
             if (!StationEditSession.TryApply(host, StationModuleEditMode.Remove, null, hit.Module.Id, "delete", null, out _, out code)) {
                 reason = code;
@@ -1998,6 +2049,7 @@ namespace Metro.App {
                     // cancellation drops every active tool gesture, the carried piece, both ghost
                     // layers and the badge, with zero picks and zero revisions.
                     payload["cancelled"] = StationPointerRouter.CancelActiveGesture(host, StationEditHost.Ensure());
+                    host.PublishStateNow();
                     return true;
                 case "edit.rotate": {
                     if (!StationEditSession.HasCarried) { rejectCode = "no-draft"; rejectReason = "No piece is being moved."; return false; }
@@ -2005,6 +2057,7 @@ namespace Metro.App {
                     // A rotation is a setting change under a still pointer: redraw in place rather
                     // than waiting for the next move (`MoveController` / `equipment.rotate`).
                     StationPointerRouter.RefreshHover(host);
+                    host.PublishStateNow();
                     return true;
                 }
                 case "edit.move.lightPosition": {
@@ -2013,6 +2066,7 @@ namespace Metro.App {
                     int position = StationEditSession.CarriedLightPosition ?? light.Config.Int("position", 0);
                     StationEditSession.CarriedLightPosition = ((position % 9) + 10) % 9;
                     StationPointerRouter.RefreshHover(host);
+                    host.PublishStateNow();
                     return true;
                 }
                 case "edit.move.start": {
@@ -2023,10 +2077,12 @@ namespace Metro.App {
                     StationEditSession.MoveReason = "";
                     StationEditSession.SelectModule(module);
                     StationPointerRouter.LiftAtSource(host, StationEditHost.Ensure(), module);
+                    host.PublishStateNow();
                     return true;
                 }
                 case "edit.move.cancel":
                     StationPointerRouter.CancelMove(host, StationEditHost.Ensure());
+                    host.PublishStateNow();
                     return true;
                 case "edit.move.confirm":
                     return StationPointerRouter.ConfirmMove(host, payload, out rejectCode, out rejectReason);

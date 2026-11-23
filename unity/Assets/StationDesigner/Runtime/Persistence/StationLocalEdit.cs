@@ -140,6 +140,19 @@ namespace Metro.Persistence {
         /// <see cref="StationRoadRenderer"/> can restage roads while all other view families stay
         /// retained.
         /// </summary>
+        static bool RoadRecordUnchanged(StationModuleRecord prior, StationRoadRecord next) {
+            if (prior == null || next == null) return false;
+            var prev = StationRoadRecord.FromFacts(prior.Facts);
+            if (!string.Equals(prev.Id, next.Id, StringComparison.Ordinal)) return false;
+            if (prev.X != next.X || prev.Y != next.Y || Math.Abs(prev.Z - next.Z) > 1e-9) return false;
+            if (prev.W != next.W || prev.D != next.D || prev.Rotation != next.Rotation) return false;
+            if (!string.Equals(prev.Direction, next.Direction, StringComparison.Ordinal)) return false;
+            if (prev.HasFrom != next.HasFrom || prev.HasTo != next.HasTo) return false;
+            if (prev.HasFrom && (Math.Abs(prev.From.X - next.From.X) > 1e-6 || Math.Abs(prev.From.Y - next.From.Y) > 1e-6)) return false;
+            if (prev.HasTo && (Math.Abs(prev.To.X - next.To.X) > 1e-6 || Math.Abs(prev.To.Y - next.To.Y) > 1e-6)) return false;
+            return true;
+        }
+
         public static StationReadResult TryApplyRoadSet(StationReadResult committed,
             IReadOnlyList<StationRoadRecord> nextRoads, string sourceId, out string code) {
             using var editSample = StationEditTrace.Measure("StationEdit.TryApplyRoadSet");
@@ -161,7 +174,7 @@ namespace Metro.Persistence {
             }
 
             var nextIds = new HashSet<string>(StringComparer.Ordinal);
-            var builtNext = new List<StationModuleRecord>(nextRoads.Count);
+            var changedNext = new List<StationModuleRecord>();
             string city = committed.Document.City;
             for (int i = 0; i < nextRoads.Count; i++) {
                 var road = nextRoads[i];
@@ -169,11 +182,14 @@ namespace Metro.Persistence {
                     code = "local-bad-road";
                     return null;
                 }
+                if (prevById.TryGetValue(road.Id, out var existing) && RoadRecordUnchanged(existing.Record, road)) {
+                    continue;
+                }
                 var roadJson = StationRoadWrites.ToSaveRecord(road);
                 var refusal = ModuleRefusal(roadJson);
                 if (refusal != null) { code = refusal; return null; }
                 if (!TryBuildProjectedModule(roadJson, city, out var built, out code)) return null;
-                builtNext.Add(built);
+                changedNext.Add(built);
             }
 
             var builder = committed.Document.ModulePages.ToBuilder();
@@ -188,8 +204,8 @@ namespace Metro.Persistence {
                 delta.RemovedModules.Add(kv.Key);
             }
 
-            for (int i = 0; i < builtNext.Count; i++) {
-                var built = builtNext[i];
+            for (int i = 0; i < changedNext.Count; i++) {
+                var built = changedNext[i];
                 if (prevById.TryGetValue(built.Id, out var prior)) {
                     if (string.Equals(prior.Record.RawJson, built.RawJson, StringComparison.Ordinal)) continue;
                     if (!builder.ReplaceInPage(prior.PageId, m => string.Equals(m.Id, built.Id, StringComparison.Ordinal), built)) {
@@ -205,7 +221,7 @@ namespace Metro.Persistence {
                 }
             }
 
-            StationEditTrace.AddScanned(prevById.Count + builtNext.Count);
+            StationEditTrace.AddScanned(prevById.Count + nextRoads.Count);
             StationEditTrace.AddCloned(builder.ClonedRecordCount + delta.ChangedModules.Count);
             var modulePages = builder.Build(committed.Document.ModulePages);
             return BuildResult(committed, rootHeader, savedAt, committed.Document.CellPages, modulePages, delta, sourceId, out code);
