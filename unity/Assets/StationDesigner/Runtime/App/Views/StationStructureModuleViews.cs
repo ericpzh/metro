@@ -855,7 +855,7 @@ namespace Metro.App.Views {
                                 float ridge = StationStructureGeometry.TrussRoofRidge(width);
                                 float height = ridge - (ridge - StationStructureGeometry.TrussRoofEave) *
                                     Mathf.Abs(row - crestY) / (width * .5f) - StationStructureGeometry.CanopyRoofDrop - .1f;
-                                parts.Cylinder(steel, new Vector3(x, row, 0f),
+                                parts.Cylinder(steel, new Vector3(x, 0f, row),
                                     StationStructureGeometry.CanopyPostRadius, Mathf.Max(0f, height), 12);
                             }
                         }

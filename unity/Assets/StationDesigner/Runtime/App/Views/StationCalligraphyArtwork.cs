@@ -10,6 +10,8 @@ namespace Metro.App.Views {
     /// <summary>One character's slot on an inscription panel, metres from the panel's left/top.</summary>
     public struct CalligraphyGlyph {
         public char Char;
+        /// <summary>The full Unicode code point string (1 UTF-16 char for BMP, 2 for a surrogate pair).</summary>
+        public string Text;
         public float X, Y, Size, Turn, Drift;
     }
 
@@ -125,12 +127,19 @@ namespace Metro.App.Views {
         /// </summary>
         public static List<CalligraphyGlyph> Layout(string text, string axis, string style, Vector2 panel) {
             bool vertical = string.Equals(axis, "v", StringComparison.Ordinal);
-            var chars = new List<char>();
-            foreach (var ch in (text ?? "").Trim()) {
+            var trimmed = (text ?? "").Trim();
+            var chars = new List<string>();
+            for (int i = 0; i < trimmed.Length; i++) {
+                char ch = trimmed[i];
+                if (char.IsHighSurrogate(ch) && i + 1 < trimmed.Length && char.IsLowSurrogate(trimmed[i + 1])) {
+                    chars.Add(trimmed.Substring(i, 2));
+                    i++;
+                    continue;
+                }
                 if (char.IsWhiteSpace(ch)) continue;
-                chars.Add(ch);
+                chars.Add(ch.ToString());
             }
-            if (chars.Count == 0) chars.Add('？');
+            if (chars.Count == 0) chars.Add("？");
             var spec = Style(style);
             var glyphs = new List<CalligraphyGlyph>(chars.Count);
             if (vertical) {
@@ -138,7 +147,8 @@ namespace Metro.App.Views {
                 float size = Mathf.Min(InkMax, slot * .92f);
                 for (int i = 0; i < chars.Count; i++) {
                     glyphs.Add(new CalligraphyGlyph {
-                        Char = chars[i],
+                        Char = chars[i][0],
+                        Text = chars[i],
                         X = panel.x * .5f,
                         Y = Pad * .5f + slot * (i + .5f),
                         Size = size,
@@ -151,7 +161,8 @@ namespace Metro.App.Views {
                 float size = Mathf.Min(InkMax, slot * .92f);
                 for (int i = 0; i < chars.Count; i++) {
                     glyphs.Add(new CalligraphyGlyph {
-                        Char = chars[i],
+                        Char = chars[i][0],
+                        Text = chars[i],
                         X = Pad * .5f + slot * (i + .5f),
                         Y = panel.y * .5f,
                         Size = size,
@@ -167,9 +178,12 @@ namespace Metro.App.Views {
         }
 
         /// <summary>The source's stable `jitter`: an FNV-1a hash of `index:char` mapped to [−1, 1).</summary>
-        public static float Jitter(char ch, int index) {
+        public static float Jitter(char ch, int index) => Jitter(ch.ToString(), index);
+
+        /// <summary>The source's stable `jitter` over a full Unicode code point string (including surrogate pairs).</summary>
+        public static float Jitter(string ch, int index) {
             uint hash = 2166136261u;
-            var key = index.ToString(CultureInfo.InvariantCulture) + ":" + ch;
+            var key = index.ToString(CultureInfo.InvariantCulture) + ":" + (ch ?? "");
             for (int i = 0; i < key.Length; i++) {
                 hash ^= key[i];
                 hash *= 16777619u;
@@ -632,7 +646,7 @@ namespace Metro.App.Views {
             Texture2D texture = null;
             try {
                 var requested = new StringBuilder(glyphs.Count);
-                foreach (var glyph in glyphs) requested.Append(glyph.Char);
+                foreach (var glyph in glyphs) requested.Append(string.IsNullOrEmpty(glyph.Text) ? glyph.Char.ToString() : glyph.Text);
                 int samplePixels = glyphs.Count > 0
                     ? Mathf.Clamp(Mathf.RoundToInt(glyphs[0].Size * PxPerMetre), 4, MaxRasterFontSize)
                     : 64;
@@ -673,7 +687,8 @@ namespace Metro.App.Views {
 
                     // `drawCalligraphyPanel`: translate((x + washX)*ppm, (y + washY)*ppm),
                     // rotate(turn), scale(stretch, 1) from a top-left origin.
-                    var holder = new GameObject("glyph " + glyph.Char, typeof(RectTransform));
+                    var glyphText = string.IsNullOrEmpty(glyph.Text) ? glyph.Char.ToString() : glyph.Text;
+                    var holder = new GameObject("glyph " + glyphText, typeof(RectTransform));
                     holder.transform.SetParent(canvasObject.transform, false);
                     var holderRect = (RectTransform)holder.transform;
                     holderRect.anchorMin = holderRect.anchorMax = new Vector2(0f, 1f);
@@ -684,11 +699,11 @@ namespace Metro.App.Views {
                     holderRect.localEulerAngles = new Vector3(0f, 0f, -glyph.Turn * Mathf.Rad2Deg);
                     holderRect.localScale = new Vector3(spec.Stretch * glyphScale, glyphScale, 1f);
 
-                    AddGlyphPass(holder.transform, "ink", font, glyph.Char, raster, glyphStyle, spec.Ink,
+                    AddGlyphPass(holder.transform, "ink", font, glyphText, raster, glyphStyle, spec.Ink,
                         Vector2.zero);
                     if (spec.Strike > 0f) {
                         var dry = new Color(spec.Ink.r, spec.Ink.g, spec.Ink.b, spec.Ink.a * .42f);
-                        AddGlyphPass(holder.transform, "strike", font, glyph.Char, raster, glyphStyle, dry,
+                        AddGlyphPass(holder.transform, "strike", font, glyphText, raster, glyphStyle, dry,
                             new Vector2(raster * spec.Strike, -raster * spec.Strike * .7f));
                     }
                 }
@@ -773,13 +788,13 @@ namespace Metro.App.Views {
             return texture;
         }
 
-        static void AddGlyphPass(Transform parent, string name, Font font, char ch, int fontSize,
+        static void AddGlyphPass(Transform parent, string name, Font font, string text, int fontSize,
             FontStyle style, Color colour, Vector2 offset) {
             var go = new GameObject(name, typeof(RectTransform));
             go.transform.SetParent(parent, false);
             var ui = go.AddComponent<Text>();
             ui.font = font;
-            ui.text = ch.ToString();
+            ui.text = text;
             ui.fontStyle = style;
             ui.fontSize = fontSize;
             ui.alignment = TextAnchor.MiddleCenter;

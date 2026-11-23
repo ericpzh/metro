@@ -2024,7 +2024,8 @@ namespace Metro.App.Views {
             int fromZ = Mathf.Min(baseZ, topZ);
             int toZ = Mathf.Max(baseZ, topZ);
             float height = toZ - fromZ;
-            int size = Math.Abs(config.Number("size", 2) - 3) < 1e-6 ? 3 : 2;
+            int size = Math.Abs(config.Number("size", 2) - 3) < 1e-6 ||
+                string.Equals(config.Text("size"), "large", StringComparison.Ordinal) ? 3 : 2;
             float k = size * .5f;
             bool steel = string.Equals(config.Text("style"), "steel", StringComparison.Ordinal);
             view.OpaqueShaftSidePanels = steel ? 2 : 0;
@@ -2097,12 +2098,14 @@ namespace Metro.App.Views {
                     shaft.Box(new Vector3(sx * outer, sy * outer, .04f), new Vector3(.16f * k, .16f * k, .08f), Quaternion.identity);
                 }
             }
-            for (float bottom = 0f; bottom < height; bottom += 2f) {
-                float top = Mathf.Min(bottom + 2f, height);
-                float middle = (bottom + top) * .5f;
-                for (int s = -1; s <= 1; s += 2) {
-                    shaftGlass.Box(new Vector3(s * outer, 0f, middle), new Vector3(.025f * k, 1.72f * k, top - bottom - .08f), Quaternion.identity);
-                    shaft.Box(new Vector3(s * outer, 0f, bottom + .04f), new Vector3(.12f * k, 1.74f * k, .08f), Quaternion.identity);
+            if (!steel) {
+                for (float bottom = 0f; bottom < height; bottom += 2f) {
+                    float top = Mathf.Min(bottom + 2f, height);
+                    float middle = (bottom + top) * .5f;
+                    for (int s = -1; s <= 1; s += 2) {
+                        shaftGlass.Box(new Vector3(s * outer, 0f, middle), new Vector3(.025f * k, 1.72f * k, top - bottom - .08f), Quaternion.identity);
+                        shaft.Box(new Vector3(s * outer, 0f, bottom + .04f), new Vector3(.12f * k, 1.74f * k, .08f), Quaternion.identity);
+                    }
                 }
             }
             for (int i = 0; i + 1 < stops.Count; i++) {
@@ -2110,15 +2113,22 @@ namespace Metro.App.Views {
                 float top = (float)(stops[i + 1] - fromZ);
                 float loFront = frontServed[i] ? Mathf.Max(local, local + LiftDoorwayHeight) : local;
                 float loBack = backServed[i] ? Mathf.Max(local, local + LiftDoorwayHeight) : local;
-                StoryGlass(shaftGlass, shaft, -outer, loFront, top, k);
-                StoryGlass(shaftGlass, shaft, outer, loBack, top, k);
+                if (steel) {
+                    if (top - loFront > .1f)
+                        shaft.Box(new Vector3(0f, -outer, (loFront + top) * .5f), new Vector3(1.74f * k, .12f * k, top - loFront), Quaternion.identity);
+                    if (top - loBack > .1f)
+                        shaft.Box(new Vector3(0f, outer, (loBack + top) * .5f), new Vector3(1.74f * k, .12f * k, top - loBack), Quaternion.identity);
+                } else {
+                    StoryGlass(shaftGlass, shaft, -outer, loFront, top, k);
+                    StoryGlass(shaftGlass, shaft, outer, loBack, top, k);
+                }
             }
             for (int s = -1; s <= 1; s += 2) {
                 // The glass housing has **no** full-height side wall: its side faces are the
                 // glazed panel bays above (`shaftGlass`), exactly like `buildGlassLift`. The
                 // old branch put a 0.12 m steel box at the same `s * outer` plane, enclosing
                 // the 0.025 m pane, so a glazed lift read as an opaque shaft. The steel style
-                // keeps its solid side walls.
+                // keeps its solid side walls and omits glazed walls across its full height.
                 if (steel)
                     shaft.Box(new Vector3(s * outer, 0f, height * .5f), new Vector3(.12f * k, 1.74f * k, height), Quaternion.identity);
                 float guideHeight = height - LiftCap;
@@ -2139,7 +2149,7 @@ namespace Metro.App.Views {
                 var rig = new LiftLevelRig { LevelZ = level };
                 if (frontServed[i]) BuildLandingPortal(context, view, frame, portals, portalGlass, local, -1, k, steel, height);
                 if (backServed[i]) BuildLandingPortal(context, view, frame, portals, portalGlass, local, 1, k, steel, height);
-                if (frontServed[i] || backServed[i]) {
+                if (frontServed[i]) {
                     var group = new GameObject("landing-doors-" + level + "-front").transform;
                     group.SetParent(frame, false);
                     group.localPosition = new Vector3(0f, local, -outer);
@@ -2195,7 +2205,7 @@ namespace Metro.App.Views {
             }
 
             view.Meshes.Add(shaft.Build(frame, context.Material(PaletteSteel), "shaft"));
-            view.Meshes.Add(shaftGlass.Build(frame, context.Material(PaletteGlass), "shaft-glass"));
+            if (shaftGlass.VertexCount > 0) view.Meshes.Add(shaftGlass.Build(frame, context.Material(PaletteGlass), "shaft-glass"));
             view.Meshes.Add(guides.Build(frame, context.Material(PaletteDark), "guides"));
             view.Meshes.Add(caps.Build(frame, context.Material(steel ? PaletteSteel : PaletteDark), "caps"));
             if (portals.VertexCount > 0) view.Meshes.Add(portals.Build(frame, context.Material(PaletteSteel), "portals"));
@@ -2232,7 +2242,7 @@ namespace Metro.App.Views {
                 steelMesh.Box(new Vector3(s * .79f * k, y, local + 1.16f), new Vector3(.18f * k, .16f * k, 2.32f), Quaternion.identity);
             steelMesh.Box(new Vector3(0f, y, local + 2.43f), new Vector3(1.74f * k, .16f * k, .22f), Quaternion.identity);
             float top = Mathf.Min(local + LiftStep, shaftHeight);
-            if (top > local + LiftDoorwayHeight)
+            if (!steel && top > local + LiftDoorwayHeight)
                 glassMesh.Box(new Vector3(0f, y, (local + LiftDoorwayHeight + top) * .5f),
                     new Vector3(1.72f * k, .025f * k, top - local - LiftDoorwayHeight), Quaternion.identity);
             steelMesh.Box(new Vector3(.79f * k, y + side * .06f * k, local + 1.12f), new Vector3(.11f * k, .025f * k, .28f), Quaternion.identity);

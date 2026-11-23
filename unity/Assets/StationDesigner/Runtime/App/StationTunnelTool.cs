@@ -36,13 +36,13 @@ namespace Metro.App {
 
         /// <summary>The armed tunnel length in whole metres, from the shell's own setting.</summary>
         public static int ArmedLength() {
-            int length = StationToolSelection.SettingInt(LengthSetting, 24);
+            int length = StationToolSelection.SettingInt(LengthSetting, 32);
             return Math.Max(1, length);
         }
 
-        /// <summary>The armed bridge length in whole metres (the 桥梁 folder's own 24 m default).</summary>
+        /// <summary>The armed bridge length in whole metres (the 桥梁 folder's own 32 m default).</summary>
         public static int ArmedBridgeLength() {
-            int length = StationToolSelection.SettingInt(BridgeLengthSetting, 24);
+            int length = StationToolSelection.SettingInt(BridgeLengthSetting, 32);
             return Math.Max(1, length);
         }
 

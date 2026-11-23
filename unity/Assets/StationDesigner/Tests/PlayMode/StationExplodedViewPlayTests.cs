@@ -831,5 +831,508 @@ namespace Metro.PlayModeTests {
             Assert.AreEqual(true, (bool?)stateAfter["render"]?["sky"]?["shown"]);
             Assert.AreEqual(StationSkySystem.MinSkyIntensity, (float)stateAfter["render"]["sky"]["intensity"], 1e-4f);
         }
+
+        [UnityTest]
+        public IEnumerator TraySelectionTintAnchorProjectionWhenHiddenAndHiddenFloorPickAndLivePoseOmission() {
+            string zooPath = Path.Combine(Application.dataPath, "StationDesigner/Demos/zoo.metro.json");
+            var opened = host.OpenDocument(File.ReadAllText(zooPath), "zoo");
+            Assert.IsTrue(opened.Accepted, opened.ToString());
+            yield return null;
+
+            SendCommand("exploded.open", new JObject { ["viewportWidth"] = 1280, ["viewportHeight"] = 720, ["theme"] = "blueprint" });
+            explodedView.CompleteAllPropsNow();
+            yield return null;
+
+            var builder = explodedView.Builder;
+            Assert.IsNotNull(builder);
+            int tray0Idx = builder.Plan.IndexOfLevel(-20);
+            int tray1Idx = builder.Plan.IndexOfLevel(-15);
+            Assert.AreEqual(0, tray0Idx);
+            Assert.AreEqual(1, tray1Idx);
+            var tray0 = builder.Trays[tray0Idx];
+            var tray1 = builder.Trays[tray1Idx];
+
+            // Capture original FloorRoot materials on tray 0 and tray 1 before selection.
+            var tray0Renderers = tray0.FloorRoot.GetComponentsInChildren<MeshRenderer>(true);
+            var tray1Renderers = tray1.FloorRoot.GetComponentsInChildren<MeshRenderer>(true);
+            Assert.Greater(tray0Renderers.Length, 0, "Tray 0 must have floor MeshRenderers");
+            Assert.Greater(tray1Renderers.Length, 0, "Tray 1 must have floor MeshRenderers");
+            var tray0OrigMats = new Material[tray0Renderers.Length];
+            var tray1OrigMats = new Material[tray1Renderers.Length];
+            for (int i = 0; i < tray0Renderers.Length; i++) tray0OrigMats[i] = tray0Renderers[i].sharedMaterial;
+            for (int i = 0; i < tray1Renderers.Length; i++) tray1OrigMats[i] = tray1Renderers[i].sharedMaterial;
+
+            // Unselected anchor projection returns false.
+            Assert.IsFalse(builder.TryProjectSelectedAnchor(explodedView.ViewerCamera, out _),
+                "TryProjectSelectedAnchor must return false when no tray is selected");
+
+            // SelectTray(0) tints selected tray only and leaves tray 1 untouched.
+            builder.SelectTray(tray0Idx);
+            Assert.AreEqual(tray0Idx, builder.SelectedIndex);
+            Assert.AreEqual(-20, builder.SelectedElevation);
+            for (int i = 0; i < tray0Renderers.Length; i++) {
+                Assert.IsNotNull(tray0Renderers[i].sharedMaterial);
+                Assert.AreNotSame(tray0OrigMats[i], tray0Renderers[i].sharedMaterial,
+                    "Selected tray renderer must switch to tinted clone material");
+                StringAssert.Contains("[Tray -20m Selected]", tray0Renderers[i].sharedMaterial.name);
+            }
+            for (int i = 0; i < tray1Renderers.Length; i++) {
+                Assert.AreSame(tray1OrigMats[i], tray1Renderers[i].sharedMaterial,
+                    "Unselected tray renderer must keep its original sourceMaterial");
+            }
+
+            // Anchor projection tracks tray drag and viewer camera zoom, and stays valid while FloorVisible=false.
+            Assert.IsTrue(builder.TryProjectSelectedAnchor(explodedView.ViewerCamera, out var anchorInitial));
+            Assert.IsTrue(float.IsFinite(anchorInitial.x) && float.IsFinite(anchorInitial.y));
+
+            builder.SetTrayManualOffset(tray0Idx, new Vector3(14f, 6f, 0f));
+            Assert.IsTrue(builder.TryProjectSelectedAnchor(explodedView.ViewerCamera, out var anchorDragged));
+            Assert.Greater(Vector2.Distance(anchorInitial, anchorDragged), 1e-3f,
+                "Anchor projection must move when the selected tray is dragged");
+
+            int gen = explodedView.Generation;
+            var zoomReply = SendCommand("exploded.camera", new JObject {
+                ["generation"] = gen, ["op"] = "zoom", ["deltaY"] = -320, ["viewportWidth"] = 1280, ["viewportHeight"] = 720,
+            });
+            Assert.AreEqual("ack", (string)zoomReply["kind"]);
+            Assert.IsTrue(builder.TryProjectSelectedAnchor(explodedView.ViewerCamera, out var anchorZoomed));
+            Assert.Greater(Vector2.Distance(anchorDragged, anchorZoomed), 1e-4f,
+                "Anchor projection must move when viewer camera zooms");
+
+            // Find supported floor cells on tray 0 and tray 1 and an active train consist on tray 0.
+            StationCellKey floorCell20 = default;
+            StationCellKey floorCell15 = default;
+            bool found20 = false, found15 = false;
+            foreach (var cell in builder.Plan.Trays[tray0Idx].Cells) {
+                var shifted = new StationCellKey(
+                    cell.X + builder.Plan.Direction.x * builder.Plan.PackedOffsets[tray0Idx],
+                    cell.Y + builder.Plan.Direction.y * builder.Plan.PackedOffsets[tray0Idx],
+                    cell.Z);
+                if (cell.Z == -20 && builder.Plan.PassengerSupport.Contains(shifted)) {
+                    floorCell20 = cell.Key; found20 = true; break;
+                }
+            }
+            foreach (var cell in builder.Plan.Trays[tray1Idx].Cells) {
+                var shifted = new StationCellKey(
+                    cell.X + builder.Plan.Direction.x * builder.Plan.PackedOffsets[tray1Idx],
+                    cell.Y + builder.Plan.Direction.y * builder.Plan.PackedOffsets[tray1Idx],
+                    cell.Z);
+                if (cell.Z == -15 && builder.Plan.PassengerSupport.Contains(shifted)) {
+                    floorCell15 = cell.Key; found15 = true; break;
+                }
+            }
+            Assert.IsTrue(found20 && found15);
+
+            string trainId = null;
+            TrainConsistView consistView = null;
+            foreach (var line in host.Document.Lines) {
+                foreach (var mod in host.Document.Modules) {
+                    if (mod.Type == "track" && mod.Config.Text("line") == line.Id &&
+                        builder.TryGetConsist(line.Id + "|" + mod.Id, out var cv, out int ctIdx) && ctIdx == tray0Idx) {
+                        trainId = line.Id + "|" + mod.Id;
+                        consistView = cv;
+                        break;
+                    }
+                }
+                if (trainId != null) break;
+            }
+            Assert.IsNotNull(trainId, "Zoo must have a train consist on tray 0 (-20 m)");
+
+            // Hide tray 0: anchor projection stays valid, tray 0 becomes unpickable, passengers omitted, trains retired.
+            builder.SetFloorVisibility(tray0Idx, false);
+            Assert.IsFalse(tray0.FloorVisible);
+            Assert.IsTrue(builder.TryProjectSelectedAnchor(explodedView.ViewerCamera, out var anchorHidden),
+                "TryProjectSelectedAnchor must stay valid when selected tray has FloorVisible = false");
+            Assert.IsTrue(float.IsFinite(anchorHidden.x) && float.IsFinite(anchorHidden.y));
+
+            var tray0CellWorld = tray0.WorldOffset + StationCoordinates.Point(new Vector3(floorCell20.X + 0.5f, floorCell20.Y + 0.5f, -19.0f));
+            var downAtTray0 = new Ray(tray0CellWorld + Vector3.up * 3f, Vector3.down);
+            bool hitWhileHidden = builder.PickTray(downAtTray0, out int hitIdxWhileHidden, out _);
+            Assert.IsTrue(!hitWhileHidden || hitIdxWhileHidden != tray0Idx,
+                "Hidden tray must be unpickable by PickTray");
+
+            var liveMotion = new StationMotionFrame {
+                Trains = new[] {
+                    new StationTrainFrame {
+                        Id = trainId, LineId = consistView.LineId, TrackId = consistView.TrackId,
+                        ServiceSequence = 1, Phase = TrainPhase.Dwell, PhaseSeconds = 4.0, DoorFraction = 1.0,
+                    },
+                },
+            };
+            var livePax = new[] {
+                new StationPassengerFrame {
+                    SimId = 101, X = floorCell20.X + 0.5, Y = floorCell20.Y + 0.5, Z = -19.0,
+                    State = StationPassengerState.Walking, Activity = StationPassengerActivity.Walk, Visible = true,
+                },
+                new StationPassengerFrame {
+                    SimId = 102, X = floorCell15.X + 0.5, Y = floorCell15.Y + 0.5, Z = -14.0,
+                    State = StationPassengerState.Walking, Activity = StationPassengerActivity.Walk, Visible = true,
+                },
+            };
+            builder.ApplyLiveSampleForTest(liveMotion, livePax, tick: 1, alpha: 1f);
+            Assert.IsFalse(builder.PassengerTrayBySimId.ContainsKey(101),
+                "Hidden floor must omit its live passengers in ApplyPassengerFrames");
+            Assert.AreEqual(tray1Idx, builder.PassengerTrayBySimId[102],
+                "Visible floor must keep its live passengers");
+            Assert.IsFalse(consistView.Visible,
+                "Hidden floor must retire its train consist in ApplyTrainFrames");
+
+            // Restoring visibility re-enables pickability, live passengers, and train consists.
+            builder.SetFloorVisibility(tray0Idx, true);
+            Assert.IsTrue(builder.PickTray(downAtTray0, out int hitIdxVisible, out _));
+            Assert.AreEqual(tray0Idx, hitIdxVisible);
+            Assert.IsTrue(builder.PassengerTrayBySimId.ContainsKey(101));
+            Assert.AreEqual(tray0Idx, builder.PassengerTrayBySimId[101]);
+            Assert.IsTrue(consistView.Visible);
+
+            // Deselect restores exact original sourceMaterial references.
+            builder.SelectTray(null);
+            for (int i = 0; i < tray0Renderers.Length; i++) {
+                Assert.AreSame(tray0OrigMats[i], tray0Renderers[i].sharedMaterial,
+                    "Deselecting tray must restore exact original sourceMaterial");
+            }
+
+            // Re-select then ResetArrangement also restores exact original sourceMaterial references.
+            builder.SelectTray(tray0Idx);
+            Assert.AreNotSame(tray0OrigMats[0], tray0Renderers[0].sharedMaterial);
+            builder.ResetArrangement();
+            Assert.IsNull(builder.SelectedIndex);
+            for (int i = 0; i < tray0Renderers.Length; i++) {
+                Assert.AreSame(tray0OrigMats[i], tray0Renderers[i].sharedMaterial,
+                    "ResetArrangement must restore exact original sourceMaterial");
+            }
+
+            // Empty-space pointerDown clears selection.
+            var selAck = SendCommand("exploded.select", new JObject { ["generation"] = gen, ["elevation"] = -20 });
+            Assert.AreEqual("ack", (string)selAck["kind"]);
+            Assert.AreEqual(-20, builder.SelectedElevation);
+
+            // Zoom out slightly to guarantee viewport corners hit empty void, then locate an empty pixel.
+            SendCommand("exploded.camera", new JObject {
+                ["generation"] = gen, ["op"] = "zoom", ["deltaY"] = 800, ["viewportWidth"] = 1280, ["viewportHeight"] = 720,
+            });
+            Vector2 emptyPx = new Vector2(4f, 4f);
+            bool foundEmpty = false;
+            Vector2[] cornerCandidates = {
+                new Vector2(4f, 4f), new Vector2(1276f, 4f), new Vector2(4f, 716f), new Vector2(1276f, 716f),
+            };
+            foreach (var cand in cornerCandidates) {
+                var vpRay = explodedView.ViewerCamera.ViewportPointToRay(new Vector3(cand.x / 1280f, 1f - cand.y / 720f, 0f));
+                if (!builder.PickTray(vpRay, out _, out _)) {
+                    emptyPx = cand;
+                    foundEmpty = true;
+                    break;
+                }
+            }
+            Assert.IsTrue(foundEmpty, "Must find an empty-void corner pixel for empty-space pick test");
+            var emptyDown = SendCommand("exploded.pointerDown", new JObject {
+                ["generation"] = gen, ["pointerId"] = 9, ["x"] = emptyPx.x, ["y"] = emptyPx.y,
+                ["viewportWidth"] = 1280, ["viewportHeight"] = 720,
+            });
+            Assert.AreEqual("ack", (string)emptyDown["kind"]);
+            Assert.IsNull(builder.SelectedElevation, "Empty-space pointerDown must clear tray selection");
+        }
+
+        [UnityTest]
+        public IEnumerator ExplodedPassengersSnapAcrossAllAlphasHandleOpposingSwapsDisappearanceAndSupportTypes() {
+            string zooPath = Path.Combine(Application.dataPath, "StationDesigner/Demos/zoo.metro.json");
+            var opened = host.OpenDocument(File.ReadAllText(zooPath), "zoo");
+            Assert.IsTrue(opened.Accepted, opened.ToString());
+            yield return null;
+
+            SendCommand("exploded.open", new JObject { ["viewportWidth"] = 1280, ["viewportHeight"] = 720 });
+            explodedView.CompleteAllPropsNow();
+            yield return null;
+
+            var builder = explodedView.Builder;
+            int tray20 = builder.Plan.IndexOfLevel(-20);
+            int tray15 = builder.Plan.IndexOfLevel(-15);
+            Assert.GreaterOrEqual(tray20, 0);
+            Assert.GreaterOrEqual(tray15, 0);
+
+            StationCellKey cell20 = default, cell15 = default;
+            bool found20 = false, found15 = false;
+            foreach (var cell in builder.Plan.Trays[tray20].Cells) {
+                var shifted = new StationCellKey(
+                    cell.X + builder.Plan.Direction.x * builder.Plan.PackedOffsets[tray20],
+                    cell.Y + builder.Plan.Direction.y * builder.Plan.PackedOffsets[tray20],
+                    cell.Z);
+                if (cell.Z == -20 && builder.Plan.PassengerSupport.Contains(shifted)) {
+                    cell20 = cell.Key; found20 = true; break;
+                }
+            }
+            foreach (var cell in builder.Plan.Trays[tray15].Cells) {
+                var shifted = new StationCellKey(
+                    cell.X + builder.Plan.Direction.x * builder.Plan.PackedOffsets[tray15],
+                    cell.Y + builder.Plan.Direction.y * builder.Plan.PackedOffsets[tray15],
+                    cell.Z);
+                if (cell.Z == -15 && builder.Plan.PassengerSupport.Contains(shifted)) {
+                    cell15 = cell.Key; found15 = true; break;
+                }
+            }
+            Assert.IsTrue(found20 && found15);
+
+            double packed20X = cell20.X + 0.5 + builder.Plan.Direction.x * builder.Plan.PackedOffsets[tray20];
+            double packed20Y = cell20.Y + 0.5 + builder.Plan.Direction.y * builder.Plan.PackedOffsets[tray20];
+            double packed15X = cell15.X + 0.5 + builder.Plan.Direction.x * builder.Plan.PackedOffsets[tray15];
+            double packed15Y = cell15.Y + 0.5 + builder.Plan.Direction.y * builder.Plan.PackedOffsets[tray15];
+
+            // Tick 1: SimId 7 on -20 m, SimId 8 on -15 m.
+            var tick1 = new[] {
+                new StationPassengerFrame {
+                    SimId = 7, X = cell20.X + 0.5, Y = cell20.Y + 0.5, Z = -19.0,
+                    State = StationPassengerState.Walking, Activity = StationPassengerActivity.Walk, Visible = true,
+                },
+                new StationPassengerFrame {
+                    SimId = 8, X = cell15.X + 0.5, Y = cell15.Y + 0.5, Z = -14.0,
+                    State = StationPassengerState.Walking, Activity = StationPassengerActivity.Walk, Visible = true,
+                },
+            };
+            builder.ApplyLiveSampleForTest(default, tick1, tick: 1, alpha: 1f);
+            Assert.AreEqual(tray20, builder.PassengerTrayBySimId[7]);
+            Assert.AreEqual(tray15, builder.PassengerTrayBySimId[8]);
+
+            // Tick 2: opposing simultaneous swaps in REVERSED array order tested across alphas 0.1, 0.5, 0.9.
+            var tick2Swap = new[] {
+                new StationPassengerFrame {
+                    SimId = 8, X = cell20.X + 0.5, Y = cell20.Y + 0.5, Z = -19.0,
+                    State = StationPassengerState.Walking, Activity = StationPassengerActivity.Walk, Visible = true,
+                },
+                new StationPassengerFrame {
+                    SimId = 7, X = cell15.X + 0.5, Y = cell15.Y + 0.5, Z = -14.0,
+                    State = StationPassengerState.Walking, Activity = StationPassengerActivity.Walk, Visible = true,
+                },
+            };
+            foreach (float alpha in new[] { 0.1f, 0.5f, 0.9f }) {
+                builder.ApplyLiveSampleForTest(default, tick2Swap, tick: 2, alpha: alpha);
+                Assert.AreEqual(2, builder.PresentedPassengers.Count);
+                Assert.AreEqual(tray15, builder.PassengerTrayBySimId[7], "alpha=" + alpha);
+                Assert.AreEqual(tray20, builder.PassengerTrayBySimId[8], "alpha=" + alpha);
+                PassengerPose pose7 = default, pose8 = default;
+                foreach (var p in builder.PresentedPassengers) {
+                    if (p.SimId == 7) pose7 = p;
+                    else if (p.SimId == 8) pose8 = p;
+                }
+                Assert.AreEqual(-14.0, pose7.Z, 1e-4, "SimId 7 must snap to -14 m with zero Z lerp at alpha=" + alpha);
+                Assert.AreEqual(packed15X, pose7.X, 1e-4, "SimId 7 X snapped at alpha=" + alpha);
+                Assert.AreEqual(packed15Y, pose7.Y, 1e-4, "SimId 7 Y snapped at alpha=" + alpha);
+                Assert.AreEqual(-19.0, pose8.Z, 1e-4, "SimId 8 must snap to -19 m with zero Z lerp at alpha=" + alpha);
+                Assert.AreEqual(packed20X, pose8.X, 1e-4, "SimId 8 X snapped at alpha=" + alpha);
+                Assert.AreEqual(packed20Y, pose8.Y, 1e-4, "SimId 8 Y snapped at alpha=" + alpha);
+            }
+
+            // Tick 3: SimId 7 disappears; Tick 4: SimId 7 reappears at a shifted spot on same tray at alpha = 0.25 -> must snap (no stale lerp).
+            var tick3Hide7 = new[] {
+                new StationPassengerFrame {
+                    SimId = 7, X = cell15.X + 0.5, Y = cell15.Y + 0.5, Z = -14.0,
+                    State = StationPassengerState.Walking, Activity = StationPassengerActivity.Walk, Visible = false,
+                },
+                new StationPassengerFrame {
+                    SimId = 8, X = cell20.X + 0.5, Y = cell20.Y + 0.5, Z = -19.0,
+                    State = StationPassengerState.Walking, Activity = StationPassengerActivity.Walk, Visible = true,
+                },
+            };
+            builder.ApplyLiveSampleForTest(default, tick3Hide7, tick: 3, alpha: 1f);
+            Assert.IsFalse(builder.PassengerTrayBySimId.ContainsKey(7), "Hidden passenger must not be presented");
+
+            var tick4Reappear7 = new[] {
+                new StationPassengerFrame {
+                    SimId = 7, X = cell15.X + 0.9, Y = cell15.Y + 0.1, Z = -14.0,
+                    State = StationPassengerState.Walking, Activity = StationPassengerActivity.Walk, Visible = true,
+                },
+            };
+            builder.ApplyLiveSampleForTest(default, tick4Reappear7, tick: 4, alpha: 0.25f);
+            Assert.AreEqual(1, builder.PresentedPassengers.Count);
+            double expectedReappearX = cell15.X + 0.9 + builder.Plan.Direction.x * builder.Plan.PackedOffsets[tray15];
+            double expectedReappearY = cell15.Y + 0.1 + builder.Plan.Direction.y * builder.Plan.PackedOffsets[tray15];
+            Assert.AreEqual(expectedReappearX, builder.PresentedPassengers[0].X, 1e-4,
+                "Reappearing passenger must snap to current position without stale lerp");
+            Assert.AreEqual(expectedReappearY, builder.PresentedPassengers[0].Y, 1e-4);
+
+            // Support types: Riding, stair-incline cell, and lift-shaft cell stay visible while unsupported roof/street walkers filter out.
+            StationModuleRecord stairMod = null, liftMod = null;
+            foreach (var m in builder.Plan.RetainedSourceModules) {
+                if (stairMod == null && m.Type == "stair" && m.From.HasValue && m.To.HasValue &&
+                    Math.Abs(m.To.Value.Z - m.From.Value.Z) >= 3.0) {
+                    stairMod = m;
+                }
+                if (liftMod == null && m.Type == "lift" && m.From.HasValue && m.To.HasValue &&
+                    Math.Abs(m.To.Value.Z - m.From.Value.Z) >= 4.0) {
+                    liftMod = m;
+                }
+            }
+            Assert.IsNotNull(stairMod, "Zoo must have a retained multi-level stair");
+            Assert.IsNotNull(liftMod, "Zoo must have a retained multi-level lift");
+
+            var stairFlights = StationRunGeometry.StairFlights(stairMod.Facts);
+            Assert.Greater(stairFlights.Count, 0);
+            var flight0 = stairFlights[0];
+            for (int f = 0; f < stairFlights.Count; f++) {
+                if (Math.Abs(stairFlights[f].To.Z - stairFlights[f].From.Z) >= 2.0) {
+                    flight0 = stairFlights[f];
+                    break;
+                }
+            }
+            double stairMidX = (flight0.From.X + flight0.To.X) * 0.5 + 0.5;
+            double stairMidY = (flight0.From.Y + flight0.To.Y) * 0.5 + 0.5;
+            double stairMidFeetZ = (flight0.From.Z + flight0.To.Z) * 0.5 + 1.0;
+
+            double liftLo = Math.Min(liftMod.From.Value.Z, liftMod.To.Value.Z);
+            double liftMidFeetZ = liftLo + 3.0; // mid-shaft, above lower slab and below upper slab
+
+            var tick5Support = new[] {
+                new StationPassengerFrame {
+                    SimId = 201, X = 999.5, Y = 999.5, Z = -19.0,
+                    State = StationPassengerState.Riding, Activity = StationPassengerActivity.Wait, Visible = true,
+                },
+                new StationPassengerFrame {
+                    SimId = 202, X = stairMidX, Y = stairMidY, Z = stairMidFeetZ,
+                    State = StationPassengerState.Walking, Activity = StationPassengerActivity.Walk, Visible = true,
+                },
+                new StationPassengerFrame {
+                    SimId = 203, X = liftMod.X + 0.5, Y = liftMod.Y + 0.5, Z = liftMidFeetZ,
+                    State = StationPassengerState.Walking, Activity = StationPassengerActivity.Wait, Visible = true,
+                },
+                new StationPassengerFrame {
+                    SimId = 204, X = 500.5, Y = 500.5, Z = 1.0,
+                    State = StationPassengerState.Walking, Activity = StationPassengerActivity.Walk, Visible = true,
+                },
+                new StationPassengerFrame {
+                    SimId = 205, X = 500.5, Y = 500.5, Z = -19.0,
+                    State = StationPassengerState.Walking, Activity = StationPassengerActivity.Walk, Visible = true,
+                },
+            };
+            builder.ApplyLiveSampleForTest(default, tick5Support, tick: 5, alpha: 1f);
+            Assert.IsTrue(builder.PassengerTrayBySimId.ContainsKey(201), "Riding passenger must stay visible");
+            Assert.IsTrue(builder.PassengerTrayBySimId.ContainsKey(202), "Stair-incline passenger must stay visible via PassengerSupport");
+            Assert.IsTrue(builder.PassengerTrayBySimId.ContainsKey(203), "Lift-shaft passenger must stay visible via PassengerSupport");
+            Assert.IsFalse(builder.PassengerTrayBySimId.ContainsKey(204), "Unsupported street walker must filter out");
+            Assert.IsFalse(builder.PassengerTrayBySimId.ContainsKey(205), "Unsupported open-void walker must filter out");
+        }
+
+        [UnityTest]
+        public IEnumerator EscalatorStepFollowersTrackStoreyBoundariesGuideMaterialIsNonPickableAndCloseLeavesEditorIntact() {
+            var opened = host.OpenDocument(BuildTwoFloorSave(withFrontWall: false), "file");
+            Assert.IsTrue(opened.Accepted, opened.ToString());
+            yield return null;
+
+            // Locate live editor VerticalModuleView for esc-1 and snapshot its meshes & materials.
+            Assert.IsNotNull(VerticalModuleRenderer.Current, "VerticalModuleRenderer must be active");
+            VerticalModuleView escView = null;
+            foreach (var v in VerticalModuleRenderer.Current.Views) {
+                if (v != null && string.Equals(v.ModuleId, "esc-1", StringComparison.Ordinal)) {
+                    escView = v;
+                    break;
+                }
+            }
+            Assert.IsNotNull(escView, "Editor VerticalModuleView for esc-1 must exist");
+            Assert.Greater(escView.StepCount, 0, "esc-1 must have moving step transforms");
+            Assert.IsTrue(escView.TryGetPart("tread-0", out var srcTread) && srcTread != null,
+                "esc-1 must expose public tread-0 part");
+            var editorMeshFilters = escView.Root.GetComponentsInChildren<MeshFilter>(true);
+            var editorRenderers = escView.Root.GetComponentsInChildren<MeshRenderer>(true);
+            Assert.Greater(editorMeshFilters.Length, 0);
+            Assert.Greater(editorRenderers.Length, 0);
+
+            SendCommand("exploded.open", new JObject { ["viewportWidth"] = 1280, ["viewportHeight"] = 720, ["theme"] = "blueprint" });
+            explodedView.CompleteAllPropsNow();
+            yield return null;
+
+            var builder = explodedView.Builder;
+            Assert.IsNotNull(builder);
+            Assert.Greater(builder.ActiveGuideSegmentCount, 0);
+
+            // Guide material assertions: #8ed8ff, _DashSize == 1.5, _GapSize == 1.0.
+            Assert.IsNotNull(builder.GuidesObject);
+            var guideMr = builder.GuidesObject.GetComponent<MeshRenderer>();
+            Assert.IsNotNull(guideMr);
+            var guideMat = guideMr.sharedMaterial;
+            Assert.IsNotNull(guideMat);
+            Color guideColor = guideMat.HasProperty("_BaseColor")
+                ? guideMat.GetColor("_BaseColor")
+                : guideMat.GetColor("_Color");
+            Assert.AreEqual(StationExplodedTrayBuilder.GuideColor.r, guideColor.r, 1e-3f, "Guide red channel #8e");
+            Assert.AreEqual(StationExplodedTrayBuilder.GuideColor.g, guideColor.g, 1e-3f, "Guide green channel #d8");
+            Assert.AreEqual(StationExplodedTrayBuilder.GuideColor.b, guideColor.b, 1e-3f, "Guide blue channel #ff");
+            if (guideMat.HasProperty("_DashSize")) {
+                Assert.AreEqual(1.5f, guideMat.GetFloat("_DashSize"), 1e-4f);
+            }
+            if (guideMat.HasProperty("_GapSize")) {
+                Assert.AreEqual(1.0f, guideMat.GetFloat("_GapSize"), 1e-4f);
+            }
+
+            // Snapshot initial guide endpoints and GuidesMesh reference, then drag tray 1 far out so guide midpoint is in open void.
+            var initialGuidesMesh = builder.GuidesMesh;
+            var initialEndpoints = new List<(Vector3 lower, Vector3 upper)>(builder.LastGuideWorldEndpoints);
+            builder.SetTrayManualOffset(1, new Vector3(40f, 15f, 0f));
+            builder.UpdateGuides(explodedView.ViewerCamera);
+
+            var shiftedSeg = builder.LastGuideWorldEndpoints[0];
+            Assert.Greater(Vector3.Distance(initialEndpoints[0].upper, shiftedSeg.upper), 1f,
+                "Dragging upper tray must move upper guide endpoint");
+            var guideMid = (shiftedSeg.lower + shiftedSeg.upper) * 0.5f;
+            var rayAtGuide = new Ray(guideMid + Vector3.up * 20f, Vector3.down);
+            Assert.IsFalse(builder.PickTray(rayAtGuide, out _, out _),
+                "PickTray aimed directly at a dashed guide segment must return false");
+
+            // ResetArrangement restores exact initial guide world endpoints reusing the same GuidesMesh instance.
+            builder.ResetArrangement();
+            Assert.AreSame(initialGuidesMesh, builder.GuidesMesh, "ResetArrangement must reuse GuidesMesh");
+            Assert.AreEqual(initialEndpoints.Count, builder.LastGuideWorldEndpoints.Count);
+            for (int i = 0; i < initialEndpoints.Count; i++) {
+                Assert.Less(Vector3.Distance(initialEndpoints[i].lower, builder.LastGuideWorldEndpoints[i].lower), 1e-4f);
+                Assert.Less(Vector3.Distance(initialEndpoints[i].upper, builder.LastGuideWorldEndpoints[i].upper), 1e-4f);
+            }
+
+            // Escalator step followers track storey boundaries and respect FloorVisible.
+            var stepsGroup0 = builder.Trays[0].LiveRoot.Find("esc-1-steps");
+            var stepsGroup1 = builder.Trays[1].LiveRoot.Find("esc-1-steps");
+            Assert.IsNotNull(stepsGroup0, "Lower tray (-10 m) must host esc-1-steps followers");
+            Assert.IsNotNull(stepsGroup1, "Upper tray (-5 m) must host esc-1-steps followers");
+            var follower0 = stepsGroup0.Find("tread-0");
+            var follower1 = stepsGroup1.Find("tread-0");
+            Assert.IsNotNull(follower0);
+            Assert.IsNotNull(follower1);
+
+            var originalTreadPos = srcTread.position;
+            bool originalTreadActive = srcTread.gameObject.activeSelf;
+            try {
+                srcTread.gameObject.SetActive(true);
+                // Inside -10 m band [-10, -5): lower follower active, upper inactive.
+                srcTread.position = new Vector3(originalTreadPos.x, -7.5f, originalTreadPos.z);
+                builder.TickLivePoses(null, default);
+                Assert.IsTrue(follower0.gameObject.activeSelf, "Step at y=-7.5 must activate on -10 m tray");
+                Assert.IsFalse(follower1.gameObject.activeSelf, "Step at y=-7.5 must stay inactive on -5 m tray");
+
+                // Cross storey boundary into -5 m band [-5, 0): lower inactive, upper active.
+                srcTread.position = new Vector3(originalTreadPos.x, -3.5f, originalTreadPos.z);
+                builder.TickLivePoses(null, default);
+                Assert.IsFalse(follower0.gameObject.activeSelf, "Step at y=-3.5 must deactivate on -10 m tray");
+                Assert.IsTrue(follower1.gameObject.activeSelf, "Step at y=-3.5 must activate on -5 m tray");
+
+                // FloorVisible=false hides followers on that tray; restoring brings them back.
+                builder.SetFloorVisibility(1, false);
+                Assert.IsFalse(follower1.gameObject.activeSelf, "Hidden tray must hide its escalator step followers");
+                builder.SetFloorVisibility(1, true);
+                Assert.IsTrue(follower1.gameObject.activeSelf, "Restoring tray visibility must reactivate its in-band step follower");
+            } finally {
+                srcTread.position = originalTreadPos;
+                srcTread.gameObject.SetActive(originalTreadActive);
+            }
+
+            // Close()/Dispose() must leave editor VerticalModuleView meshes and materials completely alive.
+            explodedView.Close();
+            yield return null;
+            Assert.AreEqual(StationExplodedView.PhaseClosed, explodedView.Phase);
+            Assert.IsTrue(escView.Root != null, "Editor VerticalModuleView root must remain alive after Close()");
+            for (int i = 0; i < editorMeshFilters.Length; i++) {
+                Assert.IsTrue(editorMeshFilters[i] != null && editorMeshFilters[i].sharedMesh != null,
+                    "Editor escalator MeshFilter/sharedMesh must survive exploded viewer Close()/Dispose()");
+            }
+            for (int i = 0; i < editorRenderers.Length; i++) {
+                Assert.IsTrue(editorRenderers[i] != null && editorRenderers[i].sharedMaterial != null,
+                    "Editor escalator MeshRenderer/sharedMaterial must survive exploded viewer Close()/Dispose()");
+            }
+        }
     }
 }

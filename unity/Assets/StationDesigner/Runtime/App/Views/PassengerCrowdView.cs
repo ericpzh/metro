@@ -430,8 +430,17 @@ namespace Metro.App.Views {
         public double LastSimTime { get; private set; }
         public IReadOnlyList<Diagnostic> Diagnostics => diagnostics;
         public PassengerCatalogue Catalogue => catalogue;
-        /// <summary>The manifest declares Low as a runtime variant; this renderer does not draw it yet.</summary>
-        public bool SupportsLowDetail => false;
+        /// <summary>True when the bound catalogue carries at least one simplified Low mesh.</summary>
+        public bool SupportsLowDetail {
+            get {
+                var entries = catalogue?.entries;
+                if (entries == null) return false;
+                for (int i = 0; i < entries.Length; i++) {
+                    if (entries[i]?.simplifiedMesh?.mesh != null) return true;
+                }
+                return false;
+            }
+        }
 
         public static PassengerCrowdView Build(Transform parent, PassengerCatalogue catalogue,
             Action<PassengerCrowdActor, PassengerPose> spawned = null, Action<Diagnostic> diagnostic = null) {
@@ -527,6 +536,8 @@ namespace Metro.App.Views {
                     existing.ScaleApplied = false;
                     existing.LastToneMode = (StationDrawMode)(-1);
                 }
+                if (pose.Detail == PassengerDetail.Low && existing.Entry?.simplifiedMesh?.mesh == null)
+                    Diagnose("low-topology-unported", pose.SimId, "Low mesh is not rendered; Full topology is shown");
                 return existing;
             }
             if (!catalogue.TryGetForSimId(pose.SimId, out var entry)) {
@@ -553,7 +564,7 @@ namespace Metro.App.Views {
                 ClearToneBlock(pooled);
                 if (pooled.Root != null) pooled.Root.name = "passenger " + pose.SimId + " " + entry.recipe;
                 actors[pose.SimId] = pooled;
-                if (pose.Detail == PassengerDetail.Low && entry.simplifiedMesh == null)
+                if (pose.Detail == PassengerDetail.Low && entry.simplifiedMesh?.mesh == null)
                     Diagnose("low-topology-unported", pose.SimId, "Low mesh is not rendered; Full topology is shown");
                 return pooled;
             }
@@ -607,14 +618,14 @@ namespace Metro.App.Views {
             target.ModeApplied += mode => OnActorModeApplied(actor, mode);
             actors[pose.SimId] = actor;
             actor.Root.SetActive(false);
-            if (pose.Detail == PassengerDetail.Low && entry.simplifiedMesh == null)
+            if (pose.Detail == PassengerDetail.Low && entry.simplifiedMesh?.mesh == null)
                 Diagnose("low-topology-unported", pose.SimId, "Low mesh is not rendered; Full topology is shown");
             return actor;
         }
 
         void SelectActorMesh(PassengerCrowdActor actor, PassengerDetail detail, Camera camera, int followId) {
-            var reduced = actor.Entry.reducedMesh;
-            var simplified = actor.Entry.simplifiedMesh;
+            var reduced = actor.Entry.reducedMesh?.mesh != null ? actor.Entry.reducedMesh : null;
+            var simplified = actor.Entry.simplifiedMesh?.mesh != null ? actor.Entry.simplifiedMesh : null;
             if (reduced == null && simplified == null) return;
             bool otherLevel = actor.Target != null && actor.Target.OtherLevelLod;
             int desired = 0;

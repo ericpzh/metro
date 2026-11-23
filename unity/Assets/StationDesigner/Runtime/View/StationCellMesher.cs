@@ -1357,7 +1357,7 @@ namespace Metro.View {
                 for (var dz = -1; dz <= 1; dz++) {
                     for (var t = -1; t <= 1; t++) {
                         if (t == 0 && dz == 0) continue;
-                        if (IsSolid(ax + alongX * t, ay + (nx != 0 ? 0 : t), z + dz)) occl++;
+                        if (IsSolid(ax + alongX * t, ay + alongY * t, z + dz)) occl++;
                     }
                 }
                 return Math.Max(0.4, 1 - 0.09 * occl);

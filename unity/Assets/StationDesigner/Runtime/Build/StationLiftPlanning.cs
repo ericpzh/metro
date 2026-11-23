@@ -27,6 +27,23 @@ namespace Metro.Build {
             return null;
         }
 
+        /// <summary>
+        /// `liftInColumn` with elevation guard: the shaft standing in `(x, y)` whose vertical span
+        /// `[lo, hi]` covers <paramref name="z"/>.
+        /// </summary>
+        public static StationModuleRecord LiftInColumn(StationIndex index, int x, int y, int z) {
+            if (index == null) return null;
+            foreach (var module in index.Document.Modules) {
+                if (module == null || module.Type != "lift") continue;
+                int size = StationFootprints.LiftSize(module);
+                if (x < module.X || x >= module.X + size || y < module.Y || y >= module.Y + size) continue;
+                int lo = (int)Math.Round(Math.Min(module.From?.Z ?? module.Z, module.To?.Z ?? module.Z));
+                int hi = (int)Math.Round(Math.Max(module.From?.Z ?? module.Z, module.To?.Z ?? module.Z));
+                if (z >= lo && z <= hi) return module;
+            }
+            return null;
+        }
+
         /// <summary>The numbers in a JSON array of positive ints (`[5,5]`), in order.</summary>
         static List<int> ParseRises(string text) {
             var rises = new List<int>();
@@ -112,12 +129,14 @@ namespace Metro.Build {
             var record = StationModulePlacement.ToRecord(grown);
             if (!StationFootprints.TryClearance(record, out var box, out _)) return blockers;
             // A poured block in the **new** volume refuses the growth as surely as another piece
-            // does. The courses the shaft already stands through are not new: a lift's box starts
-            // half a metre above its base, so the floor it stands on would otherwise always
-            // refuse every extension.
+            // does. The courses the shaft already stands through — and the lower floor slab at
+            // `newLo` that a downward extension stands on — are not blockers: a lift's box starts
+            // half a metre above its base, so the floor it stands on would otherwise refuse
+            // every downward extension.
+            int newLo = (int)Math.Round(Math.Min(record.From.Value.Z, record.To.Value.Z));
             foreach (var cell in index.Document.Cells) {
                 if (cell == null || !cell.IsSolid) continue;
-                bool isNew = up ? cell.Z >= oldHi : cell.Z < oldLo;
+                bool isNew = up ? cell.Z >= oldHi : (cell.Z > newLo && cell.Z < oldLo);
                 if (!isNew) continue;
                 var unit = new StationBox(cell.X, cell.Y, cell.Z, cell.X + 1, cell.Y + 1, cell.Z + 1);
                 if (box.Overlaps(unit)) { blockers.Add("block " + cell.X + "," + cell.Y + "," + cell.Z); break; }
@@ -131,7 +150,23 @@ namespace Metro.Build {
         }
 
         static List<int> RisesOf(StationEditDraft draft) {
-            var rises = ParseRises(draft.Text("rises"));
+            var rises = new List<int>();
+            if (draft == null) { rises.Add(DefaultInterval); return rises; }
+            rises = ParseRises(draft.Text("rises"));
+            if (draft.From.HasValue && draft.To.HasValue) {
+                int span = Math.Abs((int)Math.Round(draft.To.Value.Z) - (int)Math.Round(draft.From.Value.Z));
+                int total = 0;
+                foreach (var rise in rises) total += rise;
+                if (rises.Count > 0 && total == span) return rises;
+                rises.Clear();
+                int left = span;
+                while (left > 0) {
+                    int step = Math.Min(DefaultInterval, left);
+                    rises.Add(step);
+                    left -= step;
+                }
+                if (rises.Count > 0) return rises;
+            }
             if (rises.Count == 0) rises.Add(DefaultInterval);
             return rises;
         }

@@ -23,6 +23,7 @@
 
 import { stationBridge } from './stationBridge.ts'
 import type { StationBridge } from './stationBridge.ts'
+import { TouchZoom } from '../app/touchZoom.ts'
 import { BUTTON_BIT, DOM_BUTTON, MOVE_BUTTON, isBuildButton } from './pointerButtons.ts'
 
 /** One tool-pointer command in the bridge's v2 vocabulary. */
@@ -65,6 +66,8 @@ export interface ToolPointerOptions {
 const RIGHT_TAP_PX = 5
 /** How long a right press may be held and still count as a tap. */
 const RIGHT_TAP_MS = 500
+/** How far a single-finger touch may travel and still count as a tap (`Viewport.tsx`). */
+const TOUCH_TAP_PX = 8
 /** `MouseEvent.buttons` bit for the primary button. */
 const LEFT_BIT = BUTTON_BIT.left
 /** `MouseEvent.buttons` bit for the secondary button. */
@@ -109,6 +112,10 @@ export function attachCanvasToolPointer(
   let chordConsumed = false
   let pending: PointerEvent | null = null
   let frame = 0
+  /** Defer touch taps until release so two-finger pinches never trigger edits (`Viewport.tsx`). */
+  const touchZoom = new TouchZoom()
+  const activeTouches = new Set<number>()
+  let touchPress: PointerEvent | null = null
 
   const blocked = (): boolean => options.blocked?.() === true
   const claimsRight = (): boolean => options.claimsRight?.() === true
@@ -219,6 +226,15 @@ export function attachCanvasToolPointer(
   }
 
   const down = (event: PointerEvent): void => {
+    if (event.pointerType === 'touch') {
+      if (blocked()) return
+      event.preventDefault()
+      activeTouches.add(event.pointerId)
+      touchZoom.down(event.pointerId, event.clientX, event.clientY)
+      touchPress = activeTouches.size === 1 ? event : null
+      try { canvas.setPointerCapture(event.pointerId) } catch { /* inside-canvas tap still works */ }
+      return
+    }
     if (event.button === DOM_BUTTON.middle) return
     if (!isBuildButton(event.button)) return
     if (blocked()) return
@@ -260,9 +276,18 @@ export function attachCanvasToolPointer(
   }
 
   const move = (event: PointerEvent): void => {
+    if (event.pointerType === 'touch') {
+      if (blocked()) {
+        if (activeTouches.delete(event.pointerId)) touchZoom.cancel(event.pointerId)
+        touchPress = null
+        return
+      }
+      event.preventDefault()
+      touchZoom.move(event.pointerId, event.clientX, event.clientY)
+      return
+    }
     if (chordConsumed) { consumeChord(event); return }
     if (blocked()) return
-    if (event.pointerType === 'touch') event.preventDefault()
     if (isMouseLike(event) && downButton !== -1) {
       heldMask = event.buttons
       const ownerBit = downButton === DOM_BUTTON.left ? LEFT_BIT : RIGHT_BIT
@@ -278,6 +303,20 @@ export function attachCanvasToolPointer(
   }
 
   const up = (event: PointerEvent): void => {
+    if (event.pointerType === 'touch') {
+      event.preventDefault()
+      activeTouches.delete(event.pointerId)
+      try { if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId) } catch { /* already released */ }
+      const tap = touchZoom.up(event.pointerId)
+      const press = touchPress
+      if (activeTouches.size === 0 || press?.pointerId === event.pointerId) touchPress = null
+      if (blocked() || !tap || !press || press.pointerId !== event.pointerId) return
+      if (Math.hypot(event.clientX - press.clientX, event.clientY - press.clientY) > TOUCH_TAP_PX) return
+      flush()
+      port.send({ type: 'pointer.down', payload: payload(event, DOM_BUTTON.left) })
+      port.send({ type: 'pointer.up', payload: payload(event, DOM_BUTTON.left) })
+      return
+    }
     if (chordConsumed) { consumeChord(event); return }
     if (event.pointerId !== pointerId) return
     const wasButton = downButton
@@ -331,7 +370,12 @@ export function attachCanvasToolPointer(
     heldMask = event.buttons
   }
 
-  const cancel = (): void => {
+  const cancel = (event?: PointerEvent): void => {
+    if (event?.pointerType === 'touch') {
+      if (activeTouches.delete(event.pointerId)) touchZoom.cancel(event.pointerId)
+      touchPress = null
+      return
+    }
     const hadActivePointer = pointerId >= 0
     const wasChord = chordConsumed
     pointerId = -1
@@ -348,12 +392,19 @@ export function attachCanvasToolPointer(
     port.send({ type: 'pointer.cancel', payload: {} })
   }
 
-  // NB: `lostpointercapture` is **not** a cancel. Browsers fire it on every normal
-  // release (and our `up` releases the capture), so treating it as cancellation dropped a
-  // lifted piece the instant the player let go of it. Only a real `pointercancel`
-  // (OS gesture, tab switch, device loss) ends the gesture.
+  // NB: `lostpointercapture` is **not** a cancel for mouse gestures. Browsers fire it on
+  // every normal release (and our `up` releases the capture), so treating it as cancellation
+  // dropped a lifted piece the instant the player let go of it. Only an unexpected capture
+  // loss while a touch is still tracked cancels that touch session (`Viewport.tsx`).
+  const lostCapture = (event: PointerEvent): void => {
+    if (event.pointerType === 'touch' && activeTouches.delete(event.pointerId)) {
+      touchZoom.cancel(event.pointerId)
+      touchPress = null
+    }
+  }
 
-  const leave = (): void => {
+  const leave = (event?: PointerEvent): void => {
+    if (event?.pointerType === 'touch' || activeTouches.size > 0) return
     if (pointerId >= 0 || blocked()) return
     port.send({ type: 'pointer.leave', payload: {} })
   }
@@ -362,6 +413,7 @@ export function attachCanvasToolPointer(
   canvas.addEventListener('pointermove', move)
   canvas.addEventListener('pointerup', up)
   canvas.addEventListener('pointercancel', cancel)
+  canvas.addEventListener('lostpointercapture', lostCapture)
   canvas.addEventListener('pointerleave', leave)
   canvas.addEventListener('contextmenu', contextMenu)
   return () => {
@@ -369,6 +421,7 @@ export function attachCanvasToolPointer(
     canvas.removeEventListener('pointermove', move)
     canvas.removeEventListener('pointerup', up)
     canvas.removeEventListener('pointercancel', cancel)
+    canvas.removeEventListener('lostpointercapture', lostCapture)
     canvas.removeEventListener('pointerleave', leave)
     canvas.removeEventListener('contextmenu', contextMenu)
     if (frame) cancelAnimationFrame(frame)

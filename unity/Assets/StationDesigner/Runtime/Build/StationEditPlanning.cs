@@ -896,7 +896,7 @@ namespace Metro.Build {
                     candidate.From = new StationPoint(candidate.X, candidate.Y, candidate.Z);
                     candidate.To = new StationPoint(candidate.X, candidate.Y, candidate.Z + interval);
                     candidate.SetJson("rises", "[" + interval.ToString(System.Globalization.CultureInfo.InvariantCulture) + "]");
-                    if (request.LiftSizeLarge) candidate.Set("size", "large");
+                    if (request.LiftSizeLarge) candidate.Set(3, "size");
                     break;
                 }
                 case "walkway": {
@@ -1253,10 +1253,15 @@ namespace Metro.Build {
                     return "exit-on-slab";
                 }
             }
-            // A street tree is surface decor: it never grows below the street plane. A shelter
-            // and a traffic light are the same (`equipmentReason`'s outdoor-below-ground group).
+            // A street tree is surface decor: it never grows below the street plane. A shelter,
+            // post camera and a traffic light are the same (`equipmentReason`'s outdoor-below-ground group).
             if (draft.Z < 0 && (draft.Type == "tree" || draft.Type == "busstop" || draft.Type == "traffic-light" ||
-                                draft.Type == "guidepost")) return "outdoor-below-ground";
+                                draft.Type == "guidepost" ||
+                                (draft.Type == "cctv" && string.Equals(draft.Text("variant"), "post", StringComparison.Ordinal))))
+                return "outdoor-below-ground";
+            if (draft.Z < 0 && string.Equals(draft.Type, "roof", StringComparison.Ordinal) &&
+                StationRoofRules.IsVariant(draft.Text("variant")))
+                return "exit-on-slab";
             // A flat body must not intersect a block. Wall and ceiling mounts reserve a
             // panel band or a hung column instead and are answered by their own rule.
             bool hung = StationFootprints.IsCeilingHung(record);
@@ -1284,6 +1289,10 @@ namespace Metro.Build {
             // happens to come first: the source's callers read `placementColliders` beside
             // `equipmentReason`, so a refused placement still names what it would have hit.
             CollectColliders(index, record, box, colliders, unverified);
+            if (wall) {
+                if (!WallSupport(index, record)) return "wall";
+                return colliders.Count > 0 ? "occupied" : "";
+            }
             if (!hung && draft.Type != "escalator" && draft.Type != "roof") {
                 bool floorOk;
                 try { floorOk = StationFootprints.ModuleFloorOk(record, index); }
@@ -1304,7 +1313,6 @@ namespace Metro.Build {
                 }
             }
             if (colliders.Count > 0) return "occupied";
-            if (wall && !WallSupport(index, record)) return "wall";
             if (hung && !CeilingSupport(index, record, draft)) return "ceiling";
             return "";
         }
@@ -1528,32 +1536,74 @@ namespace Metro.Build {
             return exit || reverse;
         }
 
-        /// <summary>
-        /// The wall a panel bolts to: the cell step from the module's saved turn, over the
-        /// courses <c>sim/placement.ts</c> reads (<c>wallMountCourses</c>). A solid block at
-        /// any of them behind the panel holds it.
-        /// </summary>
-        static bool WallSupport(StationIndex index, StationModuleRecord record) {
-            StationFootprints.WallSide(record.Rotation, out var dx, out var dy);
-            int bx = record.X + dx, by = record.Y + dy;
-            var courses = StationFootprints.WallCourses(record);
-            if (courses.Length == 0) courses = new[] { record.Z };
-            foreach (var course in courses) {
-                if (StationFootprints.IsSolidAt(index, bx, by, course)) return true;
-                // A wall is built as a block whose top is the panel's course; the course
-                // list is absolute, so a solid at either the course or the one below holds.
-                if (StationFootprints.IsSolidAt(index, bx, by, course - 1)) return true;
+        static StationWallSide StepSide(int dx, int dy) {
+            if (dx > 0) return StationWallSide.E;
+            if (dx < 0) return StationWallSide.W;
+            return dy > 0 ? StationWallSide.N : StationWallSide.S;
+        }
+
+        static bool HasHalfWallTag(IReadOnlyList<string> tags) {
+            if (tags == null) return false;
+            for (int i = 0; i < tags.Count; i++) {
+                if (tags[i] != null && tags[i].StartsWith("half-wall:", StringComparison.Ordinal)) return true;
             }
             return false;
         }
 
         /// <summary>
+        /// Port of <c>sim/placement.ts:wallMountMissing</c>: every cell along the panel's run and
+        /// every local course in <see cref="StationFootprints.WallCourses"/> (<c>record.Z + 1 + course</c>)
+        /// must have solid backing on the wall side, with half-walls and compound cuts required to
+        /// keep the full half facing the panel.
+        /// </summary>
+        static bool WallSupport(StationIndex index, StationModuleRecord record) {
+            if (!StationFootprints.IsWallMounted(record)) return true;
+            StationFootprints.WallSide(record.Rotation, out var dx, out var dy);
+            var needed = StepSide(-dx, -dy);
+            int neededHalf = StationCellRules.HalfMask(needed);
+            var courses = StationFootprints.WallCourses(record);
+            if (courses.Length == 0) return true;
+            StationPoint[] baseCells;
+            try { baseCells = BaseCells(record); }
+            catch (NotSupportedException) { baseCells = new[] { record.Point }; }
+            bool doorway = string.Equals(record.Type, "exit", StringComparison.Ordinal) &&
+                string.Equals(record.Config.Text("style"), "doorway", StringComparison.Ordinal);
+            int groundZ = (int)Math.Round(StationFootprints.GroundZ);
+            foreach (var course in courses) {
+                int nz = doorway && record.Config.Has("mountZ")
+                    ? (int)Math.Round(record.Config.Number("mountZ", record.Z + 1 + course))
+                    : record.Z + 1 + course;
+                foreach (var cell in baseCells) {
+                    int bx = (int)Math.Round(cell.X) + dx;
+                    int by = (int)Math.Round(cell.Y) + dy;
+                    var back = index.GetCell(bx, by, nz);
+                    if (back != null && !back.IsSolid) back = null;
+                    if (doorway) {
+                        if (back == null) return false;
+                        continue;
+                    }
+                    if (back == null) {
+                        if (nz != groundZ || StationFootprints.IsGroundHole(index, bx, by)) return false;
+                        continue;
+                    }
+                    int cut = StationCellRules.WallCutMask(back.Tags);
+                    if (cut != 0) {
+                        if ((cut & neededHalf) != neededHalf && HasHalfWallTag(back.Tags)) return false;
+                    }
+                }
+            }
+            return true;
+        }
+
+        /// <summary>
         /// Port of <c>ceilingMountMissing</c> for the migrated hung families: the slab the
-        /// piece hangs from is the block directly above its stand cell (a 吊顶 or an
-        /// ordinary top block), or the nominal storey ceiling for a fixture.
+        /// piece hangs from is the block or non-tunnel track deck directly above its stand cell
+        /// (<see cref="StationCeilingAim.TopBlockOver"/>), the nominal storey ceiling, or a hanger bar.
         /// </summary>
         static bool CeilingSupport(StationIndex index, StationModuleRecord record, StationEditDraft draft) {
-            if (StationFootprints.IsSolidAt(index, draft.X, draft.Y, draft.Z + 1)) return true;
+            if (StationHangerRules.IsHanger(record.Type))
+                return !StationHangerRules.RoofMissing(index, record, draft.SourceId);
+            if (StationCeilingAim.TopBlockOver(index, draft.X, draft.Y, draft.Z)) return true;
             if (StationFootprints.IsSolidAt(index, draft.X, draft.Y, draft.Z + 4)) return true;
             foreach (var module in index.Document.Modules) {
                 if (string.Equals(module.Id, draft.SourceId, StringComparison.Ordinal)) continue;

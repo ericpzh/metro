@@ -635,7 +635,7 @@ namespace Metro.App.Views {
             foreach (var record in state.Records) {
                 var view = root.Find("road " + record.Id);
                 if (!view) continue;
-                var box = new StationBox(record.X, record.Y, record.Z, record.X + record.W, record.Y + record.D, record.Z + 1.02);
+                var box = new StationBox(record.X, record.Y, record.Z, record.X + record.W, record.Y + record.D, record.Z + 1.07);
                 int level = (int)Math.Round(record.Z);
                 context.World.RegisterModule(Role, record.Id, view.gameObject, "", box, level, level);
             }
@@ -658,12 +658,14 @@ namespace Metro.App.Views {
         public void Update(double simTimeSeconds) {
             var state = newest;
             if (state == null) return;
-            state.View?.SetSimTime(simTimeSeconds);
+            if (state.View != null) state.View.SetSimTime(simTimeSeconds);
             if (state.Traffic == null) return;
             if (!double.IsNaN(state.SampledTime) && Math.Abs(simTimeSeconds - state.SampledTime) <= 1e-9) return;
             state.Traffic.Advance(simTimeSeconds);
-            if (state.World != null) state.Vehicles?.RenderForWorld(simTimeSeconds, state.World);
-            else state.Vehicles?.Render(simTimeSeconds, null);
+            if (state.Vehicles != null) {
+                if (state.World != null) state.Vehicles.RenderForWorld(simTimeSeconds, state.World);
+                else state.Vehicles.Render(simTimeSeconds, null);
+            }
             state.SampledTime = simTimeSeconds;
         }
 
@@ -712,8 +714,14 @@ namespace Metro.App.Views {
             };
         }
 
-        public void ShowPreview(RoadEditPreview preview) => newest?.View?.ShowPreview(preview);
-        public void ClearPreview() => newest?.View?.ClearPreview();
+        public void ShowPreview(RoadEditPreview preview) {
+            var view = newest?.View;
+            if (view != null) view.ShowPreview(preview);
+        }
+        public void ClearPreview() {
+            var view = newest?.View;
+            if (view != null) view.ClearPreview();
+        }
 
         public void Release() {
             // The host calls Release on the world being replaced after the candidate

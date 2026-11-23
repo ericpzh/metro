@@ -1178,18 +1178,22 @@ namespace Metro.App {
         public static PsdHeaderPlan PsdHeaderFor(OpeningRequest request) {
             bool down = string.Equals(request.Dir, "down", StringComparison.Ordinal);
             bool right = string.Equals(request.Side, "right", StringComparison.Ordinal);
+            string rawStation = (request.StationName ?? "").Trim();
+            string rawDestination = ((down ? request.DownTerminus : request.UpTerminus) ?? "").Trim();
             var plan = new PsdHeaderPlan {
                 HasData = true,
                 LineId = request.LineId ?? "",
                 Colour = string.IsNullOrEmpty(request.LineColour) ? "#1b6fd6" : request.LineColour,
                 Direction = down ? "down" : "up",
-                StationName = (request.StationName ?? "").Trim(),
+                StationName = rawStation,
                 StationNameEn = (request.StationNameEn ?? "").Trim(),
-                Destination = ((down ? request.DownTerminus : request.UpTerminus) ?? "").Trim(),
+                Destination = rawDestination,
                 DestinationEn = ((down ? request.DownTerminusEn : request.UpTerminusEn) ?? "").Trim(),
                 Adjacent = ((down ? request.DownNextStation : request.UpNextStation) ?? "").Trim(),
                 AdjacentEn = ((down ? request.DownNextStationEn : request.UpNextStationEn) ?? "").Trim(),
             };
+            plan.Terminal = rawStation.Length > 0 && rawDestination.Length > 0 &&
+                string.Equals(rawDestination, rawStation, StringComparison.Ordinal);
             if (plan.StationName.Length == 0) {
                 // `buildPsd`: `name = ctx.data.name || t('metro_station')`. The canvas prints
                 // the Chinese line, so the fallback is the source's zh string.
@@ -1200,8 +1204,6 @@ namespace Metro.App {
                 plan.Destination = down ? "\u4e0b\u884c" : "\u4e0a\u884c";
                 plan.DirectionFallback = true;
             }
-            plan.Terminal = plan.Destination.Length > 0 &&
-                string.Equals(plan.Destination, plan.StationName.Trim(), StringComparison.Ordinal);
             // The platform-facing plane reverses its local x on the left bank.
             plan.Arrow = (down ? -1 : 1) * (right ? 1 : -1);
             return plan;

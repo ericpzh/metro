@@ -18,9 +18,14 @@ namespace Metro.Build {
         public const double Eave = 9;
         public const double Skin = 0.12;
         public const double Drop = 5;
+        /// <summary>Round canopy post radius, metres (`CANOPY_POST_RADIUS`).</summary>
+        public const double PostRadius = 0.09;
 
         /// <summary>`supportedRoofWidth`: the three catalogue bay depths, 4 by default.</summary>
         public static int SupportedWidth(int width) => width == 8 || width == 12 ? width : 4;
+
+        /// <summary>`trussRoofRidge`: the shell's ridge underside below the skin, 9.88 m.</summary>
+        public static double Ridge => Base + Height - Skin;
 
         /// <summary>`trussRoofTop`: the shell's top surface above the slab, 10 m.</summary>
         public static double Top => Base + Height;
@@ -54,9 +59,38 @@ namespace Metro.Build {
         }
 
         /// <summary>
+        /// The canopy's multi-box physical collision volumes (`canopyBodyBoxes`): one slender
+        /// column per round post plus the lowered overhead roof shell, keeping the sheltered ground
+        /// aisle between the post rows open.
+        /// </summary>
+        public static List<StationBox> CanopyBodyBoxes(StationModuleRecord m) {
+            var boxes = new List<StationBox>();
+            if (m == null) return boxes;
+            var cells = StationFootprints.TrackCells(m);
+            if (cells.Length == 0) return boxes;
+            int depth = Math.Max(1, m.Depth);
+            int width = Math.Max(1, m.Width);
+            var rows = PostRows(depth);
+            foreach (var row in new[] { rows.Low, rows.High }) {
+                double height = Ridge - (Ridge - Eave) * Math.Abs(row - (depth - 1) / 2.0) / (depth / 2.0) - Drop - 0.1;
+                for (int x = 0; x < width; x++) {
+                    StationFootprints.RotateLocal(m.Rotation, x, row, out var rx, out var ry);
+                    boxes.Add(new StationBox(
+                        m.X + 0.5 + rx - PostRadius, m.Y + 0.5 + ry - PostRadius, m.Z + 1,
+                        m.X + 0.5 + rx + PostRadius, m.Y + 0.5 + ry + PostRadius, m.Z + 1 + height));
+                }
+            }
+            var footprint = StationBox.FromCells(cells, m.Z + 1, m.Z + 1);
+            boxes.Add(new StationBox(
+                footprint.X0, footprint.Y0, m.Z + 1 + Eave - Drop - 0.2,
+                footprint.X1, footprint.Y1, m.Z + 1 + Top - Drop));
+            return boxes;
+        }
+
+        /// <summary>
         /// The canopy's reservation (`canopyBodyBoxes`' union): every post's column and the slab
-        /// it carries. The per-box split is the view's; the placement reserves the whole body
-        /// from the ground under the posts to the slab's top.
+        /// it carries. The per-box split is exposed via <see cref="CanopyBodyBoxes"/>; the coarse
+        /// clearance box preserves the full vertical span from floor top to lowered ridge.
         /// </summary>
         public static bool TryCanopyBody(StationModuleRecord m, out StationBox box) {
             box = default;

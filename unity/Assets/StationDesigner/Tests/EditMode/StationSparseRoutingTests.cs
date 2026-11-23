@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using Metro.App;
 using Metro.Build;
 using Metro.Persistence;
@@ -657,5 +658,412 @@ public class StationSparseRoutingTests {
         var usedLifts = itin.Steps.Where(s => !string.IsNullOrEmpty(s.LiftId)).Select(s => s.LiftId).Distinct().ToList();
         TestContext.WriteLine($"StepFree concourse->door lifts: [{string.Join(", ", usedLifts)}] totalCostMs={itin.TotalCostMs} steps={itin.Steps.Length}");
         Assert.IsTrue(usedLifts.Contains("lift-15"), "StepFree route to platform must use lift-15");
+    }
+
+    // -------------------------------------------------------- reflection helpers for targeted sparse-routing invariants
+
+    static object SpawnSparseWalker(StationServiceRuntime services, double x, double y, double z, int destExitNode, string destExitId) {
+        var rt = typeof(StationServiceRuntime);
+        var pType = rt.GetNestedType("Passenger", BindingFlags.NonPublic);
+        var phaseType = rt.GetNestedType("Phase", BindingFlags.NonPublic);
+        var list = (System.Collections.IList)rt.GetField("passengers", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(services);
+        var nextIdField = rt.GetField("nextPassengerId", BindingFlags.Instance | BindingFlags.NonPublic);
+        int id = (int)nextIdField.GetValue(services) + 1;
+        nextIdField.SetValue(services, id);
+
+        var p = Activator.CreateInstance(pType);
+        pType.GetField("Id").SetValue(p, id);
+        pType.GetField("X").SetValue(p, x);
+        pType.GetField("Y").SetValue(p, y);
+        pType.GetField("Z").SetValue(p, z);
+        pType.GetField("Phase").SetValue(p, Enum.Parse(phaseType, "Walking"));
+        pType.GetField("Speed").SetValue(p, StationServiceRuntime.WalkSpeed);
+        pType.GetField("DestExit").SetValue(p, destExitNode);
+        pType.GetField("DestExitId").SetValue(p, destExitId ?? "");
+        pType.GetField("Needs").SetValue(p, StationRouteNeeds.Walking);
+        pType.GetField("RouteGraphEpoch").SetValue(p, services.GraphEpoch);
+        list.Add(p);
+
+        int startNode = services.NearestNode(x, y, z);
+        Assert.GreaterOrEqual(startNode, 0, $"walker spawn ({x},{y},{z}) must land on walkable node");
+        var startLeg = rt.GetMethod("StartSparseLeg", BindingFlags.Instance | BindingFlags.NonPublic);
+        startLeg.Invoke(services, new object[] { p, startNode, destExitNode, null });
+        return p;
+    }
+
+    static void QueueDummyRidersOnFirstEscalator(StationServiceRuntime services, int count, int destExitNode, string destExitId, out int esc1Server, out int esc2Server) {
+        var rt = typeof(StationServiceRuntime);
+        var pType = rt.GetNestedType("Passenger", BindingFlags.NonPublic);
+        var phaseType = rt.GetNestedType("Phase", BindingFlags.NonPublic);
+        var passengers = (System.Collections.IList)rt.GetField("passengers", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(services);
+        var rides = (System.Collections.IList)rt.GetField("rides", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(services);
+        var nextIdField = rt.GetField("nextPassengerId", BindingFlags.Instance | BindingFlags.NonPublic);
+        var syncQueue = rt.GetMethod("SyncServerQueue", BindingFlags.Instance | BindingFlags.NonPublic);
+
+        Assert.GreaterOrEqual(rides.Count, 2, "expected two escalator rides");
+        var rideType = rides[0].GetType();
+        var ride0 = rides[0];
+        var ride1 = rides[1];
+        esc1Server = (int)rideType.GetField("Server").GetValue(ride0);
+        esc2Server = (int)rideType.GetField("Server").GetValue(ride1);
+        int esc1Node = (int)rideType.GetField("Node").GetValue(ride0);
+        int esc1Exit = (int)rideType.GetField("ExitNode").GetValue(ride0);
+        var queue0 = (List<int>)rideType.GetField("Queue").GetValue(ride0);
+        var g = services.Graph;
+
+        for (int i = 0; i < count; i++) {
+            int id = (int)nextIdField.GetValue(services) + 1;
+            nextIdField.SetValue(services, id);
+            var p = Activator.CreateInstance(pType);
+            pType.GetField("Id").SetValue(p, id);
+            pType.GetField("X").SetValue(p, g.NodeX[esc1Node]);
+            pType.GetField("Y").SetValue(p, g.NodeY[esc1Node]);
+            pType.GetField("Z").SetValue(p, g.NodeZ[esc1Node]);
+            pType.GetField("StandX").SetValue(p, g.NodeX[esc1Node]);
+            pType.GetField("StandY").SetValue(p, g.NodeY[esc1Node]);
+            pType.GetField("Phase").SetValue(p, Enum.Parse(phaseType, "Queuing"));
+            pType.GetField("Server").SetValue(p, esc1Server);
+            pType.GetField("ServerId").SetValue(p, "ride:" + esc1Server);
+            pType.GetField("Path").SetValue(p, new[] { esc1Node, esc1Exit });
+            pType.GetField("PathIndex").SetValue(p, 0);
+            pType.GetField("DestExit").SetValue(p, destExitNode);
+            pType.GetField("DestExitId").SetValue(p, destExitId);
+            pType.GetField("Needs").SetValue(p, StationRouteNeeds.Walking);
+            pType.GetField("RouteGraphEpoch").SetValue(p, services.GraphEpoch);
+            passengers.Add(p);
+            queue0.Add(id);
+        }
+        syncQueue.Invoke(services, new object[] { esc1Server, queue0.Count });
+    }
+
+    [Test]
+    public void SoftClaimTableCountsOtherAgentsExpiresReleasesAndRemapsCleanly() {
+        var claims = new StationSoftClaimTable(10);
+        claims.Refresh(1, 3, 4, 10, 4);
+        claims.Refresh(2, 3, 5, 10, 4);
+        Assert.AreEqual(2, claims.ActiveCount);
+        Assert.AreEqual(1, claims.CountOtherAgentsOn(3, 1), "agent 1 sees agent 2 on tile 3, excluding self");
+        Assert.AreEqual(2, claims.CountOtherAgentsOn(3, 3), "agent 3 sees both 1 and 2 on tile 3");
+        Assert.AreEqual(0, claims.CountOtherAgentsOn(4, 1), "agent 1 does not count its own second step");
+        Assert.AreEqual(1, claims.CountOtherAgentsOn(4, 2), "agent 2 sees agent 1 on tile 4");
+
+        // TTL expiry
+        claims.Expire(13);
+        Assert.AreEqual(2, claims.ActiveCount, "claims live before TTL expiry");
+        claims.Expire(14);
+        Assert.AreEqual(0, claims.ActiveCount, "claims expire at TTL boundary");
+        Assert.AreEqual(0, claims.CountOtherAgentsOn(3, 99), "expired node counts drop to zero");
+
+        // Release removes single agent cleanly
+        claims.Refresh(1, 2, 7, 20, 5);
+        claims.Refresh(2, 2, 6, 20, 5);
+        claims.Release(1);
+        Assert.AreEqual(1, claims.ActiveCount);
+        Assert.AreEqual(1, claims.CountOtherAgentsOn(2, 99), "remaining agent claim stays intact");
+        Assert.AreEqual(0, claims.CountOtherAgentsOn(7, 99), "released agent claim is cleared");
+
+        // Remap migrates surviving nodes and drops removed nodes
+        claims.Remap(10, n => n == 2 ? 8 : -1);
+        Assert.AreEqual(1, claims.ActiveCount);
+        Assert.AreEqual(1, claims.CountOtherAgentsOn(8, 99), "surviving tile remaps");
+        Assert.AreEqual(0, claims.CountOtherAgentsOn(6, 99), "deleted tile claim drops");
+        Assert.AreEqual(0, claims.CountOtherAgentsOn(2, 99), "old tile index cleared");
+
+        // Clear and Resize reset table completely
+        claims.Clear();
+        Assert.AreEqual(0, claims.ActiveCount);
+        Assert.AreEqual(0, claims.CountOtherAgentsOn(8, 99));
+
+        claims.Refresh(7, 1, 2, 30, 5);
+        claims.Resize(5);
+        Assert.AreEqual(0, claims.ActiveCount, "Resize clears active claims");
+        Assert.AreEqual(0, claims.CountOtherAgentsOn(1, 99));
+    }
+
+    [Test]
+    public void UShapedObstacleAcrossSectorSeamSplitsCrossingsAndNavigatesCleanly() {
+        var doc = new StationSessionDocument { StationId = "u-seam-obstacle", LevelBase = 0 };
+        for (int x = 0; x <= 31; x++) {
+            for (int y = 0; y <= 10; y++) doc.Cells.Add(SolidCell(x, y, 4, 2));
+        }
+        // Fence at (15, 5, 4) splits the x=15|16 sector seam into two distinct openings (y=0..4 and y=6..10).
+        doc.Modules.Add(new StationModuleFact { Id = "fence-split", Type = "fence", X = 15, Y = 5, Z = 4 });
+        // U-shaped obstacle in sector 0 trapping eastbound direct movement from (8, 5, 4).
+        doc.Modules.Add(new StationModuleFact { Id = "u1", Type = "fence", X = 9, Y = 4, Z = 4 });
+        doc.Modules.Add(new StationModuleFact { Id = "u2", Type = "fence", X = 9, Y = 5, Z = 4 });
+        doc.Modules.Add(new StationModuleFact { Id = "u3", Type = "fence", X = 9, Y = 6, Z = 4 });
+        doc.Modules.Add(new StationModuleFact { Id = "u4", Type = "fence", X = 8, Y = 4, Z = 4 });
+        doc.Modules.Add(new StationModuleFact { Id = "u5", Type = "fence", X = 8, Y = 6, Z = 4 });
+        doc.Modules.Add(new StationModuleFact {
+            Id = "exit-goal", Type = "exit", X = 25, Y = 5, Z = 4, Name = "E",
+            HasExitInRate = true, ExitInRate = 0,
+        });
+
+        var session = new StationSimulationSession(new StationSessionSetup {
+            Document = doc,
+            Day = AlwaysOpenDay(1.0),
+            Seed = 5,
+            StartSimTime = 8 * 3600,
+            StartPlaying = true,
+            WalkOptions = new StationWalkGraphOptions { IncludeGround = false },
+            Services = new StationServiceOptions { RoutingMode = StationRoutingMode.Sparse, Spawn = false, AlightPerTrain = 0 },
+        });
+
+        var g = session.WalkGraph;
+        var topo = session.Services.SparseRouter.Topology;
+        Assert.IsTrue(g.TryNode(0, 0, 4, out int leftNode));
+        Assert.IsTrue(g.TryNode(20, 0, 4, out int rightNode));
+        var leftReg = topo.Regions[topo.NodeRegion[leftNode]];
+        var rightReg = topo.Regions[topo.NodeRegion[rightNode]];
+        int seamCrossings = leftReg.Crossings.Count(c => c.ToRegion == rightReg.Id);
+        Assert.AreEqual(2, seamCrossings, "fence at y=5 must split the x=15|16 sector seam into two distinct crossings");
+
+        Assert.IsTrue(g.TryNode(25, 5, 4, out int exitNode));
+        SpawnSparseWalker(session.Services, 8.5, 5.5, 5.0, exitNode, "exit-goal");
+
+        for (int t = 0; t < 80 && session.Services.Exited == 0; t++) {
+            session.Advance(1.0);
+        }
+        Assert.AreEqual(1, session.Services.Exited, "walker must escape the U-shaped pocket across the split sector seam");
+        Assert.AreEqual(0, session.Services.Stuck, "walker must not get trapped or stuck");
+    }
+
+    [Test]
+    public void TwoConnectorsBalanceArrivalsOntoUnloadedEscalator() {
+        var doc = WideHallDocument(width: 11, length: 30, twoConnectors: true, diagonalOffset: false);
+        var session = new StationSimulationSession(new StationSessionSetup {
+            Document = doc,
+            Day = AlwaysOpenDay(1.0),
+            Seed = 42,
+            StartSimTime = 8 * 3600,
+            StartPlaying = true,
+            WalkOptions = new StationWalkGraphOptions { IncludeGround = false },
+            Services = new StationServiceOptions { RoutingMode = StationRoutingMode.Sparse, Spawn = false, AlightPerTrain = 0 },
+        });
+        var g = session.WalkGraph;
+        var exitOut = g.Exits.First(e => e.Id == "exit-out");
+        QueueDummyRidersOnFirstEscalator(session.Services, 35, exitOut.Node, exitOut.Id, out int esc1Srv, out int esc2Srv);
+
+        var pType = typeof(StationServiceRuntime).GetNestedType("Passenger", BindingFlags.NonPublic);
+        var idField = pType.GetField("Id");
+        var srvField = pType.GetField("Server");
+        var fresh = new List<object>(30);
+        for (int i = 0; i < 30; i++) {
+            fresh.Add(SpawnSparseWalker(session.Services, 1.5, 5.5, 10.0, exitOut.Node, exitOut.Id));
+        }
+
+        var counted = new HashSet<int>();
+        int esc1Fresh = 0, esc2Fresh = 0;
+        for (int t = 0; t < 120; t++) {
+            session.Advance(1.0);
+            for (int i = 0; i < fresh.Count; i++) {
+                int id = (int)idField.GetValue(fresh[i]);
+                if (counted.Contains(id)) continue;
+                int srv = (int)srvField.GetValue(fresh[i]);
+                if (srv == esc1Srv) { esc1Fresh++; counted.Add(id); }
+                else if (srv == esc2Srv) { esc2Fresh++; counted.Add(id); }
+            }
+        }
+        Assert.Greater(esc2Fresh, esc1Fresh,
+            $"unloaded esc-2 ({esc2Fresh}) must attract more arrivals than heavily queued esc-1 ({esc1Fresh})");
+        Assert.AreEqual(0, session.Services.Stuck, "no walkers stuck during connector balancing");
+    }
+
+    [Test]
+    public void CoalescedSixtyTickSampleRefreshFiresAfterElapsedTicksNotClockScrub() {
+        var doc = new StationSessionDocument { StationId = "sample-refresh-60t", LevelBase = 0 };
+        for (int x = 0; x < 48; x++) {
+            for (int y = 0; y < 12; y++) doc.Cells.Add(SolidCell(x, y, 4, 2));
+        }
+        doc.Modules.Add(new StationModuleFact {
+            Id = "exit-b", Type = "exit", X = 30, Y = 5, Z = 4, Name = "B",
+            HasExitInRate = true, ExitInRate = 0,
+        });
+        var session = new StationSimulationSession(new StationSessionSetup {
+            Document = doc,
+            Day = AlwaysOpenDay(1.0),
+            Seed = 17,
+            StartSimTime = 8 * 3600,
+            StartPlaying = true,
+            WalkOptions = new StationWalkGraphOptions { IncludeGround = false },
+            Services = new StationServiceOptions { RoutingMode = StationRoutingMode.Sparse, Spawn = false, AlightPerTrain = 0 },
+        });
+        int exitNode = session.WalkGraph.Exits[0].Node;
+        SpawnSparseWalker(session.Services, 1.5, 5.5, 5.0, exitNode, "exit-b");
+        for (int i = 0; i < 4; i++) session.Advance(1.0);
+        Assert.Greater(session.Services.SparseRoutingStats().FieldCacheEntries, 0, "fields warmed before edit");
+
+        // Distant edit in sector (2, 0) marks that sector's sample dirty.
+        var delta = new StationSessionDelta();
+        delta.ChangedModules.Add(new StationModuleFact { Id = "remote-fence", Type = "fence", X = 45, Y = 10, Z = 4 });
+        var staged = session.StageCellDelta(doc.StationId, doc.LevelBase, session.Clock.Day, delta);
+        session.CommitDocumentEdit(staged);
+
+        int beforeScrub = session.Services.SparseRoutingStats().SamplesRefreshed;
+        session.SeekToSimTime(session.Clock.SimTime + 3600);
+        for (int i = 0; i < 5; i++) session.Advance(1.0);
+        Assert.AreEqual(beforeScrub, session.Services.SparseRoutingStats().SamplesRefreshed,
+            "clock scrub alone must not trigger the 60-tick coalesced sample refresh early");
+
+        for (int i = 0; i < 60; i++) session.Advance(1.0);
+        Assert.Greater(session.Services.SparseRoutingStats().SamplesRefreshed, beforeScrub,
+            "60 elapsed ticks must fire the coalesced sample refresh");
+    }
+
+    [Test]
+    public void FreeFlowSparseStretchStaysWithinFifteenPercentOfExactAStar() {
+        // Multi-sector, two-storey hall with two escalators and an internal partition wall.
+        var doc = WideHallDocument(width: 11, length: 36, twoConnectors: true, diagonalOffset: false);
+        doc.Modules.Add(new StationModuleFact { Id = "wall-1", Type = "fence", X = 15, Y = 4, Z = 9 });
+        doc.Modules.Add(new StationModuleFact { Id = "wall-2", Type = "fence", X = 15, Y = 5, Z = 9 });
+        doc.Modules.Add(new StationModuleFact { Id = "wall-3", Type = "fence", X = 15, Y = 6, Z = 9 });
+
+        var session = new StationSimulationSession(new StationSessionSetup {
+            Document = doc,
+            Day = AlwaysOpenDay(1.0),
+            Seed = 55,
+            StartSimTime = 8 * 3600,
+            StartPlaying = false,
+            WalkOptions = new StationWalkGraphOptions { IncludeGround = false },
+            Services = new StationServiceOptions { RoutingMode = StationRoutingMode.Sparse, Spawn = false, AlightPerTrain = 0 },
+        });
+        var g = session.WalkGraph;
+        var exact = new StationRoutePlanner(g);
+        var router = session.Services.SparseRouter;
+        router.BeginTick(1, null, null);
+
+        var samples = new List<int>();
+        int step = Math.Max(1, g.NodeCount / 36);
+        for (int i = 0; i < g.NodeCount; i += step) samples.Add(i);
+
+        var ratios = new List<double>();
+        int limit = Math.Min(14, samples.Count);
+        for (int i = 0; i < limit; i++) {
+            for (int j = i + 1; j < limit; j++) {
+                int u = samples[i], v = samples[j];
+                var exactRoute = exact.Search(u, v, StationRouteNeeds.Walking);
+                var status = router.StartCoarseSearch(u, v, StationRouteNeeds.Walking, -1, 0, 1, out var itin, out int jid);
+                if (status == StationSparseRouter.CoarseJobStatus.Running && jid >= 0) {
+                    var done = router.StepCoarseJobNow(jid, 500000, 2000000);
+                    itin = done != null && done.Status == StationSparseRouter.CoarseJobStatus.Ready ? done.Result : null;
+                }
+                if (!exactRoute.Found) {
+                    Assert.IsNull(itin, $"unreachable pair ({u}->{v}) must also be unreachable in sparse search");
+                    continue;
+                }
+                Assert.IsNotNull(itin, $"reachable pair ({u}->{v}) must be reachable in sparse search");
+                if (exactRoute.Cost > 1.0) {
+                    ratios.Add((itin.TotalCostMs / 1000.0) / exactRoute.Cost);
+                }
+            }
+        }
+        Assert.GreaterOrEqual(ratios.Count, 10, $"checked {ratios.Count} reachable pairs");
+        ratios.Sort();
+        double p95 = Percentile(ratios, 0.95);
+        Assert.LessOrEqual(p95, 1.15, $"free-flow p95 route stretch ({p95:F3}) must stay <= 1.15 vs exact A*");
+    }
+
+    [Test]
+    public void BlockedWalkersReceiveLocalRefillsAheadOfCrowdedTailTrims() {
+        var doc = WideHallDocument(width: 5, length: 24, twoConnectors: false, diagonalOffset: false);
+        var session = new StationSimulationSession(new StationSessionSetup {
+            Document = doc,
+            Day = AlwaysOpenDay(1.0),
+            Seed = 42,
+            StartSimTime = 8 * 3600,
+            StartPlaying = true,
+            WalkOptions = new StationWalkGraphOptions { IncludeGround = false },
+            Services = new StationServiceOptions {
+                RoutingMode = StationRoutingMode.Sparse,
+                Spawn = false,
+                AlightPerTrain = 0,
+                SparseOptions = new StationSparseRouterOptions { LocalRefillBudget = 4 },
+            },
+        });
+        var exitOut = session.WalkGraph.Exits.First(e => e.Id == "exit-out");
+
+        // 16 closely-packed walkers moving ahead so crowded-tail trims have plenty of candidates.
+        for (int i = 0; i < 16; i++) {
+            SpawnSparseWalker(session.Services, 2.5 + (i % 4), 2.5, 10.0, exitOut.Node, exitOut.Id);
+        }
+        for (int t = 0; t < 4; t++) session.Advance(1.0);
+
+        // 4 fresh blocked walkers appended at the tail of passengers.
+        var fresh = new List<object>(4);
+        for (int i = 0; i < 4; i++) {
+            fresh.Add(SpawnSparseWalker(session.Services, 1.5, 1.5 + i * 0.5, 10.0, exitOut.Node, exitOut.Id));
+        }
+
+        // Advance two ticks: Pass 1 must refill all 4 fresh blocked walkers ahead of Pass 3 trims.
+        session.Advance(1.0);
+        session.Advance(1.0);
+
+        var pType = typeof(StationServiceRuntime).GetNestedType("Passenger", BindingFlags.NonPublic);
+        var awaitField = pType.GetField("AwaitingRoute");
+        var pathField = pType.GetField("Path");
+        var idxField = pType.GetField("PathIndex");
+        var idField = pType.GetField("Id");
+        for (int i = 0; i < fresh.Count; i++) {
+            bool awaiting = (bool)awaitField.GetValue(fresh[i]);
+            var path = (int[])pathField.GetValue(fresh[i]);
+            int pathIdx = (int)idxField.GetValue(fresh[i]);
+            int id = (int)idField.GetValue(fresh[i]);
+            Assert.IsFalse(awaiting, $"fresh blocked walker {id} must not be awaiting route");
+            Assert.Greater(path.Length - 1, pathIdx,
+                $"fresh blocked walker {id} must receive a Pass 1 rolling segment ahead of Pass 3 crowded-tail trims");
+        }
+    }
+
+    [Test]
+    public void TianheLine11AlightersWalkAwayFromScreenDoorsAfterColdStart() {
+        string path = Path.Combine(Application.dataPath, "StationDesigner/Demos/tianhe.metro.json");
+        var source = StationDocumentReader.ReadFile(path);
+        Assert.IsNotNull(source?.Document);
+        var setup = StationSessionProjection.Setup(source.Document, source.Index, "tianhe-line-11-alighting");
+        setup.StartPlaying = true;
+        var session = new StationSimulationSession(setup);
+
+        var line11Arrivals = new HashSet<int>();
+        var firstPlatformTick = new Dictionary<int, int>();
+        var walkDelayTicks = new Dictionary<int, int>();
+        var walkedFromDoor = new HashSet<int>();
+        for (int tick = 0; tick < 90; tick++) {
+            session.Advance(1.0);
+            foreach (var passenger in session.PassengerFrames()) {
+                if (passenger.State == StationPassengerState.Alighting &&
+                    passenger.ServerId.StartsWith("line:11|", StringComparison.Ordinal)) {
+                    line11Arrivals.Add(passenger.SimId);
+                }
+                if (!line11Arrivals.Contains(passenger.SimId)) continue;
+                if (passenger.State != StationPassengerState.Alighting && !firstPlatformTick.ContainsKey(passenger.SimId)) {
+                    firstPlatformTick[passenger.SimId] = tick;
+                }
+                if (firstPlatformTick.TryGetValue(passenger.SimId, out int landedTick) &&
+                    !walkDelayTicks.ContainsKey(passenger.SimId) &&
+                    passenger.WalkDistance > 0.01) {
+                    walkDelayTicks[passenger.SimId] = tick - landedTick;
+                }
+                if (passenger.WalkDistance >= 1) {
+                    walkedFromDoor.Add(passenger.SimId);
+                }
+            }
+        }
+
+        var delays = walkDelayTicks.Values.Select(v => (double)v).OrderBy(v => v).ToList();
+        double p90 = Percentile(delays, 0.90);
+        double maxDelay = delays.Count > 0 ? delays[delays.Count - 1] : double.PositiveInfinity;
+        var stats = session.Services.SparseRoutingStats();
+
+        Assert.GreaterOrEqual(firstPlatformTick.Count, 400, "both Line 11 directions delivered their landed arrival waves");
+        // Tianhe demo has no street-level lift from concourse to grade, so Unity's 3% step-free exit-only alighters become Stuck;
+        // every reachable Line 11 rider (100% of non-stuck) must walk away from screen doors without stalling.
+        int allowedStuck = Math.Max(15, session.Services.Stuck + 5);
+        Assert.GreaterOrEqual(walkedFromDoor.Count, 500, "at least 500 Line 11 riders walked away from screen doors");
+        Assert.GreaterOrEqual(walkedFromDoor.Count, firstPlatformTick.Count - allowedStuck,
+            $"Line 11 reachable landed riders walked away from screen doors ({walkedFromDoor.Count}/{firstPlatformTick.Count}, stuck={session.Services.Stuck})");
+        Assert.LessOrEqual(p90, 2.0, $"Line 11 cold-start alighting-to-walk p90 delay ({p90}) regressed");
+        Assert.LessOrEqual(maxDelay, 3.0, $"Line 11 cold-start alighting-to-walk max delay ({maxDelay}) regressed");
+        Assert.Less(stats.FieldBuilds, 1500, $"coarse search must not trigger thousands of cold field builds (got {stats.FieldBuilds})");
+        Assert.AreEqual(0, stats.FineFallbacks, "no fine-graph fallbacks during cold start");
     }
 }

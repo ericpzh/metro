@@ -7,6 +7,14 @@ import { stationBridge } from './stationBridge.ts'
 export function mountUnityAudio(): () => void {
   const unmountEffects = gameAudio.mount()
   const unmountMusic = gameMusic.mount()
+  const unsubscribeCommit = stationBridge.onCommit(snapshot => {
+    // Full station commits (`station.new` / `station.open` / `station.openDemo`) replace
+    // the committed station document; stop active audio beds and one-shots cleanly
+    // without interrupting same-station delta edits.
+    if (snapshot.document && snapshot.documentRevision === snapshot.revision && !snapshot.resyncNeeded) {
+      gameAudio.stop()
+    }
+  })
   const unsubscribe = stationBridge.onAudio(payload => {
     const cue = payload.cue
     if (cue === 'place' || cue === 'select' || cue === 'pick' || cue === 'delete' || cue === 'move' || cue === 'refused') {
@@ -25,6 +33,7 @@ export function mountUnityAudio(): () => void {
   })
   return () => {
     unsubscribe()
+    unsubscribeCommit()
     unmountMusic()
     unmountEffects()
   }

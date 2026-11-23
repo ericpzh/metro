@@ -518,12 +518,13 @@ namespace Metro.Build {
             if (r == null) throw new ArgumentNullException(nameof(r));
             if (r.Z < 0) return RoadSurfaceReason.Ground;
             if (context == null) return RoadSurfaceReason.None;
-            bool track = context.IsTrack(r.X, r.Y, r.Z) || context.IsTrack(r.X, r.Y, r.Z + 1);
+            bool track = false;
             bool occupied = false;
             for (int x = r.X; x < r.X + r.W; x++)
                 for (int y = r.Y; y < r.Y + r.D; y++) {
                     bool covered = context.IsSolid(x, y, r.Z) || context.IsExitFloor(x, y, r.Z);
                     if (!covered && (r.Z != 0 || context.IsGroundHole(x, y, r.Z))) return RoadSurfaceReason.Ground;
+                    track |= context.IsTrack(x, y, r.Z) || context.IsTrack(x, y, r.Z + 1);
                     for (int dz = 1; dz <= 4; dz++) occupied |= context.IsSolid(x, y, r.Z + dz);
                 }
             if (track) return RoadSurfaceReason.Track;

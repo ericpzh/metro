@@ -278,7 +278,7 @@ namespace Metro.Build {
             bool room = !plan.Erase && StationZoneIds.IsRoom(plan.Paint);
             int covered = 0;
             foreach (var cell in cells) {
-                if (++covered > MaxCells) { plan.Reason = "over-limit"; return new StationZonePlan(); }
+                if (++covered > MaxCells) return new StationZonePlan { Paint = plan.Paint, Erase = plan.Erase, Reason = "over-limit" };
                 if (!seen.Add(cell)) continue;
                 if (!world.IsFloor(cell)) { plan.Ignored.Add(cell); continue; }
                 plan.Floor.Add(cell);
@@ -320,7 +320,6 @@ namespace Metro.Build {
                 var record = world.Find(current);
                 if (record == null || !world.IsFloor(current)) continue;
                 region.Add(current);
-                if (region.Count > MaxCells) { plan.Reason = "over-limit"; return new StationZonePlan(); }
                 for (int n = 0; n < 4; n++) {
                     int dx = n == 0 ? 1 : n == 1 ? -1 : 0;
                     int dy = n == 2 ? 1 : n == 3 ? -1 : 0;

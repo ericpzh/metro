@@ -160,16 +160,7 @@ namespace Metro.Build {
                     cells = outCells.ToArray();
                     return true;
                 }
-                case "extinguisher": {
-                    int count = ExtinguisherCells(m);
-                    var outCells = new List<StationPoint>(count);
-                    for (int i = 0; i < count; i++) {
-                        RotateLocal(m.Rotation, i, 0, out var dx, out var dy);
-                        outCells.Add(new StationPoint(m.X + (int)Math.Round(dx), m.Y + (int)Math.Round(dy), m.Z));
-                    }
-                    cells = outCells.ToArray();
-                    return true;
-                }
+                case "extinguisher": cells = ExtinguisherRun(m); return true;
                 case "hanger": cells = Run(m); return true;
                 case "court":
                 case "ac-unit":
@@ -569,6 +560,16 @@ namespace Metro.Build {
             return variant == "glass" ? 2 : 1;
         }
 
+        static StationPoint[] ExtinguisherRun(StationModuleRecord m) {
+            int count = ExtinguisherCells(m);
+            var outCells = new List<StationPoint>(count);
+            for (int i = 0; i < count; i++) {
+                RotateLocal(m.Rotation, i, 0, out var dx, out var dy);
+                outCells.Add(new StationPoint(m.X + (int)Math.Round(dx), m.Y + (int)Math.Round(dy), m.Z));
+            }
+            return outCells.ToArray();
+        }
+
         // ---------------------------------------------------------------- mount
 
         /// <summary>Port of <c>isWallMounted</c>: is the piece bolted flat to a wall?</summary>
@@ -597,12 +598,18 @@ namespace Metro.Build {
             if (config == null) config = ModuleConfig.Empty;
             switch (type) {
                 case "tv":
+                case "tv-double":
                 case "clock":
                 case "clock-digital":
                 case "light":
                 case "light-circular":
                 case "light-rectangular":
-                case "vent": return true;
+                case "vent":
+                case "cctv-ptz":
+                case "cctv-dome":
+                case "monitor-ceiling":
+                case "sign-ceiling":
+                case "hanger-roof": return true;
                 case "cctv": return config.Text("variant") != "post";
                 case "monitor": return config.Text("mount") != "wall";
                 case "sign": return config.Text("mount") != "wall";
@@ -853,7 +860,7 @@ namespace Metro.Build {
                     return true;
                 case "extinguisher": {
                     var height = m.Config.Text("variant") == "glass" ? 2.0 : m.Config.Text("variant") == "compact" ? 0.5 : 1.1;
-                    box = StationBox.FromCells(Run(m), z0, z0 + height);
+                    box = StationBox.FromCells(ExtinguisherRun(m), z0, z0 + height);
                     return true;
                 }
                 case "shelf": {
@@ -882,8 +889,27 @@ namespace Metro.Build {
                 }
                 case "sign": {
                     if (IsCeilingHung(m)) { box = Single(m, z0, 4); return true; }
-                    unsupported = "wall-mounted sign sheet (sim/sign.ts signMountSpec) is not ported by packet A";
-                    return false;
+                    // Port of `flatEnvelope`'s wall sign branch (`sim/placement.ts` + `sim/sign.ts` +
+                    // `sim/boothSigns.ts`): reserve only the printed sheet's 3 mm stand-off along the
+                    // wall or booth header and the 0.4 m panel band.
+                    const double panelMinH = 0.4;
+                    const double half = panelMinH * 0.5;
+                    const double standOff = 0.003;
+                    bool hasBooth = !string.IsNullOrEmpty(m.Config.Text("boothId"));
+                    double panelZ = hasBooth ? 2.4 - half : 1.65;
+                    double width = SignBoardWidth(m.Config);
+                    double dx = 0, dy = 0;
+                    if (hasBooth) SignBoardWidthReader.TryReadPoint(m.Config.Json("boothOffset"), out dx, out dy);
+                    int rot = NormRot(m.Rotation);
+                    WallSide(rot, out var sx, out var sy);
+                    double cx = m.X + 0.5 + dx, cy = m.Y + 0.5 + dy;
+                    double wallX = cx + sx * 0.5, wallY = cy + sy * 0.5;
+                    double x0 = rot % 2 == 1 ? Math.Min(wallX, wallX - sx * standOff) : cx - width * 0.5;
+                    double x1 = rot % 2 == 1 ? Math.Max(wallX, wallX - sx * standOff) : cx + width * 0.5;
+                    double y0 = rot % 2 == 1 ? cy - width * 0.5 : Math.Min(wallY, wallY - sy * standOff);
+                    double y1 = rot % 2 == 1 ? cy + width * 0.5 : Math.Max(wallY, wallY - sy * standOff);
+                    box = new StationBox(x0, y0, z0 + panelZ - half, x1, y1, z0 + panelZ + half);
+                    return true;
                 }
                 case "billboard": {
                     var spec = BillboardSpec(m);
@@ -1207,6 +1233,38 @@ namespace Metro.Build {
                 public float X;
                 public float Scale;
                 public float PieceWidth;
+            }
+
+            public static bool TryReadPoint(string json, out double x, out double y) {
+                x = 0;
+                y = 0;
+                if (string.IsNullOrEmpty(json)) return false;
+                int i = SkipSpace(json, 0);
+                if (i >= json.Length || json[i] != '{') return false;
+                i = SkipSpace(json, i + 1);
+                if (i < json.Length && json[i] == '}') return true;
+                while (i < json.Length) {
+                    if (json[i] != '"' || !TryReadString(json, ref i, out string key)) return false;
+                    i = SkipSpace(json, i);
+                    if (i >= json.Length || json[i] != ':') return false;
+                    i = SkipSpace(json, i + 1);
+                    if (i >= json.Length) return false;
+                    if (key == "x") {
+                        if (!TryReadNumberOrSkip(json, ref i, out x)) return false;
+                    } else if (key == "y") {
+                        if (!TryReadNumberOrSkip(json, ref i, out y)) return false;
+                    } else if (!SkipValue(json, ref i)) {
+                        return false;
+                    }
+                    i = SkipSpace(json, i);
+                    if (i >= json.Length) return false;
+                    if (json[i] == ',') {
+                        i = SkipSpace(json, i + 1);
+                        continue;
+                    }
+                    return json[i] == '}';
+                }
+                return false;
             }
 
             public static double Width(ModuleConfig config) {

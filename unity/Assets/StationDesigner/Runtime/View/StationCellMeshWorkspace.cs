@@ -885,7 +885,10 @@ namespace Metro.View {
             var exits = index.ModulesOfType("exit");
             for (int i = 0; i < exits.Count; i++) {
                 var module = exits[i];
-                if (module.Z == groundLevel) {
+                var style = module.Config.Text("style");
+                if (module.Z == groundLevel &&
+                    !string.Equals(style, "doorway", StringComparison.Ordinal) &&
+                    !string.Equals(style, "virtual", StringComparison.Ordinal)) {
                     foreach (var pt in StationFootprints.ExitFootprint(module)) {
                         holes.Add(new StationCellKey(
                             (int)Math.Round(pt.X, MidpointRounding.AwayFromZero),

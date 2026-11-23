@@ -99,7 +99,7 @@ namespace Metro.EditModeTests {
             // run centred on the aim is the run's first cell  so the slab spans the run.
             var world = StationCellEditWorld.Build(host.Index);
             var slabs = new List<StationCellKey>();
-            for (int x = 3; x <= 6; x++) slabs.Add(new StationCellKey(x, 4, 1));
+            for (int x = 3; x <= 6; x++) slabs.Add(new StationCellKey(x, 4, 5));
             var slab = StationCellPlanner.PlanAddCells(world, slabs);
             Assert.IsTrue(StationEditSession.TryApplyCells(host, slab, "place", null, out _, out var slabCode), slabCode);
             var roof = StationModulePlacement.Resolve(host.Index, new StationPlacementRequest {

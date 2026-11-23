@@ -33,14 +33,25 @@ namespace Metro.Build {
         /// </summary>
         public static List<string> Chars(string name) {
             var chars = new List<string>();
-            foreach (var ch in (name ?? "").Trim()) chars.Add(ch.ToString());
+            AppendCodePoints(chars, (name ?? "").Trim());
             if (chars.Count == 0) {
                 // The reference's fallback word is localised; a station name is never blank, so
                 // this is the "unnamed" case only.
-                foreach (var ch in "未命名车站") chars.Add(ch.ToString());
+                AppendCodePoints(chars, "未命名车站");
             }
             if (chars.Count > MaxChars) chars.RemoveRange(MaxChars, chars.Count - MaxChars);
             return chars;
+        }
+
+        static void AppendCodePoints(List<string> into, string text) {
+            for (int i = 0; i < text.Length; i++) {
+                if (char.IsHighSurrogate(text[i]) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1])) {
+                    into.Add(text.Substring(i, 2));
+                    i++;
+                } else {
+                    into.Add(text[i].ToString());
+                }
+            }
         }
 
         /// <summary>

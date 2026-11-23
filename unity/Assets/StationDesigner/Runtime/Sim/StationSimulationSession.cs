@@ -791,7 +791,7 @@ namespace Metro.Sim {
             trainArrivals = 0;
             scheduler.Reset();
             presentationEpoch++;
-            RebuildServices(resetLifts: true);
+            RebuildServices(resetLifts: true, preserveDispatch: false, resetBands: true);
             services.Restart();
             ResetStatisticsRun();
             sessionRevision++;
@@ -925,7 +925,7 @@ namespace Metro.Sim {
                         services.ApplyIncrementalStagedEdit(committed.ServiceFacts, committed.GraphDelta);
                     } else {
                         walkScratchPool.Preallocate(walkGraph?.NodeCount ?? 0);
-                        RebuildServices(resetLifts: true, preserveDispatch: false);
+                        RebuildServices(resetLifts: true, preserveDispatch: false, resetBands: false);
                         PruneOrphanedTrains();
                         services.ApplyStagedEdit(committed.ServiceFacts);
                     }
@@ -1006,7 +1006,7 @@ namespace Metro.Sim {
 
         void LoadDerived(StationSessionDocument next) {
             document = next ?? new StationSessionDocument();
-            RebuildServices(resetLifts: true, preserveDispatch: false);
+            RebuildServices(resetLifts: true, preserveDispatch: false, resetBands: true);
             // The walk graph is derived from the committed document only: a rebuilt
             // station is a different graph, and a build that refuses (a disconnected
             // or absurd document) still leaves a clock that runs.
@@ -1043,11 +1043,14 @@ namespace Metro.Sim {
         }
 
         /// <summary>The source <c>rebuild()</c> tail: re-read the document's service actors and re-stagger dispatch.</summary>
-        void RebuildServices(bool resetLifts = false, bool preserveDispatch = false) {
+        void RebuildServices(bool resetLifts = false, bool preserveDispatch = false, bool resetBands = false) {
             // A rebuild keeps each band where it had rolled to: an edit that leaves a run
-            // alone must not make its steps jump back to zero.
+            // alone must not make its steps jump back to zero. A full restart or document load
+            // resets bands alongside lifts so the session matches a fresh cold boot.
             var phases = new Dictionary<string, double>(escalators.Count, StringComparer.Ordinal);
-            for (int i = 0; i < escalators.Count; i++) phases[escalators[i].Id ?? ""] = escalators[i].Phase;
+            if (!resetBands) {
+                for (int i = 0; i < escalators.Count; i++) phases[escalators[i].Id ?? ""] = escalators[i].Phase;
+            }
             var cars = new Dictionary<string, LiftRun>(lifts.Count, StringComparer.Ordinal);
             if (!resetLifts) {
                 for (int i = 0; i < lifts.Count; i++) cars[lifts[i].Id ?? ""] = lifts[i];

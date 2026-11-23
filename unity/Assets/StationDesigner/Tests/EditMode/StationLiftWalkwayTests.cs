@@ -87,11 +87,19 @@ namespace Metro.EditModeTests {
             large.LiftSizeLarge = true;
             var plan = StationModulePlacement.Resolve(host.Index, large);
             Assert.IsTrue(plan.Ok, plan.Reason);
-            Assert.AreEqual("large", plan.Candidate.Text("size"));
+            Assert.AreEqual("3", plan.Candidate.Text("size"), "the 大 shaft stores numeric 3");
+            Assert.AreEqual(3, StationFootprints.LiftSize(StationModulePlacement.ToRecord(plan.Candidate)),
+                "StationFootprints.LiftSize reads the large shaft as 3x3");
+            var saved = StationModuleEdits.ToSaveRecord(plan.Candidate);
+            Assert.IsTrue(saved["cfg"]["size"].Type == Newtonsoft.Json.Linq.JTokenType.Integer ||
+                          saved["cfg"]["size"].Type == Newtonsoft.Json.Linq.JTokenType.Float,
+                "saved lift size is numeric JSON matching web saves, got " + saved["cfg"]["size"].Type);
+            Assert.AreEqual(3, (int)saved["cfg"]["size"]);
             var small = Request("lift", 5, 5, 0);
             var bare = StationModulePlacement.Resolve(host.Index, small);
             Assert.IsTrue(bare.Ok, bare.Reason);
             Assert.AreEqual("", bare.Candidate.Text("size"), "the 小 shaft stores no size");
+            Assert.AreEqual(2, StationFootprints.LiftSize(StationModulePlacement.ToRecord(bare.Candidate)));
         }
 
         [Test]

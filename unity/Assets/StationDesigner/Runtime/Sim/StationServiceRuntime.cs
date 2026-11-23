@@ -278,6 +278,7 @@ namespace Metro.Sim {
             public readonly Dictionary<int, DoorFact> DoorByServer = new Dictionary<int, DoorFact>();
             public readonly Dictionary<int, RideFact> RideByServer = new Dictionary<int, RideFact>();
             public readonly Dictionary<string, LiftConnector> LiftById = new Dictionary<string, LiftConnector>(StringComparer.Ordinal);
+            public readonly Dictionary<int, (double X, double Y)> PlatformFloor = new Dictionary<int, (double X, double Y)>();
             public readonly List<string> Unported = new List<string>();
         }
 
@@ -318,6 +319,7 @@ namespace Metro.Sim {
         readonly Dictionary<int, DoorFact> doorByServer = new Dictionary<int, DoorFact>();
         readonly Dictionary<int, RideFact> rideByServer = new Dictionary<int, RideFact>();
         readonly Dictionary<string, LiftConnector> liftById = new Dictionary<string, LiftConnector>(StringComparer.Ordinal);
+        readonly Dictionary<int, (double X, double Y)> platformFloor = new Dictionary<int, (double X, double Y)>();
         readonly Dictionary<string, TrainWatch> watches = new Dictionary<string, TrainWatch>(StringComparer.Ordinal);
         /// <summary>One consist pose per service (18 §8.2), derived once per rebuilt document.</summary>
         readonly Dictionary<string, StationTrainBerth> berths = new Dictionary<string, StationTrainBerth>(StringComparer.Ordinal);
@@ -538,10 +540,18 @@ namespace Metro.Sim {
         public void Restart() {
             rng = new SimulationRng(seed);
             passengers.Clear();
+            nearbyCrowd.Clear();
             nextPassengerId = 0;
             watches.Clear();
+            walkReplans = queueReplans = gateReplans = patienceReplans = 0;
             Spawned = Onboard = Boarded = BoardingsThisTick = Alighted = LeftBehind = Exited = Stuck = CapHit = 0;
-            for (int i = 0; i < gates.Count; i++) { gates[i].Queue.Clear(); gates[i].Cooldown = 0; gates[i].Served = 0; gates[i].Lane = 0; gates[i].Admitted = 0; gates[i].AdmittedAt = double.NegativeInfinity; }
+            for (int i = 0; i < gates.Count; i++) {
+                gates[i].Queue.Clear();
+                Array.Clear(gates[i].QueuedByDirection, 0, gates[i].QueuedByDirection.Length);
+                Array.Clear(gates[i].IncomingByDirection, 0, gates[i].IncomingByDirection.Length);
+                gates[i].Cooldown = 0; gates[i].Served = 0; gates[i].Lane = 0; gates[i].Admitted = 0;
+                gates[i].AdmittedAt = double.NegativeInfinity;
+            }
             for (int i = 0; i < doors.Count; i++) { doors[i].Queue.Clear(); doors[i].Cooldown = 0; doors[i].Served = 0; doors[i].Admitted = 0; doors[i].Rate = 0; }
             for (int i = 0; i < rides.Count; i++) { rides[i].Queue.Clear(); rides[i].Cooldown = 0; rides[i].Served = 0; rides[i].Admitted = 0; }
             for (int i = 0; i < lifts.Count; i++) {
@@ -1033,6 +1043,28 @@ namespace Metro.Sim {
                 }
             }
 
+            // Platform-side half of edge cells (`World.ts` `platformFloor`): keep ordinary
+            // walking/queuing crowd separation at the tile centre or inland, leaving 0.34 m
+            // clearance before the rendered screen door wall.
+            if (walkGraph.Platforms.Count > 0) {
+                var edges = doc.ModulesOfType("platform-edge");
+                var edgeById = new Dictionary<string, StationModuleFact>(StringComparer.Ordinal);
+                for (int i = 0; i < edges.Count; i++) {
+                    if (!string.IsNullOrEmpty(edges[i].Id)) edgeById[edges[i].Id] = edges[i];
+                }
+                for (int p = 0; p < walkGraph.Platforms.Count; p++) {
+                    var plat = walkGraph.Platforms[p];
+                    if (plat == null || plat.Cells == null || string.IsNullOrEmpty(plat.Id)) continue;
+                    if (!edgeById.TryGetValue(plat.Id, out var edge)) continue;
+                    StationServiceCadence.RotateLocal(edge.Rot, 0,
+                        string.Equals(edge.Side, "right", StringComparison.Ordinal) ? -1 : 1,
+                        out double ix, out double iy);
+                    for (int c = 0; c < plat.Cells.Length; c++) {
+                        staged.PlatformFloor[plat.Cells[c]] = (ix, iy);
+                    }
+                }
+            }
+
             return staged;
         }
 
@@ -1053,6 +1085,7 @@ namespace Metro.Sim {
             rides.Clear(); rideByServer.Clear();
             lifts.Clear(); liftById.Clear();
             exits.Clear(); exitNodes.Clear();
+            platformFloor.Clear();
             berths.Clear();
             unported.Clear();
             if (staged == null) return;
@@ -1068,6 +1101,7 @@ namespace Metro.Sim {
             foreach (var kv in staged.LiftById) liftById[kv.Key] = kv.Value;
             exits.AddRange(staged.Exits);
             exitNodes.AddRange(staged.ExitNodes);
+            foreach (var kv in staged.PlatformFloor) platformFloor[kv.Key] = kv.Value;
             unported.AddRange(staged.Unported);
         }
 
@@ -1995,11 +2029,25 @@ namespace Metro.Sim {
                 const double separationMax = .6;
                 double scale = Math.Min(1, separationMax / length);
                 double tx = p.X + px * scale, ty = p.Y + py * scale;
+                // Keep ordinary bodies at or inland of a platform-edge tile centre, leaving
+                // 0.34 m shoulder clearance before the screen wall (`World.ts:tryMove`).
+                ClampPlatformFloor(ref tx, ref ty, z);
                 // Limit each push to a walk connection. A rotated gate, balustrade or missing
                 // support stays solid even when an agent is pushed toward it.
                 if (CanPush(from, tx, ty, z)) { p.X = tx; p.Y = ty; }
-                else if (CanPush(from, tx, p.Y, z)) p.X = tx;
-                else if (CanPush(from, p.X, ty, z)) p.Y = ty;
+                else if (CanPush(from, tx, p.Y, z)) { double cx = tx, cy = p.Y; ClampPlatformFloor(ref cx, ref cy, z); if (CanPush(from, cx, cy, z)) { p.X = cx; p.Y = cy; } }
+                else if (CanPush(from, p.X, ty, z)) { double cx = p.X, cy = ty; ClampPlatformFloor(ref cx, ref cy, z); if (CanPush(from, cx, cy, z)) { p.X = cx; p.Y = cy; } }
+            }
+        }
+
+        void ClampPlatformFloor(ref double x, ref double y, int z) {
+            if (platformFloor.Count == 0) return;
+            if (!graph.TryNode((int)Math.Floor(x), (int)Math.Floor(y), z, out int node)) return;
+            if (!platformFloor.TryGetValue(node, out var inward)) return;
+            double depth = (x - graph.NodeX[node]) * inward.X + (y - graph.NodeY[node]) * inward.Y;
+            if (depth < 0) {
+                x -= depth * inward.X;
+                y -= depth * inward.Y;
             }
         }
 

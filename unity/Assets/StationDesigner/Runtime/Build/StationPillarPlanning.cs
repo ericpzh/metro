@@ -54,7 +54,7 @@ namespace Metro.Build {
             if (pillar == null) return null;
             var draft = StationModulePlacement.DraftOf(pillar);
             double height = pillar.Config.Number("height", 0);
-            draft.Set(Number(height + Math.Max(0, Section(section))), "height");
+            draft.Set("height", Number(height + Math.Max(0, Section(section))));
             return draft;
         }
 

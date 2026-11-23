@@ -95,8 +95,14 @@ namespace Metro.App {
 
             public bool IsTrack(int x, int y, double z) {
                 if (z != Math.Floor(z)) return false;
-                var cell = index.GetCell(x, y, (int)z);
-                return cell != null && cell.IsSolid && cell.FinishOf(StationFinishFace.Top) == "floor.track";
+                int iz = (int)z;
+                var cell = index.GetCell(x, y, iz);
+                if (cell != null && cell.IsSolid && cell.FinishOf(StationFinishFace.Top) == "floor.track") return true;
+                var tracks = index.ModulesOfType("track");
+                for (int i = 0; i < tracks.Count; i++) {
+                    if (StationRailRules.Covers(tracks[i], x, y, iz)) return true;
+                }
+                return false;
             }
 
             public bool OverlapsModuleEnvelope(StationRoadRecord candidate) {
@@ -147,15 +153,16 @@ namespace Metro.App {
             int button, out string reason) {
             reason = null;
             if (host == null || !host.IsLoaded) { reason = "no-session"; return false; }
-            if (hit == null || !hit.HasCell) { reason = "no-cell"; return false; }
             bool remove = button == 2;
-            string pickedId = hit.HasModule && hit.Module != null &&
+            string pickedId = hit != null && hit.HasModule && hit.Module != null &&
                               string.Equals(hit.Module.Type, "road", StringComparison.Ordinal) ? hit.Module.Id : "";
+            if (hit == null || (!hit.HasCell && !(remove && !string.IsNullOrEmpty(pickedId)))) { reason = "no-cell"; return false; }
+            var point = hit.HasCell ? hit.Cell.Point : hit.ModulePoint;
             var request = new RoadEditRequest {
                 mode = remove ? "delete" : "add",
                 z = remove && hit.HasModule ? hit.Module.Z : hit.Cell.Z,
-                from = new[] { hit.Cell.Point.X, hit.Cell.Point.Y },
-                to = new[] { hit.Cell.Point.X, hit.Cell.Point.Y },
+                from = new[] { point.X, point.Y },
+                to = new[] { point.X, point.Y },
                 width = Math.Max(1, StationToolSelection.SettingInt("roadWidth", 6)),
                 direction = DirectionSetting(),
                 rot = StationToolSelection.SettingInt("rotation", 0),
@@ -173,7 +180,7 @@ namespace Metro.App {
 
         static string DirectionSetting() {
             var direction = StationToolSelection.Setting("roadDirection");
-            return direction.Length > 0 ? direction : "one-way";
+            return direction.Length > 0 ? direction : "two-way";
         }
 
         /// <summary>Re-aim the stroke at the pointer's surface point and redraw its ghost.</summary>

@@ -26,7 +26,7 @@ namespace Metro.EditModeTests {
                 }
             }
             for (int z = 1; z <= 3; z++) {
-                for (int x = 2; x <= 3; x++) {
+                for (int x = 1; x <= 3; x++) {
                     cells.Add(new JObject { ["x"] = x, ["y"] = 2, ["z"] = z, ["fill"] = "solid", ["tags"] = new JArray("wall") });
                 }
             }

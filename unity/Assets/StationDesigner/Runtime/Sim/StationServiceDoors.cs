@@ -43,8 +43,12 @@ namespace Metro.Sim {
         /// </summary>
         public static double RatedPerCar(string stock) {
             switch ((stock ?? "").ToUpperInvariant()) {
+                case "A": return 250;
+                case "B": return 200;
+                case "C": return 170;
+                case "L": return 170;
                 case "D": return 1758.0 / 8.0;
-                default: return 170;
+                default: return 200;
             }
         }
 
@@ -67,7 +71,7 @@ namespace Metro.Sim {
         /// <summary>`STOCK[stock].doorsPerSide`.</summary>
         public static int DoorsPerSide(string stock) {
             switch ((stock ?? "").ToUpperInvariant()) {
-                case "A": return 3;
+                case "A": return 5;
                 case "L": return 3;
                 case "D": return 4;
                 default: return 4;
@@ -83,26 +87,27 @@ namespace Metro.Sim {
         /// <summary>
         /// `doorCentres(line)`: where a consist's doors stand along its own frame, metres
         /// from the consist centre, positive toward the leading cab. The ends keep clear
-        /// of the cab and the bogie (`DOOR_END_INSET`), and the doors inside a car sit on
-        /// one uniform pitch — the cadence the screen doors repeat.
+        /// of the cab and the bogie (`DOOR_END_INSET`, or D-stock's `cabLength + singleEndDoorWidth/2 + 0.3`),
+        /// and the doors inside a car sit on one uniform pitch — the cadence the screen doors repeat.
         /// </summary>
         public static double[] DoorCentres(string stock, int cars, double modelScale) {
             // `station.ts` falls back to `{ stock: 'B', cars: 6 }` for a document line it
             // cannot read, so a fixture that only names a line id still gets the source's
             // door cadence instead of none.
             if (cars <= 0) cars = 6;
-            if (string.IsNullOrEmpty(stock)) stock = "B";
+            string cls = string.IsNullOrEmpty(stock) ? "B" : stock.ToUpperInvariant();
             double scale = modelScale > 0 ? modelScale : 1;
-            double length = CarLength(stock);
-            int count = Math.Max(1, DoorsPerSide(stock));
+            double length = CarLength(cls);
+            int count = Math.Max(1, DoorsPerSide(cls));
+            // D-stock cab cars carry a 4.6 m nose and a 0.8 m single end plug door (`sim/stock.ts`).
+            double cabInset = cls == "D" ? 4.6 + 0.8 * .5 + .3 : DoorEndInset;
             double total = length * cars;
             var centres = new List<double>(count * cars);
             for (int c = 0; c < cars; c++) {
                 double carStart = c * length;
-                // The source keeps no cab inset table for classes without `cabLength`, so
-                // both ends of the consist use `DOOR_END_INSET`.
-                double first = DoorEndInset;
-                double last = length - DoorEndInset;
+                bool cabLeft = c == 0, cabRight = c == cars - 1;
+                double first = cabLeft ? cabInset : DoorEndInset;
+                double last = length - (cabRight ? cabInset : DoorEndInset);
                 double pitch = count > 1 ? (last - first) / (count - 1) : 0;
                 for (int d = 0; d < count; d++)
                     centres.Add(carStart + (count > 1 ? first + d * pitch : length * .5));

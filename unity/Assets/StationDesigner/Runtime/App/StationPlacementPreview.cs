@@ -92,11 +92,42 @@ namespace Metro.App {
         /// <summary>True while a committed document is bound; a draw before this is a no-op.</summary>
         public bool Bound => bound;
 
+        /// <summary>True while 隐藏UI is active on the bound station's visibility registry.</summary>
+        public bool UiHidden => IsUiHidden();
+
+        bool IsUiHidden() {
+            var host = StationEditHost.Host != null ? StationEditHost.Host : UnityEngine.Object.FindAnyObjectByType<StationGameHost>();
+            if (host != null) {
+                var rig = host.GetComponent<StationViewRig>();
+                if (rig != null && rig.Visibility != null) return rig.Visibility.State.HideUi;
+                var worldVis = host.Coordinator?.World?.Visibility;
+                if (worldVis != null) return worldVis.State.HideUi;
+            }
+            var activeVis = StationViewFeature.Active?.Visibility;
+            return activeVis != null && activeVis.State.HideUi;
+        }
+
+        /// <summary>Drop every transient preview layer (module ghost, cell/cursor overlay and hover).</summary>
+        public void ClearAll() {
+            ClearGhost();
+            ClearCells();
+            ClearHover();
+        }
+
+        /// <summary>Hide transient cursor/preview layers immediately when <c>HideUi</c> turns on.</summary>
+        public void SyncVisibility() {
+            if (!IsUiHidden()) return;
+            if (owned.Count > 0 || cellOwned.Count > 0 || hoverOwned.Count > 0 ||
+                (eraseBatch != null && eraseBatch.activeSelf)) {
+                ClearAll();
+            }
+        }
+
         /// <summary>Draw the candidate, or just the selection when there is none.</summary>
         public void Show(StationPlacementPlan plan) {
             ClearGhost();
             ClearCells();
-            if (!bound || plan?.Candidate == null) return;
+            if (!bound || plan?.Candidate == null || IsUiHidden()) return;
             var colour = plan.Ok ? new Color(0.09f, 0.55f, 1f, 0.55f) : new Color(1f, 0.27f, 0.2f, 0.55f);
             if (!TryBuildPrefabGhost(plan.Candidate, colour)) BuildBoxGhost(plan.Candidate, colour);
             StationEditSession.Ghost = Summary("module");
@@ -111,7 +142,7 @@ namespace Metro.App {
         public void ShowModules(IReadOnlyList<StationPlacementPlan> accepted, IReadOnlyList<StationPlacementPlan> refused = null) {
             ClearGhost();
             ClearCells();
-            if (!bound) return;
+            if (!bound || IsUiHidden()) return;
             var ok = new Color(0.09f, 0.55f, 1f, 0.55f);
             var bad = new Color(1f, 0.27f, 0.2f, 0.55f);
             if (accepted != null) {
@@ -120,14 +151,15 @@ namespace Metro.App {
                     if (!TryBuildPrefabGhost(plan.Candidate, ok)) BuildBoxGhost(plan.Candidate, ok);
                 }
             }
-            if (refused == null) return;
-            foreach (var plan in refused) {
-                if (plan?.Candidate == null) continue;
-                if (!TryBuildPrefabGhost(plan.Candidate, bad)) BuildBoxGhost(plan.Candidate, bad);
-                // The pieces in the way are boxed beside it, so a refusal names its blocker.
-                foreach (var id in plan.ColliderIds) {
-                    if (!TryBlockerBounds(id, out var blocker)) continue;
-                    BuildLineBox(blocker, RefusalOutlineMaterial(), owned);
+            if (refused != null) {
+                foreach (var plan in refused) {
+                    if (plan?.Candidate == null) continue;
+                    if (!TryBuildPrefabGhost(plan.Candidate, bad)) BuildBoxGhost(plan.Candidate, bad);
+                    // The pieces in the way are boxed beside it, so a refusal names its blocker.
+                    foreach (var id in plan.ColliderIds) {
+                        if (!TryBlockerBounds(id, out var blocker)) continue;
+                        BuildLineBox(blocker, RefusalOutlineMaterial(), owned);
+                    }
                 }
             }
             StationEditSession.Ghost = Summary("modules");
@@ -150,7 +182,7 @@ namespace Metro.App {
         /// </summary>
         public void ShowCells(StationCellPreview preview) {
             ClearCells();
-            if (!bound || preview == null || !preview.HasPlan) return;
+            if (!bound || preview == null || !preview.HasPlan || IsUiHidden()) return;
             var shape = preview.Check.Shape;
             // A removal gesture draws what it would take away, in the reference's own red
             // (`setGhost(..., 'remove')`), while an add keeps the shared blue: those cells are
@@ -264,7 +296,7 @@ namespace Metro.App {
         /// </summary>
         public void ShowFaces(StationPaintPreview preview) {
             ClearCells();
-            if (!bound || preview == null || preview.Cells.Count == 0) return;
+            if (!bound || preview == null || preview.Cells.Count == 0 || IsUiHidden()) return;
             var material = preview.Mode == "erase"
                 ? CellMaterial(false, new Color(1f, 0.27f, 0.2f, 0.42f))
                 : CellMaterial(true, new Color(0.45f, 0.82f, 1f, 0.42f));
@@ -282,7 +314,7 @@ namespace Metro.App {
         /// </summary>
         public void ShowZone(StationZonePreview preview) {
             ClearCells();
-            if (!bound || preview == null) return;
+            if (!bound || preview == null || IsUiHidden()) return;
             var tint = preview.Floor.Count > 0 ? preview.Floor : preview.Rect;
             if (tint.Count == 0) return;
             var rgb = preview.Colour;
@@ -299,7 +331,7 @@ namespace Metro.App {
         /// </summary>
         public void ShowRail(StationRailPlan plan, IReadOnlyList<StationEditDraft> piers = null) {
             ClearCells();
-            if (!bound || plan == null || plan.Bed.Count == 0) return;
+            if (!bound || plan == null || plan.Bed.Count == 0 || IsUiHidden()) return;
             var colour = plan.Ok ? new Color(0.09f, 0.55f, 1f, 0.4f) : new Color(1f, 0.27f, 0.2f, 0.42f);
             var material = CellMaterial(plan.Ok, colour);
             foreach (var cell in plan.Bed) BuildBox(CellBounds(cell, StationCellShape.Full), material, cellOwned);
@@ -325,7 +357,7 @@ namespace Metro.App {
         /// </summary>
         public void ShowSurface(StationSurfacePreview preview) {
             ClearCells();
-            if (!bound || preview == null) return;
+            if (!bound || preview == null || IsUiHidden()) return;
             if (preview.Cells.Count > 0) {
                 int rgb = StationSurfaceTool.ColourFor(preview.Type, preview.Erase);
                 var colour = new Color(((rgb >> 16) & 0xFF) / 255f, ((rgb >> 8) & 0xFF) / 255f, (rgb & 0xFF) / 255f, 0.5f);
@@ -426,6 +458,7 @@ namespace Metro.App {
         public void ClearHover() { hoveredId = ""; ClearLayer(hoverOwned); }
 
         public void Hover(StationModuleRecord module) {
+            if (IsUiHidden()) { ClearHover(); return; }
             var id = module?.Id ?? "";
             if (id == hoveredId) return;
             ClearHover();
@@ -520,6 +553,7 @@ namespace Metro.App {
         }
 
         void LateUpdate() {
+            SyncVisibility();
             RefreshSurfaceLinks();
             var visibility = StationViewFeature.Active?.Visibility;
             if (visibility == null) return;

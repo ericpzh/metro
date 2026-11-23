@@ -157,7 +157,7 @@ namespace Metro.App {
     public static class StationScenePicker {
         /// <summary>Roles that are presentation only and must never take an edit pick.</summary>
         static readonly HashSet<string> UnpickableRoles = new HashSet<string>(StringComparer.Ordinal) {
-            "cells", "grid", "cursor", "overlay", "actors", "crowd", "trains", "preview", "section", "roads", "road-vehicles",
+            "cells", "grid", "cursor", "overlay", "actors", "crowd", "trains", "preview", "section", "road-vehicles",
         };
 
         /// <summary>Diagnostic counter incremented once per <see cref="PickRay"/> invocation (reset by <see cref="Reset"/>).</summary>

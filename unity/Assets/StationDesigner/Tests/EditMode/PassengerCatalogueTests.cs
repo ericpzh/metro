@@ -478,14 +478,45 @@ public class PassengerCatalogueTests {
 
     [Test]
     public void LowDetailIsReportedNotSilentlySubstituted() {
-        var view = BuildView(catalogue);
-        var pose = PoseFor(oracle.specimenIds[0].id);
-        pose.Detail = PassengerDetail.Low;
-        view.Render(new[] { pose });
-        Assert.That(view.SupportsLowDetail, Is.False);
-        Assert.That(view.Diagnostics.Any(diagnostic => diagnostic.Code == "low-topology-unported"), Is.True,
-            "Low must be reported by name until its topology is rendered");
-        Assert.That(view.Spawned, Is.EqualTo(1), "the recipe itself is still the real prefab");
+        var unported = ScriptableObject.CreateInstance<PassengerCatalogue>();
+        try {
+            unported.clipSet = catalogue.clipSet;
+            var stripped = Clone(catalogue.entries[0]);
+            stripped.reducedMesh = null;
+            stripped.simplifiedMesh = null;
+            unported.entries = new[] { stripped };
+            unported.Invalidate();
+
+            var unportedView = BuildView(unported, "unported-low-crowd");
+            var pose = PoseFor(oracle.specimenIds[0].id);
+            pose.Detail = PassengerDetail.Low;
+            unportedView.Render(new[] { pose });
+            Assert.That(unportedView.SupportsLowDetail, Is.False);
+            Assert.That(unportedView.Diagnostics.Any(diagnostic => diagnostic.Code == "low-topology-unported"), Is.True,
+                "Low must be reported by name when a catalogue carries no simplified mesh");
+            Assert.That(unportedView.Spawned, Is.EqualTo(1), "the recipe itself is still the real prefab");
+            Assert.That(unportedView.TryGetActor(pose.SimId, out var unportedActor), Is.True);
+            var expectedFullMesh = stripped.prefab.GetComponentInChildren<SkinnedMeshRenderer>(true).sharedMesh;
+            Assert.That(unportedActor.Skin.sharedMesh, Is.SameAs(expectedFullMesh));
+        } finally {
+            UnityEngine.Object.DestroyImmediate(unported);
+        }
+
+        // When the bound catalogue provides simplified meshes, Low is supported and swaps cleanly.
+        var specimenId = oracle.specimenIds[0].id;
+        if (catalogue.TryGetForSimId(specimenId, out var entry) && entry.simplifiedMesh?.mesh != null) {
+            var supportedView = BuildView(catalogue, "supported-low-crowd");
+            var pose = PoseFor(specimenId);
+            pose.Detail = PassengerDetail.Low;
+            supportedView.Render(new[] { pose });
+            Assert.That(supportedView.SupportsLowDetail, Is.True);
+            Assert.That(supportedView.Diagnostics.Any(diagnostic => diagnostic.Code == "low-topology-unported"), Is.False,
+                "a catalogue with simplified meshes must not report low-topology-unported");
+            Assert.That(supportedView.Spawned, Is.EqualTo(1));
+            Assert.That(supportedView.TryGetActor(specimenId, out var actor), Is.True);
+            Assert.That(actor.Skin.sharedMesh, Is.SameAs(entry.simplifiedMesh.mesh),
+                "Low detail swaps the actor onto its simplified mesh");
+        }
     }
 
     [Test]

@@ -1,3 +1,5 @@
+const DEMO_ROUTES = new Set(['zoo', 'tanwei', 'tianhe'])
+
 function redirect(url, pathname) {
   const target = new URL(url)
   target.pathname = pathname
@@ -115,11 +117,24 @@ export default {
     }
 
     const segments = rest.split('/').filter(Boolean)
-    if (segments.length === 1 && segments[0] !== 'en' && rest.endsWith('/')) {
+    const isCanonicalOne = segments.length === 1 && (DEMO_ROUTES.has(segments[0]) || segments[0] === 'benchmark')
+    const isCanonicalTwo = segments.length === 2 && (
+      (segments[0] === 'en' && DEMO_ROUTES.has(segments[1])) ||
+      (segments[0] === 'benchmark' && segments[1] === 'en')
+    )
+    if (isCanonicalOne && rest === `/${segments[0]}/`) {
       return redirect(url, `${prefix}/${segments[0]}`)
     }
-    if (segments.length === 2 && (segments[0] === 'en' || (segments[0] === 'benchmark' && segments[1] === 'en')) && rest.endsWith('/')) {
+    if (isCanonicalTwo && rest === `/${segments[0]}/${segments[1]}/`) {
       return redirect(url, `${prefix}/${segments[0]}/${segments[1]}`)
+    }
+    const isValidRoute =
+      rest === '/' ||
+      rest === '/en/' ||
+      (isCanonicalOne && rest === `/${segments[0]}`) ||
+      (isCanonicalTwo && rest === `/${segments[0]}/${segments[1]}`)
+    if (!isValidRoute) {
+      return new Response('Not found', { status: 404 })
     }
     // The player page: `/game/` (or `/game/unity/`), `/en/`, demo deep links
     // (`/zoo`, `/en/tanwei`), and the benchmark routes (`/benchmark`, `/benchmark/en`).

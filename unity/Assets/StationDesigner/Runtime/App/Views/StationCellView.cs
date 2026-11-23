@@ -1247,6 +1247,8 @@ namespace Metro.App.Views {
                                 if (input.GroundHoles.Add(CellKeyAt(point))) holes++;
                         break;
                     case "exit": {
+                        var style = module.Config.Text("style");
+                        if (style == "doorway" || style == "virtual") break;
                         var openings = ExitOpeningsFor(exits, module);
                         if (module.Z == StationPaintSnapshot.GroundZ)
                             foreach (var point in StationFootprints.ExitFootprint(module))

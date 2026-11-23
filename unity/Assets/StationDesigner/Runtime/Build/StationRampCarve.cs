@@ -31,26 +31,65 @@ namespace Metro.Build {
             public double SlideX, SlideY;
         }
 
-        /// <summary>`rampSegments` for the straight shapes: a walkway, 扶梯 or lift shaft.</summary>
+        /// <summary>Port of <c>rampLaneHalf</c>: half-width in cells of the lanes a run fills.</summary>
+        public static double LaneHalf(StationModuleRecord module) {
+            if (module == null) return 0.5;
+            if (module.Type == "stair") {
+                double width = StationRampRules.StairTreadWidth(module);
+                return StationRampRules.StairOnBlockGrid(width)
+                    ? StationRampRules.StairRunBlocks(width) / 2.0
+                    : 0.5;
+            }
+            if (module.Type == "escalator") return StationRampRules.Width(module) / 2.0;
+            return 0.5;
+        }
+
+        /// <summary>
+        /// `rampSegments` for carving: an escalator or straight stair. A level walkway lies on its
+        /// floor and never carves blocks above it; a lift shaft is vertical and has no swept corridor.
+        /// </summary>
         public static Run ForModule(StationModuleRecord module) {
             if (module == null || !module.From.HasValue || !module.To.HasValue) return null;
-            if (module.Type != "walkway" && module.Type != "escalator" && module.Type != "lift" &&
-                module.Type != "stair") return null;
+            if (module.Type != "escalator" && module.Type != "stair") return null;
             if (module.Type == "stair" && module.Config.Has("block")) return null;
+            double fx = module.From.Value.X, fy = module.From.Value.Y, fz = module.From.Value.Z;
+            double tx = module.To.Value.X, ty = module.To.Value.Y, tz = module.To.Value.Z;
+            double slideX = 0, slideY = 0;
+            if (module.Type == "escalator") {
+                int lanes = StationRampRules.Width(module);
+                if (lanes > 1) {
+                    bool lowerFirst = fz != tz ? fz < tz : (fx != tx ? fx < tx : fy < ty);
+                    double lx = lowerFirst ? fx : tx, ly = lowerFirst ? fy : ty;
+                    double ux = lowerFirst ? tx : fx, uy = lowerFirst ? ty : fy;
+                    double len = Math.Sqrt((ux - lx) * (ux - lx) + (uy - ly) * (uy - ly));
+                    if (len > 1e-6) {
+                        double shift = (lanes - 1) * 0.5 / len;
+                        double sdx = (uy - ly) * shift;
+                        double sdy = -(ux - lx) * shift;
+                        fx += sdx; fy += sdy;
+                        tx += sdx; ty += sdy;
+                    }
+                }
+            } else if (module.Type == "stair") {
+                var slides = StationStairSlides.Slides(module);
+                if (slides.Count > 0) { slideX = slides[0].Dx; slideY = slides[0].Dy; }
+            }
             var run = new Run {
-                FromX = module.From.Value.X, FromY = module.From.Value.Y, FromZ = module.From.Value.Z,
-                ToX = module.To.Value.X, ToY = module.To.Value.Y, ToZ = module.To.Value.Z,
+                FromX = fx, FromY = fy, FromZ = fz,
+                ToX = tx, ToY = ty, ToZ = tz,
                 BodyHalf = StationRampRules.BodyHalf(module),
                 RailHalf = StationRampRules.CorridorHalf(module),
-                CoreHalf = Math.Max(1, module.Width) / 2.0,
+                CoreHalf = LaneHalf(module),
                 Headroom = module.Type == "escalator" ? EscalatorHeadroom : Headroom,
+                SlideX = slideX,
+                SlideY = slideY,
             };
             return run;
         }
 
         /// <summary>
-        /// `rampSegments`: every corridor this piece carves. A walkway, 扶梯 or lift shaft is one
-        /// run; a stair is one run **per saved flight**, each slid across from its landings by
+        /// `rampSegments`: every corridor this piece carves. An escalator is one run; a stair is
+        /// one run **per saved flight**, each slid across from its landings by
         /// `StationStairSlides` — a run on the block grid is centred half a lane off the landing
         /// cell, and a switchback's return slides back until the two balustrades meet.
         /// </summary>
@@ -65,6 +104,7 @@ namespace Metro.Build {
             if (module.Config.Has("block")) return runs;
             var flights = StationRampRules.FlightsOf(module);
             var slides = StationStairSlides.Slides(module);
+            double coreHalf = LaneHalf(module);
             for (int i = 0; i < flights.Count; i++) {
                 var slide = i < slides.Count ? slides[i] : (Dx: 0.0, Dy: 0.0);
                 runs.Add(new Run {
@@ -72,7 +112,7 @@ namespace Metro.Build {
                     ToX = flights[i].To.X, ToY = flights[i].To.Y, ToZ = flights[i].To.Z,
                     BodyHalf = StationRampRules.BodyHalf(module),
                     RailHalf = StationRampRules.CorridorHalf(module),
-                    CoreHalf = Math.Max(1, module.Width) / 2.0,
+                    CoreHalf = coreHalf,
                     Headroom = Headroom,
                     SlideX = slide.Dx,
                     SlideY = slide.Dy,

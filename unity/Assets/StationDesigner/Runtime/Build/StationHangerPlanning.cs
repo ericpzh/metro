@@ -66,5 +66,68 @@ namespace Metro.Build {
             box = new StationBox(x0, y0, z0, x1, y1, z1);
             return true;
         }
+
+        /// <summary>
+        /// Port of <c>sim/hangers.ts:hangerRoofZ</c>: nearest solid cell or roof surface at or
+        /// above the beam top (<c>m.Z + 1 + BarTopRoof</c>) at one suspension point <c>(x, y)</c>.
+        /// </summary>
+        public static bool TryRoofZ(StationIndex index, StationModuleRecord m, int x, int y, out double backing,
+            string excludeId = null) {
+            backing = 0;
+            if (index == null || m == null) return false;
+            double barTop = m.Z + 1 + BarTopRoof;
+            bool found = false;
+            var cells = index.Document.Cells;
+            for (int i = 0; i < cells.Count; i++) {
+                var cell = cells[i];
+                if (cell == null || !cell.IsSolid || cell.X != x || cell.Y != y || cell.Z < barTop) continue;
+                if (!found || cell.Z < backing) {
+                    backing = cell.Z;
+                    found = true;
+                }
+            }
+            var roofs = index.ModulesOfType("roof");
+            for (int i = 0; i < roofs.Count; i++) {
+                var roof = roofs[i];
+                if (roof == null || (!string.IsNullOrEmpty(excludeId) && string.Equals(roof.Id, excludeId, StringComparison.Ordinal))) continue;
+                var trackCells = StationFootprints.TrackCells(roof);
+                bool covers = false;
+                for (int c = 0; c < trackCells.Length; c++) {
+                    if (trackCells[c].X == x && trackCells[c].Y == y) { covers = true; break; }
+                }
+                if (!covers) continue;
+                StationFootprints.RotateLocal(-roof.Rotation, x - roof.X, y - roof.Y, out _, out double localY);
+                int depth = Math.Max(1, roof.Depth);
+                double ridge = StationRoofRules.Ridge;
+                double height = ridge - (ridge - StationRoofRules.Eave) * Math.Abs(localY - (depth - 1) / 2.0) / (depth / 2.0);
+                string variant = roof.Config.Text("variant");
+                double z = string.IsNullOrEmpty(variant)
+                    ? roof.Z + 1 + StationRoofRules.Base
+                    : roof.Z + 1 + height - (string.Equals(variant, "canopy", StringComparison.Ordinal) ? StationRoofRules.Drop : 0);
+                if (z >= barTop && (!found || z < backing)) {
+                    backing = z;
+                    found = true;
+                }
+            }
+            return found;
+        }
+
+        /// <summary>
+        /// Port of <c>sim/hangers.ts:hangerRoofMissing</c>: post hangers stand on the floor;
+        /// roof hangers need solid slab or roof backing at or above <c>m.Z + 5</c> at both ends.
+        /// </summary>
+        public static bool RoofMissing(StationIndex index, StationModuleRecord m, string excludeId = null) {
+            if (m == null) return false;
+            if (string.Equals(m.Config.Text("mount"), "post", StringComparison.Ordinal)) return false;
+            int width = Math.Max(1, m.Width);
+            if (!TryRoofZ(index, m, m.X, m.Y, out _, excludeId)) return true;
+            if (width > 1) {
+                StationFootprints.RotateLocal(m.Rotation, width - 1, 0, out double dx, out double dy);
+                int endX = m.X + (int)Math.Round(dx);
+                int endY = m.Y + (int)Math.Round(dy);
+                if (!TryRoofZ(index, m, endX, endY, out _, excludeId)) return true;
+            }
+            return false;
+        }
     }
 }

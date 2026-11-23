@@ -354,7 +354,7 @@ namespace Metro.View {
 
         public static float SnapOffset(float value, bool fine = false) {
             float step = fine ? SnapFine : Snap;
-            return Mathf.Round(value / step) * step;
+            return Mathf.Floor(value / step + 0.5f) * step;
         }
 
         /// <summary>The slide a pointer drag asks for, measured along the normal.</summary>

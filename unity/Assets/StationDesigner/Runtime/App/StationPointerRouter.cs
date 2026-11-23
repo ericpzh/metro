@@ -663,9 +663,17 @@ namespace Metro.App {
         /// </summary>
         static void DrawCells(StationGameHost host, StationEditHost editHost) {
             if (editHost == null) return;
+            StationEditScene.ResolveView(host, out _, out _, out _, out var visibility);
+            if (visibility != null && visibility.State.HideUi) {
+                editHost.Preview?.ClearCells();
+                StationEditSession.Ghost = null;
+                return;
+            }
             editHost.EnsureBound(host);
             editHost.Preview?.ShowCells(StationCellTool.Preview);
-            StationEditSession.Ghost = editHost.Preview != null ? editHost.Preview.Summary("cells") : null;
+            StationEditSession.Ghost = editHost.Preview != null && !editHost.Preview.UiHidden
+                ? editHost.Preview.Summary("cells")
+                : null;
         }
 
         /// <summary>Drop the cell tool's drawn layer without touching its gesture.</summary>
@@ -724,12 +732,17 @@ namespace Metro.App {
             if (host == null || !host.IsLoaded) return false;
             var tool = StationToolSelection.Active;
             var editHost = StationEditHost.Ensure();
+            StationEditScene.ResolveView(host, out _, out var camera, out var activeLevel, out var visibility);
+            if (visibility != null && visibility.State.HideUi) {
+                editHost.Preview?.ClearAll();
+                StationEditSession.Ghost = null;
+                return false;
+            }
             if (!StationEditSession.HasPointer) {
                 // The shell parked the pointer (a rail click, a leave): only the cell tool can
                 // still re-plan its cached cell, and it draws nothing until the pointer returns.
                 return StationCellTool.RefreshHover(host);
             }
-            StationEditScene.ResolveView(host, out _, out var camera, out var activeLevel, out var visibility);
             if (camera == null) return false;
             var world = host.Coordinator?.World;
             var ray = camera.ScreenPointToRay(StationEditSession.PointerScreen());
@@ -1180,7 +1193,9 @@ namespace Metro.App {
                 StationRoofTool.Publish();
                 editHost.EnsureBound(host);
                 editHost.Preview?.ShowModules(StationRoofTool.Accepted, StationRoofTool.Refused);
-                StationEditSession.Ghost = editHost.Preview != null ? editHost.Preview.Summary("roof") : null;
+                StationEditSession.Ghost = editHost.Preview != null && !editHost.Preview.UiHidden
+                    ? editHost.Preview.Summary("roof")
+                    : null;
                 return;
             }
             if (StationCellTool.HasGesture) {
@@ -1209,7 +1224,9 @@ namespace Metro.App {
                 StationRoofTool.Publish();
                 editHost.EnsureBound(host);
                 editHost.Preview?.ShowModules(StationRoofTool.Accepted, StationRoofTool.Refused);
-                StationEditSession.Ghost = editHost.Preview != null ? editHost.Preview.Summary("roof") : null;
+                StationEditSession.Ghost = editHost.Preview != null && !editHost.Preview.UiHidden
+                    ? editHost.Preview.Summary("roof")
+                    : null;
                 return;
             }
             if (string.Equals(tool, "module", StringComparison.Ordinal) && StationPillarTool.IsArmed()) {
@@ -1219,7 +1236,9 @@ namespace Metro.App {
                 StationPillarTool.Publish();
                 editHost.EnsureBound(host);
                 editHost.Preview?.ShowModules(StationPillarTool.Accepted, StationPillarTool.Refused);
-                StationEditSession.Ghost = editHost.Preview != null ? editHost.Preview.Summary("pillar") : null;
+                StationEditSession.Ghost = editHost.Preview != null && !editHost.Preview.UiHidden
+                    ? editHost.Preview.Summary("pillar")
+                    : null;
                 return;
             }
             if (tool == "module") {
@@ -1284,7 +1303,9 @@ namespace Metro.App {
             StationEditSession.Plan = plan;
             editHost.EnsureBound(host);
             editHost.Preview?.Show(plan);
-            StationEditSession.Ghost = editHost.Preview != null ? editHost.Preview.Summary("module") : null;
+            StationEditSession.Ghost = editHost.Preview != null && !editHost.Preview.UiHidden
+                ? editHost.Preview.Summary("module")
+                : null;
         }
 
         static void Place(StationGameHost host, StationEditHost editHost, StationWorldView world, Ray ray,
@@ -1340,6 +1361,32 @@ namespace Metro.App {
             int width = carried == null ? StationToolSelection.SettingInt("width", 0) : 0;
             string lineId = carried == null ? StationToolSelection.Setting("lineId") : "";
             int curtainHeight = StationToolSelection.SettingInt("curtainHeight", 4);
+            if (carried == null && !string.IsNullOrEmpty(toolType)) {
+                if ((string.Equals(toolType, "door", StringComparison.Ordinal) ||
+                     toolType.StartsWith("door-", StringComparison.Ordinal)) &&
+                    StationToolSelection.SettingBool("doorWide")) {
+                    if (string.Equals(toolType, "door", StringComparison.Ordinal)) {
+                        toolType = "door-steel-2";
+                    } else if (toolType.EndsWith("-1", StringComparison.Ordinal)) {
+                        toolType = toolType.Substring(0, toolType.Length - 2) + "-2";
+                    }
+                    if (!string.IsNullOrEmpty(variant) && variant.EndsWith("-1", StringComparison.Ordinal)) {
+                        variant = variant.Substring(0, variant.Length - 2) + "-2";
+                    }
+                    width = 2;
+                } else if (string.Equals(toolType, "hanger-roof", StringComparison.Ordinal) ||
+                           string.Equals(toolType, "hanger-post", StringComparison.Ordinal)) {
+                    int hangerLen = StationToolSelection.SettingInt("hangerLength", 0);
+                    if (hangerLen > 0) width = hangerLen;
+                } else if (string.Equals(toolType, "checkout", StringComparison.Ordinal) ||
+                           toolType.StartsWith("checkout-", StringComparison.Ordinal)) {
+                    int counterLen = StationToolSelection.SettingInt("counterLength", 0);
+                    if (counterLen > 0) width = counterLen;
+                } else if (string.Equals(toolType, "curtain-wall", StringComparison.Ordinal)) {
+                    int curtainWidth = StationToolSelection.SettingInt("curtainWidth", 0);
+                    if (curtainWidth > 0) width = curtainWidth;
+                }
+            }
             var request = BuildRequest(world, ray, pickContext, hit, carried, rotation, toolType, variant, width,
                 lineId, curtainHeight);
             if (carried == null && string.Equals(toolType, "roof", StringComparison.Ordinal)) {
@@ -1365,18 +1412,22 @@ namespace Metro.App {
                     System.Globalization.CultureInfo.InvariantCulture, out var metres) && metres > 0 ? metres : 1;
             }
             if (carried == null && string.Equals(toolType, "lift", StringComparison.Ordinal)) {
-                // `liftInterval` is the floor interval in metres; `liftSize` arms the 大 shaft.
+                // `liftInterval` is the floor interval in metres; `liftSize` arms the 大 shaft
+                // (numeric `3` from `toolAdapter.ts` as well as legacy `"large"`).
                 request.LiftInterval = StationToolSelection.SettingInt("liftInterval", 5);
-                request.LiftSizeLarge = string.Equals(StationToolSelection.Setting("liftSize"), "large",
-                    StringComparison.Ordinal);
+                request.LiftSizeLarge = StationToolSelection.SettingInt("liftSize", 2) == 3 ||
+                    string.Equals(StationToolSelection.Setting("liftSize"), "large", StringComparison.Ordinal);
             }
             if (carried == null && string.Equals(toolType, "walkway", StringComparison.Ordinal)) {
-                // The 自动步道's three catalogue lengths (短 30 / 中 60 / 长 90 cells) and its
-                // travel direction; the endpoints carry both into the save.
+                // The 自动步道's three catalogue lengths (短 30 / 中 60 / 长 90 cells), its travel
+                // direction (`escalatorDir`, falling back to `walkwayDir`), and its width.
                 var length = StationToolSelection.Setting("walkwayLength");
                 request.WalkwayRun = length == "long" ? 90 : length == "medium" ? 60 : 30;
-                request.WalkwayDown = string.Equals(StationToolSelection.Setting("walkwayDir"), "down",
-                    StringComparison.Ordinal);
+                var walkDir = StationToolSelection.Setting("escalatorDir");
+                if (string.IsNullOrEmpty(walkDir)) walkDir = StationToolSelection.Setting("walkwayDir");
+                request.WalkwayDown = string.Equals(walkDir, "down", StringComparison.Ordinal);
+                int walkWidth = StationToolSelection.SettingInt("escalatorWidth", 0);
+                if (walkWidth > 0) request.Width = walkWidth;
             }
             return request;
         }
@@ -1497,8 +1548,51 @@ namespace Metro.App {
             string.Equals(type, "lawn", StringComparison.Ordinal);
 
         static StationPlacementPlan ResolvePlacement(StationGameHost host, StationWorldView world, Ray ray,
-            in StationPickContext pickContext, StationSceneHit hit) =>
-            StationModulePlacement.Resolve(host.Index, RequestFor(world, ray, pickContext, hit, null, 0));
+            in StationPickContext pickContext, StationSceneHit hit) {
+            var plan = StationModulePlacement.Resolve(host.Index, RequestFor(world, ray, pickContext, hit, null, 0));
+            ApplyToolSettingsToCandidate(host.Index, plan?.Candidate);
+            return plan;
+        }
+
+        static void ApplyToolSettingsToCandidate(StationIndex index, StationEditDraft candidate) {
+            if (candidate == null) return;
+            switch (candidate.Type) {
+                case "gate": {
+                    var gateDoor = StationToolSelection.Setting("gateDoor");
+                    if (string.Equals(gateDoor, "fence", StringComparison.Ordinal) ||
+                        string.Equals(gateDoor, "lane", StringComparison.Ordinal)) {
+                        candidate.Set("door", gateDoor);
+                    }
+                    break;
+                }
+                case "lift": {
+                    var liftStyle = StationToolSelection.Setting("liftStyle");
+                    if (string.Equals(liftStyle, "steel", StringComparison.Ordinal) ||
+                        string.Equals(liftStyle, "glass", StringComparison.Ordinal)) {
+                        candidate.Set("style", liftStyle);
+                    }
+                    break;
+                }
+                case "guidepost": {
+                    var exitId = StationToolSelection.Setting("guideExitId");
+                    if (!string.IsNullOrEmpty(exitId)) candidate.Set("exitId", exitId);
+                    break;
+                }
+                case "psd-end": {
+                    if (string.Equals(candidate.Text("variant"), "cover", StringComparison.Ordinal)) break;
+                    var psdHeight = StationToolSelection.Setting("psdEndHeight");
+                    if ((string.Equals(psdHeight, "full", StringComparison.Ordinal) ||
+                         string.Equals(psdHeight, "half", StringComparison.Ordinal)) &&
+                        !string.Equals(candidate.Text("psd"), psdHeight, StringComparison.Ordinal)) {
+                        candidate.Set("psd", psdHeight);
+                        if (string.IsNullOrEmpty(candidate.Text("corner"))) {
+                            StationPsdEndRules.TrySnap(index, candidate);
+                        }
+                    }
+                    break;
+                }
+            }
+        }
 
         // -------------------------------------------------------------------- move
 

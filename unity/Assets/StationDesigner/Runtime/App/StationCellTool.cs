@@ -732,6 +732,21 @@ namespace Metro.App {
                 SetPreviewPatch(plan, StationCellPlanner.PlanRemoveCells(worldRef, plan.Check.Accepted));
             } else if (plan.Kind == "floor") {
                 SetPreviewPatch(plan, StationCellPlanner.PlanAutoFloor(worldRef, plan.Check.Accepted));
+                if (plan.Check.Cells.Count + plan.AutoWalls.Count > StationCellPlanner.MaxDragCells) {
+                    var tooLarge = new StationCellPreview {
+                        Kind = "floor",
+                        Cursor = current.Target,
+                        Notice = "over-limit",
+                        OverLimit = true,
+                        Length = plan.Length,
+                        Width = plan.Width,
+                    };
+                    tooLarge.Check.Cells.AddRange(plan.Check.Cells);
+                    tooLarge.Check.Cells.AddRange(plan.AutoWalls);
+                    tooLarge.Check.Blocked.AddRange(plan.Check.Cells);
+                    tooLarge.Check.Blocked.AddRange(plan.AutoWalls);
+                    return tooLarge;
+                }
             }
             if (plan.Patch != null) {
                 current.PlannedCells = plan;
@@ -787,6 +802,20 @@ namespace Metro.App {
                 var cells = current.Dragging
                     ? StationCellPlanner.RectCells(anchor, target, z, current.Shift)
                     : new List<StationCellKey> { anchor };
+                int ceilingBudget = StationCellPlanner.DragCellCount(anchor, target, current.Shift);
+                if (current.Dragging && ceilingBudget > StationCellPlanner.MaxDragCells) {
+                    var tooLarge = new StationCellPreview {
+                        Kind = "ceiling",
+                        Cursor = target,
+                        Notice = "over-limit",
+                        OverLimit = true,
+                        Length = Math.Abs(target.X - anchor.X) + 1,
+                        Width = Math.Abs(target.Y - anchor.Y) + 1,
+                    };
+                    tooLarge.Check.Cells.AddRange(cells);
+                    tooLarge.Check.Blocked.AddRange(cells);
+                    return tooLarge;
+                }
                 var ceiling = CeilingPreview(worldRef, cells);
                 ceiling.Cursor = cursor;
                 ceiling.Length = current.Dragging ? Math.Abs(target.X - anchor.X) + 1 : 1;
@@ -873,9 +902,7 @@ namespace Metro.App {
                 ? StationCellPlanner.StraightLineCells(anchor, target, z)
                 : new List<StationCellKey> { anchor };
             var courses = StationCellPlanner.StoreyWallRun(runLine, worldRef.LevelBase, worldRef.StoreyHeight);
-            int columns2 = runLine.Count;
-            int perColumn = courses.Count;
-            if (columns2 * perColumn > StationCellPlanner.MaxDragCells && columns2 > 1) {
+            if (courses.Count > StationCellPlanner.MaxDragCells) {
                 var tooLarge = new StationCellPreview {
                     Kind = "wall",
                     Cursor = cursor,

@@ -72,6 +72,9 @@ namespace Metro.Build {
     /// accepted), the same kind is an "already here" no-op, and an erase takes only its own kind.
     /// </summary>
     public static class StationSurfacePlanner {
+        /// <summary>The shared 10,000-cell budget every rectangular drag respects (plan 27 §3).</summary>
+        public const int MaxCells = StationCellPlanner.MaxDragCells;
+
         /// <summary>Every surface tile's finish at one coordinate, or "" when the cell has none.</summary>
         public static string SurfaceAt(StationIndex index, int x, int y, int z) {
             if (index == null) return "";
@@ -104,6 +107,16 @@ namespace Metro.Build {
             var plan = new StationSurfacePlan { Type = type ?? "", Erase = remove };
             if (index == null || world == null) { plan.Reason = "no-document"; return plan; }
             if (!StationSurfaceRules.IsSurface(type)) { plan.Reason = "unsupported-surface"; return plan; }
+            if (cells == null) return plan;
+            if (cells.Count > MaxCells) {
+                var unique = new HashSet<StationCellKey>();
+                foreach (var cell in cells) if (unique.Add(cell)) plan.Refused.Add(cell);
+                if (plan.Refused.Count > MaxCells) {
+                    plan.Reason = "over-limit";
+                    return plan;
+                }
+                plan.Refused.Clear();
+            }
             // Index the existing tiles once: a drag may cover thousands of cells.
             var held = new Dictionary<StationCellKey, StationModuleRecord>();
             foreach (var module in index.Document.Modules) {

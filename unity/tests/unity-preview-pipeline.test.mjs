@@ -1,13 +1,15 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { closeSync, existsSync, ftruncateSync, mkdtempSync, mkdirSync, openSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import vm from 'node:vm'
 import localWorker from '../../tools/unity-web/local-worker.mjs'
 import { attachUnityUI, buildUnityUI } from '../../tools/unity-web/unity-ui-pack.mjs'
 import { resourceType } from '../../tools/unity-web/release-contract.mjs'
+import { stageUnityDeploy, validatePublicPack } from '../../tools/unity-web/stage-deploy.mjs'
+import { MODULE_OPTIONS } from '../../game/src/app/store/catalog.ts'
 import {
   MUTABLE_BUILD_INPUTS,
   parseUnityStartArgs,
@@ -353,6 +355,17 @@ test('Unity UI bundle excludes Three.js crowd/map payloads and replaces default 
     if (path.endsWith('.mp3')) assert.equal(resourceType(path).contentType, 'audio/mpeg')
     if (path.endsWith('.wav')) assert.equal(resourceType(path).contentType, 'audio/wav')
   }
+  const pngMagic = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])
+  assert.ok(MODULE_OPTIONS.length > 0, 'Expected MODULE_OPTIONS catalogue entries')
+  for (const option of MODULE_OPTIONS) {
+    const thumbPath = `UI/module-thumbnails/${option.id}.png`
+    const packed = ui.files.get(thumbPath)
+    assert.ok(packed, `Unity UI bundle missing module thumbnail: ${thumbPath}`)
+    const source = readFileSync(join(repo, 'game/public/module-thumbnails', `${option.id}.png`))
+    assert.ok(packed.equals(source), `Unity UI module thumbnail differs from game/public: ${thumbPath}`)
+    assert.deepEqual(packed.subarray(0, 8), pngMagic, `${thumbPath} must be a valid PNG`)
+    assert.equal(resourceType(thumbPath).contentType, 'image/png')
+  }
   for (const [path, bytes] of ui.files) {
     if (path.startsWith('UI/audio/')) continue
     assert.ok(bytes.byteLength < 10 * 1024 * 1024, `Unity UI asset unexpectedly large (${bytes.byteLength} bytes): ${path}`)
@@ -451,5 +464,42 @@ test('WebGL player settings target the 4 GiB Wasm32 heap ceiling and all jslib p
         )
       }
     }
+  }
+})
+
+test('stage-deploy rejects any unsplit asset at or above the 25 MiB Cloudflare limit', () => {
+  const limit = 25 * 1024 * 1024
+  const sandbox = mkdtempSync(join(tmpdir(), 'metro-unity-size-limit-'))
+  try {
+    const packDir = join(sandbox, 'pack')
+    mkdirSync(join(packDir, 'Build'), { recursive: true })
+    writeFileSync(join(packDir, 'index.html'), '<html></html>')
+    writeFileSync(join(packDir, 'manifest.json'), JSON.stringify({ sourceSha: 'b'.repeat(40), files: [] }))
+    writeFileSync(join(packDir, 'provenance.json'), JSON.stringify({
+      Scene: 'Assets/StationDesigner/Scenes/StationGameLocal.unity',
+      Head: 'b'.repeat(40),
+    }))
+
+    const assetPath = join(packDir, 'Build/unsplit.data')
+    const setSize = bytes => {
+      const fd = openSync(assetPath, 'w')
+      try { ftruncateSync(fd, bytes) } finally { closeSync(fd) }
+    }
+
+    setSize(limit - 1)
+    assert.equal(validatePublicPack(packDir).scene, 'Assets/StationDesigner/Scenes/StationGameLocal.unity',
+      'an asset 1 byte below 25 MiB is accepted')
+
+    setSize(limit)
+    assert.throws(() => validatePublicPack(packDir), /exceeds Cloudflare 25 MiB limit/,
+      'an unsplit asset at exactly 25 MiB is rejected')
+    assert.throws(() => stageUnityDeploy(sandbox, packDir, join(sandbox, 'dist-web')), /exceeds Cloudflare 25 MiB limit/,
+      'stageUnityDeploy refuses to stage an unsplit 25 MiB asset')
+
+    setSize(limit + 1)
+    assert.throws(() => validatePublicPack(packDir), /exceeds Cloudflare 25 MiB limit/,
+      'an unsplit asset above 25 MiB is rejected')
+  } finally {
+    rmSync(sandbox, { recursive: true, force: true })
   }
 })

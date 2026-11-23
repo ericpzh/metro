@@ -34,6 +34,11 @@ namespace Metro.Persistence {
             }
             return width+.04;
         }
+        static double ClampPanel(double want) {
+            const double step = 0.05;
+            double rounded = Math.Floor((want + 1e-9) / step + 0.5) * step;
+            return Math.Round(Math.Min(Max, Math.Max(Min, rounded)), 3);
+        }
         static JArray Face(JToken raw) {
             if(raw==null || raw.Type==JTokenType.Null) return new JArray();
             if(!(raw is JArray input)) throw new NotSupportedException("Invalid sign board");
@@ -54,7 +59,7 @@ namespace Metro.Persistence {
             }
             double left=double.PositiveInfinity,right=0;
             foreach(var c in values) { double w=Width(c); if(w<=0)continue; double x=Numeric(c["x"],"x");left=Math.Min(left,x-w/2);right=Math.Max(right,x+w/2); }
-            double panel=right<=0 || double.IsInfinity(left) ? Min : Math.Max(Min,Math.Min(Max,Math.Max(Min,right-left+End*2)));
+            double panel=right<=0 || double.IsInfinity(left) ? Min : ClampPanel(Math.Max(Min,right-left+End*2));
             double shift=panel<Max && left>=Edge && right>panel-Edge ? (panel-(right-left))/2-left : 0;
             foreach(var c in values) {
                 double w=Width(c),half=w/2+Edge,lo=half*2>=panel?panel/2:half,hi=half*2>=panel?panel/2:panel-half;

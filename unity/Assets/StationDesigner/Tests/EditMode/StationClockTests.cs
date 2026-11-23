@@ -374,4 +374,167 @@ public class StationClockTests {
         Assert.AreEqual(3 * 3600, clock.SimTime, 1e-12, "the edit did not move the clock");
         Assert.AreEqual("03:00:00", clock.Stamp().ClockSeconds);
     }
+
+    [Test]
+    public void ShippedHolidaysContainExact33SortedUnique2026Dates() {
+        var holidays = StationClock.ShippedHolidays();
+        Assert.AreEqual(33, holidays.Length, "2026 国办发明电〔2025〕7号 has 3+9+3+5+3+3+7 = 33 holiday dates");
+        for (int i = 0; i < holidays.Length; i++) {
+            string key = holidays[i];
+            Assert.IsTrue(key != null && key.Length == 10 && key.StartsWith("2026-", StringComparison.Ordinal),
+                $"holiday {i} must be a 2026 YYYY-MM-DD key: {key}");
+            int year = int.Parse(key.Substring(0, 4));
+            int month = int.Parse(key.Substring(5, 2));
+            int day = int.Parse(key.Substring(8, 2));
+            Assert.GreaterOrEqual(month, 1);
+            Assert.LessOrEqual(month, 12);
+            Assert.GreaterOrEqual(day, 1);
+            Assert.LessOrEqual(day, StationClock.DaysInMonth(year, month), $"valid calendar day: {key}");
+            if (i > 0) {
+                Assert.Less(string.CompareOrdinal(holidays[i - 1], key), 0,
+                    $"shipped holidays must be strictly sorted and unique ({holidays[i - 1]} < {key})");
+            }
+        }
+        foreach (string expected in new[] { "2026-01-01", "2026-02-17", "2026-04-04", "2026-05-01", "2026-06-19", "2026-09-25", "2026-10-01", "2026-10-07" }) {
+            Assert.IsTrue(Array.IndexOf(holidays, expected) >= 0, $"missing shipped holiday {expected}");
+        }
+        // Defensive copy: mutating the returned array must not corrupt future calls.
+        holidays[0] = "1999-01-01";
+        Assert.AreEqual("2026-01-01", StationClock.ShippedHolidays()[0], "ShippedHolidays returns a fresh clone");
+
+        // Verify key dates on SimCalendar.Default
+        var cal = SimCalendar.Default;
+        SimDayType DayTypeOn(int y, int m, int d) =>
+            StationClock.DayAt(StationClock.SimTimeAtDate(new SimDate(y, m, d), cal.Epoch, 10 * 3600), cal).DayType;
+        Assert.AreEqual(SimDayType.Offday, DayTypeOn(2026, 1, 1), "元旦 is offday");
+        Assert.AreEqual(SimDayType.Offday, DayTypeOn(2026, 1, 3), "元旦 Saturday is offday");
+        Assert.AreEqual(SimDayType.Offday, DayTypeOn(2026, 1, 4), "Sunday after 元旦 is offday");
+        Assert.AreEqual(SimDayType.Workday, DayTypeOn(2026, 1, 5), "Monday after 元旦 is workday");
+        Assert.AreEqual(SimDayType.Offday, DayTypeOn(2026, 2, 17), "春节初一 (Tuesday) is offday");
+        Assert.AreEqual(SimDayType.Offday, DayTypeOn(2026, 10, 1), "国庆节 (Thursday) is offday");
+    }
+
+    [Test]
+    public void NormalizePeaksEdgeSweepHoldsMinimumWidthOrderAndHalfEditedFallback() {
+        // Half-edited array: first window kept, missing second falls back to default evening peak.
+        var halfEdited = StationClock.NormalizePeaks(new[] { new DaySpan(10 * 3600, 11 * 3600) }, StationClock.DefaultPeaks);
+        Assert.AreEqual(10 * 3600, halfEdited.Early.From);
+        Assert.AreEqual(11 * 3600, halfEdited.Early.To);
+        Assert.AreEqual(StationClock.DefaultPeaks.Late.From, halfEdited.Late.From);
+        Assert.AreEqual(StationClock.DefaultPeaks.Late.To, halfEdited.Late.To);
+
+        // Empty and null arrays fall back to the fallback pair.
+        var fromEmpty = StationClock.NormalizePeaks(Array.Empty<DaySpan>(), StationClock.DefaultPeaks);
+        Assert.AreEqual(StationClock.DefaultPeaks.Early.From, fromEmpty.Early.From);
+        Assert.AreEqual(StationClock.DefaultPeaks.Late.To, fromEmpty.Late.To);
+        var fromNull = StationClock.NormalizePeaks((DaySpan[])null, StationClock.DefaultPeaks);
+        Assert.AreEqual(StationClock.DefaultPeaks.Early.From, fromNull.Early.From);
+        Assert.AreEqual(StationClock.DefaultPeaks.Late.To, fromNull.Late.To);
+
+        // Overlapping pair pushes evening start to morning end.
+        var overlap = StationClock.NormalizePeaks(new DaySpan(7 * 3600, 18 * 3600), new DaySpan(17 * 3600, 19 * 3600));
+        Assert.AreEqual(7 * 3600, overlap.Early.From);
+        Assert.AreEqual(18 * 3600, overlap.Early.To);
+        Assert.AreEqual(18 * 3600, overlap.Late.From);
+        Assert.AreEqual(19 * 3600, overlap.Late.To);
+
+        // Edge sweep across degenerate, zero-width, inverted, and out-of-range pairs.
+        var cases = new[] {
+            (new DaySpan(0, 0), new DaySpan(0, 0)),
+            (new DaySpan(99 * 3600, 0), new DaySpan(0, 99 * 3600)),
+            (new DaySpan(12 * 3600, 12 * 3600), new DaySpan(12 * 3600, 12 * 3600)),
+            (new DaySpan(-3600, -1800), new DaySpan(25 * 3600, 24 * 3600)),
+            (new DaySpan(6 * 3600, StationClock.ServiceLatest), new DaySpan(17 * 3600, 19 * 3600)),
+            (new DaySpan(23 * 3600, 23 * 3600 + 300), new DaySpan(23 * 3600, 23 * 3600 + 300)),
+        };
+        for (int i = 0; i < cases.Length; i++) {
+            var res = StationClock.NormalizePeaks(cases[i].Item1, cases[i].Item2);
+            Assert.GreaterOrEqual(res.Early.From, 0, $"case {i} early.From >= 0");
+            Assert.GreaterOrEqual(res.Early.To - res.Early.From, StationClock.ServiceMinSpan,
+                $"case {i} early width >= 15 min");
+            Assert.LessOrEqual(res.Early.To, res.Late.From,
+                $"case {i} non-overlap Early.To ({res.Early.To}) <= Late.From ({res.Late.From})");
+            Assert.GreaterOrEqual(res.Late.To - res.Late.From, StationClock.ServiceMinSpan,
+                $"case {i} late width >= 15 min");
+            Assert.LessOrEqual(res.Late.To, StationClock.ServiceLatest,
+                $"case {i} late.To <= ServiceLatest");
+        }
+    }
+
+    [Test]
+    public void DemandShape24HourSweepKnobIsolationAndLegacySplitMigration() {
+        double GoldenShape(double h) {
+            double Gauss(double mu, double s) => Math.Exp(-((h - mu) * (h - mu)) / (2 * s * s));
+            return 0.06 + 1.0 * Gauss(8, 0.85) + 0.78 * Gauss(18, 1.05) + 0.18 * Gauss(12.5, 2.2);
+        }
+
+        // 24 h 5-min sweep: golden match, strictly positive, finite, and offday positive.
+        for (int m = 0; m <= 24 * 60; m += 5) {
+            double hour = m / 60.0;
+            double work = StationClock.DemandShape(hour, DemandKnobs.Default);
+            double off = StationClock.DemandShape(hour, DemandKnobs.DefaultOffday);
+            Assert.AreEqual(GoldenShape(hour), work, 1e-12, $"default workday DemandShape at {hour:F2}h");
+            Assert.Greater(work, 0, $"workday shape > 0 at {hour:F2}h");
+            Assert.Greater(off, 0, $"offday shape > 0 at {hour:F2}h");
+            Assert.IsFalse(double.IsNaN(work) || double.IsInfinity(work));
+            Assert.IsFalse(double.IsNaN(off) || double.IsInfinity(off));
+        }
+
+        // Peaks exceed midday and night.
+        double am = StationClock.DemandShape(8, DemandKnobs.Default);
+        double pm = StationClock.DemandShape(18, DemandKnobs.Default);
+        double midday = StationClock.DemandShape(12.5, DemandKnobs.Default);
+        double night = StationClock.DemandShape(3, DemandKnobs.Default);
+        Assert.Greater(am, StationClock.DemandShape(7.5, DemandKnobs.Default));
+        Assert.Greater(am, StationClock.DemandShape(9, DemandKnobs.Default));
+        Assert.Greater(am, pm, "AM peak exceeds PM peak by default");
+        Assert.Greater(pm, midday, "PM peak exceeds midday shelf");
+        Assert.Greater(midday, night, "midday shelf exceeds overnight floor");
+        Assert.Less(night, StationClock.DemandFloor + 0.001, "small hours sit near demand floor");
+        Assert.Less(StationClock.DemandShape(8, DemandKnobs.DefaultOffday), am, "offday lacks commute AM spike");
+
+        // Knob isolation: AmPeak, PmPeak, Sharpness.
+        var tallerAm = new DemandKnobs(1.5, DemandKnobs.Default.PmPeak, DemandKnobs.Default.Sharpness);
+        Assert.Greater(StationClock.DemandShape(8, tallerAm), am, "AmPeak raises 08:00");
+        Assert.AreEqual(pm, StationClock.DemandShape(18, tallerAm), 1e-12, "AmPeak leaves 18:00 alone");
+
+        var tallerPm = new DemandKnobs(DemandKnobs.Default.AmPeak, 1.5, DemandKnobs.Default.Sharpness);
+        Assert.Greater(StationClock.DemandShape(18, tallerPm), pm, "PmPeak raises 18:00");
+        Assert.AreEqual(am, StationClock.DemandShape(8, tallerPm), 1e-12, "PmPeak leaves 08:00 alone");
+
+        var steep = new DemandKnobs(DemandKnobs.Default.AmPeak, DemandKnobs.Default.PmPeak, 0.5);
+        var flat = new DemandKnobs(DemandKnobs.Default.AmPeak, DemandKnobs.Default.PmPeak, 2.0);
+        double DropOff(DemandKnobs k) => StationClock.DemandShape(8, k) - StationClock.DemandShape(9, k);
+        Assert.Greater(DropOff(steep), DropOff(DemandKnobs.Default), "steeper sharpness drops faster off-peak");
+        Assert.Less(DropOff(flat), DropOff(DemandKnobs.Default), "flatter sharpness holds crowd longer");
+        Assert.Less(StationClock.DemandShape(6, steep), StationClock.DemandShape(6, DemandKnobs.Default));
+        Assert.Greater(StationClock.DemandShape(9, flat), StationClock.DemandShape(9, DemandKnobs.Default));
+
+        // Period factor scaling.
+        Assert.AreEqual(am, StationClock.DemandAt(8, SimPeriod.Peak, DemandKnobs.Default), 1e-12);
+        Assert.AreEqual(am * 0.6, StationClock.DemandAt(8, SimPeriod.Offpeak, DemandKnobs.Default), 1e-12);
+        Assert.AreEqual(am * 0.25, StationClock.DemandAt(8, SimPeriod.Late, DemandKnobs.Default), 1e-12);
+
+        // Legacy single-curve migration: hasSplitCurves = false keeps workday curve and fills default offday.
+        var legacyRaw = new DayDemand(
+            new DemandKnobs(0.5, double.NaN, 1.256),
+            new DemandKnobs(2.2, 2.2, 0.5));
+        var migrated = StationClock.NormalizeDayDemand(legacyRaw, hasSplitCurves: false);
+        Assert.AreEqual(0.5, migrated.Workday.AmPeak, 1e-12, "legacy flat curve becomes workday AmPeak");
+        Assert.AreEqual(DemandKnobs.Default.PmPeak, migrated.Workday.PmPeak, 1e-12, "NaN falls back to workday default");
+        Assert.AreEqual(1.26, migrated.Workday.Sharpness, 1e-12, "rounded to two decimals");
+        Assert.AreEqual(DemandKnobs.DefaultOffday.AmPeak, migrated.Offday.AmPeak, 1e-12, "legacy migration installs DefaultOffday");
+        Assert.AreEqual(DemandKnobs.DefaultOffday.PmPeak, migrated.Offday.PmPeak, 1e-12);
+        Assert.AreEqual(DemandKnobs.DefaultOffday.Sharpness, migrated.Offday.Sharpness, 1e-12);
+
+        // Split curves repair each leg independently with its own defaults and clamp range.
+        var split = StationClock.NormalizeDayDemand(
+            new DayDemand(new DemandKnobs(99, double.NaN, 1.0), new DemandKnobs(double.NaN, 0.783333, 0.0)),
+            hasSplitCurves: true);
+        Assert.AreEqual(2.5, split.Workday.AmPeak, 1e-12, "clamped to upper limit 2.5");
+        Assert.AreEqual(DemandKnobs.Default.PmPeak, split.Workday.PmPeak, 1e-12);
+        Assert.AreEqual(DemandKnobs.DefaultOffday.AmPeak, split.Offday.AmPeak, 1e-12);
+        Assert.AreEqual(0.78, split.Offday.PmPeak, 1e-12, "two-decimal grain");
+        Assert.AreEqual(0.4, split.Offday.Sharpness, 1e-12, "sharpness floor 0.4 prevents spike");
+    }
 }

@@ -22,6 +22,7 @@
 
 import type { CubeProjection, CubeVector, CubeViewState, ViewCubeAdapter } from '../app/ViewCubeAdapter.ts'
 import { useStore } from '../app/store.ts'
+import { TouchZoom } from '../app/touchZoom.ts'
 import { stationBridge } from './stationBridge.ts'
 import type { StationBridge } from './stationBridge.ts'
 import { DOM_BUTTON, holdsButton, isBuildButton } from './pointerButtons.ts'
@@ -30,7 +31,7 @@ import { DOM_BUTTON, holdsButton, isBuildButton } from './pointerButtons.ts'
 export type CameraCommand =
   | { type: 'camera.orbit'; payload: { dx: number; dy: number; scale?: number } }
   | { type: 'camera.pan'; payload: { dx: number; dy: number } }
-  | { type: 'camera.zoom'; payload: { delta: number } }
+  | { type: 'camera.zoom'; payload: { delta: number } | { factor: number } }
   | { type: 'camera.snap'; payload: { face: string; direction: CubeVector; projection: CubeProjection } }
   | { type: 'camera.home'; payload: Record<string, never> }
   | { type: 'camera.frame'; payload: Record<string, never> }
@@ -69,6 +70,7 @@ export const cameraCommands = {
     ({ type: 'camera.orbit', payload: scale === undefined ? { dx, dy } : { dx, dy, scale } }),
   pan: (dx: number, dy: number): CameraCommand => ({ type: 'camera.pan', payload: { dx, dy } }),
   zoom: (delta: number): CameraCommand => ({ type: 'camera.zoom', payload: { delta } }),
+  zoomFactor: (factor: number): CameraCommand => ({ type: 'camera.zoom', payload: { factor } }),
   home: (): CameraCommand => ({ type: 'camera.home', payload: {} }),
   viewSet: (key: string, value: unknown): CameraCommand => ({ type: 'view.set', payload: { key, value } }),
 }
@@ -401,6 +403,8 @@ export function attachCanvasCameraGestures(
   let button = -1
   let x = 0
   let y = 0
+  const touchZoom = new TouchZoom()
+  const activeTouches = new Set<number>()
   const isBlocked = (): boolean => {
     try { return options.blocked ? options.blocked() : false } catch { return false }
   }
@@ -428,6 +432,14 @@ export function attachCanvasCameraGestures(
     isBuildButton(held) && holdsButton(event.buttons, held === DOM_BUTTON.left ? DOM_BUTTON.right : DOM_BUTTON.left)
 
   const down = (event: PointerEvent): void => {
+    if (event.pointerType === 'touch') {
+      if (isBlocked()) return
+      event.preventDefault()
+      activeTouches.add(event.pointerId)
+      touchZoom.down(event.pointerId, event.clientX, event.clientY)
+      try { canvas.setPointerCapture(event.pointerId) } catch { /* inside-canvas pinch still works */ }
+      return
+    }
     if (isBlocked()) return
     if (event.button !== DOM_BUTTON.middle && event.button !== DOM_BUTTON.right) return
     if (event.button === DOM_BUTTON.right && claimsRight()) return
@@ -442,6 +454,18 @@ export function attachCanvasCameraGestures(
     try { canvas.setPointerCapture(event.pointerId) } catch { /* the drag still works inside the canvas */ }
   }
   const move = (event: PointerEvent): void => {
+    if (event.pointerType === 'touch') {
+      if (isBlocked()) {
+        if (activeTouches.delete(event.pointerId)) touchZoom.cancel(event.pointerId)
+        return
+      }
+      event.preventDefault()
+      const factor = touchZoom.move(event.pointerId, event.clientX, event.clientY)
+      if (factor !== 1 && Number.isFinite(factor) && factor > 0) {
+        port.send(cameraCommands.zoomFactor(factor))
+      }
+      return
+    }
     if (!mode || event.pointerId !== pointer) return
     if (isBlocked()) {
       cancel()
@@ -472,6 +496,12 @@ export function attachCanvasCameraGestures(
     }
   }
   const up = (event: PointerEvent): void => {
+    if (event.pointerType === 'touch') {
+      activeTouches.delete(event.pointerId)
+      touchZoom.up(event.pointerId)
+      try { if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId) } catch { /* already released */ }
+      return
+    }
     if (event.pointerId !== pointer) return
     if (event.button !== button) {
       // A release of the **other build button** while this one is held is the chord that
@@ -483,6 +513,13 @@ export function attachCanvasCameraGestures(
     cancel()
     try { if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId) } catch { /* already released */ }
   }
+  const cancelPointer = (event: PointerEvent): void => {
+    if (event.pointerType === 'touch') {
+      if (activeTouches.delete(event.pointerId)) touchZoom.cancel(event.pointerId)
+      return
+    }
+    up(event)
+  }
   const wheel = (event: WheelEvent): void => {
     if (isBlocked()) return
     event.preventDefault()
@@ -493,16 +530,16 @@ export function attachCanvasCameraGestures(
   canvas.addEventListener('pointerdown', down)
   canvas.addEventListener('pointermove', move)
   canvas.addEventListener('pointerup', up)
-  canvas.addEventListener('pointercancel', up)
-  canvas.addEventListener('lostpointercapture', up)
+  canvas.addEventListener('pointercancel', cancelPointer)
+  canvas.addEventListener('lostpointercapture', cancelPointer)
   canvas.addEventListener('wheel', wheel, { passive: false })
   canvas.addEventListener('contextmenu', context)
   return () => {
     canvas.removeEventListener('pointerdown', down)
     canvas.removeEventListener('pointermove', move)
     canvas.removeEventListener('pointerup', up)
-    canvas.removeEventListener('pointercancel', up)
-    canvas.removeEventListener('lostpointercapture', up)
+    canvas.removeEventListener('pointercancel', cancelPointer)
+    canvas.removeEventListener('lostpointercapture', cancelPointer)
     canvas.removeEventListener('wheel', wheel)
     canvas.removeEventListener('contextmenu', context)
   }

@@ -581,6 +581,15 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
         if (picked.type === 'light') tools.setLightPosition(picked.cfg.position ?? 0)
         if (picked.type === 'floor-mark' && picked.cfg.variant === 'direction' && picked.cfg.line) tools.setRailLine(picked.cfg.line)
         if (picked.type === 'gate') tools.setGateDoor(picked.cfg.door ?? 'lane')
+        if (picked.type === 'glass' && optionId === 'curtain-wall') {
+          useStore.setState({
+            curtainWidth: Math.max(1, Math.min(4, picked.w)) as 1 | 2 | 3 | 4,
+            curtainHeight: picked.cfg.curtainHeight ?? 4,
+          })
+        }
+        if (picked.type === 'psd-end' && picked.cfg.variant !== 'cover' && picked.cfg.psd) {
+          useStore.setState({ psdEndHeight: picked.cfg.psd })
+        }
         tools.setTool('module')
       }
     }
