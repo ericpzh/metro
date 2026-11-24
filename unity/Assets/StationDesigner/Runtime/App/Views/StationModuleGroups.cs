@@ -716,7 +716,32 @@ namespace Metro.App.Views {
         [NonSerialized] internal int LastLodViewVersion = -1;
         [NonSerialized] internal bool LastLodOtherLevel;
         [NonSerialized] internal Vector3 LastLodOffset;
+        [NonSerialized] internal GameObject CachedGameObject;
+        [NonSerialized] internal Transform CachedTransform;
+        [NonSerialized] internal Material LastCheckedMaterial;
+        [NonSerialized] internal Mesh LastCheckedMesh;
+        [NonSerialized] internal bool CachedUseMeshLods;
         [NonSerialized] StationVisibilityTarget cachedVisibilityTarget;
+
+        void Awake() {
+            CachedGameObject = gameObject;
+            CachedTransform = transform;
+        }
+
+        void RefreshCachedHandles() {
+            CachedGameObject = gameObject;
+            CachedTransform = transform;
+            LastCheckedMesh = SharedMesh;
+            CachedUseMeshLods = SharedMesh != null && SharedMesh.lodCount > 1;
+            LastCheckedMaterial = null;
+            if (ProxyRenderer != null) {
+                var mat = ProxyRenderer.sharedMaterial;
+                if (mat != null) {
+                    if (!mat.enableInstancing) mat.enableInstancing = true;
+                    LastCheckedMaterial = mat;
+                }
+            }
+        }
 
         internal StationVisibilityTarget ResolveVisibilityTarget() {
             if (cachedVisibilityTarget != null) return cachedVisibilityTarget;
@@ -754,15 +779,29 @@ namespace Metro.App.Views {
             if (n == 0) {
                 Matrices = Array.Empty<Matrix4x4>();
                 DrawSlices = Array.Empty<Matrix4x4[]>();
+                WorldBounds = default;
+                RefreshCachedHandles();
                 return;
             }
             Matrices = matrices.ToArray();
+            if (sharedMesh != null) {
+                var localBounds = sharedMesh.bounds;
+                var wb = StationPrefabMeshTemplate.TransformBounds(localBounds, Matrices[0]);
+                for (int i = 1; i < n; i++) {
+                    wb.Encapsulate(StationPrefabMeshTemplate.TransformBounds(localBounds, Matrices[i]));
+                }
+                WorldBounds = wb;
+            } else {
+                WorldBounds = default;
+            }
+            RefreshCachedHandles();
             RebuildDrawSlices();
         }
 
         public Matrix4x4[][] ResolveDrawSlices() {
             if (!FollowTransformOffset || DrawSlices == null || DrawSlices.Length == 0) return DrawSlices;
-            var pos = transform.position;
+            var tr = CachedTransform != null ? CachedTransform : (CachedTransform = transform);
+            var pos = tr.position;
             if (hasAppliedOffset && pos == appliedOffset && offsetSlices != null) return offsetSlices;
             if (offsetSlices == null || offsetSlices.Length != DrawSlices.Length) {
                 offsetSlices = new Matrix4x4[DrawSlices.Length][];
@@ -797,16 +836,21 @@ namespace Metro.App.Views {
             int sourceCount,
             List<int> instanceSources) {
             SharedMesh = sharedMesh;
+            LastMeshLod = LastLodViewVersion = -1;
+            LastLodOtherLevel = false;
             SubmeshIndex = submeshIndex;
             ProxyRenderer = proxyRenderer;
             WorldBounds = worldBounds;
             hiddenSources = null;
+            offsetSlices = null;
+            hasAppliedOffset = false;
             int n = instances != null ? instances.Count : 0;
             if (n == 0) {
                 Matrices = Array.Empty<Matrix4x4>();
                 DrawSlices = Array.Empty<Matrix4x4[]>();
                 SourceStart = Array.Empty<int>();
                 SourceCount = Array.Empty<int>();
+                RefreshCachedHandles();
                 return;
             }
             Matrices = new Matrix4x4[n];
@@ -822,6 +866,7 @@ namespace Metro.App.Views {
                     SourceCount[src]++;
                 }
             }
+            RefreshCachedHandles();
             RebuildDrawSlices();
         }
 
@@ -899,7 +944,10 @@ namespace Metro.App.Views {
 
     /// <summary>Submits all active/enabled <see cref="StationInstancedSurfaceBatch"/> chunks for one station world.</summary>
     public sealed class StationInstancedSurfaceDrawer : MonoBehaviour {
+        public const float FrustumCullMargin = 0.25f;
+
         readonly List<StationInstancedSurfaceBatch> batches = new List<StationInstancedSurfaceBatch>();
+        readonly Plane[] frustumPlanes = new Plane[6];
         MaterialPropertyBlock propertyBlock;
         Vector3 lodCameraPosition;
         float lodFrustumHeight;
@@ -909,7 +957,12 @@ namespace Metro.App.Views {
         int lodProfileOtherLevelMinimum;
         bool lodOrthographic;
         int lodViewVersion;
+        bool hasFrustumPlanes;
         public bool PauseDuringExplodedView = true;
+
+        public int BatchCount => batches.Count;
+        public int LastSubmittedBatches { get; private set; }
+        public int LastFrustumCulledBatches { get; private set; }
 
         public static StationInstancedSurfaceDrawer EnsureFor(Transform worldRoot) {
             if (worldRoot == null) return null;
@@ -925,21 +978,99 @@ namespace Metro.App.Views {
             if (batch != null) batches.Remove(batch);
         }
 
+        public void SampleFrustum(Camera camera) {
+            if (camera == null) {
+                hasFrustumPlanes = false;
+                return;
+            }
+            GeometryUtility.CalculateFrustumPlanes(camera, frustumPlanes);
+            hasFrustumPlanes = true;
+        }
+
+        public bool IsBoundsInFrustum(in Bounds worldBounds, float margin = FrustumCullMargin) =>
+            !hasFrustumPlanes || IntersectsFrustum(frustumPlanes, in worldBounds, margin);
+
+        public static bool IntersectsFrustum(Plane[] planes, in Bounds bounds, float margin = FrustumCullMargin) {
+            if (planes == null || planes.Length < 6) return true;
+            var c = bounds.center;
+            var e = bounds.extents;
+            float ex = e.x + margin;
+            float ey = e.y + margin;
+            float ez = e.z + margin;
+            for (int p = 0; p < 6; p++) {
+                var plane = planes[p];
+                var n = plane.normal;
+                float radius = Mathf.Abs(n.x) * ex + Mathf.Abs(n.y) * ey + Mathf.Abs(n.z) * ez;
+                float dist = n.x * c.x + n.y * c.y + n.z * c.z + plane.distance;
+                if (dist + radius < 0f) return false;
+            }
+            return true;
+        }
+
         void LateUpdate() {
-            if (PauseDuringExplodedView && StationExplodedView.IsStandaloneActive) return;
-            Camera lodCamera = null;
-            bool lodCameraSampled = false;
-            for (int i = 0; i < batches.Count; i++) {
+            SubmitNow(cameraOverride: null);
+        }
+
+        public void SubmitNow(Camera cameraOverride = null) {
+            if (cameraOverride == null && PauseDuringExplodedView && StationExplodedView.IsStandaloneActive) return;
+            LastSubmittedBatches = 0;
+            LastFrustumCulledBatches = 0;
+            int batchCount = batches.Count;
+            if (batchCount == 0) return;
+
+            Camera activeCamera = cameraOverride != null
+                ? cameraOverride
+                : (StationExplodedView.IsStandaloneActive
+                    ? StationViewFeature.ActiveExploded?.ViewerCamera
+                    : StationViewFeature.Active?.viewCamera ?? Camera.main);
+            if (activeCamera != null) {
+                SampleLodView(activeCamera);
+                SampleFrustum(activeCamera);
+            } else {
+                hasFrustumPlanes = false;
+            }
+
+#if !UNITY_WEBGL
+            bool suppressStandaloneShadows = Application.isPlaying && !Application.isEditor;
+#endif
+            for (int i = 0; i < batchCount; i++) {
                 var batch = batches[i];
                 if (batch == null) continue;
-                var go = batch.gameObject;
-                if (!go.activeInHierarchy) continue;
-                var renderer = batch.ProxyRenderer;
-                if (renderer == null || !renderer.enabled) continue;
-                var mat = renderer.sharedMaterial;
+                var rawSlices = batch.DrawSlices;
+                if (rawSlices == null || rawSlices.Length == 0) continue;
                 var mesh = batch.SharedMesh;
-                if (mat == null || mesh == null) continue;
-                if (!mat.enableInstancing) mat.enableInstancing = true;
+                var renderer = batch.ProxyRenderer;
+                if (mesh == null || renderer == null || !renderer.enabled) continue;
+                var go = batch.CachedGameObject;
+                if (go == null) go = batch.CachedGameObject = batch.gameObject;
+                if (!go.activeInHierarchy) continue;
+
+                var bounds = batch.WorldBounds;
+                var offset = Vector3.zero;
+                if (batch.FollowTransformOffset) {
+                    var tr = batch.CachedTransform;
+                    if (tr == null) tr = batch.CachedTransform = batch.transform;
+                    offset = tr.position;
+                    bounds.center += offset;
+                }
+                if (hasFrustumPlanes && bounds.size.sqrMagnitude > 1e-8f &&
+                    !IntersectsFrustum(frustumPlanes, in bounds, FrustumCullMargin)) {
+                    LastFrustumCulledBatches++;
+                    continue;
+                }
+
+                var mat = renderer.sharedMaterial;
+                if (mat == null) continue;
+                if (!ReferenceEquals(mat, batch.LastCheckedMaterial)) {
+                    if (!mat.enableInstancing) mat.enableInstancing = true;
+                    batch.LastCheckedMaterial = mat;
+                }
+                if (!ReferenceEquals(mesh, batch.LastCheckedMesh)) {
+                    batch.CachedUseMeshLods = mesh.lodCount > 1;
+                    batch.LastCheckedMesh = mesh;
+                }
+                bool useMeshLods = batch.CachedUseMeshLods;
+
                 MaterialPropertyBlock block = null;
                 if (renderer.HasPropertyBlock()) {
                     propertyBlock ??= new MaterialPropertyBlock();
@@ -947,25 +1078,14 @@ namespace Metro.App.Views {
                     block = propertyBlock;
                 }
                 int layer = go.layer;
-                bool useMeshLods = mesh.lodCount > 1;
                 var renderParams = default(RenderParams);
                 var shadowMode = batch.ShadowCasting;
 #if !UNITY_WEBGL
-                if (Application.isPlaying && !Application.isEditor)
+                if (suppressStandaloneShadows)
                     shadowMode = UnityEngine.Rendering.ShadowCastingMode.Off;
 #endif
                 if (useMeshLods) {
-                    if (!lodCameraSampled) {
-                        lodCamera = StationExplodedView.IsStandaloneActive
-                            ? StationViewFeature.ActiveExploded?.ViewerCamera
-                            : StationViewFeature.Active?.viewCamera ?? Camera.main;
-                        if (lodCamera != null) SampleLodView(lodCamera);
-                        lodCameraSampled = true;
-                    }
-                    var bounds = batch.WorldBounds;
-                    var offset = batch.FollowTransformOffset ? go.transform.position : Vector3.zero;
-                    bounds.center += offset;
-                    int tier = lodCamera != null
+                    int tier = activeCamera != null
                         ? SelectMeshLod(mesh, batch, bounds, offset)
                         : (batch.ResolveVisibilityTarget() is { OtherLevelLod: true }
                             ? StationGraphicsSettings.OtherLevelTier(mesh.lodCount)
@@ -979,16 +1099,19 @@ namespace Metro.App.Views {
                         forceMeshLod = tier,
                     };
                 }
-                var slices = batch.ResolveDrawSlices();
+                var slices = batch.FollowTransformOffset ? batch.ResolveDrawSlices() : rawSlices;
+                bool submittedAny = false;
                 for (int s = 0; s < slices.Length; s++) {
                     var slice = slices[s];
                     if (slice == null || slice.Length == 0) continue;
+                    submittedAny = true;
                     if (useMeshLods)
                         Graphics.RenderMeshInstanced(renderParams, mesh, batch.SubmeshIndex, slice, slice.Length);
                     else
                         Graphics.DrawMeshInstanced(mesh, batch.SubmeshIndex, mat, slice, slice.Length, block,
                             shadowMode, true, layer);
                 }
+                if (submittedAny) LastSubmittedBatches++;
             }
         }
 
@@ -2815,7 +2938,7 @@ namespace Metro.App.Views {
         public override string Role => StationModuleClaims.Equipment;
 
         const int EquipChunkSize = 64;
-        const int EquipBatchThreshold = 6;
+        const int EquipBatchThreshold = 3;
 
         static int EquipChunkCoord(int value) => value >= 0 ? value / EquipChunkSize : (value - (EquipChunkSize - 1)) / EquipChunkSize;
 
@@ -3162,6 +3285,21 @@ namespace Metro.App.Views {
                 }
                 if (module.Type == "court") {
                     PlaceCourt(context, module, entry, key, state);
+                    continue;
+                }
+                if (batchCache.Templates != null &&
+                    batchCache.Templates.TryGetTemplate(entry.prefab, out var compactTemplate) &&
+                    compactTemplate.TryInstantiateCompacted(
+                        context.RoleRoot(Role),
+                        (string.IsNullOrEmpty(module.Id) ? "module" : module.Id) + " " + module.Type,
+                        ModulePlacement.Resolve(context.Index != null ? context.Index.GetModule(module.Id) : null, entry, context.Index),
+                        ModulePlacement.Rotation(module.Rotation),
+                        out var compactedGo)) {
+                    context.World.RegisterModule(Role, module.Id, compactedGo, "", null, module.Z, module.Z + 1);
+                    var built = new BuiltModule { ModuleId = module.Id, Type = module.Type, View = compactedGo, Key = key };
+                    state.Modules.Add(built);
+                    if (!string.IsNullOrEmpty(module.Id)) state.ById[module.Id] = built;
+                    state.Count++;
                     continue;
                 }
                 Place(context, module, entry, key, state);

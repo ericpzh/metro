@@ -22,8 +22,9 @@ Categorized index of every `*.test.mjs` file in `game/test/`, shared helpers, an
 |---|---|
 | `layering.test.mjs` | One-way `app/ -> render/ -> sim/`; `sim/` DOM/three/React-free |
 | `scene-wiring.test.mjs` [P] | `SceneRenderer` sibling wiring, atlas drain, coalescing, fast paths |
-| `benchmark-route.test.mjs` | Benchmark quality route without overwriting saved game preference |
-| `benchmark-stats.test.mjs` | Benchmark FPS and 1% low calculations from frame intervals |
+| `benchmark-camera-tour.test.mjs` | LOD0 close-up tour (`D ∈ [10, 15] m`), ±5 m `Q`/`E` hotspots, 7/60/240 FPS + stall invariance, Web↔Unity bounds convergence |
+| `benchmark-route.test.mjs` | Benchmark quality isolation, `FrameTimeChart`, `tour` mode wiring, pure-DOM station selector guard (no `<select>`) |
+| `benchmark-stats.test.mjs` | Benchmark FPS, 1% low, and `FrameTimeChart` ceiling/SVG path math from frame intervals |
 | `editor-action-benchmark.test.mjs` | Action-benchmark manifest for all palette subtypes, settings, demos |
 | `editor-action-matrix.test.mjs` | Focused action-matrix merging, ordering, incomplete-run refusal |
 | `editor-build-fingerprint.test.mjs` | Canonical build/audit source hash and stale-input detection |

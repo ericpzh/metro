@@ -15,20 +15,47 @@ namespace Metro.App {
         public const string ContributorKey = "statistics";
 
         readonly Func<StationSimulationSession> sessionSource;
+        readonly Func<StationSimulationHost> hostSource;
 
         public StationStatisticsStateContributor(Func<StationSimulationSession> sessionSource) {
             this.sessionSource = sessionSource ?? throw new ArgumentNullException(nameof(sessionSource));
+        }
+
+        public StationStatisticsStateContributor(Func<StationSimulationHost> hostSource) {
+            this.hostSource = hostSource ?? throw new ArgumentNullException(nameof(hostSource));
+            sessionSource = () => this.hostSource()?.Session;
         }
 
         public string Key => ContributorKey;
 
         public JObject BuildPayload(StationDocument document, StationIndex index) {
             if (document == null) return UnavailablePayload();
-            var host = StationGameHost.ResolveActive();
-            if (host?.Simulation is StationSimulationHost simHost) {
+            var simHost = hostSource != null
+                ? hostSource()
+                : StationGameHost.ResolveActive()?.Simulation as StationSimulationHost;
+            if (simHost != null && (hostSource != null || ReferenceEquals(simHost.Session, sessionSource()))) {
+                var published = simHost.PublishedFrame;
+                if (published?.Statistics != null) {
+                    return BuildFromPublished(published.Statistics);
+                }
                 return simHost.WithSessionLock(s => BuildFromSession(s), UnavailablePayload());
             }
             return BuildFromSession(sessionSource());
+        }
+
+        public static JObject BuildFromPublished(StationPublishedStatistics published) {
+            if (published == null) return UnavailablePayload();
+            return new JObject {
+                ["available"] = true,
+                ["runId"] = published.RunId ?? "",
+                ["metrics"] = BuildMetricsPayload(in published.Metrics),
+                ["history"] = new JObject {
+                    ["count"] = published.HistoryCount,
+                    ["start"] = published.HistoryStart,
+                    ["step"] = published.HistoryStep,
+                    ["stride"] = StationStatisticsHistory.Stride,
+                },
+            };
         }
 
         static JObject BuildFromSession(StationSimulationSession session) {
@@ -227,10 +254,11 @@ namespace Metro.App {
 
         public static void Attach(StationGameHost stationHost) {
             if (!stationHost) return;
-            Func<StationSimulationSession> resolveSession = () => (stationHost.Simulation as StationSimulationHost)?.Session;
+            Func<StationSimulationHost> resolveHost = () => stationHost.Simulation as StationSimulationHost;
+            Func<StationSimulationSession> resolveSession = () => resolveHost()?.Session;
             var handler = new StationStatisticsCommandHandler(resolveSession);
             ActiveHandler = handler;
-            stationHost.RegisterStateContributor(new StationStatisticsStateContributor(resolveSession));
+            stationHost.RegisterStateContributor(new StationStatisticsStateContributor(resolveHost));
             stationHost.RegisterCommandHandler(handler);
         }
     }

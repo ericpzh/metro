@@ -479,6 +479,36 @@ export class CameraSystem extends SceneSystem {
   }
 
   /**
+   * Pan camera and aim across the ground plane by fractions of the visible frustum
+   * height, matching Unity's `StationCameraController.PanByPixels` scaled by
+   * viewport height. Moving eye and target together preserves orbit angle and zoom.
+   */
+  panByScreenFraction(rightFraction: number, forwardFraction: number): void {
+    if (this.eyeView || !Number.isFinite(rightFraction) || !Number.isFinite(forwardFraction)) return
+    if (rightFraction === 0 && forwardFraction === 0) return
+    const distance = this.camera.position.distanceTo(this.controls.target)
+    const span = this.orthoOn
+      ? 2 * Math.max(0.1, this.ortho.top)
+      : 2 * distance * Math.tan(THREE.MathUtils.degToRad(this.camera.fov) * 0.5)
+    const dir = new THREE.Vector3()
+    this.camera.getWorldDirection(dir)
+    dir.z = 0
+    if (dir.lengthSq() < 1e-6) {
+      dir.set(0, 1, 0).applyQuaternion(this.camera.quaternion)
+      dir.z = 0
+    }
+    if (dir.lengthSq() < 1e-12) dir.set(0, 1, 0)
+    dir.normalize()
+    const right = new THREE.Vector3(dir.y, -dir.x, 0)
+    const move = new THREE.Vector3()
+      .addScaledVector(right, rightFraction * span)
+      .addScaledVector(dir, forwardFraction * span)
+    this.camera.position.add(move)
+    this.controls.target.add(move)
+    this.controls.update()
+  }
+
+  /**
    * Move the camera across the world's XY plane. `panInput` blends WASD (Shift
    * = faster) with the mouse edge band; the pan is camera-relative, so it
    * follows the orbit. Q/E are the layer step and live in the app; the camera's

@@ -121,6 +121,24 @@ namespace Metro.App.Views {
             public ShadowCastingMode Shadow;
             public readonly List<CombineInstance> Combines = new List<CombineInstance>();
             public int VertexCount;
+            public int MaxLodCount = 1;
+            public bool HasSelectionCurve;
+            public Mesh.LodSelectionCurve SelectionCurve;
+        }
+
+        sealed class SourceMeshBuffers {
+            public Vector3[] Vertices;
+            public Vector3[] Normals;
+            public Vector4[] Tangents;
+            public Vector2[] Uv0;
+            public Vector2[] Uv1;
+            public Color[] Colors;
+        }
+
+        sealed class ReferenceMeshComparer : IEqualityComparer<Mesh> {
+            public static readonly ReferenceMeshComparer Instance = new ReferenceMeshComparer();
+            public bool Equals(Mesh x, Mesh y) => ReferenceEquals(x, y);
+            public int GetHashCode(Mesh obj) => obj == null ? 0 : System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(obj);
         }
 
         static bool IsActiveInPrefab(Transform node, Transform prefabRoot) {
@@ -130,6 +148,301 @@ namespace Metro.App.Views {
                 if (cur == prefabRoot) return true;
                 cur = cur.parent;
             }
+            return true;
+        }
+
+        /// <summary>
+        /// Combine readable triangle <see cref="CombineInstance"/> entries into one <see cref="Mesh"/>,
+        /// preserving up to <paramref name="maxLodCount"/> Unity 6 mesh LOD index ranges (including mixed
+        /// multi-LOD and single-LOD inputs, where single-LOD inputs reuse LOD 0 across coarser tiers).
+        /// </summary>
+        internal static bool TryCombineBucketMesh(
+            string meshName,
+            IReadOnlyList<CombineInstance> combines,
+            int maxLodCount,
+            bool hasSelectionCurve,
+            Mesh.LodSelectionCurve selectionCurve,
+            int vertexCountEstimate,
+            out Mesh merged) {
+            merged = null;
+            if (combines == null || combines.Count == 0) return false;
+
+            if (maxLodCount <= 1) {
+                var arr = combines is List<CombineInstance> list ? list.ToArray() : CopyArray(combines);
+                var singleLod = new Mesh {
+                    name = meshName,
+                    indexFormat = vertexCountEstimate > 65534 ? IndexFormat.UInt32 : IndexFormat.UInt16,
+                };
+                singleLod.CombineMeshes(arr, mergeSubMeshes: true, useMatrices: true);
+                singleLod.RecalculateBounds();
+                merged = singleLod;
+                return true;
+            }
+
+            var sourceCache = new Dictionary<Mesh, SourceMeshBuffers>(ReferenceMeshComparer.Instance);
+            bool anyNormals = false;
+            bool anyTangents = false;
+            bool anyUv0 = false;
+            bool anyUv1 = false;
+            bool anyColors = false;
+
+            for (int i = 0; i < combines.Count; i++) {
+                var m = combines[i].mesh;
+                if (m == null || !m.isReadable) return false;
+                if (sourceCache.ContainsKey(m)) continue;
+                var verts = m.vertices;
+                if (verts == null || verts.Length == 0) {
+                    sourceCache[m] = new SourceMeshBuffers();
+                    continue;
+                }
+                int vc = verts.Length;
+                var norms = m.normals;
+                if (norms == null || norms.Length != vc) norms = null; else anyNormals = true;
+                var tangs = m.tangents;
+                if (tangs == null || tangs.Length != vc) tangs = null; else anyTangents = true;
+                var u0 = m.uv;
+                if (u0 == null || u0.Length != vc) u0 = null; else anyUv0 = true;
+                var u1 = m.uv2;
+                if (u1 == null || u1.Length != vc) u1 = null; else anyUv1 = true;
+                var cols = m.colors;
+                if (cols == null || cols.Length != vc) cols = null; else anyColors = true;
+                sourceCache[m] = new SourceMeshBuffers {
+                    Vertices = verts,
+                    Normals = norms,
+                    Tangents = tangs,
+                    Uv0 = u0,
+                    Uv1 = u1,
+                    Colors = cols,
+                };
+            }
+
+            int cap = Math.Max(16, vertexCountEstimate);
+            var positions = new List<Vector3>(cap);
+            var normals = anyNormals ? new List<Vector3>(cap) : null;
+            var tangents = anyTangents ? new List<Vector4>(cap) : null;
+            var uv0s = anyUv0 ? new List<Vector2>(cap) : null;
+            var uv1s = anyUv1 ? new List<Vector2>(cap) : null;
+            var colors = anyColors ? new List<Color>(cap) : null;
+
+            var lodIndices = new List<int>[maxLodCount];
+            var tmpLodTris = new List<int>[maxLodCount];
+            for (int l = 0; l < maxLodCount; l++) {
+                lodIndices[l] = new List<int>();
+                tmpLodTris[l] = new List<int>();
+            }
+
+            Dictionary<int, int> remap = null;
+            for (int i = 0; i < combines.Count; i++) {
+                var item = combines[i];
+                var m = item.mesh;
+                if (m == null || !sourceCache.TryGetValue(m, out var src) || src.Vertices == null) continue;
+                int sub = item.subMeshIndex;
+                if (sub < 0 || sub >= m.subMeshCount) continue;
+                int srcLodCount = Math.Max(1, m.lodCount);
+
+                bool anyTris = false;
+                for (int l = 0; l < maxLodCount; l++) {
+                    var tmp = tmpLodTris[l];
+                    tmp.Clear();
+                    if (srcLodCount > 1) {
+                        int srcLod = Math.Min(l, srcLodCount - 1);
+                        m.GetTriangles(tmp, sub, srcLod);
+                    } else {
+                        m.GetTriangles(tmp, sub);
+                    }
+                    if (tmp.Count >= 3) anyTris = true;
+                }
+                if (!anyTris) continue;
+
+                var mtx = item.transform;
+                float det = mtx.determinant;
+                bool flipWinding = det < 0f;
+                var normalMtx = Mathf.Abs(det) > 1e-8f ? mtx.inverse.transpose : mtx;
+                var srcVerts = src.Vertices;
+                var srcNorms = src.Normals;
+                var srcTangs = src.Tangents;
+                var srcUv0 = src.Uv0;
+                var srcUv1 = src.Uv1;
+                var srcCols = src.Colors;
+                int srcVertCount = srcVerts.Length;
+
+                void AppendVertex(int v) {
+                    positions.Add(mtx.MultiplyPoint3x4(srcVerts[v]));
+                    if (anyNormals) {
+                        if (srcNorms != null) {
+                            var n = normalMtx.MultiplyVector(srcNorms[v]);
+                            float magSq = n.sqrMagnitude;
+                            normals.Add(magSq > 1e-12f ? n / Mathf.Sqrt(magSq) : Vector3.up);
+                        } else {
+                            normals.Add(Vector3.up);
+                        }
+                    }
+                    if (anyTangents) {
+                        if (srcTangs != null) {
+                            var t = srcTangs[v];
+                            var dir = mtx.MultiplyVector(new Vector3(t.x, t.y, t.z));
+                            float magSq = dir.sqrMagnitude;
+                            if (magSq > 1e-12f) dir /= Mathf.Sqrt(magSq);
+                            else dir = Vector3.right;
+                            tangents.Add(new Vector4(dir.x, dir.y, dir.z, flipWinding ? -t.w : t.w));
+                        } else {
+                            tangents.Add(new Vector4(1f, 0f, 0f, 1f));
+                        }
+                    }
+                    if (anyUv0) uv0s.Add(srcUv0 != null ? srcUv0[v] : Vector2.zero);
+                    if (anyUv1) uv1s.Add(srcUv1 != null ? srcUv1[v] : Vector2.zero);
+                    if (anyColors) colors.Add(srcCols != null ? srcCols[v] : Color.white);
+                }
+
+                if (m.subMeshCount <= 1) {
+                    int baseVertex = positions.Count;
+                    for (int v = 0; v < srcVertCount; v++) AppendVertex(v);
+                    for (int l = 0; l < maxLodCount; l++) {
+                        var srcT = tmpLodTris[l];
+                        var dstT = lodIndices[l];
+                        int triEnd = srcT.Count - (srcT.Count % 3);
+                        for (int k = 0; k < triEnd; k += 3) {
+                            int i0 = srcT[k];
+                            int i1 = srcT[flipWinding ? k + 2 : k + 1];
+                            int i2 = srcT[flipWinding ? k + 1 : k + 2];
+                            if ((uint)i0 >= (uint)srcVertCount || (uint)i1 >= (uint)srcVertCount || (uint)i2 >= (uint)srcVertCount) continue;
+                            dstT.Add(baseVertex + i0);
+                            dstT.Add(baseVertex + i1);
+                            dstT.Add(baseVertex + i2);
+                        }
+                    }
+                } else {
+                    if (remap == null) remap = new Dictionary<int, int>(tmpLodTris[0].Count);
+                    else remap.Clear();
+
+                    int MapVertex(int v) {
+                        if (!remap.TryGetValue(v, out int mapped)) {
+                            mapped = positions.Count;
+                            remap[v] = mapped;
+                            AppendVertex(v);
+                        }
+                        return mapped;
+                    }
+
+                    for (int l = 0; l < maxLodCount; l++) {
+                        var srcT = tmpLodTris[l];
+                        var dstT = lodIndices[l];
+                        int triEnd = srcT.Count - (srcT.Count % 3);
+                        for (int k = 0; k < triEnd; k += 3) {
+                            int i0 = srcT[k];
+                            int i1 = srcT[flipWinding ? k + 2 : k + 1];
+                            int i2 = srcT[flipWinding ? k + 1 : k + 2];
+                            if ((uint)i0 >= (uint)srcVertCount || (uint)i1 >= (uint)srcVertCount || (uint)i2 >= (uint)srcVertCount) continue;
+                            dstT.Add(MapVertex(i0));
+                            dstT.Add(MapVertex(i1));
+                            dstT.Add(MapVertex(i2));
+                        }
+                    }
+                }
+            }
+
+            if (positions.Count == 0 || lodIndices[0].Count < 3) return false;
+
+            int totalIndices = 0;
+            for (int l = 0; l < maxLodCount; l++) totalIndices += lodIndices[l].Count;
+            var packed = new List<int>(totalIndices);
+            var ranges = new MeshLodRange[maxLodCount];
+            uint cursor = 0;
+            for (int l = 0; l < maxLodCount; l++) {
+                var list = lodIndices[l];
+                ranges[l] = new MeshLodRange(cursor, (uint)list.Count);
+                packed.AddRange(list);
+                cursor += (uint)list.Count;
+            }
+
+            var combined = new Mesh {
+                name = meshName,
+                indexFormat = positions.Count > 65534 ? IndexFormat.UInt32 : IndexFormat.UInt16,
+            };
+            combined.SetVertices(positions);
+            if (anyNormals) combined.SetNormals(normals);
+            if (anyTangents) combined.SetTangents(tangents);
+            if (anyUv0) combined.SetUVs(0, uv0s);
+            if (anyUv1) combined.SetUVs(1, uv1s);
+            if (anyColors) combined.SetColors(colors);
+            combined.SetTriangles(packed, 0, calculateBounds: false);
+            combined.lodCount = maxLodCount;
+            combined.SetLods(ranges, 0);
+            if (hasSelectionCurve) combined.lodSelectionCurve = selectionCurve;
+            combined.RecalculateBounds();
+            merged = combined;
+            return true;
+        }
+
+        static CombineInstance[] CopyArray(IReadOnlyList<CombineInstance> items) {
+            var arr = new CombineInstance[items.Count];
+            for (int i = 0; i < items.Count; i++) arr[i] = items[i];
+            return arr;
+        }
+
+        internal static bool TryDecomposeTrs(Matrix4x4 m, out Vector3 position, out Quaternion rotation, out Vector3 scale) {
+            position = new Vector3(m.m03, m.m13, m.m23);
+            rotation = Quaternion.identity;
+            scale = Vector3.one;
+            float det = m.determinant;
+            if (det <= 1e-8f) return false;
+            var c0 = new Vector3(m.m00, m.m10, m.m20);
+            var c1 = new Vector3(m.m01, m.m11, m.m21);
+            var c2 = new Vector3(m.m02, m.m12, m.m22);
+            float sx = c0.magnitude;
+            float sy = c1.magnitude;
+            float sz = c2.magnitude;
+            if (sx <= 1e-6f || sy <= 1e-6f || sz <= 1e-6f) return false;
+            var r0 = c0 / sx;
+            var r1 = c1 / sy;
+            var r2 = c2 / sz;
+            if (Mathf.Abs(Vector3.Dot(r0, r1)) > 1e-3f ||
+                Mathf.Abs(Vector3.Dot(r0, r2)) > 1e-3f ||
+                Mathf.Abs(Vector3.Dot(r1, r2)) > 1e-3f) return false;
+            rotation = Quaternion.LookRotation(r2, r1);
+            scale = new Vector3(sx, sy, sz);
+            return true;
+        }
+
+        /// <summary>
+        /// Instantiate a single unbatched module using this template's material-merged parts
+        /// instead of cloning dozens of source prefab child renderers. Never mutates source materials.
+        /// </summary>
+        public bool TryInstantiateCompacted(
+            Transform parent,
+            string name,
+            Vector3 worldPosition,
+            Quaternion worldRotation,
+            out GameObject root) {
+            root = null;
+            if (Parts == null || Parts.Length == 0) return false;
+            for (int i = 0; i < Parts.Length; i++) {
+                var part = Parts[i];
+                if (part.Mesh == null || part.SourceMaterial == null) return false;
+                if (part.SubmeshIndex != 0 || part.Mesh.subMeshCount != 1) return false;
+                if (!part.LocalMatrix.isIdentity && !TryDecomposeTrs(part.LocalMatrix, out _, out _, out _)) return false;
+            }
+            var go = new GameObject(string.IsNullOrEmpty(name) ? "module" : name);
+            go.transform.SetParent(parent, false);
+            go.transform.localScale = PrefabLocalScale;
+            go.transform.SetPositionAndRotation(worldPosition, worldRotation);
+            for (int i = 0; i < Parts.Length; i++) {
+                var part = Parts[i];
+                var child = new GameObject("part " + i, typeof(MeshFilter), typeof(MeshRenderer));
+                child.transform.SetParent(go.transform, false);
+                if (!part.LocalMatrix.isIdentity &&
+                    TryDecomposeTrs(part.LocalMatrix, out var lp, out var lr, out var ls)) {
+                    child.transform.localPosition = lp;
+                    child.transform.localRotation = lr;
+                    child.transform.localScale = ls;
+                }
+                child.GetComponent<MeshFilter>().sharedMesh = part.Mesh;
+                var mr = child.GetComponent<MeshRenderer>();
+                mr.sharedMaterial = part.SourceMaterial;
+                mr.shadowCastingMode = part.ShadowCasting;
+                mr.receiveShadows = true;
+            }
+            root = go;
             return true;
         }
 
@@ -167,12 +480,13 @@ namespace Metro.App.Views {
                 else combinedLocal.Encapsulate(partBounds);
 
                 int subCount = Math.Max(1, mesh.subMeshCount);
+                int meshLodCount = Math.Max(1, mesh.lodCount);
                 for (int s = 0; s < subCount; s++) {
                     var mat = mats[Math.Min(s, mats.Length - 1)];
                     if (mat == null) continue;
                     var topo = mesh.GetTopology(s);
                     bool isTri = topo == MeshTopology.Triangles;
-                    if (isTri && mesh.isReadable && mesh.lodCount <= 1) {
+                    if (isTri && mesh.isReadable) {
                         var key = new MaterialGroupKey(mat, renderer.shadowCastingMode);
                         if (!groups.TryGetValue(key, out var bucket)) {
                             bucket = new CombineBucket { Material = mat, Shadow = renderer.shadowCastingMode };
@@ -185,6 +499,11 @@ namespace Metro.App.Views {
                             transform = localToRoot,
                         });
                         bucket.VertexCount += mesh.vertexCount;
+                        if (meshLodCount > bucket.MaxLodCount) bucket.MaxLodCount = meshLodCount;
+                        if (!bucket.HasSelectionCurve && meshLodCount > 1) {
+                            bucket.HasSelectionCurve = true;
+                            bucket.SelectionCurve = mesh.lodSelectionCurve;
+                        }
                     } else {
                         passthrough.Add(new Part(
                             mesh,
@@ -215,21 +534,31 @@ namespace Metro.App.Views {
                         isTriangleTopology: true));
                     continue;
                 }
-                var merged = new Mesh {
-                    name = prefab.name + " [" + (bucket.Material != null ? bucket.Material.name : "mat") + "]",
-                    indexFormat = bucket.VertexCount > 65535 ? IndexFormat.UInt32 : IndexFormat.UInt16,
-                };
-                merged.CombineMeshes(bucket.Combines.ToArray(), mergeSubMeshes: true, useMatrices: true);
-                merged.RecalculateBounds();
-                ownedMeshes?.Add(merged);
-                parts.Add(new Part(
-                    merged,
-                    0,
-                    Matrix4x4.identity,
-                    bucket.Material,
-                    bucket.Shadow,
-                    merged.bounds,
-                    isTriangleTopology: true));
+                string mergedName = prefab.name + " [" + (bucket.Material != null ? bucket.Material.name : "mat") + "]";
+                if (TryCombineBucketMesh(mergedName, bucket.Combines, bucket.MaxLodCount,
+                        bucket.HasSelectionCurve, bucket.SelectionCurve, bucket.VertexCount, out var merged)) {
+                    ownedMeshes?.Add(merged);
+                    parts.Add(new Part(
+                        merged,
+                        0,
+                        Matrix4x4.identity,
+                        bucket.Material,
+                        bucket.Shadow,
+                        merged.bounds,
+                        isTriangleTopology: true));
+                } else {
+                    for (int c = 0; c < bucket.Combines.Count; c++) {
+                        var item = bucket.Combines[c];
+                        parts.Add(new Part(
+                            item.mesh,
+                            item.subMeshIndex,
+                            item.transform,
+                            bucket.Material,
+                            bucket.Shadow,
+                            item.mesh.bounds,
+                            isTriangleTopology: true));
+                    }
+                }
             }
             for (int p = 0; p < passthrough.Count; p++) parts.Add(passthrough[p]);
 

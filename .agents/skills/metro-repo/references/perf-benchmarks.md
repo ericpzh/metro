@@ -19,7 +19,15 @@ measurement. See [performance.md](performance.md) for engineering rules,
   `/game/unity/benchmark`): 30 s at 16× speed, 2/3 camera-distance factor —
   Regular Zoo (ground hidden at `−15 m`, TOP/N/W corner), Regular Tanwei
   (default opening level, Hide UI), Regular Tianhe (`−5 m` concourse, isometric
-  camera).
+  camera), Exploded (`explode`), and **Camera tour** (`tour`,
+  `game/src/app/benchmark/benchmarkCameraTour.ts`, verified by
+  `game/test/benchmark-camera-tour.test.mjs`: opens at the 2/3 overview, glides
+  onto the opening storey hotspot, zooms way in (`0.95–3.4 s`) to `13.5 m` (full
+  LOD0), and stays within `13.2–14.2 m` across deterministic framerate-invariant
+  world-space pans, orbits, and `Q`/`E` ±5 m populated-storey switches +
+  `frame()` across every built floor of Zoo, Tanwei, and Tianhe Park, with live
+  initial-pose normalization so Web (`groundWindow`) and Unity (`StationIndex`)
+  bounds converge to identical 3D world poses).
 
 ## Web (Three.js) commands
 
@@ -78,6 +86,10 @@ Run via `unity/scripts/metro-editor.ps1 test -Mode <EditMode|PlayMode> -TestFilt
 | `StationModelLodTests` | EditMode | 3-tier profiles, non-active step-down & train/rail LOD ranges |
 | `StationFsrSettingsTests` | EditMode | Runtime FSR 1.0 settings & bridge persistence |
 | `StationCrowdStateTests` | EditMode | Crowd animation skipping & fixed `localBounds` |
+| `StationPerfLockFreeAndTvTests` | EditMode | Lock-free `PublishedFrame` crowd/statistics state, deferred PlayMode TV repaint budget, RT pool & silent audio gate |
+| `StationPerfCrowdHotPathTests` | EditMode | Managed frustum culling via `forceRenderingOff`, O(N) two-pointer tick interpolation & clip/support caches |
+| `StationPerfEscalatorInstancingTests` | EditMode | Zero per-step `MeshRenderer`s, `EscalatorStepInstancedDrawer` matrix parity, visibility/section clip & >1,023 chunking |
+| `StationPerfStaticBatchingTests` | EditMode | Multi-LOD `StationPrefabBatch` combining, frustum-culled instancing, `EquipBatchThreshold = 3`, PSD merging & `psd-end:cover` batching |
 | `StationBenchmarkRecorderTests` | EditMode | Native frame recorder commands & `-benchmark` route parsing |
 | `StationRoadTests` | EditMode | Lane-scaled traffic signals & capacity-metered arrivals |
 

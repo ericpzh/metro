@@ -1280,8 +1280,8 @@ namespace Metro.App {
                 case OpeningKind.PsdEnd:
                 case OpeningKind.PsdCover: return BuildEnd(request, facts, station, catalogue, parent, paint, view);
                 case OpeningKind.Gate: return BuildGate(request, facts, station, catalogue, parent, view, paint);
-                case OpeningKind.SwingDoor: return BuildDoor(request, facts, station, catalogue, parent, view);
-                case OpeningKind.Cubicle: return BuildCubicle(request, facts, catalogue, parent, view);
+                case OpeningKind.SwingDoor: return BuildDoor(request, facts, station, catalogue, parent, view, paint);
+                case OpeningKind.Cubicle: return BuildCubicle(request, facts, catalogue, parent, view, paint);
                 default: return Fail(view, "unsupported-type:" + request.Type);
             }
         }
@@ -1932,6 +1932,7 @@ namespace Metro.App {
                 if (lane) return FailAndDiscard(view, "gate-has-no-wing");
                 view.Movable = false;
                 BuildGateFencePanel(request, facts, station, catalogue, instance.transform, view, paint);
+                CompactGateInstance(entry.prefab, instance.transform, null, paint);
                 return true;
             }
             if (!lane) {
@@ -1941,6 +1942,7 @@ namespace Metro.App {
                 wing.gameObject.SetActive(false);
                 view.Movable = false;
                 BuildGateFencePanel(request, facts, station, catalogue, instance.transform, view, paint);
+                CompactGateInstance(entry.prefab, instance.transform, wing, paint);
                 return true;
             }
             var left = FindNode(wing, "left-leaf");
@@ -1969,6 +1971,7 @@ namespace Metro.App {
                 : "gate-lane-differs:GATE_W " + nearJamb.ToString("0.###", CultureInfo.InvariantCulture) + ".." +
                   farJamb.ToString("0.###", CultureInfo.InvariantCulture) + " wing=" +
                   full.ToString("0.###", CultureInfo.InvariantCulture) + " lane=" + laneOk + " pose=" + poseOk;
+            CompactGateInstance(entry.prefab, instance.transform, wing, paint);
             return true;
         }
 
@@ -2348,7 +2351,7 @@ namespace Metro.App {
         /* ------------------------------------------------------------------ doors */
 
         static bool BuildDoor(OpeningRequest request, ModuleFacts facts, IReadOnlyList<ModuleFacts> station,
-            RuntimeCatalogue catalogue, Transform parent, OpeningView view) {
+            RuntimeCatalogue catalogue, Transform parent, OpeningView view, OpeningPalette paint) {
             var visual = ModuleViews.Resolve(facts, station, catalogue);
             if (!visual.HasModel) return Fail(view, "unresolved:" + (visual.Detail.Length > 0 ? visual.Detail : "no-view"));
             if (catalogue == null || !catalogue.TryGet(visual.Key, out var entry) || entry.prefab == null)
@@ -2373,6 +2376,7 @@ namespace Metro.App {
                 // frame in this promotion, which would silently stop moving. Report it.
                 view.Movable = false;
                 view.Diagnostic = "no-swing-pivot:" + visual.Key;
+                CompactSwingOpeningInstance(entry.prefab, instance.transform, pivots, paint);
                 return true;
             }
             var axis = ReadAxis(pivots[0]);
@@ -2395,11 +2399,12 @@ namespace Metro.App {
             }
             view.Movable = true;
             if (pivots.Count > 2) view.Diagnostic = "unexpected-pivot-count:" + pivots.Count;
+            CompactSwingOpeningInstance(entry.prefab, instance.transform, pivots, paint);
             return true;
         }
 
         static bool BuildCubicle(OpeningRequest request, ModuleFacts facts, RuntimeCatalogue catalogue, Transform parent,
-            OpeningView view) {
+            OpeningView view, OpeningPalette paint) {
             var values = facts.Config;
             var key = string.Equals(values.Text("variant"), "toilet", StringComparison.Ordinal) ? "cubicle-toilet" : "cubicle";
             if (catalogue == null || !catalogue.TryGet(key, out var entry) || entry.prefab == null)
@@ -2418,6 +2423,7 @@ namespace Metro.App {
                 // `CubicleModel`: the standalone toilet is a closed sanitary fitting with no
                 // partition and no door, so it has no moving part.
                 view.Movable = false;
+                CompactSwingOpeningInstance(entry.prefab, instance.transform, null, paint);
                 return true;
             }
             var pivot = instance.GetComponentsInChildren<Transform>(true)
@@ -2425,6 +2431,7 @@ namespace Metro.App {
             if (!pivot) {
                 view.Movable = false;
                 view.Diagnostic = "no-swing-pivot:" + key;
+                CompactSwingOpeningInstance(entry.prefab, instance.transform, null, paint);
                 return true;
             }
             var axis = ReadAxis(pivot);
@@ -2444,7 +2451,291 @@ namespace Metro.App {
                 Axis = axis.Describe(),
             });
             view.Movable = true;
+            CompactSwingOpeningInstance(entry.prefab, instance.transform, new List<Transform> { pivot }, paint);
             return true;
+        }
+
+        /* ---------------------------------------------------- static subtree compaction */
+
+        static readonly HashSet<string> GateExcludedNames = new HashSet<string>(StringComparer.Ordinal) {
+            "wing", "fence panel", "entry-arrow", "no-entry-cross",
+        };
+
+        static readonly HashSet<string> OpeningProtectedNames = new HashSet<string>(StringComparer.Ordinal) {
+            "gate-body", "Approach", "AxisX", "Front", "Up",
+            "wing", "fence panel", "passenger-swing-door", "entry-arrow", "no-entry-cross",
+        };
+
+        static void CompactGateInstance(GameObject prefab, Transform instance, Transform wing, OpeningPalette paint) {
+            if (prefab == null || instance == null || paint == null) return;
+            HashSet<Transform> excluded = null;
+            if (wing != null) (excluded ??= new HashSet<Transform>()).Add(wing);
+            var fencePanel = instance.Find("fence panel");
+            if (fencePanel != null) (excluded ??= new HashSet<Transform>()).Add(fencePanel);
+            CompactSubtree(prefab, "gate:static", instance, paint, excluded, GateExcludedNames, OpeningProtectedNames);
+        }
+
+        static void CompactSwingOpeningInstance(GameObject prefab, Transform instance, List<Transform> pivots, OpeningPalette paint) {
+            if (prefab == null || instance == null || paint == null) return;
+            HashSet<Transform> excluded = null;
+            if (pivots != null && pivots.Count > 0) {
+                excluded = new HashSet<Transform>(pivots);
+            }
+            CompactSubtree(prefab, "opening:static", instance, paint, excluded, null, OpeningProtectedNames);
+            if (pivots != null) {
+                for (int i = 0; i < pivots.Count; i++) {
+                    if (pivots[i] != null) {
+                        CompactSubtree(prefab, "opening:pivot-" + i.ToString(CultureInfo.InvariantCulture),
+                            pivots[i], paint, null, null, OpeningProtectedNames);
+                    }
+                }
+            }
+        }
+
+        sealed class SubtreeMaterialKey : IEquatable<SubtreeMaterialKey> {
+            public readonly Material Material;
+            public readonly ShadowCastingMode Shadow;
+            public SubtreeMaterialKey(Material material, ShadowCastingMode shadow) {
+                Material = material;
+                Shadow = shadow;
+            }
+            public bool Equals(SubtreeMaterialKey other) =>
+                other != null && ReferenceEquals(Material, other.Material) && Shadow == other.Shadow;
+            public override bool Equals(object obj) => obj is SubtreeMaterialKey other && Equals(other);
+            public override int GetHashCode() {
+                unchecked {
+                    int h = Material != null ? System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(Material) : 0;
+                    return (h * 397) ^ (int)Shadow;
+                }
+            }
+        }
+
+        sealed class SubtreeCombineBucket {
+            public Material Material;
+            public ShadowCastingMode Shadow;
+            public readonly List<CombineInstance> Combines = new List<CombineInstance>();
+            public int VertexCount;
+            public int MaxLodCount = 1;
+            public bool HasSelectionCurve;
+            public Mesh.LodSelectionCurve SelectionCurve;
+        }
+
+        static bool IsUnderAny(Transform node, Transform stopAt, HashSet<Transform> excludedRoots, HashSet<string> excludedNames) {
+            var cur = node;
+            while (cur != null) {
+                if (excludedRoots != null && excludedRoots.Contains(cur)) return true;
+                if (excludedNames != null && excludedNames.Contains(cur.name)) return true;
+                if (cur == stopAt) return false;
+                cur = cur.parent;
+            }
+            return false;
+        }
+
+        static bool IsActiveInSubtree(Transform node, Transform subtreeRoot) {
+            var cur = node;
+            while (cur != null) {
+                if (!cur.gameObject.activeSelf) return false;
+                if (cur == subtreeRoot) return true;
+                cur = cur.parent;
+            }
+            return true;
+        }
+
+        static void MarkProtectedAncestors(Transform node, Transform subtreeRoot, HashSet<Transform> protectedNodes) {
+            var cur = node;
+            while (cur != null) {
+                protectedNodes.Add(cur);
+                if (cur == subtreeRoot) break;
+                cur = cur.parent;
+            }
+        }
+
+        static Matrix4x4 RelativeMatrix(Transform node, Transform ancestor) {
+            var mat = Matrix4x4.identity;
+            var cur = node;
+            while (cur != null && cur != ancestor) {
+                mat = Matrix4x4.TRS(cur.localPosition, cur.localRotation, cur.localScale) * mat;
+                cur = cur.parent;
+            }
+            return mat;
+        }
+
+        static bool HasExtraComponents(Transform node) {
+            var components = node.GetComponents<Component>();
+            for (int i = 0; i < components.Length; i++) {
+                var c = components[i];
+                if (c == null || c is Transform || c is MeshFilter || c is MeshRenderer) continue;
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Merge same-(material, shadow) readable triangle meshes inside <paramref name="subtreeRoot"/>
+        /// while leaving excluded/moving subtrees and named anchors untouched, caching the merged
+        /// multi-LOD meshes per <c>(prefab, tag)</c> on <paramref name="paint"/>.
+        /// </summary>
+        internal static void CompactSubtree(
+            GameObject prefab,
+            string tag,
+            Transform subtreeRoot,
+            OpeningPalette paint,
+            HashSet<Transform> excludedRoots,
+            HashSet<string> excludedNames,
+            HashSet<string> protectedNames) {
+            if (prefab == null || subtreeRoot == null || paint == null) return;
+            var filters = subtreeRoot.GetComponentsInChildren<MeshFilter>(true);
+            if (filters == null || filters.Length < 2) return;
+
+            var lodLibrary = Resources.Load<StationRigidModelLods>(StationRigidModelLods.ResourcesPath + prefab.name);
+            var protectedNodes = new HashSet<Transform> { subtreeRoot };
+            var allTransforms = subtreeRoot.GetComponentsInChildren<Transform>(true);
+            for (int i = 0; i < allTransforms.Length; i++) {
+                var t = allTransforms[i];
+                if (t == null) continue;
+                if ((excludedRoots != null && excludedRoots.Contains(t)) ||
+                    (excludedNames != null && excludedNames.Contains(t.name)) ||
+                    (protectedNames != null && protectedNames.Contains(t.name)) ||
+                    HasExtraComponents(t)) {
+                    MarkProtectedAncestors(t, subtreeRoot, protectedNodes);
+                }
+            }
+
+            var eligible = new List<(MeshFilter Filter, MeshRenderer Renderer, Mesh Mesh, Material[] Materials)>(filters.Length);
+            for (int i = 0; i < filters.Length; i++) {
+                var filter = filters[i];
+                if (filter == null) continue;
+                if (IsUnderAny(filter.transform, subtreeRoot, excludedRoots, excludedNames)) {
+                    MarkProtectedAncestors(filter.transform, subtreeRoot, protectedNodes);
+                    continue;
+                }
+                if (!IsActiveInSubtree(filter.transform, subtreeRoot)) {
+                    MarkProtectedAncestors(filter.transform, subtreeRoot, protectedNodes);
+                    continue;
+                }
+                var renderer = filter.GetComponent<MeshRenderer>();
+                var mesh = filter.sharedMesh;
+                if (renderer == null || !renderer.enabled || mesh == null || mesh.vertexCount == 0) {
+                    MarkProtectedAncestors(filter.transform, subtreeRoot, protectedNodes);
+                    continue;
+                }
+                if (lodLibrary != null) mesh = lodLibrary.Resolve(mesh);
+                var mats = renderer.sharedMaterials;
+                if (!mesh.isReadable || mats == null || mats.Length == 0) {
+                    MarkProtectedAncestors(filter.transform, subtreeRoot, protectedNodes);
+                    continue;
+                }
+                int subCount = Math.Max(1, mesh.subMeshCount);
+                bool allTri = true;
+                for (int s = 0; s < subCount; s++) {
+                    var mat = mats[Math.Min(s, mats.Length - 1)];
+                    if (mat == null || mesh.GetTopology(s) != MeshTopology.Triangles) {
+                        allTri = false;
+                        break;
+                    }
+                }
+                if (!allTri) {
+                    MarkProtectedAncestors(filter.transform, subtreeRoot, protectedNodes);
+                    continue;
+                }
+                eligible.Add((filter, renderer, mesh, mats));
+            }
+            if (eligible.Count < 2) return;
+
+            if (!paint.TryGetCompactedSubtree(prefab, tag, out var cachedParts)) {
+                var buckets = new Dictionary<SubtreeMaterialKey, SubtreeCombineBucket>();
+                var order = new List<SubtreeCombineBucket>();
+                for (int i = 0; i < eligible.Count; i++) {
+                    var item = eligible[i];
+                    var rel = RelativeMatrix(item.Filter.transform, subtreeRoot);
+                    int subCount = Math.Max(1, item.Mesh.subMeshCount);
+                    int lodCount = Math.Max(1, item.Mesh.lodCount);
+                    for (int s = 0; s < subCount; s++) {
+                        var mat = item.Materials[Math.Min(s, item.Materials.Length - 1)];
+                        var key = new SubtreeMaterialKey(mat, item.Renderer.shadowCastingMode);
+                        if (!buckets.TryGetValue(key, out var bucket)) {
+                            bucket = new SubtreeCombineBucket { Material = mat, Shadow = item.Renderer.shadowCastingMode };
+                            buckets[key] = bucket;
+                            order.Add(bucket);
+                        }
+                        bucket.Combines.Add(new CombineInstance {
+                            mesh = item.Mesh,
+                            subMeshIndex = s,
+                            transform = rel,
+                        });
+                        bucket.VertexCount += item.Mesh.vertexCount;
+                        if (lodCount > bucket.MaxLodCount) bucket.MaxLodCount = lodCount;
+                        if (!bucket.HasSelectionCurve && lodCount > 1) {
+                            bucket.HasSelectionCurve = true;
+                            bucket.SelectionCurve = item.Mesh.lodSelectionCurve;
+                        }
+                    }
+                }
+
+                if (order.Count == 0 || order.Count >= eligible.Count) {
+                    paint.StoreCompactedSubtree(prefab, tag, Array.Empty<OpeningPalette.CompactedPart>());
+                    return;
+                }
+
+                var built = new List<OpeningPalette.CompactedPart>(order.Count);
+                bool failed = false;
+                for (int b = 0; b < order.Count; b++) {
+                    var bucket = order[b];
+                    string matLabel = bucket.Material != null ? bucket.Material.name : "mat";
+                    string meshName = prefab.name + " " + tag + " [" + matLabel + "]";
+                    if (!StationPrefabMeshTemplate.TryCombineBucketMesh(meshName, bucket.Combines, bucket.MaxLodCount,
+                            bucket.HasSelectionCurve, bucket.SelectionCurve, bucket.VertexCount, out var merged)) {
+                        failed = true;
+                        break;
+                    }
+                    built.Add(new OpeningPalette.CompactedPart(merged, bucket.Material, bucket.Shadow, matLabel));
+                }
+                if (failed) {
+                    for (int b = 0; b < built.Count; b++) SafeDestroy(built[b].Mesh);
+                    paint.StoreCompactedSubtree(prefab, tag, Array.Empty<OpeningPalette.CompactedPart>());
+                    return;
+                }
+                cachedParts = built.ToArray();
+                for (int b = 0; b < cachedParts.Length; b++) paint.Own(cachedParts[b].Mesh);
+                paint.StoreCompactedSubtree(prefab, tag, cachedParts);
+            }
+
+            if (cachedParts == null || cachedParts.Length == 0) return;
+
+            var detachRoots = new HashSet<Transform>();
+            for (int i = 0; i < eligible.Count; i++) {
+                var item = eligible[i];
+                var cur = item.Filter.transform;
+                if (protectedNodes.Contains(cur)) {
+                    item.Renderer.enabled = false;
+                    item.Filter.sharedMesh = null;
+                    SafeDestroy(item.Renderer);
+                    SafeDestroy(item.Filter);
+                    continue;
+                }
+                while (cur != null && cur.parent != null && !protectedNodes.Contains(cur.parent)) {
+                    cur = cur.parent;
+                }
+                if (cur != null && !protectedNodes.Contains(cur)) detachRoots.Add(cur);
+            }
+            foreach (var t in detachRoots) {
+                if (t == null) continue;
+                t.SetParent(null, false);
+                t.gameObject.SetActive(false);
+                SafeDestroy(t.gameObject);
+            }
+
+            for (int p = 0; p < cachedParts.Length; p++) {
+                var part = cachedParts[p];
+                if (part.Mesh == null || part.Material == null) continue;
+                var go = new GameObject("compacted " + part.Label, typeof(MeshFilter), typeof(MeshRenderer));
+                go.transform.SetParent(subtreeRoot, false);
+                go.GetComponent<MeshFilter>().sharedMesh = part.Mesh;
+                var mr = go.GetComponent<MeshRenderer>();
+                mr.sharedMaterial = part.Material;
+                mr.shadowCastingMode = part.Shadow;
+                mr.receiveShadows = true;
+            }
         }
 
         /* --------------------------------------------------------------- helpers */
@@ -2638,9 +2929,46 @@ namespace Metro.App {
         /// </summary>
         public const string FoundationFinishId = "floor.concrete";
 
+        public readonly struct CompactedPart {
+            public readonly Mesh Mesh;
+            public readonly Material Material;
+            public readonly ShadowCastingMode Shadow;
+            public readonly string Label;
+
+            public CompactedPart(Mesh mesh, Material material, ShadowCastingMode shadow, string label) {
+                Mesh = mesh;
+                Material = material;
+                Shadow = shadow;
+                Label = label ?? "";
+            }
+        }
+
+        readonly struct CompactedKey : IEquatable<CompactedKey> {
+            public readonly GameObject Prefab;
+            public readonly string Tag;
+
+            public CompactedKey(GameObject prefab, string tag) {
+                Prefab = prefab;
+                Tag = tag ?? "";
+            }
+
+            public bool Equals(CompactedKey other) =>
+                ReferenceEquals(Prefab, other.Prefab) && string.Equals(Tag, other.Tag, StringComparison.Ordinal);
+
+            public override bool Equals(object obj) => obj is CompactedKey other && Equals(other);
+
+            public override int GetHashCode() {
+                unchecked {
+                    int h = Prefab != null ? System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(Prefab) : 0;
+                    return (h * 397) ^ StringComparer.Ordinal.GetHashCode(Tag);
+                }
+            }
+        }
+
         readonly Material[] materials;
         readonly List<Mesh> meshes = new List<Mesh>();
         readonly Dictionary<Shader, Material> gateCrossByShader = new Dictionary<Shader, Material>();
+        readonly Dictionary<CompactedKey, CompactedPart[]> compactedSubtrees = new Dictionary<CompactedKey, CompactedPart[]>();
         Material gateCrossDefault;
         Texture2D gateCrossTexture;
         readonly bool ownsMaterials;
@@ -2695,6 +3023,19 @@ namespace Metro.App {
         /// <summary>Hand one combined mesh to the palette, so it dies with the world.</summary>
         public void Own(Mesh mesh) { if (mesh) meshes.Add(mesh); }
 
+        internal bool TryGetCompactedSubtree(GameObject prefab, string tag, out CompactedPart[] parts) {
+            if (released || prefab == null) {
+                parts = null;
+                return false;
+            }
+            return compactedSubtrees.TryGetValue(new CompactedKey(prefab, tag), out parts);
+        }
+
+        internal void StoreCompactedSubtree(GameObject prefab, string tag, CompactedPart[] parts) {
+            if (released || prefab == null) return;
+            compactedSubtrees[new CompactedKey(prefab, tag)] = parts ?? Array.Empty<CompactedPart>();
+        }
+
         /// <summary>
         /// Shared `gateCross` indicator material (`PieceBuilder.ts` `mats.gateCross`) matching
         /// the prefab indicator's unlit shader so doorless (`door: "fence"` / `"none"`) and
@@ -2725,6 +3066,7 @@ namespace Metro.App {
         public void Release() {
             if (released) return;
             released = true;
+            compactedSubtrees.Clear();
             foreach (var mesh in meshes) OpeningModuleViews.SafeDestroy(mesh);
             meshes.Clear();
             foreach (var cross in gateCrossByShader.Values) OpeningModuleViews.SafeDestroy(cross);
@@ -2755,7 +3097,6 @@ namespace Metro.App {
             public string Name = "";
             public OpeningPartRole Role;
             public readonly Dictionary<int, List<CombineInstance>> Boxes = new Dictionary<int, List<CombineInstance>>();
-            public Transform Node;
             public GameObject First;
         }
 
@@ -2894,64 +3235,140 @@ namespace Metro.App {
         /// <summary>One combined mesh per material, per named part, under this builder's root.</summary>
         public void Finish(string name) => Finish(name, null);
 
+        static bool IsTransparentColour(int colour) =>
+            colour == OpeningColour.Glass || colour == OpeningColour.MovingGlass;
+
+        sealed class OpaqueColourBucket {
+            public int Colour;
+            public readonly List<CombineInstance> Instances = new List<CombineInstance>();
+            public readonly List<Batch> Batches = new List<Batch>();
+            public GameObject Emitted;
+        }
+
         /// <summary>
-        /// The same, recording every emitted part on `view` with its **measured** bounds in the
-        /// holder's frame and in document axes (RCA 15 §5).
+        /// One combined mesh per opaque material across all named parts (keeping transparent glass
+        /// parts separate), while recording every emitted part on `view` with its exact individual
+        /// **measured** bounds in the holder's frame and in document axes (RCA 15 §5).
         /// </summary>
         public void Finish(string name, OpeningView view) {
             if (!root) return;
-            foreach (var batch in order) {
+            var opaqueByColour = new Dictionary<int, OpaqueColourBucket>();
+            var opaqueOrder = new List<OpaqueColourBucket>();
+            var batchBounds = new Bounds[order.Count];
+            var batchHasBounds = new bool[order.Count];
+            var batchFirstColour = new int[order.Count];
+            var batchTransparentFirst = new GameObject[order.Count];
+
+            for (int b = 0; b < order.Count; b++) {
+                var batch = order[b];
+                batchFirstColour[b] = -1;
                 if (batch.Boxes.Count == 0) continue;
-                Transform parent = root;
-                if (batch.Name.Length > 0) {
-                    batch.Node = new GameObject(batch.Name).transform;
-                    batch.Node.SetParent(root, false);
-                    parent = batch.Node;
-                }
+                bool glassBatch = batch.Role == OpeningPartRole.Glass ||
+                    (batch.Name ?? "").IndexOf("glass", StringComparison.OrdinalIgnoreCase) >= 0;
+
                 foreach (var entry in batch.Boxes) {
-                    if (entry.Value.Count == 0) continue;
-                    if (view != null) {
-                        bool glass = batch.Role == OpeningPartRole.Glass ||
-                            (batch.Name ?? "").IndexOf("glass", StringComparison.OrdinalIgnoreCase) >= 0;
-                        for (int i = 0; i < entry.Value.Count; i++) {
-                            var instance = entry.Value[i];
-                            var centre = new Vector3(instance.transform.m03, instance.transform.m13, instance.transform.m23);
-                            var size = new Vector3(instance.transform.m00, instance.transform.m11, instance.transform.m22);
+                    var list = entry.Value;
+                    if (list == null || list.Count == 0) continue;
+                    int colour = entry.Key;
+                    if (batchFirstColour[b] < 0) batchFirstColour[b] = colour;
+
+                    for (int i = 0; i < list.Count; i++) {
+                        var instance = list[i];
+                        var centre = new Vector3(instance.transform.m03, instance.transform.m13, instance.transform.m23);
+                        var size = new Vector3(instance.transform.m00, instance.transform.m11, instance.transform.m22);
+                        var min = centre - size * .5f;
+                        var max = centre + size * .5f;
+                        if (view != null) {
                             view.boxes.Add(new OpeningBox {
-                                Part = batch.Name ?? "", Role = batch.Role, Glass = glass,
-                                Min = centre - size * .5f, Max = centre + size * .5f,
+                                Part = batch.Name ?? "", Role = batch.Role, Glass = glassBatch,
+                                Min = min, Max = max,
                             });
                         }
+                        if (!batchHasBounds[b]) {
+                            batchBounds[b] = new Bounds(centre, size);
+                            batchHasBounds[b] = true;
+                        } else {
+                            batchBounds[b].Encapsulate(min);
+                            batchBounds[b].Encapsulate(max);
+                        }
                     }
-                    var mesh = new Mesh {
-                        name = (batch.Name.Length > 0 ? batch.Name : name) + " " + entry.Key,
-                        indexFormat = IndexFormat.UInt32,
-                    };
-                    // `useMatrices` must stay true: every instance carries its own TRS.
-                    mesh.CombineMeshes(entry.Value.ToArray(), true, true);
-                    owned.Add(mesh);
-                    var part = new GameObject(
-                        batch.Name.Length > 0 ? batch.Name + " " + entry.Key : name + " " + entry.Key,
-                        typeof(MeshFilter), typeof(MeshRenderer));
-                    part.transform.SetParent(parent, false);
-                    part.GetComponent<MeshFilter>().sharedMesh = mesh;
-                    var material = palette != null ? palette[entry.Key] : null;
-                    var renderer = part.GetComponent<MeshRenderer>();
-                    if (material != null) renderer.sharedMaterial = material;
-                    else renderer.enabled = false;
-                    if (batch.First == null) batch.First = part;
+
+                    if (IsTransparentColour(colour)) {
+                        var partGo = EmitCombinedMesh(
+                            (batch.Name.Length > 0 ? batch.Name : name) + " " + colour,
+                            root,
+                            colour,
+                            list);
+                        if (batchTransparentFirst[b] == null) batchTransparentFirst[b] = partGo;
+                        if (batch.First == null) batch.First = partGo;
+                    } else {
+                        if (!opaqueByColour.TryGetValue(colour, out var bucket)) {
+                            bucket = new OpaqueColourBucket { Colour = colour };
+                            opaqueByColour[colour] = bucket;
+                            opaqueOrder.Add(bucket);
+                        }
+                        bucket.Instances.AddRange(list);
+                        if (!bucket.Batches.Contains(batch)) bucket.Batches.Add(batch);
+                    }
                 }
-                if (view == null) continue;
-                var measured = batch.Node != null ? batch.Node : batch.First.transform;
-                view.parts.Add(OpeningModuleViews.MeasurePart(
-                    batch.Name.Length > 0 ? batch.Name : batch.First.name, batch.Role, measured, root,
-                    palette, FirstColour(batch)));
             }
+
+            for (int c = 0; c < opaqueOrder.Count; c++) {
+                var bucket = opaqueOrder[c];
+                if (bucket.Instances.Count == 0) continue;
+                string goName;
+                if (bucket.Batches.Count == 1 && bucket.Batches[0].Name.Length > 0) {
+                    goName = bucket.Batches[0].Name + " " + bucket.Colour;
+                } else {
+                    goName = (string.IsNullOrEmpty(name) ? "opening" : name) + " " + OpeningColour.Name(bucket.Colour);
+                }
+                bucket.Emitted = EmitCombinedMesh(goName, root, bucket.Colour, bucket.Instances);
+                for (int i = 0; i < bucket.Batches.Count; i++) {
+                    if (bucket.Batches[i].First == null) bucket.Batches[i].First = bucket.Emitted;
+                }
+            }
+
+            if (view != null) {
+                float datum = StationCoordinates.WorldToDocument(root.position).z;
+                for (int b = 0; b < order.Count; b++) {
+                    var batch = order[b];
+                    if (batch.Boxes.Count == 0) continue;
+                    int firstColour = batchFirstColour[b] >= 0 ? batchFirstColour[b] : FirstColour(batch);
+                    GameObject nodeGo = batch.First != null ? batch.First : batchTransparentFirst[b];
+                    string partName = batch.Name.Length > 0 ? batch.Name : (nodeGo != null ? nodeGo.name : name);
+                    var part = new OpeningPart {
+                        Name = partName ?? "",
+                        Role = batch.Role,
+                        Node = nodeGo != null ? nodeGo.transform : null,
+                        Material = firstColour == OpeningColour.Concrete && palette != null && palette.FoundationFinish.Length > 0
+                            ? palette.FoundationFinish
+                            : (firstColour >= 0 ? OpeningColour.Name(firstColour) : ""),
+                        Datum = datum,
+                    };
+                    if (batchHasBounds[b]) {
+                        var local = batchBounds[b];
+                        part.Local = local;
+                        var document = default(Bounds);
+                        for (int corner = 0; corner < 8; corner++) {
+                            var point = new Vector3(
+                                (corner & 1) == 0 ? local.min.x : local.max.x,
+                                (corner & 2) == 0 ? local.min.y : local.max.y,
+                                (corner & 4) == 0 ? local.min.z : local.max.z);
+                            var inDocument = StationCoordinates.WorldToDocument(root.TransformPoint(point));
+                            if (corner == 0) document = new Bounds(inDocument, Vector3.zero);
+                            else document.Encapsulate(inDocument);
+                        }
+                        part.Document = document;
+                    }
+                    view.parts.Add(part);
+                }
+            }
+
             order.Clear();
             current = null;
             // The combined meshes belong to the palette and are freed with it. `AssemblyOwner`
-        // from the lead's kit is deliberately not used: its `OnDestroy` calls `Object.Destroy`,
-        // which is an error during an edit-mode teardown.
+            // from the lead's kit is deliberately not used: its `OnDestroy` calls `Object.Destroy`,
+            // which is an error during an edit-mode teardown.
             if (owned.Count == 0) return;
             if (palette != null) {
                 foreach (var mesh in owned) palette.Own(mesh);
@@ -2959,6 +3376,25 @@ namespace Metro.App {
                 foreach (var mesh in owned) OpeningModuleViews.SafeDestroy(mesh);
             }
             owned.Clear();
+        }
+
+        GameObject EmitCombinedMesh(string goName, Transform parent, int colour, List<CombineInstance> instances) {
+            var mesh = new Mesh {
+                name = goName,
+                indexFormat = instances.Count * 24 > 65534 ? IndexFormat.UInt32 : IndexFormat.UInt16,
+            };
+            // `useMatrices` must stay true: every instance carries its own TRS.
+            mesh.CombineMeshes(instances.ToArray(), true, true);
+            mesh.RecalculateBounds();
+            owned.Add(mesh);
+            var part = new GameObject(goName, typeof(MeshFilter), typeof(MeshRenderer));
+            part.transform.SetParent(parent, false);
+            part.GetComponent<MeshFilter>().sharedMesh = mesh;
+            var material = palette != null ? palette[colour] : null;
+            var renderer = part.GetComponent<MeshRenderer>();
+            if (material != null) renderer.sharedMaterial = material;
+            else renderer.enabled = false;
+            return part;
         }
 
         static int FirstColour(Batch batch) {
@@ -3196,10 +3632,43 @@ namespace Metro.App {
         /// built — so one shared set would be cleared out from under the new station
         /// (plan 11 B4's reopen-after-switch report caught exactly that).
         /// </summary>
+        public const int DefaultPsdCoverBatchThreshold = 128;
+        const int CoverChunkSize = 64;
+
+        /// <summary>
+        /// Minimum canonical `psd-end` cover count on one storey band before GPU-instanced chunk
+        /// batching activates. Default 128 keeps Zoo's 101/103 per-band covers as 1:1 records while
+        /// batching Tanwei's 144 and Tianhe's 1,270 canonical covers into instanced chunks.
+        /// </summary>
+        public int PsdCoverBatchThreshold = DefaultPsdCoverBatchThreshold;
+
+        static int CoverChunkCoord(int value) => value >= 0 ? value / CoverChunkSize : (value - (CoverChunkSize - 1)) / CoverChunkSize;
+
+        readonly struct CoverChunkKey : IEquatable<CoverChunkKey> {
+            public readonly int Band, ChunkX, ChunkY;
+            public CoverChunkKey(int band, int chunkX, int chunkY) {
+                Band = band; ChunkX = chunkX; ChunkY = chunkY;
+            }
+            public bool Equals(CoverChunkKey other) => Band == other.Band && ChunkX == other.ChunkX && ChunkY == other.ChunkY;
+            public override bool Equals(object obj) => obj is CoverChunkKey other && Equals(other);
+            public override int GetHashCode() {
+                unchecked {
+                    int h = Band;
+                    h = (h * 397) ^ ChunkX;
+                    h = (h * 397) ^ ChunkY;
+                    return h;
+                }
+            }
+            public string Label() => "psd-cover " + Band + " " + ChunkX + "," + ChunkY;
+        }
+
         sealed class WorldState {
             public StationWorldView World;
             public OpeningModuleSet Set;
             public OpeningPalette Palette;
+            public StationPrefabTemplateCache Templates;
+            public StationInstancedSurfaceDrawer Drawer;
+            public readonly List<StationInstancedPrefabChunk> CoverChunks = new List<StationInstancedPrefabChunk>();
             /// <summary>
             /// The station finish library this world resolved for the PSD foundation's
             /// `floor.concrete` (`PsdModel` draws it with the station finish, not a palette
@@ -3227,6 +3696,9 @@ namespace Metro.App {
 
         /// <summary>Every built opening of the active world, keyed by module ID.</summary>
         public OpeningModuleSet Views => newest?.Set ?? new OpeningModuleSet();
+
+        /// <summary>Number of GPU-instanced `psd-end:cover` chunks built for the newest live world.</summary>
+        public int BatchedCoverChunkCount => newest?.CoverChunks?.Count ?? 0;
 
         public void Build(StationViewBuildContext context) {
             if (context == null) return;
@@ -3260,12 +3732,183 @@ namespace Metro.App {
                 context.ReportUnresolved("finish-library-missing", "opening", "platform-edge",
                     "The exported finish library is not staged, so the PSD foundation is drawn with the flat opening palette instead of 'floor.concrete'.");
             var roleRoot = context.RoleRoot(Role);
-            OpeningModuleViews.BuildAll(records, context.Index, context.Catalogue, roleRoot, state.Palette, state.Set,
-                (module, view) => context.World.RegisterModule(Role, module.Id, view.Instance, "", null, module.Z, module.Z + 1),
-                (module, diagnostic) => context.ReportUnresolved("opening", module.Type, module.Id, diagnostic));
+
+            var batchedCoverIds = TryBuildInstancedCovers(context, records, state, roleRoot);
+            if (batchedCoverIds == null || batchedCoverIds.Count == 0) {
+                OpeningModuleViews.BuildAll(records, context.Index, context.Catalogue, roleRoot, state.Palette, state.Set,
+                    (module, view) => context.World.RegisterModule(Role, module.Id, view.Instance, "", null, module.Z, module.Z + 1),
+                    (module, diagnostic) => context.ReportUnresolved("opening", module.Type, module.Id, diagnostic));
+            } else {
+                var facts = new ModuleFacts[records.Count];
+                for (int i = 0; i < facts.Length; i++) facts[i] = records[i]?.Facts;
+                for (int i = 0; i < records.Count; i++) {
+                    var module = records[i];
+                    if (module == null || !OpeningModuleViews.Owns(module.Type)) continue;
+                    if (!string.IsNullOrEmpty(module.Id) && batchedCoverIds.Contains(module.Id)) continue;
+                    var request = OpeningModuleViews.RequestFor(module, context.Index);
+                    if (!OpeningModuleViews.TryBuild(request, module.Facts, facts, context.Catalogue, roleRoot, state.Palette, out var view)) {
+                        context.ReportUnresolved("opening", module.Type, module.Id, view.Diagnostic);
+                        continue;
+                    }
+                    StationRigidModelLods.Apply(view.Instance, System.IO.Path.GetFileNameWithoutExtension(view.PrefabPath));
+                    state.Set.Add(view);
+                    context.World.RegisterModule(Role, module.Id, view.Instance, "", null, module.Z, module.Z + 1);
+                }
+            }
             // RCA 15 §5 sub-item 2: mint the printed band's requests from the slots this
             // build created and bind the browser's pixels onto their posed nodes.
             BuildHeaders(context, state, roleRoot);
+        }
+
+        HashSet<string> TryBuildInstancedCovers(
+            StationViewBuildContext context,
+            IReadOnlyList<StationModuleRecord> records,
+            WorldState state,
+            Transform roleRoot) {
+            if (!SystemInfo.supportsInstancing || context.Catalogue == null || roleRoot == null) return null;
+            int threshold = Math.Max(2, PsdCoverBatchThreshold);
+            if (!context.Catalogue.TryGet(OpeningModuleViews.PsdCoverPrefabKey, out var coverEntry) || coverEntry.prefab == null) {
+                return null;
+            }
+            int storeyHeight = Math.Max(1, context.Document.StoreyHeight);
+            var grid = StationLevelGrid.FromDocument(context.Document.LevelBase, storeyHeight);
+
+            // First quick pass: count psd-end covers per band before allocating templates.
+            var roughBandCounts = new Dictionary<int, int>();
+            bool anyBandEligible = false;
+            for (int i = 0; i < records.Count; i++) {
+                var mod = records[i];
+                if (mod == null || !string.Equals(mod.Type, "psd-end", StringComparison.Ordinal)) continue;
+                var cfg = mod.Config ?? ModuleConfig.Empty;
+                if (!string.Equals(cfg.Text("variant"), "cover", StringComparison.Ordinal)) continue;
+                int band = StationModuleLevels.Band(grid, mod.Z);
+                roughBandCounts.TryGetValue(band, out int c);
+                c++;
+                roughBandCounts[band] = c;
+                if (c >= threshold) anyBandEligible = true;
+            }
+            if (!anyBandEligible) return null;
+
+            state.Templates ??= new StationPrefabTemplateCache();
+            if (!state.Templates.TryGetTemplate(coverEntry.prefab, out var coverTemplate) || !coverTemplate.HasBounds) {
+                return null;
+            }
+
+            var prefabLocal = Matrix4x4.TRS(Vector3.zero, coverTemplate.PrefabLocalRotation, coverTemplate.PrefabLocalScale);
+            var baked = StationPrefabMeshTemplate.TransformBounds(coverTemplate.LocalBounds, prefabLocal);
+
+            var candidates = new List<(StationModuleRecord Module, int Band, Matrix4x4 WorldMatrix, StationBox DocBox, Vector3 Target, Vector3 Place)>();
+            var exactBandCounts = new Dictionary<int, int>();
+
+            for (int i = 0; i < records.Count; i++) {
+                var mod = records[i];
+                if (mod == null || mod.Facts == null || string.IsNullOrEmpty(mod.Id)) continue;
+                if (!string.Equals(mod.Type, "psd-end", StringComparison.Ordinal)) continue;
+                var cfg = mod.Config ?? ModuleConfig.Empty;
+                if (!string.Equals(cfg.Text("variant"), "cover", StringComparison.Ordinal)) continue;
+                int band = StationModuleLevels.Band(grid, mod.Z);
+                if (!roughBandCounts.TryGetValue(band, out int rough) || rough < threshold) continue;
+
+                float width = cfg.Has("width") ? (float)cfg.Number("width", 0) : 1f;
+                float depth = cfg.Has("depth") ? (float)cfg.Number("depth", 0) : .24f;
+                float ox = 0f, oy = 0f;
+                if (cfg.TryNumbers("offset", out var off) && off.Length >= 2) {
+                    ox = (float)off[0];
+                    oy = (float)off[1];
+                }
+                float sideY = string.Equals(cfg.Text("side"), "right", StringComparison.Ordinal) ? .34f : -.34f;
+                var target = OpeningModuleViews.Local(ox, sideY + oy, .5f);
+                var place = target - baked.center;
+
+                bool planMatch = Mathf.Abs(baked.size.x - width) <= .02f && Mathf.Abs(baked.size.z - depth) <= .02f;
+                float minY = baked.min.y + place.y;
+                float maxY = baked.max.y + place.y;
+                bool verticalMatch = Mathf.Abs(minY) <= .02f && Mathf.Abs(maxY - 1f) <= .02f;
+                if (!planMatch || !verticalMatch) continue;
+
+                var holderPos = OpeningModuleViews.Pivot(mod.Facts, new Vector3(.5f, .5f, 0f), floorTop: false);
+                var holderRot = ModulePlacement.Rotation(mod.Rotation);
+                var holderWorld = Matrix4x4.TRS(holderPos, holderRot, Vector3.one);
+                var instanceLocal = Matrix4x4.TRS(place, coverTemplate.PrefabLocalRotation, coverTemplate.PrefabLocalScale);
+                var worldMatrix = holderWorld * instanceLocal;
+                if (!coverTemplate.TryDocumentBounds(worldMatrix, out var docBox)) {
+                    docBox = new StationBox(mod.X, mod.Y, mod.Z, mod.X + 1, mod.Y + 1, mod.Z + 1);
+                }
+
+                candidates.Add((mod, band, worldMatrix, docBox, target, place));
+                exactBandCounts.TryGetValue(band, out int ec);
+                exactBandCounts[band] = ec + 1;
+            }
+
+            var eligibleBands = new HashSet<int>();
+            foreach (var kv in exactBandCounts) {
+                if (kv.Value >= threshold) eligibleBands.Add(kv.Key);
+            }
+            if (eligibleBands.Count == 0) return null;
+
+            state.Drawer = StationInstancedSurfaceDrawer.EnsureFor(context.Root);
+            var batchedIds = new HashSet<string>(StringComparer.Ordinal);
+            var byChunk = new Dictionary<CoverChunkKey, (List<StationStaticPrefabItem> Items, List<(StationModuleRecord Module, StationBox DocBox, Vector3 Target, Vector3 Place)> Meta)>();
+
+            for (int i = 0; i < candidates.Count; i++) {
+                var c = candidates[i];
+                if (!eligibleBands.Contains(c.Band)) continue;
+                var ck = new CoverChunkKey(c.Band, CoverChunkCoord(c.Module.X), CoverChunkCoord(c.Module.Y));
+                if (!byChunk.TryGetValue(ck, out var entry)) {
+                    entry = (new List<StationStaticPrefabItem>(), new List<(StationModuleRecord, StationBox, Vector3, Vector3)>());
+                    byChunk[ck] = entry;
+                }
+                entry.Items.Add(new StationStaticPrefabItem(c.Module.Id, c.WorldMatrix, c.DocBox));
+                entry.Meta.Add((c.Module, c.DocBox, c.Target, c.Place));
+                batchedIds.Add(c.Module.Id);
+            }
+
+            foreach (var kv in byChunk) {
+                var ck = kv.Key;
+                var chunk = StationInstancedPrefabChunk.Build(
+                    Role,
+                    ck.Label(),
+                    coverTemplate,
+                    state.Templates,
+                    roleRoot,
+                    kv.Value.Items,
+                    ck.Band,
+                    ck.Band,
+                    new[] { ck.Band });
+                chunk.RegisterInto(context.World, state.Drawer);
+                state.CoverChunks.Add(chunk);
+
+                var proxyGo = chunk.Views.Count > 0 ? chunk.Views[0] : null;
+                var metaList = kv.Value.Meta;
+                for (int m = 0; m < metaList.Count; m++) {
+                    var (mod, docBox, target, place) = metaList[m];
+                    var view = new OpeningView {
+                        Kind = OpeningKind.PsdCover,
+                        ModuleId = mod.Id,
+                        Type = mod.Type,
+                        ViewKey = OpeningModuleViews.PsdCoverPrefabKey,
+                        PrefabPath = coverEntry.prefabPath ?? "",
+                        Instance = proxyGo,
+                        Movable = false,
+                        OpeningCount = 0,
+                    };
+                    var docMin = new Vector3((float)docBox.X0, (float)docBox.Y0, (float)docBox.Z0);
+                    var docMax = new Vector3((float)docBox.X1, (float)docBox.Y1, (float)docBox.Z1);
+                    view.parts.Add(new OpeningPart {
+                        Name = "psd-cover-panel",
+                        Role = OpeningPartRole.Cover,
+                        Node = proxyGo != null ? proxyGo.transform : null,
+                        Local = new Bounds(target, baked.size),
+                        Document = new Bounds((docMin + docMax) * .5f, docMax - docMin),
+                        Material = OpeningColour.Name(OpeningColour.White),
+                        PrefabOffset = place,
+                        Datum = mod.Z,
+                    });
+                    state.Set.Add(view);
+                }
+            }
+
+            return batchedIds;
         }
 
         /// <summary>
@@ -3354,6 +3997,23 @@ namespace Metro.App {
             foreach (var pair in states) {
                 if (pair.Key == null || pair.Key.IsDisposed) {
                     pair.Value.Set.Clear();
+                    if (pair.Value.CoverChunks != null) {
+                        for (int c = 0; c < pair.Value.CoverChunks.Count; c++) {
+                            var chunk = pair.Value.CoverChunks[c];
+                            if (chunk == null) continue;
+                            if (pair.Value.Drawer != null) {
+                                for (int b = 0; b < chunk.Batches.Count; b++) pair.Value.Drawer.Remove(chunk.Batches[b]);
+                            }
+                            for (int m = 0; m < chunk.ProxyMeshes.Count; m++) {
+                                if (chunk.ProxyMeshes[m] != null) OpeningModuleViews.SafeDestroy(chunk.ProxyMeshes[m]);
+                            }
+                            chunk.ProxyMeshes.Clear();
+                        }
+                        pair.Value.CoverChunks.Clear();
+                    }
+                    pair.Value.Templates?.Dispose();
+                    pair.Value.Templates = null;
+                    pair.Value.Drawer = null;
                     // The printed headers belong to this world too: free their textures,
                     // quads and materials before the palette (their template) goes.
                     PsdHeaderArtwork.ReleaseScope(pair.Value.Headers);

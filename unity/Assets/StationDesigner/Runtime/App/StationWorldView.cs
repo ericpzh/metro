@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using Metro.Build;
@@ -20,6 +21,14 @@ namespace Metro.App {
         void Build(StationViewBuildContext context);
         /// <summary>Drop materials, textures and subscriptions created for the last build.</summary>
         void Release();
+    }
+
+    /// <summary>
+    /// Optional extension for heavy renderers (such as cell meshing) that can slice their
+    /// full-station build across frames so the loading screen stays animated on desktop.
+    /// </summary>
+    public interface IStationYieldedViewRenderer : IStationViewRenderer {
+        IEnumerator BuildYielded(StationViewBuildContext context);
     }
 
     /// <summary>The scene's shared assets, copied from <see cref="StationGameHost"/> before any renderer builds.</summary>
@@ -417,6 +426,69 @@ namespace Metro.App {
                 }
             }
             IsBuilt = true;
+        }
+
+        /// <summary>
+        /// Frame-yielded variant of <see cref="Build"/>: yields between every renderer and
+        /// drives any <see cref="IStationYieldedViewRenderer"/> frame-by-frame so the loading
+        /// screen continues animating while large stations build.
+        /// </summary>
+        public IEnumerator BuildYielded(
+            StationDocument stationDocument,
+            StationIndex stationIndex,
+            Action<string> markLoad,
+            Action<Exception> onError) {
+            if (IsBuilt) {
+                onError?.Invoke(new InvalidOperationException("Station world is already built."));
+                yield break;
+            }
+            if (IsDisposed) {
+                onError?.Invoke(new ObjectDisposedException(nameof(StationWorldView)));
+                yield break;
+            }
+            document = stationDocument ?? throw new ArgumentNullException(nameof(stationDocument));
+            index = stationIndex ?? throw new ArgumentNullException(nameof(stationIndex));
+            var context = new StationViewBuildContext(this, markLoad);
+            foreach (var renderer in renderers) {
+                if (renderer == null) continue;
+                if (IsDisposed) yield break;
+                if (renderer is IStationYieldedViewRenderer yieldedRenderer) {
+                    IEnumerator enumerator;
+                    try {
+                        markLoad?.Invoke("renderer." + renderer.Role + ".begin");
+                        enumerator = yieldedRenderer.BuildYielded(context);
+                    } catch (Exception error) {
+                        onError?.Invoke(new StationViewBuildException(renderer.Role ?? renderer.GetType().Name, error));
+                        yield break;
+                    }
+                    while (enumerator != null) {
+                        bool moved;
+                        try {
+                            moved = enumerator.MoveNext();
+                        } catch (Exception error) {
+                            onError?.Invoke(new StationViewBuildException(renderer.Role ?? renderer.GetType().Name, error));
+                            yield break;
+                        }
+                        if (!moved) break;
+                        yield return enumerator.Current;
+                        if (IsDisposed) yield break;
+                    }
+                    markLoad?.Invoke("renderer." + renderer.Role + ".end");
+                    yield return null;
+                } else {
+                    try {
+                        using var familySample = StationEditProfiling.Measure("StationEdit.View." + renderer.Role);
+                        markLoad?.Invoke("renderer." + renderer.Role + ".begin");
+                        renderer.Build(context);
+                        markLoad?.Invoke("renderer." + renderer.Role + ".end");
+                    } catch (Exception error) {
+                        onError?.Invoke(new StationViewBuildException(renderer.Role ?? renderer.GetType().Name, error));
+                        yield break;
+                    }
+                    yield return null;
+                }
+            }
+            if (!IsDisposed) IsBuilt = true;
         }
 
         /// <summary>

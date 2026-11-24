@@ -7,12 +7,14 @@ import { useStore } from '../app/store.ts'
 import { setLanguage, useLanguage } from '../app/i18n.ts'
 import { benchmarkHrefFor, benchmarkLanguagePath, isBenchmarkPath } from '../app/languageRoute.ts'
 import { summarizeFrameIntervals } from '../app/benchmark/benchmarkStats.ts'
+import { CameraTourDriver, cameraTourPlanFor, type TourLevelSwitchRecord } from '../app/benchmark/benchmarkCameraTour.ts'
 import { BENCHMARK_COPY, benchmarkCopy } from '../app/benchmark/benchmarkCopy.ts'
+import { FrameTimeChart } from '../app/benchmark/FrameTimeChart.tsx'
 import { parseExplodedHostState } from './explodedInput.ts'
 import { stationBridge } from './stationBridge.ts'
 import '../app/benchmark/benchmark.css'
 
-type View = 'regular' | 'explode'
+type View = 'regular' | 'explode' | 'tour'
 type Phase = 'setup' | 'preparing' | 'running' | 'result' | 'error'
 interface FrameSample { at: number; interval: number; tick: number }
 interface ArrivalSample { at: number; tick: number }
@@ -49,6 +51,7 @@ interface Result {
   view: View
   frames: FrameSample[]
   arrivals: ArrivalSample[]
+  levelSwitches: TourLevelSwitchRecord[]
   resources: ResourceSample[]
   stats: NonNullable<ReturnType<typeof summarizeFrameIntervals>>
   browser: string
@@ -86,6 +89,10 @@ interface UnityLoaderWindow extends Window {
 function stationLabel(id: ExampleStationId, language: string): string {
   const copy = BENCHMARK_COPY[language === 'en' ? 'en' : 'zh']
   return copy[id]
+}
+
+function viewLabel(view: View, copy: ReturnType<typeof benchmarkCopy>): string {
+  return view === 'explode' ? copy.explode : view === 'tour' ? copy.tour : copy.normal
 }
 
 function browserLabel(userAgent: string): string {
@@ -223,10 +230,14 @@ function BenchmarkChart({ result, copy }: { result: Result; copy: ReturnType<typ
         const x = at / DURATION_MS * width
         return <g key={`${tick}-${index}`}><line x1={x} x2={x} y1="0" y2={height} className="benchmarkArrival"/><text x={Math.min(width - 42, x + 4)} y={14 + (index % 2) * 14} className="benchmarkArrivalLabel">{copy.tick} {tick}</text></g>
       })}
+      {result.levelSwitches.map(({ at, level, key }, index) => {
+        const x = Math.min(width, Math.max(0, at / DURATION_MS * width))
+        return <g key={`lvl-${at}-${level}-${index}`}><line x1={x} x2={x} y1="0" y2={height} className="benchmarkLevelSwitch"/><text x={Math.min(width - 56, x + 4)} y={height - 6 - (index % 2) * 13} className="benchmarkLevelSwitchLabel">{key} {level}m</text></g>
+      })}
       <text x="0" y="-12" className="benchmarkAxisTitle">FPS</text>
       <text x={width / 2} y={height + 65} className="benchmarkAxisTitle" textAnchor="middle">{copy.secondsWall}</text>
     </svg>
-    <div className="benchmarkChartNote">{copy.chartNote}</div>
+    <div className="benchmarkChartNote">{result.levelSwitches.length > 0 ? copy.tourChartNote : copy.chartNote}</div>
   </div>
 }
 
@@ -395,6 +406,7 @@ export function UnityBenchmarkRoute({
       stationBridge.send('view.set', { key: 'showLevels', value: true })
 
       // Mirror the exact /game/benchmark per-demo storeys and framing.
+      const tourPlan = view === 'tour' ? cameraTourPlanFor(stationId) : null
       if (view === 'regular' && stationId === 'zoo') {
         useStore.getState().setActiveZ(-15)
         stationBridge.send('view.set', { key: 'level', value: -15 })
@@ -404,6 +416,7 @@ export function UnityBenchmarkRoute({
         stationBridge.send('view.set', { key: 'level', value: -5 })
       }
 
+      let tourCameraAck: Record<string, unknown> | null = null
       if (view === 'explode') {
         useStore.getState().setExplodedView(true)
         await waitUntil(
@@ -419,6 +432,20 @@ export function UnityBenchmarkRoute({
             return exp?.error || null
           },
         )
+      } else if (tourPlan) {
+        if (tourPlan.initialDirection) {
+          const [dx, dy, dz] = tourPlan.initialDirection
+          stationBridge.send('camera.snap', { face: `dir:${dx},${dy},${dz}`, direction: [dx, dy, dz], projection: 'perspective' })
+        } else {
+          stationBridge.send('camera.home', {})
+        }
+        useStore.getState().setActiveZ(tourPlan.initialLevel)
+        stationBridge.send('view.set', { key: 'level', value: tourPlan.initialLevel })
+        stationBridge.send('camera.frame', {})
+        const zoomAck = await stationBridge.request<{ camera?: unknown }>('camera.zoom', { factor: tourPlan.initialZoom }).catch(() => null)
+        if (zoomAck?.camera && typeof zoomAck.camera === 'object') {
+          tourCameraAck = zoomAck.camera as Record<string, unknown>
+        }
       } else {
         if (stationId === 'zoo') {
           stationBridge.send('camera.snap', { face: 'dir:-1,1,1', direction: [-1, 1, 1], projection: 'perspective' })
@@ -436,7 +463,32 @@ export function UnityBenchmarkRoute({
 
       const frames: FrameSample[] = []
       const arrivals: ArrivalSample[] = []
+      const levelSwitches: TourLevelSwitchRecord[] = []
       const resources: ResourceSample[] = []
+      const liveCam = (tourCameraAck ?? stationBridge.getSnapshot().state.camera) as
+        | { target?: unknown; position?: unknown; distance?: unknown }
+        | undefined
+      const camTarget = Array.isArray(liveCam?.target) && liveCam.target.length >= 2 &&
+        typeof liveCam.target[0] === 'number' && typeof liveCam.target[1] === 'number'
+        ? (liveCam.target as number[])
+        : null
+      const camPos = Array.isArray(liveCam?.position) && liveCam.position.length >= 3 &&
+        typeof liveCam.position[0] === 'number' && typeof liveCam.position[1] === 'number' && typeof liveCam.position[2] === 'number'
+        ? (liveCam.position as number[])
+        : null
+      const camDistance = typeof liveCam?.distance === 'number' && Number.isFinite(liveCam.distance) && liveCam.distance > 0
+        ? liveCam.distance
+        : (camTarget && camPos && typeof camTarget[2] === 'number'
+            ? Math.hypot(camPos[0]! - camTarget[0]!, camPos[1]! - camTarget[1]!, camPos[2]! - camTarget[2]!)
+            : null)
+      const tourDriver = tourPlan
+        ? new CameraTourDriver(
+            stationId,
+            camTarget && camDistance
+              ? { centerX: camTarget[0]!, centerY: camTarget[1]!, initialDistance: camDistance }
+              : undefined,
+          )
+        : null
       const memoryApi = performance as Performance & { memory?: { usedJSHeapSize?: number } }
       const initialMetrics = useStore.getState().metrics
       const initialTick = initialMetrics?.tick ?? 0
@@ -446,7 +498,13 @@ export function UnityBenchmarkRoute({
       const started = lastFrame
 
       stationBridge.send('sim.speed', { speed: SPEED })
-      const nativeRecorderStarted = await stationBridge.request<{ recording?: boolean }>('benchmark.start', {}).then(r => Boolean(r?.recording)).catch(() => false)
+      const startReply = await stationBridge.request<{ recording?: boolean }>('benchmark.start', {}).catch(() => null)
+      const nativeRecorderStarted = Boolean(startReply?.recording)
+      const startHardware = (startReply as { hardware?: NativeBenchmarkHardware } | null)?.hardware
+      const unityViewportHeight =
+        typeof startHardware?.screenHeight === 'number' && startHardware.screenHeight > 0
+          ? startHardware.screenHeight
+          : (canvas.height || canvas.clientHeight || window.innerHeight || 900)
       stationBridge.send('sim.play', { playing: true })
 
       await new Promise<void>(resolve => {
@@ -461,6 +519,26 @@ export function UnityBenchmarkRoute({
           lastArrivals = count
 
           const elapsed = now - started
+          if (tourDriver) {
+            const move = tourDriver.advance(elapsed)
+            for (const step of move.levelSteps) {
+              useStore.getState().setActiveZ(step.level)
+              stationBridge.send('view.set', { key: 'level', value: step.level })
+              levelSwitches.push({ at: elapsed, level: step.level, key: step.key })
+            }
+            if (Math.abs(move.orbitDx) > 1e-5 || Math.abs(move.orbitDy) > 1e-5) {
+              stationBridge.send('camera.orbit', { dx: move.orbitDx, dy: move.orbitDy })
+            }
+            if (Math.abs(move.zoomFactor - 1) > 1e-6) {
+              stationBridge.send('camera.zoom', { factor: move.zoomFactor })
+            }
+            if (Math.abs(move.panRightFrac) > 1e-6 || Math.abs(move.panForwardFrac) > 1e-6) {
+              stationBridge.send('camera.pan', {
+                dx: -move.panRightFrac * unityViewportHeight,
+                dy: move.panForwardFrac * unityViewportHeight,
+              })
+            }
+          }
           if (elapsed >= resources.length * 1000 + 1000 || (resources.length === 0 && elapsed >= 1000)) {
             resources.push({
               at: elapsed,
@@ -525,6 +603,7 @@ export function UnityBenchmarkRoute({
         view,
         frames: measuredFrames,
         arrivals,
+        levelSwitches,
         resources: measuredResources,
         stats,
         browser: isDesktopRun ? runtimeLabel : navigator.userAgent,
@@ -596,7 +675,13 @@ export function UnityBenchmarkRoute({
       <div className="benchmarkEyebrow">{copy.unityEyebrow}</div>
       <h1>{desktop ? copy.unityDesktopTitle : copy.unityTitle}</h1>
       <p>{desktop ? copy.unityDesktopIntro : copy.intro}</p>
-      <label>{copy.station}<select value={stationId} onChange={event => setStationId(event.target.value as ExampleStationId)}>{UNITY_STATIONS.map(id => <option key={id} value={id}>{copy[id]}</option>)}</select></label>
+      <fieldset><legend>{copy.station}</legend>
+        <div className="benchmarkChoices benchmarkStations" role="group" aria-label={copy.station}>
+          {UNITY_STATIONS.map(id => (
+            <button key={id} type="button" data-station={id} aria-pressed={stationId === id} onClick={() => setStationId(id)}>{copy[id]}</button>
+          ))}
+        </div>
+      </fieldset>
       <fieldset><legend>{copy.modelDetail}</legend><div className="benchmarkChoices">
         {MODEL_DETAIL_PROFILES.map(profile => (
           <button key={profile} type="button" aria-pressed={modelDetail === profile} onClick={() => setModelDetail(profile)}>{detailLabels[profile]}</button>
@@ -612,6 +697,7 @@ export function UnityBenchmarkRoute({
       <fieldset><legend>{copy.view}</legend><div className="benchmarkChoices">
         <button type="button" aria-pressed={view === 'regular'} onClick={() => setView('regular')}>{copy.normal}</button>
         <button type="button" aria-pressed={view === 'explode'} onClick={() => setView('explode')}>{copy.explode}</button>
+        <button type="button" aria-pressed={view === 'tour'} onClick={() => setView('tour')}>{copy.tour}</button>
       </div></fieldset>
       <button className="benchmarkStart" type="button" onClick={() => void begin()}>{copy.start}</button>
       <small>{desktop ? copy.unityDesktopKeepVisible : copy.keepVisible}</small>
@@ -627,20 +713,21 @@ export function UnityBenchmarkRoute({
         <div className="benchmarkLoadingMeta"><span>{loadingProgress}%</span><span>{copy.controlsLocked}</span></div>
       </div>
     </section>}
-    {phase === 'running' && <aside ref={hudRef} popover={view === 'explode' ? 'manual' : undefined} className="benchmarkHud"><div><b>{copy.running}</b><span>{`${remaining}${copy.seconds} · ${copy[stationId]} · ${detailLabels[modelDetail]} · ${copy.fsr}: ${fsrLabels[upscalingMode]} · ${view === 'explode' ? copy.explode : copy.normal} · ${copy.controlsLocked}`}</span></div></aside>}
+    {phase === 'running' && <aside ref={hudRef} popover={view === 'explode' ? 'manual' : undefined} className="benchmarkHud"><div><b>{copy.running}</b><span>{`${remaining}${copy.seconds} · ${copy[stationId]} · ${detailLabels[modelDetail]} · ${copy.fsr}: ${fsrLabels[upscalingMode]} · ${viewLabel(view, copy)} · ${copy.controlsLocked}`}</span></div></aside>}
     {(phase === 'error' || phase === 'result') && <main className="benchmarkPage benchmarkResultsPage">
       {phase === 'error' ? <section className="benchmarkSetup"><h1>{copy.couldNotFinish}</h1><p role="alert">{error}</p><button type="button" className="benchmarkStart" onClick={retry}>{copy.back}</button></section> : result && <article className="benchmarkResult">
         <header className="benchmarkResultHeader"><div><div className="benchmarkEyebrow">{copy.first30}</div><h1>{stationLabel(result.stationId, language)}</h1><p>{result.isDesktop ? copy.unityDesktopEngine : copy.unityEngine} · {detailLabels[result.modelDetail]} · {copy.fsr}: {fsrLabels[result.upscalingMode]} · 16× · {result.runtimeLabel} / {result.gpu}</p></div><button type="button" onClick={retry}>{copy.again}</button></header>
-        <div className="benchmarkMetricRow"><div><span>{copy.average}</span><strong>{result.stats.averageFps.toFixed(2)}</strong></div><div><span>{copy.low1}</span><strong>{result.stats.onePercentLowFps.toFixed(2)}</strong></div><div><span>{copy.worst}</span><strong>{result.stats.worstFrameMs.toFixed(0)} <small>ms</small></strong></div><div><span>{copy.view}</span><strong>{result.view === 'explode' ? copy.explode : copy.normal}</strong></div></div>
+        <div className="benchmarkMetricRow"><div><span>{copy.average}</span><strong>{result.stats.averageFps.toFixed(2)}</strong></div><div><span>{copy.low1}</span><strong>{result.stats.onePercentLowFps.toFixed(2)}</strong></div><div><span>{copy.worst}</span><strong>{result.stats.worstFrameMs.toFixed(0)} <small>ms</small></strong></div><div><span>{copy.view}</span><strong>{viewLabel(result.view, copy)}</strong></div></div>
         <BenchmarkChart result={result} copy={copy}/>
+        <section className="benchmarkFrameTimeSection"><h2>{copy.frameTimeTitle}</h2><FrameTimeChart frames={result.frames} arrivals={result.arrivals} stats={result.stats} copy={copy} levelSwitches={result.levelSwitches}/></section>
         <section className="benchmarkResourceSection"><h2>{copy.resourceUsage}</h2><ResourceChart result={result} copy={copy}/></section>
         <section className="benchmarkHardware"><h2>{copy.hardware}</h2><dl>
           <div><dt>{copy.engine}</dt><dd>{result.isDesktop ? copy.unityDesktopEngine : copy.unityEngine}{result.upscalingBackend !== 'off' ? ` · ${result.upscalingBackend}` : ''}</dd></div><div><dt>{result.isDesktop ? copy.desktopRuntime : copy.browser}</dt><dd>{result.browser}</dd></div>
           <div><dt>{copy.gpu}</dt><dd>{result.gpu}</dd></div><div><dt>{copy.cores}</dt><dd>{result.cpuCores ?? copy.unavailable}</dd></div>
           <div><dt>{copy.memory}</dt><dd>{result.memoryGb ? `${result.memoryGb} GB` : copy.unavailable}</dd></div><div><dt>{copy.viewport}</dt><dd>{result.viewport} {copy.dpr} {result.pixelRatio.toFixed(2)}</dd></div>
           <div><dt>{copy.geometry}</dt><dd>{result.cells.toLocaleString()} {copy.cells} · {result.modules.toLocaleString()} {copy.modules}</dd></div>
-          <div><dt>{copy.run}</dt><dd>{stationLabel(result.stationId, language)} · {detailLabels[result.modelDetail]} · {copy.fsr}: {fsrLabels[result.upscalingMode]} · {result.view === 'explode' ? copy.explode : copy.normal} · {copy.level} {result.activeLevel} m · {result.view === 'regular' ? `${copy.zoom} · ` : ''}16× · 30{copy.secShort} · {result.ticks.toLocaleString()} {copy.tick}</dd></div>
-          <div><dt>{copy.samples}</dt><dd>{Math.max(0, result.frames.length - 1).toLocaleString()} {copy.intervals} · {result.arrivals.length} {copy.arrivals}</dd></div>
+          <div><dt>{copy.run}</dt><dd>{stationLabel(result.stationId, language)} · {detailLabels[result.modelDetail]} · {copy.fsr}: {fsrLabels[result.upscalingMode]} · {viewLabel(result.view, copy)} · {result.view === 'tour' ? `${copy.tourMoves} · ` : `${copy.level} ${result.activeLevel} m · ${result.view === 'regular' ? `${copy.zoom} · ` : ''}`}16× · 30{copy.secShort} · {result.ticks.toLocaleString()} {copy.tick}</dd></div>
+          <div><dt>{copy.samples}</dt><dd>{Math.max(0, result.frames.length - 1).toLocaleString()} {copy.intervals} · {result.arrivals.length} {copy.arrivals}{result.levelSwitches.length > 0 ? ` · ${result.levelSwitches.length} ${copy.levelSwitches}` : ''}</dd></div>
         </dl><p>{result.isDesktop ? copy.unityDesktopIntervalInfo : copy.unityIntervalInfo}</p></section>
       </article>}
     </main>}

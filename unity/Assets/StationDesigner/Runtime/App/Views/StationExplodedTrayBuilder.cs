@@ -941,21 +941,27 @@ namespace Metro.App.Views {
                 MaxWorldY = highY,
             };
 
+            var sharedTreadMesh = sourceVertical.BandTreadMesh;
+            var sharedRiserMesh = sourceVertical.BandRiserMesh;
             for (int i = 0; i < sourceVertical.Steps.Count; i++) {
                 var srcStep = sourceVertical.Steps[i];
                 Transform dstTread = null;
                 Transform dstRiser = null;
-                if (srcStep.Tread != null) {
+                var treadMesh = sharedTreadMesh;
+                if (treadMesh == null && srcStep.Tread != null) {
                     var mf = srcStep.Tread.GetComponent<MeshFilter>();
-                    if (mf != null && mf.sharedMesh != null) {
-                        dstTread = CreateTrayMeshObject(tray, groupTransform, "tread-" + i, mf.sharedMesh, stepMaterial).transform;
-                    }
+                    if (mf != null) treadMesh = mf.sharedMesh;
                 }
-                if (srcStep.Riser != null) {
+                if (treadMesh != null) {
+                    dstTread = CreateTrayMeshObject(tray, groupTransform, "tread-" + i, treadMesh, stepMaterial).transform;
+                }
+                var riserMesh = sharedRiserMesh;
+                if (riserMesh == null && srcStep.Riser != null) {
                     var mf = srcStep.Riser.GetComponent<MeshFilter>();
-                    if (mf != null && mf.sharedMesh != null) {
-                        dstRiser = CreateTrayMeshObject(tray, groupTransform, "riser-" + i, mf.sharedMesh, stepMaterial).transform;
-                    }
+                    if (mf != null) riserMesh = mf.sharedMesh;
+                }
+                if (riserMesh != null) {
+                    dstRiser = CreateTrayMeshObject(tray, groupTransform, "riser-" + i, riserMesh, stepMaterial).transform;
                 }
                 binding.Steps.Add(new EscalatorStepFollower {
                     SourceTread = srcStep.Tread,
@@ -975,10 +981,49 @@ namespace Metro.App.Views {
                 bool trayShown = floorVisible[binding.TrayIndex];
                 for (int i = 0; i < binding.Steps.Count; i++) {
                     var step = binding.Steps[i];
-                    SyncSingleStepPart(step.SourceTread, step.TargetTread, trayShown, binding.MinWorldY, binding.MaxWorldY);
-                    SyncSingleStepPart(step.SourceRiser, step.TargetRiser, trayShown, binding.MinWorldY, binding.MaxWorldY);
+                    bool needSampledTread = step.SourceTread == null && step.TargetTread != null;
+                    bool needSampledRiser = step.SourceRiser == null && step.TargetRiser != null;
+                    if (step.SourceTread != null) {
+                        SyncSingleStepPart(step.SourceTread, step.TargetTread, trayShown, binding.MinWorldY, binding.MaxWorldY);
+                    }
+                    if (step.SourceRiser != null) {
+                        SyncSingleStepPart(step.SourceRiser, step.TargetRiser, trayShown, binding.MinWorldY, binding.MaxWorldY);
+                    }
+                    if (needSampledTread || needSampledRiser) {
+                        if (trayShown && binding.SourceView.TryGetStepWorldPose(
+                                i, out bool stepVisible, out var worldPos, out var worldRot, out var worldScale, out float riserScaleY)) {
+                            if (needSampledTread) {
+                                SyncSampledStepPart(step.TargetTread, stepVisible, worldPos, worldRot, worldScale, binding.MinWorldY, binding.MaxWorldY);
+                            }
+                            if (needSampledRiser) {
+                                bool riserVisible = stepVisible && riserScaleY > 1e-5f;
+                                var riserScale = new Vector3(worldScale.x, worldScale.y * riserScaleY, worldScale.z);
+                                SyncSampledStepPart(step.TargetRiser, riserVisible, worldPos, worldRot, riserScale, binding.MinWorldY, binding.MaxWorldY);
+                            }
+                        } else {
+                            if (needSampledTread && step.TargetTread.gameObject.activeSelf) step.TargetTread.gameObject.SetActive(false);
+                            if (needSampledRiser && step.TargetRiser.gameObject.activeSelf) step.TargetRiser.gameObject.SetActive(false);
+                        }
+                    }
                 }
             }
+        }
+
+        static void SyncSampledStepPart(Transform dst, bool visible, Vector3 worldPos, Quaternion worldRot, Vector3 worldScale, float minY, float maxY) {
+            if (dst == null) return;
+            if (!visible) {
+                if (dst.gameObject.activeSelf) dst.gameObject.SetActive(false);
+                return;
+            }
+            bool inBand = worldPos.y >= minY - 1e-4f && worldPos.y < maxY - 1e-4f;
+            if (!inBand) {
+                if (dst.gameObject.activeSelf) dst.gameObject.SetActive(false);
+                return;
+            }
+            if (!dst.gameObject.activeSelf) dst.gameObject.SetActive(true);
+            dst.localPosition = worldPos;
+            dst.localRotation = worldRot;
+            dst.localScale = worldScale;
         }
 
         static void SyncSingleStepPart(Transform src, Transform dst, bool trayShown, float minY, float maxY) {

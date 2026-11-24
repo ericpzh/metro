@@ -104,23 +104,39 @@ and keep `Newtonsoft.Json` out of `Metro.Sim`, `Metro.Build`, and `Metro.View`.
   keeps hover, selection, and ghosts separate outside document commits and uses
   `StationHighlight.shader` for retained erase batches. See
   [references/rendering-lod-fsr.md](references/rendering-lod-fsr.md).
-- **Model detail & non-active storey Mesh LODs:** `StationGraphicsSettings` owns
-  `high` / `balanced` / `low` (`graphics.get` / `graphics.set`). Non-active
-  storeys step down one Unity LOD tier (`High → LOD1`, `Balanced`/`Low → LOD2`)
-  via `StationVisibilityRules.OtherLevelMeshLod` across `StationVisibilityTarget`,
+- **Model detail, non-active storey Mesh LODs & desktop batching:**
+  `StationGraphicsSettings` owns `high` / `balanced` / `low` (`graphics.get` /
+  `graphics.set`). Non-active storeys step down one Unity LOD tier
+  (`High → LOD1`, `Balanced`/`Low → LOD2`) via
+  `StationVisibilityRules.OtherLevelMeshLod` across `StationVisibilityTarget`,
   `StationInstancedSurfaceDrawer.SelectMeshLod`, and `PassengerCrowdView`.
   `HideUi`, `Cutaway`, exploded trays, placement previews (`forceMeshLod = 0`),
   and followed passengers keep normal detail (`StationModelLodTests`).
+  `VerticalModuleViews` GPU-instances escalator/walkway steps via
+  `EscalatorStepInstancedDrawer`, `StationPrefabBatch` combines same-material
+  child meshes across multi-LOD tiers (`lodCount > 1`),
+  `StationInstancedSurfaceDrawer` frustum-culls batches (`EquipBatchThreshold = 3`),
+  `OpeningModuleViews` merges static opaque PSD parts / compacts `Gate`/`Door`/`Cubicle`
+  subtrees / instances repeated `psd-end:cover` runs, and `PassengerCrowdView`
+  frustum-culls early via `Skin.forceRenderingOff` (never `Skin.enabled`, which
+  would poison `StationVisibilityTarget` eligibility) with O(N) two-pointer tick
+  alignment (`StationPerf*Tests`).
 - **Runtime FSR 1.0 upscaling:** `StationFsrUpscaler` supports `native`, `ultra`,
   `quality`, `balanced`, and `performance`. Platforms with
   `SystemInfo.graphicsShaderLevel >= 45` use URP native FSR (`urp-fsr1`); WebGL 2
   / ES 3.0 runs the two-pass EASU + RCAS `Resources/StationFsr1.shader`
   (`webgl-fsr1`) and restores `camera.targetTexture = null` after rendering so
   picking sees full screen dimensions (`StationFsrSettingsTests`).
-- **Unity audio:** `StationCommandRouter` (`StationEditAudioOutcome`) derives
-  edit cues without extra scene picks, and `StationGameHost.PublishAudio` emits
-  bounded camera-relative ambience inputs (live crowds, trains, road vehicles,
-  or exploded-tray actors/trains) on the session-scoped `audio` channel for
+- **Lock-free state publish, TV repaint budget & Unity audio:**
+  `StationSimulationHost` snapshots immutable crowd counters and
+  `StationPublishedStatistics` into `StationPublishedSimFrame` so 10 Hz
+  `PublishStateNow()` stays lock-free on the main thread; PlayMode
+  `StationDisplayTvArtwork.StateContributor` defers painting to `Advance()`
+  (`4/frame`, `skipHidden: true`, pooled `StationTvPlatePainter` RTs).
+  `StationCommandRouter` (`StationEditAudioOutcome`) derives edit cues without
+  extra scene picks, and `StationGameHost.PublishAudio` streams bounded
+  camera-relative ambience inputs via `JsonTextWriter` (suppressing duplicate
+  silent frames) on the session-scoped `audio` channel for
   `game/src/unity-web/unityAudio.ts` using `game/public/audio/`. Hover, cancels,
   no-ops, and parked trains stay silent.
 - **Simulation & vertical circulation parity:** Sparse hierarchical routing

@@ -97,44 +97,68 @@ for measurement rules and [perf-benchmarks.md](perf-benchmarks.md) for commands.
 
 ## Crowds, displays & exploded view memory
 
-- **Desktop standalone simulation worker & hot loops (`StationLoadCoordinator.cs`, `StationServiceRuntime.cs`)**:
+- **Desktop standalone simulation worker & hot loops (`StationLoadCoordinator.cs`, `StationServiceRuntime.cs`, `SessionPassengerFeed.cs`, `StationStatisticsFeature.cs`, `StationGameHost.cs`)**:
   On Windows standalone (`#if !UNITY_WEBGL`, opt-out via `-metroSimSync`), `StationSimulationHost`
   runs `StationSimulationSession.Advance` on a dedicated background worker thread and publishes
-  lock-free immutable `StationPublishedSimFrame` snapshots with a synchronous edit/command barrier.
+  lock-free immutable `StationPublishedSimFrame` snapshots (including crowd counters and reused
+  immutable `StationPublishedStatistics` snapshots) with a synchronous edit/command barrier.
+  10 Hz `PublishStateNow()` reads `PublishedFrame` lock-free across `StationCrowdStateContributor`,
+  `StationStatisticsStateContributor`, and raw contributor caches (never blocking on `sessionLock`),
+  and ambient audio streams directly via `JsonTextWriter` while suppressing duplicate silent frames.
   `StationServiceRuntime` uses flat stamped 3D cell grids (with lossless dictionary overflow fallback)
   for `PriceCrowd` and `SeparateWalkers`.
 - **Crowd animation & SRP batching (`PassengerCrowdView.cs`)**: Sets fixed `localBounds` with
   `updateWhenOffscreen = false` and `shadowCastingMode = Off` (covered by instanced contact shadows),
-  caches `PassengerAppearance.Look` and static `PassengerSupportResolver` cell queries, hoists camera
-  LOD parameters, skips Transform writes for hidden actors, reuses tick-boundary poses on sub-tick
-  frames with a paused fast path, replaces per-actor `MaterialPropertyBlock`s with bounded 20-step
-  shared toned materials (SRP Batcher compatible across `Base`/`Ghost`/`Clear`), and applies
-  frustum culling + a globally shared 96-sample/frame steady `SampleAnimation` budget.
+  caches `PassengerAppearance.Look`, resolved `(clipName, AnimationClip, length)`, and static
+  `PassengerSupportResolver` cell queries (zero-alloc `SupportCellKey`), hoists camera LOD
+  parameters, runs pure-managed 6-plane frustum culling **before** Transform writes / LOD / tone /
+  clip work (suppressing offscreen draws via `Skin.forceRenderingOff` so `StationVisibilityTarget`
+  eligibility is never poisoned), aligns adjacent tick poses via O(N) two-pointer merge with
+  reusable list rotation (zero per-tick dictionary copies and zero per-frame dictionary lookups),
+  replaces per-actor `MaterialPropertyBlock`s with bounded 20-step shared toned materials
+  (preserving exact `0.35`/`0.25` Ghost/Clear alpha on SRP Batcher), and applies a globally shared
+  96-sample/frame steady `SampleAnimation` budget.
 - **Live clocks, TVs & signs**: `StationClockArtwork` paints 7-segment LED digits on the CPU into
   one reused `Texture2D` per scope with a cached per-day calendar strip and lightweight
   `ClockSnapshot()`; `StationDisplayTvArtwork` / `StationTvPlatePainter` pools an isolated offscreen
-  camera/canvas and GPU-copies depth-capable `RenderTexture`s (zero `ReadPixels()` in PlayMode),
-  skips hidden faces, budgets PlayMode paints round-robin (`4/frame`), and evicts unused plate
-  textures above `64`; `ModuleMotionDispatch` makes displacement probing opt-in (`MeasureDisplacement = false`
-  on runtime sinks), caches per-tick frame indices and swing-door targets, and dirty-skips unchanged
-  or hidden bindings (same for `VerticalModuleRenderer.ApplyAll`).
-- **Desktop URP & instancing (`StationGameHost.cs`, `StationWorldView.cs`, `StationModuleGroups.cs`)**:
+  camera/canvas plus a bounded `(width, height)` `RenderTexture` pool (`MaxPooledPlateTextures = 16`)
+  and GPU-copies depth-capable `RenderTexture`s (zero `ReadPixels()` in PlayMode), skips hidden
+  faces, budgets PlayMode paints round-robin (`4/frame`) exclusively inside `Advance()` (PlayMode
+  `StateContributor.BuildPayload` defers repaints instead of triggering unbounded synchronous
+  full-station repaints on 10 Hz publishes, and raw `"displays"` caching keys on `PublishVersion`),
+  and returns evicted plate textures above `16`/`64` to the RT pool; `ModuleMotionDispatch` makes
+  displacement probing opt-in (`MeasureDisplacement = false` on runtime sinks), caches per-tick
+  frame indices and swing-door targets, and dirty-skips unchanged or hidden bindings (same for
+  `VerticalModuleRenderer.ApplyAll`).
+- **Desktop URP, escalator instancing & static batching (`StationGameHost.cs`, `VerticalModuleViews.cs`, `OpeningModuleViews.cs`, `StationPrefabBatch.cs`, `StationModuleGroups.cs`)**:
   Standalone desktop runtime disables `supportsCameraDepthTexture`, `supportsCameraOpaqueTexture`,
   and `ScreenSpaceAmbientOcclusion` (skipping the DepthNormals prepass without shader recompilation),
-  uses `2` shadow cascades, disables shadow casting on interior static roles (`openings`, `equipment`,
-  `displays`, `signs`, `vertical`) and instanced surface/equipment batches, coarsens surface chunks
-  to `64 × 64`, and caps ambient audio publishing to `10 Hz`.
-- **Measured Unity Desktop standalone results (`.preview/perf/plan38-bench-pass3/`, RTX 4080 SUPER,
-  i7-14700KF, D3D12, `1600×900`, 16×, `native` FSR, 478–479 ticks/30 s):**
-  - `zoo` Low Regular: **173.3 → 215.0 FPS** (1% low 77.7, worst 30.6 ms)
-  - `tanwei` Low Regular: **97.3 → 161.7 FPS** (1% low 67.0, worst 28.4 ms)
-  - `tianhe` Low Regular: **25.0 → 50.7 FPS** (+103%, 1% low 23.4, worst 55.7 ms; peak RAM 7.30 → 6.11 GB)
-  - `tianhe` High Regular: **25.1 → 48.6–50.0 FPS** (+94–99%)
-  - `tianhe` Low Exploded: **34.9 → 76.4 FPS** (+119%, 1% low 29.5, worst 50.1 ms — **≥ 75 FPS target met**)
-  - `tianhe` High Exploded: **35.3 → 75.9 FPS** (+115%, 1% low 29.0, worst 42.0 ms — **≥ 75 FPS target met**)
-  *(Remaining ~3 ms gap on Tianhe Regular to reach ≥ 60 FPS is driven by the ~18k individual
-  non-readable glTFast `MeshRenderer`s across `openings`/`vertical`/`equipment`/`displays`/`signs`,
-  which require renderer-level GPU instancing rather than runtime `StaticBatchingUtility`, or Win64 IL2CPP.)*
+  sets `shadowDistance = 0` / `shadowCascadeCount = 1` (`StationRenderRig` uses `LightShadows.None`),
+  disables shadow casting on interior static roles (`openings`, `equipment`, `displays`, `signs`,
+  `vertical`) and instanced surface/equipment batches, coarsens surface chunks to `64 × 64`, and
+  caps ambient audio publishing to `10 Hz`. `VerticalModuleViews` renders all escalator/walkway
+  treads and risers via `EscalatorStepInstancedDrawer` (`Graphics.DrawMeshInstanced`, zero per-step
+  `MeshRenderer`s, PlayMode anchor-only `tread-0`/`tread-last`, single zero-triangle proxy renderer
+  per band for `StationVisibilityTarget` Base/Ghost/Clear/Hidden/Section parity, pooled meshes, and
+  frustum culling). `StationPrefabMeshTemplate` merges same-material child meshes across all Unity 6
+  multi-LOD tiers (`lodCount > 1`), `StationInstancedSurfaceDrawer` frustum-culls batches with a
+  `0.25 m` margin and caches `enableInstancing`/`lodCount`, `StationEquipmentModuleRenderer` lowers
+  `EquipBatchThreshold` to `3` and compacts remaining singletons, and `OpeningModuleViews` merges
+  static opaque PSD parts per `(run, material)`, compacts `Gate`/`Door`/`Cubicle` static subtrees,
+  and GPU-instances repeated `psd-end:cover` runs (`≥ 128` per band).
+  *(Measured negative experiments to keep off: Win64 D3D12 `GraphicsJobMode.Native` caused severe
+  sync stalls — 2.91 FPS / 559.6 ms worst on Tianhe Regular Low in `.preview/perf/perf60-pass2-gfxjobs/`;
+  `glTF-pbrMetallicRoughness.shadergraph` ships with `m_DOTSInstancing: false`, so URP GPU Resident
+  Drawer would skip glTFast renderers.)*
+- **Measured Unity Desktop standalone results (3-run median across `.preview/perf/perf60-pass1`,
+  `perf60-pass1-rep2`, `perf60-pass1-rep3`; RTX 4080 SUPER, i7-14700KF, Win64 Mono D3D12,
+  `1600×900`, 16×, `native` FSR, `477–479` ticks / `12` arrivals per 30 s):**
+  - `zoo` Low Regular (pass 1): **173.3 → 216.8 FPS** (1% low **103.8**, worst 33.0 ms)
+  - `tanwei` Low Regular (pass 1): **97.3 → 180.4 FPS** (1% low **95.5**, worst 19.1 ms)
+  - `tianhe` Low Regular: **25.0 → 73.7 FPS** median (`67.7–78.8`, +195%; 1% low **34.5**, `32.0–38.6`; worst **38.9 ms**, `38.5–45.3`; peak Unity RAM 7.30 → **5.66 GB**, OS WS **4.68 GB** — **≥ 60 FPS / ≥ 30 1% low / < 60 ms target met**)
+  - `tianhe` High Regular: **25.5 → 78.5 FPS** median (`68.7–78.6`, +208%; 1% low **39.4**, `32.2–39.5`; worst **38.8 ms**, `37.9–40.6`; peak Unity RAM **5.72 GB**, OS WS **4.71 GB** — **≥ 60 FPS / ≥ 30 1% low / < 60 ms target met**)
+  - `tianhe` Low Exploded: **34.5 → 97.7 FPS** median (`87.2–98.0`, +183%; 1% low **46.5**, `42.9–46.7`; worst **30.0 ms**, `29.7–31.5`; peak Unity RAM **3.19 GB** — **≥ 75 FPS / ≥ 35 1% low target met**)
+  - `tianhe` High Exploded: **33.9 → 97.9 FPS** median (`87.0–98.0`, +189%; 1% low **47.2**, `40.5–47.6`; worst **30.0 ms**, `29.1–44.3`; peak Unity RAM **3.12 GB** — **≥ 75 FPS / ≥ 35 1% low target met**)
 - **Measured Unity WebGL results on the same Plan 38 changes (`b8e8773b`, `pack-20261123184339044`,
   `.preview/perf/plan38-bench-pass3/`, Chrome hardware GPU RTX 4080 SUPER, `1600×900`, 16×, `native` FSR,
   474–479 ticks/30 s; excludes `#if !UNITY_WEBGL` background sim worker, desktop URP tuning, and interior

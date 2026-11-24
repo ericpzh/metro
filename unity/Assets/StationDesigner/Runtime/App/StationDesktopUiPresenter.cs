@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -12,6 +13,9 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Metro.Build;
+using Metro.Persistence;
+using Metro.Sim;
 using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.Controls;
 using UnityEngine.InputSystem.LowLevel;
@@ -143,6 +147,8 @@ namespace Metro.App {
         const int ShmMaxHeight = 2160;
         const int ShmSlotStrideBytes = ShmMaxWidth * ShmMaxHeight * 4;
         const long ShmTotalBytes = ShmHeaderBytes + 2L * ShmSlotStrideBytes;
+        const string UiThemePreference = "metro.ui.theme";
+        const string UiLanguagePreference = "metro.ui.lang";
 
         readonly ConcurrentQueue<string> incomingCommands = new ConcurrentQueue<string>();
         readonly ConcurrentQueue<(bool isError, string text)> incomingLogs = new ConcurrentQueue<(bool isError, string text)>();
@@ -151,6 +157,17 @@ namespace Metro.App {
 
         StationGameHost boundHost;
         Canvas overlayCanvas;
+        GameObject startupBackdropRoot;
+        Image startupBackdrop;
+        Image startupCardBorder;
+        Image startupCardFill;
+        Image startupTrack;
+        Image startupBar;
+        RectTransform startupCardBorderRect;
+        RectTransform startupBarRect;
+        Text startupBrandText;
+        Text startupTitleText;
+        Text startupDetailText;
         RawImage surfaceImage;
         Texture2D surfaceTexture;
 
@@ -162,10 +179,22 @@ namespace Metro.App {
         MemoryMappedFile shmFile;
         MemoryMappedViewAccessor shmAccessor;
 
+        sealed class PreparedStandaloneAutosave {
+            public StationReadResult Read;
+            public StationSimulationSession Session;
+        }
+
         string currentShmPath = "";
+        string activeStartupRoute = "";
         bool webReady;
         bool startAttempted;
         bool launchedInBenchmarkMode;
+        bool pendingStandaloneAutosaveRestore;
+        bool autosaveInstallInFlight;
+        int autosaveInstallAfterPresentFrame = -1;
+        double firstUpdateAt = -1.0;
+        Task<PreparedStandaloneAutosave> autosaveReadTask;
+        Coroutine autosaveInstallCoroutine;
         int lastAutosavedRevision = -1;
         int preBenchmarkRevision = -1;
         double nextAutosaveAt;
@@ -263,6 +292,10 @@ namespace Metro.App {
             BuildCanvas();
             SubscribeKeyboardText();
             InputSystem.onEvent += OnMouseButtonEvent;
+            // Launch the offscreen WebView2 host (and background autosave parse) eagerly during
+            // AfterSceneLoad while Unity's splash logo is still playing so #game-loading is
+            // ready immediately once the logo finishes.
+            TryBindAndStartWorker();
         }
 
         void OnDestroy() {
@@ -302,6 +335,31 @@ namespace Metro.App {
             overlayCanvas.sortingOrder = 32000;
             overlayCanvas.enabled = false;
 
+            // Render the same themed Station Designer loading card natively until WebView2
+            // delivers its first painted frame so the loading screen appears immediately
+            // after the Unity logo with zero blank dark screen and zero 3D station flash.
+            var backdropGo = new GameObject("StartupBackdrop") {
+                hideFlags = HideFlags.DontSave,
+            };
+            backdropGo.transform.SetParent(canvasGo.transform, false);
+            startupBackdropRoot = backdropGo;
+
+            var backdropRect = backdropGo.AddComponent<RectTransform>();
+            backdropRect.anchorMin = Vector2.zero;
+            backdropRect.anchorMax = Vector2.one;
+            backdropRect.offsetMin = Vector2.zero;
+            backdropRect.offsetMax = Vector2.zero;
+
+            startupBackdrop = backdropGo.AddComponent<Image>();
+            startupBackdrop.raycastTarget = false;
+
+            BuildStartupLoadingCard(backdropGo.transform);
+            ApplyStartupLoadingTheme(
+                PlayerPrefs.GetString(UiThemePreference, "blueprint"),
+                IsEnglishStartupLanguage(activeStartupRoute),
+                boundHost != null ? boundHost.font : null);
+            backdropGo.SetActive(false);
+
             var surfaceGo = new GameObject("WebViewSurface") {
                 hideFlags = HideFlags.DontSave,
             };
@@ -321,17 +379,239 @@ namespace Metro.App {
             surfaceImage.enabled = false;
         }
 
-        void RefreshCanvasVisibility() {
-            bool show = userEnabled && !smokeSuppressed && boundHost != null && presentedFrames > 0;
-            if (overlayCanvas != null && overlayCanvas.enabled != show) {
-                overlayCanvas.enabled = show;
+        static float ComputeStartupCardScale(int w, int h) {
+            if (h >= 1350) {
+                double s = Math.Round((h / 960.0) * 20.0) / 20.0;
+                return (float)Math.Clamp(s, 1.0, 2.5);
             }
-            if (surfaceImage != null && surfaceImage.enabled != show) {
-                surfaceImage.enabled = show;
+            if (h < 780) {
+                double s = Math.Round((h / 780.0) * 20.0) / 20.0;
+                return (float)Math.Clamp(s, 0.65, 1.0);
+            }
+            return 1f;
+        }
+
+        void BuildStartupLoadingCard(Transform parent) {
+            float scale = ComputeStartupCardScale(Screen.width, Screen.height);
+            float cardW = Mathf.Round(390f * scale);
+            float cardH = Mathf.Round(182f * scale);
+            float pad = Mathf.Round(28f * scale);
+
+            var borderGo = new GameObject("LoadingCardBorder") { hideFlags = HideFlags.DontSave };
+            borderGo.transform.SetParent(parent, false);
+            startupCardBorderRect = borderGo.AddComponent<RectTransform>();
+            startupCardBorderRect.anchorMin = new Vector2(0.5f, 0.5f);
+            startupCardBorderRect.anchorMax = new Vector2(0.5f, 0.5f);
+            startupCardBorderRect.pivot = new Vector2(0.5f, 0.5f);
+            startupCardBorderRect.sizeDelta = new Vector2(cardW + 2f, cardH + 2f);
+            startupCardBorder = borderGo.AddComponent<Image>();
+            startupCardBorder.raycastTarget = false;
+
+            var cardGo = new GameObject("LoadingCard") { hideFlags = HideFlags.DontSave };
+            cardGo.transform.SetParent(borderGo.transform, false);
+            var cardRect = cardGo.AddComponent<RectTransform>();
+            cardRect.anchorMin = Vector2.zero;
+            cardRect.anchorMax = Vector2.one;
+            cardRect.offsetMin = new Vector2(1f, 1f);
+            cardRect.offsetMax = new Vector2(-1f, -1f);
+            startupCardFill = cardGo.AddComponent<Image>();
+            startupCardFill.raycastTarget = false;
+
+            startupBrandText = CreateCardText(cardGo.transform, "Brand", pad, pad, pad, Mathf.Round(18f * scale),
+                Mathf.Max(10, Mathf.RoundToInt(11f * scale)), FontStyle.Bold);
+            startupBrandText.text = "STATION DESIGNER";
+
+            startupTitleText = CreateCardText(cardGo.transform, "Title", pad, Mathf.Round(62f * scale), pad, Mathf.Round(34f * scale),
+                Mathf.Max(16, Mathf.RoundToInt(25f * scale)), FontStyle.Bold);
+
+            startupDetailText = CreateCardText(cardGo.transform, "Detail", pad, Mathf.Round(102f * scale), pad, Mathf.Round(42f * scale),
+                Mathf.Max(11, Mathf.RoundToInt(14f * scale)), FontStyle.Normal);
+
+            var trackGo = new GameObject("LoadingTrack") { hideFlags = HideFlags.DontSave };
+            trackGo.transform.SetParent(cardGo.transform, false);
+            var trackRect = trackGo.AddComponent<RectTransform>();
+            trackRect.anchorMin = new Vector2(0f, 0f);
+            trackRect.anchorMax = new Vector2(1f, 0f);
+            trackRect.pivot = new Vector2(0.5f, 0f);
+            trackRect.offsetMin = new Vector2(pad, pad);
+            trackRect.offsetMax = new Vector2(-pad, pad + Mathf.Max(3f, Mathf.Round(3f * scale)));
+            startupTrack = trackGo.AddComponent<Image>();
+            startupTrack.raycastTarget = false;
+
+            var barGo = new GameObject("LoadingBar") { hideFlags = HideFlags.DontSave };
+            barGo.transform.SetParent(trackGo.transform, false);
+            startupBarRect = barGo.AddComponent<RectTransform>();
+            startupBarRect.anchorMin = new Vector2(0f, 0f);
+            startupBarRect.anchorMax = new Vector2(0.38f, 1f);
+            startupBarRect.offsetMin = Vector2.zero;
+            startupBarRect.offsetMax = Vector2.zero;
+            startupBar = barGo.AddComponent<Image>();
+            startupBar.raycastTarget = false;
+        }
+
+        static Text CreateCardText(Transform parent, string name, float padLeft, float topOffset, float padRight, float height, int fontSize, FontStyle style) {
+            var go = new GameObject(name) { hideFlags = HideFlags.DontSave };
+            go.transform.SetParent(parent, false);
+            var rect = go.AddComponent<RectTransform>();
+            rect.anchorMin = new Vector2(0f, 1f);
+            rect.anchorMax = new Vector2(1f, 1f);
+            rect.pivot = new Vector2(0.5f, 1f);
+            rect.offsetMin = new Vector2(padLeft, -(topOffset + height));
+            rect.offsetMax = new Vector2(-padRight, -topOffset);
+            var text = go.AddComponent<Text>();
+            text.raycastTarget = false;
+            text.fontSize = fontSize;
+            text.fontStyle = style;
+            text.alignment = TextAnchor.UpperLeft;
+            text.horizontalOverflow = HorizontalWrapMode.Wrap;
+            text.verticalOverflow = VerticalWrapMode.Overflow;
+            return text;
+        }
+
+        static bool IsEnglishStartupLanguage(string route) {
+            if (!string.IsNullOrWhiteSpace(route)) {
+                string[] parts = route.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+                for (int i = 0; i < parts.Length; i++) {
+                    if (string.Equals(parts[i], "en", StringComparison.OrdinalIgnoreCase)) return true;
+                }
+            }
+            string saved = PlayerPrefs.GetString(UiLanguagePreference, "");
+            return string.Equals(saved, "en", StringComparison.OrdinalIgnoreCase);
+        }
+
+        void ApplyStartupLoadingTheme(string theme, bool english, Font font) {
+            string normalized = NormalizeUiTheme(theme);
+            Color bg, card, border, brand, title, detail, track, bar;
+            switch (normalized) {
+                case "site":
+                    bg = new Color32(0x07, 0x0a, 0x10, 0xff);
+                    card = new Color32(0x11, 0x17, 0x20, 0xff);
+                    border = new Color32(0x30, 0x3b, 0x49, 0xff);
+                    brand = new Color32(0xf2, 0xb3, 0x2c, 0xff);
+                    title = new Color32(0xee, 0xf3, 0xf9, 0xff);
+                    detail = new Color32(0x9a, 0xb5, 0xcb, 0xff);
+                    track = new Color32(0x30, 0x3b, 0x49, 0xff);
+                    bar = new Color32(0xf2, 0xb3, 0x2c, 0xff);
+                    break;
+                case "studio":
+                    bg = new Color32(0xf4, 0xf3, 0xed, 0xff);
+                    card = new Color32(0xfd, 0xfe, 0xf9, 0xff);
+                    border = new Color32(0xd8, 0xdb, 0xce, 0xff);
+                    brand = new Color32(0xb9, 0x4d, 0x29, 0xff);
+                    title = new Color32(0x30, 0x3a, 0x30, 0xff);
+                    detail = new Color32(0x68, 0x73, 0x63, 0xff);
+                    track = new Color32(0xe1, 0xe7, 0xd9, 0xff);
+                    bar = new Color32(0xc9, 0x4d, 0x24, 0xff);
+                    break;
+                default:
+                    bg = new Color32(0x06, 0x11, 0x1d, 0xff);
+                    card = new Color32(0x0b, 0x1b, 0x2c, 0xff);
+                    border = new Color32(0x31, 0x57, 0x76, 0xff);
+                    brand = new Color32(0x8f, 0xc4, 0xee, 0xff);
+                    title = new Color32(0xd6, 0xe7, 0xf7, 0xff);
+                    detail = new Color32(0x9a, 0xb5, 0xcb, 0xff);
+                    track = new Color32(0x1d, 0x3b, 0x58, 0xff);
+                    bar = new Color32(0x55, 0xb6, 0xff, 0xff);
+                    break;
+            }
+            if (startupBackdrop != null) startupBackdrop.color = bg;
+            if (startupCardBorder != null) startupCardBorder.color = border;
+            if (startupCardFill != null) startupCardFill.color = card;
+            if (startupTrack != null) startupTrack.color = track;
+            if (startupBar != null) startupBar.color = bar;
+
+            Font resolvedFont = font != null ? font : Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            if (startupBrandText != null) {
+                startupBrandText.color = brand;
+                if (resolvedFont != null) startupBrandText.font = resolvedFont;
+            }
+            if (startupTitleText != null) {
+                startupTitleText.color = title;
+                startupTitleText.text = english ? "Preparing your station" : "正在准备车站";
+                if (resolvedFont != null) startupTitleText.font = resolvedFont;
+            }
+            if (startupDetailText != null) {
+                startupDetailText.color = detail;
+                startupDetailText.text = english
+                    ? "Connecting to Unity Studio and building your station."
+                    : "正在连接 Unity Studio 并构建车站，请稍候。";
+                if (resolvedFont != null) startupDetailText.font = resolvedFont;
+            }
+        }
+
+        void AnimateStartupLoadingBar() {
+            if (startupBarRect == null || startupBackdropRoot == null || !startupBackdropRoot.activeSelf) return;
+            // Mirrors CSS `@keyframes loading-sweep` (1.5s ease-in-out infinite alternate, 38% width).
+            float phase = Mathf.PingPong((float)(Time.unscaledTimeAsDouble / 1.5), 1f);
+            float eased = phase * phase * (3f - 2f * phase);
+            float minX = eased * 0.62f;
+            startupBarRect.anchorMin = new Vector2(minX, 0f);
+            startupBarRect.anchorMax = new Vector2(minX + 0.38f, 1f);
+        }
+
+        internal static string NormalizeUiTheme(string theme) {
+            if (string.Equals(theme, "site", StringComparison.OrdinalIgnoreCase)) return "site";
+            if (string.Equals(theme, "studio", StringComparison.OrdinalIgnoreCase)) return "studio";
+            return "blueprint";
+        }
+
+        internal static Color ResolveStartupBackdropColor(string theme) {
+            switch (NormalizeUiTheme(theme)) {
+                case "site": return new Color32(0x07, 0x0a, 0x10, 0xff);
+                case "studio": return new Color32(0xf4, 0xf3, 0xed, 0xff);
+                default: return new Color32(0x06, 0x11, 0x1d, 0xff);
+            }
+        }
+
+        internal static string DemoIdForRoute(string route) {
+            if (string.IsNullOrWhiteSpace(route)) return null;
+            string clean = route.Trim().Trim('/');
+            if (clean.Length == 0) return null;
+            int lastSlash = clean.LastIndexOf('/');
+            string last = lastSlash >= 0 ? clean.Substring(lastSlash + 1) : clean;
+            if (string.Equals(last, "game", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(last, "en", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(last, "benchmark", StringComparison.OrdinalIgnoreCase)) {
+                return null;
+            }
+            return last;
+        }
+
+        void RefreshCanvasVisibility() {
+            bool canShowOverlay = userEnabled && !smokeSuppressed && boundHost != null;
+            bool showSurface = canShowOverlay && presentedFrames > 0;
+            bool showBackdrop = canShowOverlay && !showSurface && IsWorkerRunning &&
+                !launchedInBenchmarkMode && !IsBenchmarkRoute(activeStartupRoute);
+            bool showCanvas = showSurface || showBackdrop;
+            if (overlayCanvas != null && overlayCanvas.enabled != showCanvas) {
+                overlayCanvas.enabled = showCanvas;
+            }
+            if (startupBackdropRoot != null && startupBackdropRoot.activeSelf != showBackdrop) {
+                startupBackdropRoot.SetActive(showBackdrop);
+            }
+            if (surfaceImage != null && surfaceImage.enabled != showSurface) {
+                surfaceImage.enabled = showSurface;
+            }
+        }
+
+        void TryBindAndStartWorker() {
+            if (!Application.isPlaying || Application.isBatchMode || !userEnabled || IsAutomatedTestScene()) return;
+            if (boundHost == null || !boundHost.isActiveAndEnabled) {
+                var candidate = FindAnyObjectByType<StationGameHost>();
+                if (candidate == null || !candidate.isActiveAndEnabled) return;
+                boundHost = candidate;
+                startAttempted = false;
+            }
+            if (!startAttempted && workerProcess == null) {
+                StartWorkerForHost(boundHost);
             }
         }
 
         void Update() {
+            if (workerProcess != null && firstUpdateAt < 0.0) {
+                firstUpdateAt = Time.unscaledTimeAsDouble;
+            }
+            UploadLatestSharedFrame();
             DrainIncomingQueues();
 
             if (!Application.isPlaying || Application.isBatchMode || !userEnabled) {
@@ -373,6 +653,10 @@ namespace Metro.App {
                 ForwardKeyboardButtons();
             }
             UploadLatestSharedFrame();
+            if (boundHost != null && IsStandaloneAutosaveInstallReady()) {
+                CompletePendingStandaloneAutosave(boundHost);
+            }
+            AnimateStartupLoadingBar();
             if (Time.unscaledTimeAsDouble >= nextAutosaveAt) {
                 nextAutosaveAt = Time.unscaledTimeAsDouble + 15.0;
                 TryWriteStandaloneAutosave(boundHost, force: false);
@@ -450,14 +734,15 @@ namespace Metro.App {
             string[] cliArgs = Environment.GetCommandLineArgs();
             string cliRoute = ParseCommandLineRoute(cliArgs);
             launchedInBenchmarkMode = IsBenchmarkRoute(cliRoute) || HasBenchmarkOutputArg(cliArgs);
-            if (!Application.isEditor && !Application.isBatchMode &&
+            bool wantsAutosaveRestore = !Application.isEditor && !Application.isBatchMode &&
                 !launchedInBenchmarkMode && string.IsNullOrEmpty(cliRoute) &&
-                !IsBenchmarkRoute(startupRoute) && !host.IsLoaded) {
-                TryRestoreStandaloneAutosave(host);
-            }
+                !IsBenchmarkRoute(startupRoute) && !host.IsLoaded &&
+                HasStandaloneAutosaveCandidate();
             string route = !string.IsNullOrEmpty(cliRoute)
                 ? cliRoute
-                : (host.IsLoaded && !IsBenchmarkRoute(startupRoute) ? "/game/" : startupRoute);
+                : ((host.IsLoaded || wantsAutosaveRestore) && !IsBenchmarkRoute(startupRoute) ? "/game/" : startupRoute);
+            activeStartupRoute = route;
+            pendingStandaloneAutosaveRestore = false;
             var startInfo = new ProcessStartInfo {
                 FileName = exePath,
                 Arguments =
@@ -484,6 +769,20 @@ namespace Metro.App {
                 }
                 proc.BeginErrorReadLine();
                 workerProcess = proc;
+                firstUpdateAt = -1.0;
+                autosaveInstallAfterPresentFrame = -1;
+                // Parse and index the standalone autosave off the main thread while Unity's logo
+                // and MetroEditorWebView.exe boot, then install once the loading screen is visible.
+                if (wantsAutosaveRestore) {
+                    string autosavePath = StandaloneAutosavePath();
+                    autosaveReadTask = Task.Run(() => ReadStandaloneAutosaveInBackground(autosavePath));
+                    pendingStandaloneAutosaveRestore = true;
+                }
+                ApplyStartupLoadingTheme(
+                    PlayerPrefs.GetString(UiThemePreference, "blueprint"),
+                    IsEnglishStartupLanguage(route),
+                    host.font);
+                RefreshCanvasVisibility();
                 UnityEngine.Debug.Log($"[ReactUI] Rendering Station Designer React UI in-canvas ({lastSentWidth}x{lastSentHeight}, route={route}).");
             } catch (Exception ex) {
                 UnityEngine.Debug.LogError("[ReactUI] Failed to launch offscreen UI worker: " + ex.Message);
@@ -496,6 +795,96 @@ namespace Metro.App {
             StopWorker();
             boundHost = currentHost;
             startAttempted = false;
+        }
+
+        static bool HasStandaloneAutosaveCandidate() {
+            try {
+                string path = StandaloneAutosavePath();
+                return File.Exists(path) && new FileInfo(path).Length > 0;
+            } catch {
+                return false;
+            }
+        }
+
+        static PreparedStandaloneAutosave ReadStandaloneAutosaveInBackground(string path) {
+            try {
+                if (string.IsNullOrEmpty(path) || !File.Exists(path)) return null;
+                string json = File.ReadAllText(path, Encoding.UTF8);
+                if (string.IsNullOrWhiteSpace(json)) return null;
+                var read = StationDocumentReader.Read(json, new StationSource("autosave", ""));
+                if (read == null || read.Document == null || read.Index == null) return null;
+                StationSimulationSession session = null;
+                try {
+                    var setup = StationSessionProjection.Setup(
+                        read.Document,
+                        read.Index,
+                        "sim-" + (read.Document.Source.Hash ?? ""));
+                    session = new StationSimulationSession(setup);
+                } catch {
+                    // Fall back to main-thread simulation staging if background build throws.
+                }
+                return new PreparedStandaloneAutosave {
+                    Read = read,
+                    Session = session,
+                };
+            } catch {
+                return null;
+            }
+        }
+
+        bool IsStandaloneAutosaveInstallReady() {
+            if (!pendingStandaloneAutosaveRestore || autosaveInstallInFlight) return false;
+            if (autosaveReadTask != null && !autosaveReadTask.IsCompleted) return false;
+            if (presentedFrames > 0 && autosaveInstallAfterPresentFrame >= 0 && Time.frameCount >= autosaveInstallAfterPresentFrame) {
+                return true;
+            }
+            return firstUpdateAt >= 0.0 && Time.frameCount >= 2 && (Time.unscaledTimeAsDouble - firstUpdateAt) >= 1.5;
+        }
+
+        void CompletePendingStandaloneAutosave(StationGameHost host) {
+            if (!pendingStandaloneAutosaveRestore || autosaveInstallInFlight) return;
+            var readTask = autosaveReadTask;
+            autosaveReadTask = null;
+            pendingStandaloneAutosaveRestore = false;
+            if (host == null || host.IsLoaded) return;
+            PreparedStandaloneAutosave prepared = readTask != null && readTask.Status == TaskStatus.RanToCompletion
+                ? readTask.Result
+                : null;
+            if (prepared != null && prepared.Read != null && isActiveAndEnabled) {
+                autosaveInstallInFlight = true;
+                autosaveInstallCoroutine = StartCoroutine(RunStandaloneAutosaveInstall(host, prepared));
+                return;
+            }
+            bool restored = readTask == null && TryRestoreStandaloneAutosave(host);
+            if (!restored) {
+                string fallbackDemo = DemoIdForRoute(startupRoute);
+                if (!string.IsNullOrEmpty(fallbackDemo)) {
+                    host.OpenDemo(fallbackDemo);
+                }
+            }
+        }
+
+        IEnumerator RunStandaloneAutosaveInstall(StationGameHost host, PreparedStandaloneAutosave prepared) {
+            StationLoadResult result = null;
+            try {
+                var enumerator = host.OpenPreReadDocumentYielded(prepared.Read, prepared.Session, "autosave", r => result = r);
+                while (enumerator.MoveNext()) {
+                    yield return enumerator.Current;
+                    if (host == null || !isActiveAndEnabled) yield break;
+                }
+                if (result != null && result.Accepted) {
+                    lastAutosavedRevision = host.CurrentRevision;
+                    UnityEngine.Debug.Log($"[ReactUI] Restored standalone station autosave ({StandaloneAutosavePath()}, rev={lastAutosavedRevision}).");
+                } else {
+                    string fallbackDemo = DemoIdForRoute(startupRoute);
+                    if (!string.IsNullOrEmpty(fallbackDemo)) {
+                        host.OpenDemo(fallbackDemo);
+                    }
+                }
+            } finally {
+                autosaveInstallInFlight = false;
+                autosaveInstallCoroutine = null;
+            }
         }
 
         bool TryRestoreStandaloneAutosave(StationGameHost host) {
@@ -545,7 +934,22 @@ namespace Metro.App {
                 boundHost.ReplyPublished -= OnHostReplyPublished;
                 if (clearHost) boundHost = null;
             }
+            var proc = workerProcess;
+            workerProcess = null;
+            var client = activeClient;
+            activeClient = null;
+
+            if (autosaveInstallCoroutine != null) {
+                StopCoroutine(autosaveInstallCoroutine);
+                autosaveInstallCoroutine = null;
+            }
             webReady = false;
+            pendingStandaloneAutosaveRestore = false;
+            autosaveInstallInFlight = false;
+            autosaveReadTask = null;
+            firstUpdateAt = -1.0;
+            autosaveInstallAfterPresentFrame = -1;
+            activeStartupRoute = "";
             lastUploadedSequence = 0;
             presentedFrames = 0;
             heldMouseButtons = 0;
@@ -554,11 +958,6 @@ namespace Metro.App {
 
             while (incomingCommands.TryDequeue(out _)) { }
             while (outgoingLines.TryDequeue(out _)) { }
-
-            var proc = workerProcess;
-            workerProcess = null;
-            var client = activeClient;
-            activeClient = null;
 
             // Ask WebView2 to shut down cleanly first so Chromium flushes localStorage
             // (settings, theme, audio, tutorial dismissal) to disk before exit.
@@ -642,6 +1041,9 @@ namespace Metro.App {
 
             lastUploadedSequence = seq;
             presentedFrames++;
+            if (presentedFrames == 1 && autosaveInstallAfterPresentFrame < 0) {
+                autosaveInstallAfterPresentFrame = Time.frameCount + 1;
+            }
             RefreshCanvasVisibility();
         }
 
@@ -1046,10 +1448,17 @@ namespace Metro.App {
                 while (incomingCommands.TryDequeue(out _)) { }
                 return;
             }
+            if (autosaveInstallInFlight) return;
+            if (pendingStandaloneAutosaveRestore) {
+                if (!IsStandaloneAutosaveInstallReady()) return;
+                CompletePendingStandaloneAutosave(host);
+                if (autosaveInstallInFlight) return;
+            }
             int safety = 0;
             while (safety++ < 64 && incomingCommands.TryDequeue(out string cmdJson)) {
                 if (string.IsNullOrEmpty(cmdJson)) continue;
                 try {
+                    NoteUiThemeCommand(cmdJson);
                     bool wasInBenchmark = StationBenchmarkRecorder.InBenchmarkUi;
                     if (!wasInBenchmark && cmdJson.IndexOf("\"benchmark.mode\"", StringComparison.Ordinal) >= 0) {
                         TryWriteStandaloneAutosave(host, force: false);
@@ -1068,6 +1477,38 @@ namespace Metro.App {
                 } catch (Exception ex) {
                     UnityEngine.Debug.LogException(ex);
                 }
+            }
+        }
+
+        void NoteUiThemeCommand(string cmdJson) {
+            bool maybeTheme = cmdJson.IndexOf("\"view.set\"", StringComparison.Ordinal) >= 0 &&
+                cmdJson.IndexOf("\"theme\"", StringComparison.Ordinal) >= 0;
+            bool maybeLocale = cmdJson.IndexOf("\"exit.locale\"", StringComparison.Ordinal) >= 0;
+            if (!maybeTheme && !maybeLocale) return;
+            try {
+                var obj = JObject.Parse(cmdJson);
+                string type = (string)obj["type"];
+                if (obj["payload"] is not JObject payload) return;
+                if (maybeTheme && string.Equals(type, "view.set", StringComparison.Ordinal) &&
+                    string.Equals((string)payload["key"], "theme", StringComparison.Ordinal)) {
+                    string normalized = NormalizeUiTheme((string)payload["value"]);
+                    ApplyStartupLoadingTheme(normalized, IsEnglishStartupLanguage(activeStartupRoute), boundHost != null ? boundHost.font : null);
+                    if (!Application.isBatchMode && !launchedInBenchmarkMode &&
+                        !string.Equals(PlayerPrefs.GetString(UiThemePreference, ""), normalized, StringComparison.Ordinal)) {
+                        PlayerPrefs.SetString(UiThemePreference, normalized);
+                        PlayerPrefs.Save();
+                    }
+                } else if (maybeLocale && string.Equals(type, "exit.locale", StringComparison.Ordinal)) {
+                    string locale = (string)payload["locale"];
+                    string normalizedLang = string.Equals(locale, "en", StringComparison.OrdinalIgnoreCase) ? "en" : "zh-CN";
+                    if (!Application.isBatchMode && !launchedInBenchmarkMode &&
+                        !string.Equals(PlayerPrefs.GetString(UiLanguagePreference, ""), normalizedLang, StringComparison.Ordinal)) {
+                        PlayerPrefs.SetString(UiLanguagePreference, normalizedLang);
+                        PlayerPrefs.Save();
+                    }
+                }
+            } catch {
+                // Malformed command JSON will be reported by the command router.
             }
         }
 

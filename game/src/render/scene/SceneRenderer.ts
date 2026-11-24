@@ -1048,11 +1048,18 @@ export class SceneRenderer {
   }
 
   zoomBy(factor: number): void {
+    this.requestRender()
     this.cameraSys.zoomBy(factor)
   }
 
   orbitBy(dxPx: number, dyPx: number): void {
+    this.requestRender()
     this.cameraSys.orbitBy(dxPx, dyPx)
+  }
+
+  panByScreenFraction(rightFraction: number, forwardFraction: number): void {
+    this.requestRender()
+    this.cameraSys.panByScreenFraction(rightFraction, forwardFraction)
   }
 
   /** The perspective lens, in degrees (`CameraSystem.fov`). */

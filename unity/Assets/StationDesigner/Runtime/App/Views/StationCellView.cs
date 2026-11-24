@@ -1,6 +1,8 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading.Tasks;
 using Metro.App;
 using Metro.Build;
 using Newtonsoft.Json.Linq;
@@ -304,6 +306,24 @@ namespace Metro.App.Views {
             return view;
         }
 
+        public static IEnumerator BuildFromWorkspaceYielded(
+            StationCellViewRequest request,
+            Transform parent,
+            StationCellMeshWorkspace workspace,
+            Action<string> markLoad,
+            Action<StationCellView> onComplete,
+            double frameBudgetMs = 10.0) {
+            if (request == null) throw new ArgumentNullException(nameof(request));
+            if (parent == null) throw new ArgumentNullException(nameof(parent));
+            if (workspace == null) throw new ArgumentNullException(nameof(workspace));
+            var view = new StationCellView();
+            var enumerator = view.BuildFromWorkspaceYieldedInternal(request, parent, workspace, markLoad, frameBudgetMs);
+            while (enumerator.MoveNext()) {
+                yield return enumerator.Current;
+            }
+            onComplete?.Invoke(view);
+        }
+
         static StationCellMeshWorkspace.ChunkBandKey ChunkKeyOf(StationCellMeshGroup group) =>
             new StationCellMeshWorkspace.ChunkBandKey(
                 group.ChunkX,
@@ -370,6 +390,60 @@ namespace Metro.App.Views {
                     if (!groupsByChunk.TryGetValue(ck, out var bucket)) groupsByChunk[ck] = bucket = new List<StationCellGroupView>(4);
                     bucket.Add(entry);
                 });
+                scratchVertices?.Clear();
+                scratchIndices?.Clear();
+                scratchNormals.Clear();
+                scratchColors.Clear();
+                scratchUvs.Clear();
+            } else {
+                workspace.ForEachChunkMesh((ck, group) => {
+                    var entry = CreateGroupView(request, group, RoleRoot(group.Role));
+                    groups.Add(entry);
+                    totalTriangles += entry.Triangles;
+                    if (!groupsByChunk.TryGetValue(ck, out var bucket)) groupsByChunk[ck] = bucket = new List<StationCellGroupView>(4);
+                    bucket.Add(entry);
+                });
+            }
+            facesDirty = true;
+            if (markLoad != null) {
+                markLoad($"cells.stream-mesh.end groups={groups.Count} triangles={totalTriangles}");
+            }
+        }
+
+        IEnumerator BuildFromWorkspaceYieldedInternal(
+            StationCellViewRequest request,
+            Transform parent,
+            StationCellMeshWorkspace workspace,
+            Action<string> markLoad,
+            double frameBudgetMs) {
+            buildRequest = request;
+            pickWorkspace = workspace;
+            toWorld = request.ToWorld ?? StationCoordinates.Point;
+            var rootObject = new GameObject(string.IsNullOrEmpty(request.Name) ? "Station cells" : request.Name);
+            root = rootObject.transform;
+            root.SetParent(parent, false);
+            root.localPosition = Vector3.zero;
+            root.localRotation = Quaternion.identity;
+            root.localScale = Vector3.one;
+
+            markLoad?.Invoke("cells.stream-mesh.begin");
+            if (request.ReleaseUploadBuffers) {
+                var scratchVertices = request.LazyPickGeometry ? new List<Vector3>(1024) : null;
+                var scratchIndices = request.LazyPickGeometry ? new List<int>(2048) : null;
+                var scratchNormals = new List<Vector3>(1024);
+                var scratchColors = new List<Color>(1024);
+                var scratchUvs = new List<Vector2>(1024);
+                var enumerator = workspace.EnumerateChunkMeshesDirect((ck, group, buffers) => {
+                    var entry = CreateGroupViewDirect(request, group, buffers, RoleRoot(group.Role),
+                        scratchVertices, scratchIndices, scratchNormals, scratchColors, scratchUvs);
+                    groups.Add(entry);
+                    totalTriangles += entry.Triangles;
+                    if (!groupsByChunk.TryGetValue(ck, out var bucket)) groupsByChunk[ck] = bucket = new List<StationCellGroupView>(4);
+                    bucket.Add(entry);
+                }, frameBudgetMs);
+                while (enumerator.MoveNext()) {
+                    yield return enumerator.Current;
+                }
                 scratchVertices?.Clear();
                 scratchIndices?.Clear();
                 scratchNormals.Clear();
@@ -1015,7 +1089,7 @@ namespace Metro.App.Views {
         }
     }
 
-    public sealed class StationCellRenderer : IStationViewRenderer, IStationLocalViewRenderer {
+    public sealed class StationCellRenderer : IStationYieldedViewRenderer, IStationLocalViewRenderer {
         public const string RoleName = "cells";
 
         /// <summary>Override how the finish library is acquired (tests stage a fixture).</summary>
@@ -1257,6 +1331,76 @@ namespace Metro.App.Views {
                 LazyPickGeometry = Application.isPlaying && (Application.platform == RuntimePlatform.WebGLPlayer || context.Document.CellCount >= 25000),
             };
             var view = StationCellView.BuildFromWorkspace(request, context.RoleRoot(RoleName), workspace, markLoad);
+            FinalizeBuildState(context, finishes, notes, workspace, snapshot, view);
+        }
+
+        public IEnumerator BuildYielded(StationViewBuildContext context) {
+            if (context == null) throw new ArgumentNullException(nameof(context));
+            PurgeDisposed();
+            var finishes = AcquireLibrary(context.Shader);
+            if (finishes == null) {
+                context.ReportUnresolved("finish-library-missing", "finish", "",
+                    "The exported finish library is not staged: run `node tools/unity-assets/export-station-finishes.mjs --stage unity/Assets/Resources/StationFinishes` (or keep unity/asset-recipes/finishes next to Assets) and rebuild. No cell surface is drawn.");
+            }
+            var notes = new List<string>();
+            var markLoad = context.MarkLoad;
+            markLoad?.Invoke("cells.input.begin");
+            var input = BuildInputCore(context.Document, context.Index, finishes, notes, null, out var unthinnedShapes, out var preparedRamps);
+            markLoad?.Invoke("cells.input.end");
+            yield return null;
+
+            markLoad?.Invoke("cells.workspace.begin");
+            StationCellMeshWorkspace workspace;
+#if UNITY_WEBGL && !UNITY_EDITOR
+            workspace = StationCellMeshWorkspace.Create(input, preparedRamps, unthinnedShapes);
+#else
+            var wsInput = input;
+            var wsRamps = preparedRamps;
+            var wsShapes = unthinnedShapes;
+            var wsTask = Task.Run(() => StationCellMeshWorkspace.Create(wsInput, wsRamps, wsShapes));
+            while (!wsTask.IsCompleted) {
+                yield return null;
+            }
+            workspace = wsTask.GetAwaiter().GetResult();
+#endif
+            var snapshot = StationPaintSnapshot.FromDocument(context.Document, input.GroundHoles, -1);
+            unthinnedShapes = null;
+            preparedRamps = null;
+            input = null;
+            markLoad?.Invoke("cells.workspace.end");
+            yield return null;
+
+            var request = new StationCellViewRequest {
+                Mesh = null,
+                Finishes = finishes,
+                Name = "Station cells",
+                ToWorld = StationCoordinates.Point,
+                BuildPickMap = true,
+                ReleaseUploadBuffers = true,
+                MarkMeshNoLongerReadable = Application.isPlaying,
+                LazyPickGeometry = Application.isPlaying && (Application.platform == RuntimePlatform.WebGLPlayer || context.Document.CellCount >= 25000),
+            };
+            StationCellView view = null;
+            var enumerator = StationCellView.BuildFromWorkspaceYielded(
+                request,
+                context.RoleRoot(RoleName),
+                workspace,
+                markLoad,
+                built => view = built,
+                frameBudgetMs: 10.0);
+            while (enumerator.MoveNext()) {
+                yield return enumerator.Current;
+            }
+            FinalizeBuildState(context, finishes, notes, workspace, snapshot, view);
+        }
+
+        void FinalizeBuildState(
+            StationViewBuildContext context,
+            StationFinishLibrary finishes,
+            List<string> notes,
+            StationCellMeshWorkspace workspace,
+            StationPaintSnapshot snapshot,
+            StationCellView view) {
             var state = new CellState {
                 World = context.World,
                 View = view,

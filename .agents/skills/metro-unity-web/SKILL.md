@@ -48,10 +48,14 @@ In desktop and Editor mode (`UNITY_STANDALONE_WIN || UNITY_EDITOR_WIN`),
 `MetroEditorWebView.exe` (`tools/unity-editor-ui/`, `net10.0-windows`) runs completely
 offscreen on a `1×1` click-through `HWND_BOTTOM` anchor (never `HWND_TOPMOST`). It captures
 `CoreWebView2CompositionController` frames via `Windows.Graphics.Capture` into a
-double-buffered `MUI2` shared-memory BGRA32 buffer, which `StationDesktopUiPresenter` uploads
-onto an in-canvas `ScreenSpaceOverlay` `RawImage` (`StationDesktopUiCanvas`,
-`sortingOrder = 32000`) while forwarding Unity `InputSystem` pointer/wheel/keyboard events to
-CDP.
+double-buffered `MUI2` shared-memory BGRA32 buffer (waiting for `navigationStarted` and at
+least one non-transparent pixel before publishing the first frame), which
+`StationDesktopUiPresenter` uploads onto an in-canvas `ScreenSpaceOverlay` `RawImage`
+(`StationDesktopUiCanvas`, `sortingOrder = 32000`) while forwarding Unity `InputSystem`
+pointer/wheel/keyboard events to CDP. Because Chromium renders native `<select>` popups in a
+separate top-level OS HWND invisible to offscreen visual capture, interactive selectors in
+overlay/benchmark UI must use pure-DOM controls (e.g., button toggle groups) rather than
+native `<select>`.
 
 ## Commands
 
@@ -163,10 +167,13 @@ npm run build:unity:windows
   mount `UnityBenchmarkRoute.tsx` (also reachable in-place on desktop via `SettingsMenu` or
   `-benchmark`). Benchmark routes stay locale-isolated from saved game preferences
   (`languageRoute.ts`), suppress `Tutorial.tsx` (`data-metro-benchmark-active` /
-  `metro:benchmark-mode`), expose 3-tier model detail (`low`/`balanced`/`high`) and 5 FSR 1.0
+  `metro:benchmark-mode`), use pure-DOM station toggle buttons (`benchmarkStations`, no
+  native `<select>`), expose 3-tier model detail (`low`/`balanced`/`high`), 5 FSR 1.0
   upscaling presets (`ultra`/`quality`/`balanced`/`performance`/`native`) via
-  `graphics.get`/`graphics.set` (restoring `PlayerPrefs` afterward), and record native C#
-  frames/memory/hardware on desktop via `StationBenchmarkRecorder`.
+  `graphics.get`/`graphics.set` (restoring `PlayerPrefs` afterward), and 3 views
+  (`regular` | `explode` | LOD0 close-up `tour` via `benchmarkCameraTour.ts`), record native
+  C# frames/memory/hardware on desktop via `StationBenchmarkRecorder`, and plot FPS,
+  shared `FrameTimeChart` (ms), and resource usage charts.
 - **Public-pack isolation:** The review-only soft-human passenger library
   (`StationGameLocalWeb.unity`) is strictly loopback-only. `stage-deploy.mjs` refuses any
   scene other than `Assets/StationDesigner/Scenes/StationGameLocal.unity`, and

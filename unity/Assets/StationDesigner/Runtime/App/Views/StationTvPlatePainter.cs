@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using Metro.Build;
 using Metro.Sim;
@@ -189,6 +190,19 @@ namespace Metro.App.Views {
         }
 
         static PainterRig pooledRig;
+        public const int MaxPooledPlateTextures = 16;
+        static readonly Dictionary<(int width, int height), Stack<RenderTexture>> plateRtPool =
+            new Dictionary<(int width, int height), Stack<RenderTexture>>();
+        static int pooledPlateCount;
+
+        public static int PooledPlateTextureCount => pooledPlateCount;
+        public static int TotalPlateRtAllocated { get; private set; }
+        public static int TotalPlateRtReused { get; private set; }
+
+        public static void ResetPoolStats() {
+            TotalPlateRtAllocated = 0;
+            TotalPlateRtReused = 0;
+        }
 
         static void SafeDestroy(UnityEngine.Object obj) {
             if (!obj) return;
@@ -196,8 +210,89 @@ namespace Metro.App.Views {
             else UnityEngine.Object.DestroyImmediate(obj);
         }
 
-        /// <summary>Release the pooled offscreen TV painter rig (safe to call on shutdown or tests).</summary>
+        /// <summary>Acquire a pooled or freshly created offscreen plate RenderTexture.</summary>
+        public static RenderTexture AcquirePlateTarget(int width, int height, string name) {
+            if (width <= 0) width = Width;
+            if (height <= 0) height = Height;
+            var key = (width, height);
+            if (plateRtPool.TryGetValue(key, out var stack)) {
+                while (stack.Count > 0) {
+                    var pooled = stack.Pop();
+                    pooledPlateCount--;
+                    if (pooled) {
+                        pooled.name = name ?? "tv plate";
+                        if (!pooled.IsCreated()) pooled.Create();
+                        TotalPlateRtReused++;
+                        return pooled;
+                    }
+                }
+            }
+            var plateRt = new RenderTexture(width, height, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB) {
+                name = name ?? "tv plate",
+                hideFlags = HideFlags.HideAndDontSave,
+                useMipMap = false,
+                autoGenerateMips = false,
+                wrapMode = TextureWrapMode.Clamp,
+                filterMode = FilterMode.Bilinear,
+                anisoLevel = 4,
+            };
+            plateRt.Create();
+            TotalPlateRtAllocated++;
+            return plateRt;
+        }
+
+        /// <summary>
+        /// Return an evicted TV plate texture to the bounded RT pool when eligible, or release and
+        /// destroy it immediately. Returns true when pooled (caller must not destroy it).
+        /// </summary>
+        public static bool ReleasePlateTarget(Texture texture) {
+            if (!texture) return false;
+            if (texture is RenderTexture rt) {
+                if (RenderTexture.active == rt) RenderTexture.active = null;
+                if (rt.width > 0 && rt.height > 0 &&
+                    rt.depth == 0 &&
+                    rt.format == RenderTextureFormat.ARGB32 &&
+                    !rt.useMipMap) {
+                    var key = (rt.width, rt.height);
+                    if (plateRtPool.TryGetValue(key, out var existingStack) && existingStack.Contains(rt)) {
+                        return true;
+                    }
+                    if (pooledPlateCount < MaxPooledPlateTextures) {
+                        if (existingStack == null) {
+                            existingStack = new Stack<RenderTexture>(MaxPooledPlateTextures);
+                            plateRtPool[key] = existingStack;
+                        }
+                        existingStack.Push(rt);
+                        pooledPlateCount++;
+                        return true;
+                    }
+                }
+                if (rt.IsCreated()) rt.Release();
+                SafeDestroy(rt);
+                return false;
+            }
+            SafeDestroy(texture);
+            return false;
+        }
+
+        /// <summary>Release and destroy all pooled TV plate RenderTextures.</summary>
+        public static void ClearPlateTargetPool() {
+            foreach (var stack in plateRtPool.Values) {
+                while (stack.Count > 0) {
+                    var rt = stack.Pop();
+                    if (!rt) continue;
+                    if (RenderTexture.active == rt) RenderTexture.active = null;
+                    if (rt.IsCreated()) rt.Release();
+                    SafeDestroy(rt);
+                }
+            }
+            plateRtPool.Clear();
+            pooledPlateCount = 0;
+        }
+
+        /// <summary>Release the pooled offscreen TV painter rig and RT pool (safe to call on shutdown or tests).</summary>
         public static void DisposePool() {
+            ClearPlateTargetPool();
             if (pooledRig == null) return;
             pooledRig.Dispose();
             pooledRig = null;
@@ -333,15 +428,7 @@ namespace Metro.App.Views {
             var rig = EnsureRig();
             var scratch = rig.ScratchTarget;
             PopulateAndRender(rig, data, font, scratch);
-            var plateRt = new RenderTexture(Width, Height, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB) {
-                name = "tv plate " + Stable(data.Key),
-                useMipMap = false,
-                autoGenerateMips = false,
-                wrapMode = TextureWrapMode.Clamp,
-                filterMode = FilterMode.Bilinear,
-                anisoLevel = 4,
-            };
-            plateRt.Create();
+            var plateRt = AcquirePlateTarget(Width, Height, "tv plate " + Stable(data.Key));
             if ((SystemInfo.copyTextureSupport & UnityEngine.Rendering.CopyTextureSupport.Basic) != 0) {
                 Graphics.CopyTexture(scratch, 0, 0, plateRt, 0, 0);
             } else {

@@ -101,6 +101,39 @@ test('the Unity shell keeps one React tree, one depth chip and one overlay canva
     'an automated check can count overlay layers after repeated switches, reload and resize')
 })
 
+test('desktop startup covers the 3D viewport until WebView2 paints a visible frame and defers standalone autosave past worker launch', () => {
+  const presenterSource = readFileSync(presenterCs, 'utf8')
+  const hostSource = readFileSync(hostProgramCs, 'utf8')
+
+  // Native themed startup loading card stays up until presentedFrames > 0, hidden on benchmark & smoke runs.
+  assert.match(presenterSource, /new GameObject\("StartupBackdrop"\)/)
+  assert.match(presenterSource, /BuildStartupLoadingCard\(/)
+  assert.match(presenterSource, /AnimateStartupLoadingBar\(\)/)
+  assert.match(presenterSource, /ResolveStartupBackdropColor/)
+  assert.match(presenterSource, /bool showBackdrop = canShowOverlay && !showSurface && IsWorkerRunning &&\s*!launchedInBenchmarkMode && !IsBenchmarkRoute\(activeStartupRoute\)/)
+  assert.match(presenterSource, /NoteUiThemeCommand\(cmdJson\)/)
+
+  // Worker launches eagerly in Awake() during splash and parses standalone autosave off the
+  // main thread so Unity shows the loading screen immediately without freezing on a blank frame.
+  assert.match(presenterSource, /TryBindAndStartWorker\(\)/)
+  assert.match(presenterSource, /HasStandaloneAutosaveCandidate\(\)/)
+  assert.match(presenterSource, /ReadStandaloneAutosaveInBackground\(/)
+  assert.match(presenterSource, /OpenPreReadDocumentYielded\(/)
+  assert.match(presenterSource, /RunStandaloneAutosaveInstall\(/)
+  assert.match(presenterSource, /pendingStandaloneAutosaveRestore = true;/)
+  assert.match(presenterSource, /CompletePendingStandaloneAutosave\(/)
+  const startWorkerIdx = presenterSource.indexOf('void StartWorkerForHost(')
+  const startWorkerEnd = presenterSource.indexOf('public void RestartWorker()', startWorkerIdx)
+  const startWorkerBody = presenterSource.slice(startWorkerIdx, startWorkerEnd)
+  assert.doesNotMatch(startWorkerBody, /TryRestoreStandaloneAutosave\(/,
+    'StartWorkerForHost must not synchronously restore autosave before launching WebView2 and enabling StartupBackdrop')
+
+  // Offscreen WebView2 host waits for navigation and never publishes an all-transparent first frame.
+  assert.match(hostSource, /navigationStarted = true;\s*coreWebView\.Navigate\(/)
+  assert.match(hostSource, /!navigationStarted/)
+  assert.match(hostSource, /Interlocked\.Read\(ref sequence\) == 0 && !hasVisiblePixel/)
+})
+
 test('MetroEditorWebView builds cleanly and captures 32-bit transparent React UI frames offscreen on interactive Windows desktops', { skip: process.platform !== 'win32' }, t => {  const testBinDir = path.join(repoRoot, '.preview', 'unity', 'editor-ui-host', `test-bin-${process.pid}`)
   const testExe = path.join(testBinDir, 'MetroEditorWebView.exe')
   const reportPath = path.join(repoRoot, '.preview', 'unity', 'editor-ui-host', `selftest-${process.pid}.json`)

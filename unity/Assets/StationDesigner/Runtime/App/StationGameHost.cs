@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Runtime.InteropServices;
+using System.Text;
 using Metro.App.Views;
 using Metro.Build;
 using Metro.Persistence;
@@ -130,8 +132,10 @@ namespace Metro.App {
             if (ReferenceEquals(Active, this)) Active = null;
             openInFlight = false;
             queuedBrowserCommands.Clear();
+            ResetAudioGateState();
             ClearContributorCaches();
             Metro.App.Views.StationTvSchedule.ClearCache();
+            Metro.App.Views.StationTvPlatePainter.DisposePool();
             StationPaintGame.Forget();
             FinishRenderTrace("host-destroyed");
             if (coordinator != null) {
@@ -153,7 +157,10 @@ namespace Metro.App {
                 var t = rp.GetType();
                 t.GetProperty("supportsCameraDepthTexture")?.SetValue(rp, false);
                 t.GetProperty("supportsCameraOpaqueTexture")?.SetValue(rp, false);
-                t.GetProperty("shadowCascadeCount")?.SetValue(rp, 2);
+                // StationRenderRig sets LightShadows.None on all scene lights; zero shadowDistance
+                // so URP skips shadow-map setup and shadow caster culling on desktop standalone.
+                t.GetProperty("shadowDistance")?.SetValue(rp, 0f);
+                t.GetProperty("shadowCascadeCount")?.SetValue(rp, 1);
                 // Disable ScreenSpaceAmbientOcclusion at runtime on standalone desktop so URP skips
                 // the full-scene DepthNormals prepass over 19k+ static renderers without altering
                 // serialized URP assets or triggering shader variant recompilation.
@@ -446,74 +453,156 @@ namespace Metro.App {
         }
 
         double nextAudioFrame;
+        bool lastAudioWasSilent;
+        string lastAudioSessionId = "";
+        bool lastAudioPlaying;
+        int lastAudioSpeed;
+        readonly StringBuilder audioJsonBuilder = new StringBuilder(4096);
+
+        void ResetAudioGateState() {
+            lastAudioWasSilent = false;
+            lastAudioSessionId = "";
+            lastAudioPlaying = false;
+            lastAudioSpeed = 0;
+        }
 
         void LateUpdate() {
             if (!IsLoaded || openInFlight || clientSessionId.Length == 0) return;
-            var published = (Simulation as StationSimulationHost)?.PublishedFrame;
+            if (ReplyPublished == null && !StationWebBridge.CanStream) return;
+            var simHost = Simulation as StationSimulationHost;
+            bool usePublished = simHost != null && (simHost.IsWorkerActive || Application.isPlaying);
+            var published = usePublished ? simHost.PublishedFrame : null;
+            var session = !usePublished ? simHost?.Session : null;
             var exploded = StationExplodedView.ActiveStandalone;
             var camera = exploded?.ViewerCamera ?? StationEditScene.EditCamera(this);
-            if (published == null || camera == null) return;
+            if ((usePublished ? published == null : session == null) || camera == null) return;
 
+            bool playing = usePublished ? published.Playing : session.Playing;
+            int speed = usePublished ? published.Speed : session.Speed;
             double now = Time.unscaledTimeAsDouble;
             if (now < nextAudioFrame) return;
-            nextAudioFrame = now + 0.1;
+            nextAudioFrame = now + (usePublished ? 0.1 : (playing && speed > 1 ? 1.0 / 30 : 0.1));
 
             var position = StationCoordinates.WorldToDocument(camera.transform.position);
             var right = StationCoordinates.WorldToDocumentDirection(camera.transform.right);
             var trayPassengers = exploded?.Builder?.PresentedPassengers;
-            var passengers = exploded == null ? published.Motion.Passengers : null;
+            var passengers = exploded == null
+                ? (usePublished ? published.Motion.Passengers : session.PassengerFrames())
+                : null;
             int count = trayPassengers?.Count ?? passengers?.Length ?? 0;
             int stride = Mathf.Max(1, Mathf.CeilToInt(count / 256f));
-            var samples = new JArray();
-            var sources = new JArray();
-            for (int i = 0; i < count; i += stride) {
-                if (trayPassengers != null) {
-                    var passenger = trayPassengers[i];
-                    samples.Add(passenger.X);
-                    samples.Add(passenger.Y);
-                    samples.Add(passenger.Z);
-                } else {
-                    var passenger = passengers[i];
-                    if (!passenger.Visible) continue;
-                    samples.Add(passenger.X);
-                    samples.Add(passenger.Y);
-                    samples.Add(passenger.Z);
+            bool hasVisiblePassengers = false;
+            if (trayPassengers != null) {
+                hasVisiblePassengers = count > 0;
+            } else if (passengers != null && count > 0) {
+                for (int i = 0; i < count; i += stride) {
+                    if (passengers[i].Visible) {
+                        hasVisiblePassengers = true;
+                        break;
+                    }
                 }
             }
+
             var trains = exploded != null ? exploded.Builder?.PresentedConsists : TrainConsistRenderer.Current?.Consists;
-            Vector3 nearest = default;
-            float best = float.PositiveInfinity;
-            if (published.Playing && trains != null) {
+            Vector3 nearestTrain = default;
+            float bestTrain = float.PositiveInfinity;
+            if (playing && trains != null) {
                 foreach (var train in trains) {
                     if (train.Phase == TrainPhase.None || train.Root == null || !train.Root.activeInHierarchy) continue;
                     var point = StationCoordinates.WorldToDocument(train.Root.transform.position);
                     float distance = (point - position).sqrMagnitude;
-                    if (distance < best) { nearest = point; best = distance; }
+                    if (distance < bestTrain) { nearestTrain = point; bestTrain = distance; }
                 }
             }
-            if (best < float.PositiveInfinity) sources.Add(AudioSourcePayload("train", nearest, .65));
+            bool hasTrain = bestTrain < float.PositiveInfinity;
+
             var vehicles = exploded == null ? StationRoadRenderer.Current?.Vehicles?.Poses : null;
-            best = float.PositiveInfinity;
+            Vector3 nearestTraffic = default;
+            float bestTraffic = float.PositiveInfinity;
             if (vehicles != null) {
                 for (int i = 0; i < Mathf.Min(64, vehicles.Count); i++) {
                     var vehicle = vehicles[i];
                     var point = new Vector3((float)vehicle.X, (float)vehicle.Y, (float)vehicle.Z);
                     float distance = (point - position).sqrMagnitude;
-                    if (distance < best) { nearest = point; best = distance; }
+                    if (distance < bestTraffic) { nearestTraffic = point; bestTraffic = distance; }
                 }
             }
-            if (best < float.PositiveInfinity) sources.Add(AudioSourcePayload("traffic", nearest, .4));
-            PublishAudio(new JObject {
-                ["position"] = AudioPoint(position), ["right"] = AudioPoint(right),
-                ["sources"] = sources, ["passengers"] = samples,
-                ["sampleWeight"] = stride, ["speed"] = published.Speed,
-            });
+            bool hasTraffic = bestTraffic < float.PositiveInfinity;
+
+            bool isSilent = !hasVisiblePassengers && !hasTrain && !hasTraffic;
+            if (isSilent &&
+                lastAudioWasSilent &&
+                string.Equals(lastAudioSessionId, clientSessionId, StringComparison.Ordinal) &&
+                lastAudioPlaying == playing &&
+                lastAudioSpeed == speed) {
+                return;
+            }
+
+            lastAudioWasSilent = isSilent;
+            lastAudioSessionId = clientSessionId;
+            lastAudioPlaying = playing;
+            lastAudioSpeed = speed;
+
+            audioJsonBuilder.Clear();
+            using (var sw = new StringWriter(audioJsonBuilder, CultureInfo.InvariantCulture))
+            using (var writer = new JsonTextWriter(sw) { Formatting = Formatting.None }) {
+                writer.WriteStartObject();
+                writer.WritePropertyName("schemaVersion"); writer.WriteValue(StationCommandRouter.SchemaVersion);
+                writer.WritePropertyName("kind"); writer.WriteValue("audio");
+                writer.WritePropertyName("sessionId"); writer.WriteValue(clientSessionId);
+                writer.WritePropertyName("payload");
+                writer.WriteStartObject();
+                writer.WritePropertyName("position"); WriteAudioPoint(writer, position);
+                writer.WritePropertyName("right"); WriteAudioPoint(writer, right);
+                writer.WritePropertyName("sources");
+                writer.WriteStartArray();
+                if (hasTrain) WriteAudioSource(writer, "train", nearestTrain, .65);
+                if (hasTraffic) WriteAudioSource(writer, "traffic", nearestTraffic, .4);
+                writer.WriteEndArray();
+                writer.WritePropertyName("passengers");
+                writer.WriteStartArray();
+                if (hasVisiblePassengers) {
+                    if (trayPassengers != null) {
+                        for (int i = 0; i < count; i += stride) {
+                            var passenger = trayPassengers[i];
+                            writer.WriteValue(passenger.X);
+                            writer.WriteValue(passenger.Y);
+                            writer.WriteValue(passenger.Z);
+                        }
+                    } else if (passengers != null) {
+                        for (int i = 0; i < count; i += stride) {
+                            var passenger = passengers[i];
+                            if (!passenger.Visible) continue;
+                            writer.WriteValue(passenger.X);
+                            writer.WriteValue(passenger.Y);
+                            writer.WriteValue(passenger.Z);
+                        }
+                    }
+                }
+                writer.WriteEndArray();
+                writer.WritePropertyName("sampleWeight"); writer.WriteValue(stride);
+                writer.WritePropertyName("speed"); writer.WriteValue(speed);
+                writer.WriteEndObject();
+                writer.WriteEndObject();
+            }
+            Publish(audioJsonBuilder.ToString());
         }
 
-        static JArray AudioPoint(Vector3 point) => new JArray(point.x, point.y, point.z);
+        static void WriteAudioPoint(JsonTextWriter writer, Vector3 point) {
+            writer.WriteStartArray();
+            writer.WriteValue(point.x);
+            writer.WriteValue(point.y);
+            writer.WriteValue(point.z);
+            writer.WriteEndArray();
+        }
 
-        static JObject AudioSourcePayload(string kind, Vector3 position, double level) =>
-            new JObject { ["kind"] = kind, ["position"] = AudioPoint(position), ["level"] = level };
+        static void WriteAudioSource(JsonTextWriter writer, string kind, Vector3 position, double level) {
+            writer.WriteStartObject();
+            writer.WritePropertyName("kind"); writer.WriteValue(kind);
+            writer.WritePropertyName("position"); WriteAudioPoint(writer, position);
+            writer.WritePropertyName("level"); writer.WriteValue(level);
+            writer.WriteEndObject();
+        }
 
         internal void PublishAudio(JObject payload) {
             if (clientSessionId.Length == 0) return;
@@ -527,7 +616,10 @@ namespace Metro.App {
         }
 
         public void NoteClientSession(string sessionId) {
-            if (!string.IsNullOrEmpty(sessionId)) clientSessionId = sessionId;
+            if (!string.IsNullOrEmpty(sessionId)) {
+                if (!string.Equals(clientSessionId, sessionId, StringComparison.Ordinal)) ResetAudioGateState();
+                clientSessionId = sessionId;
+            }
         }
 
         // ------------------------------------------------------------- registration
@@ -577,6 +669,16 @@ namespace Metro.App {
 
         public StationLoadResult OpenDocument(string json, string sourceId) =>
             coordinator.Open(json, new StationSource(sourceId == "file" ? "" : sourceId, ""), sourceId);
+
+        public StationLoadResult OpenPreReadDocument(StationReadResult read, string sourceId) =>
+            coordinator.OpenPreRead(read, sourceId);
+
+        public System.Collections.IEnumerator OpenPreReadDocumentYielded(
+            StationReadResult read,
+            StationSimulationSession prebuiltSession,
+            string sourceId,
+            Action<StationLoadResult> onComplete) =>
+            coordinator.OpenPreReadYielded(read, prebuiltSession, sourceId, onComplete);
 
         internal bool TryResolveDemoInput(string id, out string text, out StationSource source) {
             if (string.IsNullOrEmpty(id) || !demoDocuments.TryGetValue(id, out var document) || document == null) {
@@ -740,14 +842,18 @@ namespace Metro.App {
         public const int CommitDeltaSchemaVersion = 1;
 
         object cachedCrowdSession;
+        long cachedCrowdGeneration = long.MinValue;
         long cachedCrowdTick = long.MinValue;
         long cachedCrowdEpoch = long.MinValue;
         long cachedCrowdSessionRev = long.MinValue;
         object cachedCrowdModules;
+        object cachedCrowdCatalogue;
         int cachedCrowdSpawned = -1, cachedCrowdVisible = -1, cachedCrowdSamples = -1, cachedCrowdPresented = -1;
         string cachedCrowdJson;
 
         object cachedStatsSession;
+        long cachedStatsGeneration = long.MinValue;
+        StationPublishedStatistics cachedStatsPublished;
         string cachedStatsRunId = "";
         long cachedStatsTick = long.MinValue;
         int cachedStatsHistoryCount = -1;
@@ -756,6 +862,7 @@ namespace Metro.App {
         object cachedDisplaysScope;
         string cachedDisplaysLocale = "";
         long cachedDisplaysSwaps = -1;
+        long cachedDisplaysVersion = long.MinValue;
         long cachedDisplaysTick = long.MinValue;
         object cachedDisplaysTvs;
         object cachedDisplaysTracks;
@@ -918,20 +1025,32 @@ namespace Metro.App {
             return payload;
         }
 
-        bool TryWriteCachedContributorRaw(string key, JObject payload, StationSimulationSession session) {
+        bool TryWriteCachedContributorRaw(
+            string key,
+            JObject payload,
+            StationSimulationSession session,
+            StationPublishedSimFrame publishedState) {
             if (string.Equals(key, "crowd", StringComparison.Ordinal)) {
-                if (session == null || cachedCrowdJson == null) return false;
+                if (cachedCrowdJson == null) return false;
+                if (publishedState == null && session == null) return false;
                 var cr = Metro.App.Views.PassengerCrowdRenderer.Current;
                 int sp = cr != null ? cr.Spawned : 0;
                 int vis = cr != null ? cr.VisibleActors : 0;
                 int smp = cr != null ? cr.LastPoseSamples : 0;
                 int prs = cr != null ? cr.LastPresentedPoses : 0;
                 object gateBucket = Index != null ? (object)Index.ModulesOfType("gate") : Document?.ModulePages;
+                object catalogue = Metro.View.PassengerCatalogueAnchor.Resolve();
+                long gen = publishedState != null ? publishedState.Generation : long.MinValue;
+                long tick = publishedState != null ? publishedState.Tick : session.Tick;
+                long epoch = publishedState != null ? publishedState.Epoch : session.PresentationEpoch;
+                long rev = publishedState != null ? publishedState.SessionRevision : session.SessionRevision;
                 if (ReferenceEquals(cachedCrowdSession, session) &&
-                    cachedCrowdTick == session.Tick &&
-                    cachedCrowdEpoch == session.PresentationEpoch &&
-                    cachedCrowdSessionRev == session.SessionRevision &&
+                    cachedCrowdGeneration == gen &&
+                    cachedCrowdTick == tick &&
+                    cachedCrowdEpoch == epoch &&
+                    cachedCrowdSessionRev == rev &&
                     ReferenceEquals(cachedCrowdModules, gateBucket) &&
+                    ReferenceEquals(cachedCrowdCatalogue, catalogue) &&
                     cachedCrowdSpawned == sp && cachedCrowdVisible == vis &&
                     cachedCrowdSamples == smp && cachedCrowdPresented == prs) {
                     payload[key] = new JRaw(cachedCrowdJson);
@@ -940,8 +1059,24 @@ namespace Metro.App {
                 return false;
             }
             if (string.Equals(key, "statistics", StringComparison.Ordinal)) {
-                if (session == null || cachedStatsJson == null) return false;
+                if (cachedStatsJson == null) return false;
+                if (publishedState?.Statistics != null) {
+                    var stats = publishedState.Statistics;
+                    if (ReferenceEquals(cachedStatsSession, session) &&
+                        cachedStatsGeneration == publishedState.Generation &&
+                        ReferenceEquals(cachedStatsPublished, stats) &&
+                        string.Equals(cachedStatsRunId, stats.RunId, StringComparison.Ordinal) &&
+                        cachedStatsTick == stats.Metrics.Tick &&
+                        cachedStatsHistoryCount == stats.HistoryCount) {
+                        payload[key] = new JRaw(cachedStatsJson);
+                        return true;
+                    }
+                    return false;
+                }
+                if (session == null) return false;
                 if (ReferenceEquals(cachedStatsSession, session) &&
+                    cachedStatsGeneration == long.MinValue &&
+                    cachedStatsPublished == null &&
                     string.Equals(cachedStatsRunId, session.StatisticsRunId ?? "", StringComparison.Ordinal) &&
                     cachedStatsTick == session.Statistics.Tick &&
                     cachedStatsHistoryCount == session.History.Count) {
@@ -953,14 +1088,17 @@ namespace Metro.App {
             if (string.Equals(key, "displays", StringComparison.Ordinal)) {
                 if (cachedDisplaysJson == null) return false;
                 var (scope, locale, swaps) = Metro.App.Views.StationDisplayTvArtwork.CurrentScopeFingerprint();
-                long simTick = session != null ? session.Tick : -1;
+                long publishVersion = Metro.App.Views.StationDisplayTvArtwork.PublishVersion;
+                bool deferRepaint = Metro.App.Views.StationDisplayTvArtwork.DefersStateContributorRepaint;
+                long simTick = publishedState != null ? publishedState.Tick : (session != null ? session.Tick : -1);
                 object tvB = Index != null ? (object)Index.ModulesOfType("tv") : Document?.ModulePages;
                 object trkB = Index != null ? (object)Index.ModulesOfType("track") : Document?.ModulePages;
                 object edgB = Index != null ? (object)Index.ModulesOfType("platform-edge") : Document?.ModulePages;
                 if (ReferenceEquals(cachedDisplaysScope, scope) &&
                     string.Equals(cachedDisplaysLocale, locale, StringComparison.Ordinal) &&
                     cachedDisplaysSwaps == swaps &&
-                    cachedDisplaysTick == simTick &&
+                    cachedDisplaysVersion == publishVersion &&
+                    (deferRepaint || cachedDisplaysTick == simTick) &&
                     ReferenceEquals(cachedDisplaysTvs, tvB) &&
                     ReferenceEquals(cachedDisplaysTracks, trkB) &&
                     ReferenceEquals(cachedDisplaysEdges, edgB) &&
@@ -974,32 +1112,50 @@ namespace Metro.App {
             return false;
         }
 
-        void UpdateContributorRawCache(string key, JObject value, StationSimulationSession session) {
+        void UpdateContributorRawCache(
+            string key,
+            JObject value,
+            StationSimulationSession session,
+            StationPublishedSimFrame publishedState) {
             if (value == null) return;
-            if (string.Equals(key, "crowd", StringComparison.Ordinal) && session != null) {
+            if (string.Equals(key, "crowd", StringComparison.Ordinal) && (publishedState != null || session != null)) {
                 var cr = Metro.App.Views.PassengerCrowdRenderer.Current;
                 cachedCrowdSession = session;
-                cachedCrowdTick = session.Tick;
-                cachedCrowdEpoch = session.PresentationEpoch;
-                cachedCrowdSessionRev = session.SessionRevision;
+                cachedCrowdGeneration = publishedState != null ? publishedState.Generation : long.MinValue;
+                cachedCrowdTick = publishedState != null ? publishedState.Tick : session.Tick;
+                cachedCrowdEpoch = publishedState != null ? publishedState.Epoch : session.PresentationEpoch;
+                cachedCrowdSessionRev = publishedState != null ? publishedState.SessionRevision : session.SessionRevision;
                 cachedCrowdModules = Index != null ? (object)Index.ModulesOfType("gate") : Document?.ModulePages;
+                cachedCrowdCatalogue = Metro.View.PassengerCatalogueAnchor.Resolve();
                 cachedCrowdSpawned = cr != null ? cr.Spawned : 0;
                 cachedCrowdVisible = cr != null ? cr.VisibleActors : 0;
                 cachedCrowdSamples = cr != null ? cr.LastPoseSamples : 0;
                 cachedCrowdPresented = cr != null ? cr.LastPresentedPoses : 0;
                 cachedCrowdJson = value.ToString(Formatting.None);
-            } else if (string.Equals(key, "statistics", StringComparison.Ordinal) && session != null) {
+            } else if (string.Equals(key, "statistics", StringComparison.Ordinal) && (publishedState?.Statistics != null || session != null)) {
                 cachedStatsSession = session;
-                cachedStatsRunId = session.StatisticsRunId ?? "";
-                cachedStatsTick = session.Statistics.Tick;
-                cachedStatsHistoryCount = session.History.Count;
+                if (publishedState?.Statistics != null) {
+                    var stats = publishedState.Statistics;
+                    cachedStatsGeneration = publishedState.Generation;
+                    cachedStatsPublished = stats;
+                    cachedStatsRunId = stats.RunId;
+                    cachedStatsTick = stats.Metrics.Tick;
+                    cachedStatsHistoryCount = stats.HistoryCount;
+                } else {
+                    cachedStatsGeneration = long.MinValue;
+                    cachedStatsPublished = null;
+                    cachedStatsRunId = session.StatisticsRunId ?? "";
+                    cachedStatsTick = session.Statistics.Tick;
+                    cachedStatsHistoryCount = session.History.Count;
+                }
                 cachedStatsJson = value.ToString(Formatting.None);
             } else if (string.Equals(key, "displays", StringComparison.Ordinal)) {
                 var (scope, locale, swaps) = Metro.App.Views.StationDisplayTvArtwork.CurrentScopeFingerprint();
                 cachedDisplaysScope = scope;
                 cachedDisplaysLocale = locale;
                 cachedDisplaysSwaps = swaps;
-                cachedDisplaysTick = session != null ? session.Tick : -1;
+                cachedDisplaysVersion = Metro.App.Views.StationDisplayTvArtwork.PublishVersion;
+                cachedDisplaysTick = publishedState != null ? publishedState.Tick : (session != null ? session.Tick : -1);
                 cachedDisplaysTvs = Index != null ? (object)Index.ModulesOfType("tv") : Document?.ModulePages;
                 cachedDisplaysTracks = Index != null ? (object)Index.ModulesOfType("track") : Document?.ModulePages;
                 cachedDisplaysEdges = Index != null ? (object)Index.ModulesOfType("platform-edge") : Document?.ModulePages;
@@ -1010,13 +1166,16 @@ namespace Metro.App {
         }
 
         void MergeState(JObject payload, bool useRawJsonCache = false) {
+            var serviceHost = Simulation as StationSimulationHost;
+            var liveSession = serviceHost != null ? serviceHost.Session : null;
+            var publishedState = serviceHost != null ? serviceHost.PublishedFrame : null;
             payload["level"] = activeLevel;
             payload["name"] = Document?.Name ?? "";
             payload["stationEpoch"] = stationEpoch;
             payload["canUndo"] = StationEditSession.CanUndo;
             payload["canRedo"] = StationEditSession.CanRedo;
-            payload["speed"] = Simulation?.Speed ?? 1;
-            payload["playing"] = Simulation?.Playing ?? false;
+            payload["speed"] = publishedState != null ? publishedState.Speed : (Simulation?.Speed ?? 1);
+            payload["playing"] = publishedState != null ? publishedState.Playing : (Simulation?.Playing ?? false);
             // A6: the committed tool rides the same state frame as the camera, so the
             // rail can settle on the host's answer rather than its own click.
             payload["tool"] = StationToolSelection.Active;
@@ -1029,12 +1188,9 @@ namespace Metro.App {
             payload["settingsGeneration"] = StationToolSelection.SettingsGeneration;
             // C3: the committed session's own service counts. Nobody is queued or
             // boarded when there is no session, so the empty case is still zero.
-            var serviceHost = Simulation as StationSimulationHost;
-            var liveSession = serviceHost != null ? serviceHost.Session : null;
-            var publishedState = serviceHost != null ? serviceHost.PublishedFrame : null;
             payload["queued"] = publishedState != null ? publishedState.QueuedTotal : 0;
             payload["boarded"] = publishedState != null ? publishedState.BoardedOnboard : 0;
-            var clockJson = Simulation?.ClockPayloadJson();
+            var clockJson = publishedState != null ? publishedState.ClockPayloadJson : Simulation?.ClockPayloadJson();
             if (!string.IsNullOrEmpty(clockJson)) {
                 if (useRawJsonCache) payload["clock"] = new JRaw(clockJson);
                 else { var clock = SafeObject(clockJson); if (clock != null) payload["clock"] = clock; }
@@ -1042,7 +1198,7 @@ namespace Metro.App {
             // The clock's sibling: the transports this session honours. A shell that
             // offers Play/speed must read both from the same frame, because a clock
             // alone cannot say whether the host can honour the action (plan 13 §1).
-            var simCapsJson = Simulation?.CapabilitiesPayloadJson();
+            var simCapsJson = publishedState != null ? publishedState.CapabilitiesPayloadJson : Simulation?.CapabilitiesPayloadJson();
             if (!string.IsNullOrEmpty(simCapsJson)) {
                 if (useRawJsonCache) payload["simulationCapabilities"] = new JRaw(simCapsJson);
                 else { var simulationCapabilities = SafeObject(simCapsJson); if (simulationCapabilities != null) payload["simulationCapabilities"] = simulationCapabilities; }
@@ -1050,12 +1206,12 @@ namespace Metro.App {
             for (int i = 0; i < contributors.Count; i++) {
                 string key = contributors[i].Key;
                 try {
-                    if (useRawJsonCache && TryWriteCachedContributorRaw(key, payload, liveSession)) continue;
+                    if (useRawJsonCache && TryWriteCachedContributorRaw(key, payload, liveSession, publishedState)) continue;
                     var value = contributors[i].BuildPayload(Document, Index);
                     if (value != null) {
                         if (useRawJsonCache) {
-                            UpdateContributorRawCache(key, value, liveSession);
-                            if (TryWriteCachedContributorRaw(key, payload, liveSession)) continue;
+                            UpdateContributorRawCache(key, value, liveSession, publishedState);
+                            if (TryWriteCachedContributorRaw(key, payload, liveSession, publishedState)) continue;
                         }
                         payload[key] = value;
                     }
@@ -1103,12 +1259,16 @@ namespace Metro.App {
 
         void ClearContributorCaches() {
             cachedCrowdSession = null;
+            cachedCrowdGeneration = long.MinValue;
             cachedCrowdModules = null;
+            cachedCrowdCatalogue = null;
             cachedCrowdJson = null;
             cachedCrowdTick = long.MinValue;
             cachedCrowdEpoch = long.MinValue;
             cachedCrowdSessionRev = long.MinValue;
             cachedStatsSession = null;
+            cachedStatsGeneration = long.MinValue;
+            cachedStatsPublished = null;
             cachedStatsRunId = "";
             cachedStatsTick = long.MinValue;
             cachedStatsHistoryCount = -1;
@@ -1116,6 +1276,7 @@ namespace Metro.App {
             cachedDisplaysScope = null;
             cachedDisplaysLocale = "";
             cachedDisplaysSwaps = -1;
+            cachedDisplaysVersion = long.MinValue;
             cachedDisplaysTick = long.MinValue;
             cachedDisplaysTvs = null;
             cachedDisplaysTracks = null;
@@ -1132,6 +1293,7 @@ namespace Metro.App {
             // metre and frames the fresh bounds (plan 11 D4).
             if (!editingDocument) {
                 stationEpoch++;
+                ResetAudioGateState();
                 ClearContributorCaches();
                 Metro.App.Views.StationTvSchedule.ClearCache();
                 StationPaintGame.Forget();

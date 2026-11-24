@@ -9,7 +9,7 @@ import { demoStationForPath, gamePathFor } from '../../game/src/app/demoRoute.ts
 import { languageForPath } from '../../game/src/sim/i18n.ts'
 import { benchmarkHrefFor, LANGUAGE_STORAGE_KEY } from '../../game/src/app/languageRoute.ts'
 import { tutorialAutoDisabled } from '../../game/src/app/windows/tutorial/steps.ts'
-import { summarizeFrameIntervals } from '../../game/src/app/benchmark/benchmarkStats.ts'
+import { frameTimeCeilingFor, frameTimePath, summarizeFrameIntervals } from '../../game/src/app/benchmark/benchmarkStats.ts'
 import localWorker from '../../tools/unity-web/local-worker.mjs'
 import { attachUnityUI } from '../../tools/unity-web/unity-ui-pack.mjs'
 
@@ -257,8 +257,13 @@ test('UnityBenchmarkRoute pins Tianhe default, desktop onExit, benchmark mode si
   assert.match(routeSource, /function fpsCeilingFor\(frames: FrameSample\[\]\): number[\s\S]*?\[120, 180, 240, 360, 480\]/)
   assert.match(routeSource, /function graphPath\(frames: FrameSample\[\], width: number, height: number, maxFps: number\): string/)
   assert.match(routeSource, /function resourcePath\(samples: ResourceSample\[\], metric: 'cpu' \| 'gpu' \| 'ram'/)
+  assert.match(routeSource, /<FrameTimeChart frames=\{result\.frames\} arrivals=\{result\.arrivals\} stats=\{result\.stats\} copy=\{copy\}/)
+  assert.match(routeSource, /type View = 'regular' \| 'explode' \| 'tour'/)
+  assert.match(routeSource, /new CameraTourDriver\(\s*stationId\b/)
+  assert.doesNotMatch(routeSource, /<select\b/, 'offscreen WebView2 desktop overlay cannot display native OS <select> popups')
+  assert.match(routeSource, /benchmarkChoices benchmarkStations/, 'station selector renders pure-DOM buttons')
 
-  // Verify shared summarizeFrameIntervals across high-FPS native desktop & WebGL intervals.
+  // Verify shared summarizeFrameIntervals & frame-time chart helpers across high-FPS native desktop & WebGL intervals.
   const desktopStats = summarizeFrameIntervals([4, 4, 4, 8, Number.NaN, 0])
   assert.deepEqual(desktopStats, {
     averageFps: 1000 / 5,
@@ -266,4 +271,7 @@ test('UnityBenchmarkRoute pins Tianhe default, desktop onExit, benchmark mode si
     worstFrameMs: 8,
   })
   assert.equal(summarizeFrameIntervals([0, -5, Number.POSITIVE_INFINITY]), null)
+  assert.equal(frameTimeCeilingFor([{ interval: 100 }, { interval: 14 }, { interval: 38.9 }]), 40)
+  assert.equal(frameTimeCeilingFor([{ interval: 10 }, { interval: 45.3 }]), 60)
+  assert.equal(frameTimePath([{ at: 0, interval: 500 }, { at: 0, interval: 20 }, { at: 30_000, interval: 40 }], 1000, 260, 40), 'M0.0,130.0 L1000.0,0.0')
 })

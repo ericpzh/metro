@@ -90,6 +90,18 @@ project layers in `tools/unity-parity/check-unity-compile.ps1`:
   them (`StationSignTransportTests`). Billboards, TV departure boards, city line
   maps, digital/analogue clocks, and zone labels render natively in C# via
   `Resources/{Posters,LineMaps}` and `NotoSansSC.ttf`.
+- **Lock-free state publishing & TV repaint ownership (`StationLoadCoordinator`,
+  `StationGameHost`, `SessionPassengerFeed`, `StationStatisticsFeature`,
+  `StationDisplayTvArtwork`, `StationTvPlatePainter`):**
+  `StationSimulationHost.PublishFrameLocked()` snapshots immutable crowd counters
+  and reused `StationPublishedStatistics` into `StationPublishedSimFrame`, so
+  10 Hz `PublishStateNow()` reads `PublishedFrame` lock-free without waiting on
+  the background worker's `sessionLock`. In PlayMode,
+  `StationDisplayTvArtwork.StateContributor.BuildPayload` defers TV painting to
+  `Advance()` (`4/frame`, `skipHidden: true`), raw `"displays"` caching keys on
+  `PublishVersion`, and evicted `RenderTexture`s recycle through
+  `StationTvPlatePainter`'s bounded `(width, height)` pool (`MaxPooledPlateTextures = 16`)
+  (`StationPerfLockFreeAndTvTests`).
 
 ## Simulation parity contracts
 

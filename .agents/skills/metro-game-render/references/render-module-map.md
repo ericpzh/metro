@@ -33,7 +33,7 @@ Complete file-by-file ownership map of the Three.js rendering layer under `game/
 | `PlateSystem.ts` | Caches, retains, and repaints canvas textures for TV boards (cached TV coords/status keys with 1-panel/frame budgeted visible-first flushing), sign faces, calligraphy, line maps, cycling TV ad windows, and live rail-signal aspects (`ownsTexture` protects retained maps). |
 | `ClockSystem.ts` | Drives analogue `ClockRig` hands and digital clock displays for placed clocks and hover previews from interpolated sim time with per-rig applied-state skipping. |
 | `GridSystem.ts` | Editing lattice translated on Q/E (geometry rebuilt only on horizontal bound changes) and cell cursor ring. |
-| `CameraSystem.ts` | Perspective and orthographic cameras, OrbitControls, wheel/pinch zoom, WASD + edge scrolling, vertical pan, eye view, and shared per-event `withPointerPick` raycasting. |
+| `CameraSystem.ts` | Perspective and orthographic cameras, OrbitControls, wheel/pinch zoom, WASD + edge scrolling, camera-relative `panByScreenFraction` (matching Unity `camera.pan`), vertical pan, eye view, and shared per-event `withPointerPick` raycasting. |
 | `SkySystem.ts` | Procedural 512² Z-up cloud cubemap shown during `hideUI`, driven by `skyIntensity(simTime)` dawn/dusk curve and matching horizon fog. |
 
 ## Meshing, Slicing, Picking & Incremental Edit Retention

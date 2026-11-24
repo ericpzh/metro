@@ -1,5 +1,7 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics;
 using Metro.Build;
 using UnityEngine;
 
@@ -314,6 +316,50 @@ namespace Metro.View {
                         if (buildGround && virtualGround) MeshSingleGroundChunk(ck.ChunkX, ck.ChunkY, ck.Storey);
                     } else {
                         MeshSingleBandChunk(ck.ChunkX, ck.ChunkY, ck.Storey);
+                    }
+                }
+            } finally {
+                activeDirectCallback = null;
+                activeChunkCallback = null;
+                activeGroupSink = null;
+                batchFaces.Clear();
+                faceRecordIndex.Clear();
+                suspendedCache.Clear();
+                masonryRoofCache.Clear();
+                builderPool.Clear();
+            }
+        }
+
+        /// <summary>
+        /// Time-sliced variant of <see cref="ForEachChunkMeshDirect"/>: yields one frame
+        /// whenever chunk meshing + upload exceeds <paramref name="frameBudgetMs"/> so the
+        /// loading screen stays responsive while large stations build.
+        /// </summary>
+        public IEnumerator EnumerateChunkMeshesDirect(
+            Action<ChunkBandKey, StationCellMeshGroup, StationCellMeshBuffers> onGroup,
+            double frameBudgetMs = 10.0) {
+            if (onGroup == null) throw new ArgumentNullException(nameof(onGroup));
+            var allKeys = CollectAllChunkKeys();
+            suspendedCache.Clear();
+            masonryRoofCache.Clear();
+            activeGroupSink = null;
+            activeChunkCallback = null;
+            activeDirectCallback = onGroup;
+            var sw = Stopwatch.StartNew();
+            try {
+                for (int i = 0; i < allKeys.Count; i++) {
+                    var ck = allKeys[i];
+                    activeChunkKey = ck;
+                    batchFaces.Clear();
+                    faceRecordIndex.Clear();
+                    if (ck.IsGround) {
+                        if (buildGround && virtualGround) MeshSingleGroundChunk(ck.ChunkX, ck.ChunkY, ck.Storey);
+                    } else {
+                        MeshSingleBandChunk(ck.ChunkX, ck.ChunkY, ck.Storey);
+                    }
+                    if (frameBudgetMs > 0.0 && i + 1 < allKeys.Count && sw.Elapsed.TotalMilliseconds >= frameBudgetMs) {
+                        yield return null;
+                        sw.Restart();
                     }
                 }
             } finally {

@@ -250,6 +250,29 @@ namespace Metro.App.Views {
         internal BandRig Band;
         internal LiftRig Lift;
         internal List<BandStep> Steps;
+        internal Transform BandGroup;
+        public MeshRenderer BandProxyRenderer { get; internal set; }
+        public Mesh BandTreadMesh { get; internal set; }
+        internal Material[] BandTreadMaterials;
+        public Mesh BandRiserMesh { get; internal set; }
+        internal Material BandRiserMaterial;
+        internal Quaternion BandStepLocalRotation = Quaternion.identity;
+        internal Matrix4x4 BandStepLocalRotationMatrix = Matrix4x4.identity;
+        internal Bounds BandLocalBounds;
+        internal Vector3[] StepLocalPositions;
+        internal float[] StepRiserScales;
+        internal bool[] StepVisible;
+        internal int LocalPoseVersion;
+        internal Matrix4x4[] WorldTreadMatrices;
+        internal int WorldTreadCount;
+        internal Matrix4x4[] WorldRiserMatrices;
+        internal int WorldRiserCount;
+        internal int BuiltWorldPoseVersion = -1;
+        internal Matrix4x4 BuiltGroupToWorld;
+        internal Matrix4x4 BuiltWorldStepRot;
+        internal bool HasCachedWorldTransform;
+        internal Bounds CachedWorldBounds;
+        internal EscalatorStepInstancedDrawer RegisteredDrawer;
         internal bool BandDirty = true;
         internal double LastAppliedBandPhase = double.NaN;
         internal readonly List<VerticalPartRef> parts = new List<VerticalPartRef>();
@@ -326,12 +349,119 @@ namespace Metro.App.Views {
             parts.Add(new VerticalPartRef(name, transform, moving));
         }
 
+        /// <summary>
+        /// Sample one step's current world-space pose directly from the cached band arrays
+        /// without requiring a per-step <see cref="Transform"/> GameObject.
+        /// </summary>
+        public bool TryGetStepWorldPose(int index, out bool visible, out Vector3 worldPosition,
+            out Quaternion worldRotation, out Vector3 worldScale, out float riserScaleY) {
+            visible = false;
+            worldPosition = Vector3.zero;
+            worldRotation = Quaternion.identity;
+            worldScale = Vector3.one;
+            riserScaleY = 0f;
+            if (Band == null || BandGroup == null || StepLocalPositions == null ||
+                index < 0 || index >= StepLocalPositions.Length) {
+                return false;
+            }
+            visible = StepVisible[index];
+            riserScaleY = StepRiserScales[index];
+            worldPosition = BandGroup.TransformPoint(StepLocalPositions[index]);
+            worldRotation = BandGroup.rotation * BandStepLocalRotation;
+            worldScale = BandGroup.lossyScale;
+            return true;
+        }
+
+        internal bool EnsureBandWorldBounds(out Bounds worldBounds) {
+            if (Band == null || BandGroup == null) {
+                worldBounds = default;
+                return false;
+            }
+            var groupToWorld = BandGroup.localToWorldMatrix;
+            if (!HasCachedWorldTransform || BuiltGroupToWorld != groupToWorld) {
+                BuiltGroupToWorld = groupToWorld;
+                BuiltWorldStepRot = groupToWorld * BandStepLocalRotationMatrix;
+                CachedWorldBounds = VerticalModuleViews.TransformBounds(BandLocalBounds, groupToWorld);
+                HasCachedWorldTransform = true;
+                BuiltWorldPoseVersion = -1;
+            }
+            worldBounds = CachedWorldBounds;
+            return true;
+        }
+
+        internal void EnsureBandWorldMatrices() {
+            if (Band == null || BandGroup == null || StepLocalPositions == null) {
+                WorldTreadCount = 0;
+                WorldRiserCount = 0;
+                return;
+            }
+            var groupToWorld = BandGroup.localToWorldMatrix;
+            if (!HasCachedWorldTransform || BuiltGroupToWorld != groupToWorld) {
+                BuiltGroupToWorld = groupToWorld;
+                BuiltWorldStepRot = groupToWorld * BandStepLocalRotationMatrix;
+                CachedWorldBounds = VerticalModuleViews.TransformBounds(BandLocalBounds, groupToWorld);
+                HasCachedWorldTransform = true;
+                BuiltWorldPoseVersion = -1;
+            }
+            if (BuiltWorldPoseVersion == LocalPoseVersion) return;
+
+            int count = StepLocalPositions.Length;
+            if (WorldTreadMatrices == null || WorldTreadMatrices.Length < count) WorldTreadMatrices = new Matrix4x4[count];
+            if (WorldRiserMatrices == null || WorldRiserMatrices.Length < count) WorldRiserMatrices = new Matrix4x4[count];
+
+            var wr = BuiltWorldStepRot;
+            float c0x = wr.m00, c0y = wr.m10, c0z = wr.m20;
+            float c1x = wr.m01, c1y = wr.m11, c1z = wr.m21;
+            float c2x = wr.m02, c2y = wr.m12, c2z = wr.m22;
+
+            int treadCount = 0;
+            int riserCount = 0;
+            for (int i = 0; i < count; i++) {
+                if (!StepVisible[i]) continue;
+                var wp = groupToWorld.MultiplyPoint3x4(StepLocalPositions[i]);
+                Matrix4x4 m;
+                m.m00 = c0x; m.m10 = c0y; m.m20 = c0z; m.m30 = 0f;
+                m.m01 = c1x; m.m11 = c1y; m.m21 = c1z; m.m31 = 0f;
+                m.m02 = c2x; m.m12 = c2y; m.m22 = c2z; m.m32 = 0f;
+                m.m03 = wp.x; m.m13 = wp.y; m.m23 = wp.z; m.m33 = 1f;
+                WorldTreadMatrices[treadCount++] = m;
+
+                float sy = StepRiserScales[i];
+                if (sy > 1e-5f) {
+                    m.m01 = c1x * sy;
+                    m.m11 = c1y * sy;
+                    m.m21 = c1z * sy;
+                    WorldRiserMatrices[riserCount++] = m;
+                }
+            }
+            WorldTreadCount = treadCount;
+            WorldRiserCount = riserCount;
+            BuiltWorldPoseVersion = LocalPoseVersion;
+        }
+
         public void Dispose() {
+            if (RegisteredDrawer != null) {
+                RegisteredDrawer.Unregister(this);
+                RegisteredDrawer = null;
+            }
             for (int i = 0; i < Meshes.Count; i++) VerticalModuleViews.DestroyObject(Meshes[i]);
             Meshes.Clear();
             Steps = null;
             Band = null;
             Lift = null;
+            BandGroup = null;
+            BandProxyRenderer = null;
+            BandTreadMesh = null;
+            BandTreadMaterials = null;
+            BandRiserMesh = null;
+            BandRiserMaterial = null;
+            StepLocalPositions = null;
+            StepRiserScales = null;
+            StepVisible = null;
+            WorldTreadMatrices = null;
+            WorldRiserMatrices = null;
+            WorldTreadCount = 0;
+            WorldRiserCount = 0;
         }
     }
 
@@ -428,6 +558,7 @@ namespace Metro.App.Views {
                 return;
             }
             if (palette == PaletteSteel) {
+                material.enableInstancing = true;
                 if (material.HasProperty("_Metallic")) material.SetFloat("_Metallic", .72f);
                 if (material.HasProperty("_Smoothness")) material.SetFloat("_Smoothness", .66f);
             } else if (palette == PaletteLiftSteel) {
@@ -440,6 +571,7 @@ namespace Metro.App.Views {
                 if (material.HasProperty("_Metallic")) material.SetFloat("_Metallic", .35f);
                 if (material.HasProperty("_Smoothness")) material.SetFloat("_Smoothness", .45f);
             } else if (palette == PaletteWarm) {
+                material.enableInstancing = true;
                 if (material.HasProperty("_Metallic")) material.SetFloat("_Metallic", .1f);
                 if (material.HasProperty("_Smoothness")) material.SetFloat("_Smoothness", .6f);
             }
@@ -467,12 +599,65 @@ namespace Metro.App.Views {
         /* --------------------------------------------------------------- entry */
 
         /// <summary>
+        /// Per-world pool sharing identical escalator tread, riser, and zero-triangle proxy
+        /// meshes across escalators of the same step dimensions so GPU-instanced draws batch
+        /// across every escalator in the station.
+        /// </summary>
+        internal sealed class BandStepMeshPool : IDisposable {
+            readonly Dictionary<(int RunKey, int WidthKey), Mesh> treadMeshes =
+                new Dictionary<(int RunKey, int WidthKey), Mesh>();
+            readonly Dictionary<(int RunKey, int WidthKey, int RiseKey), Mesh> riserMeshes =
+                new Dictionary<(int RunKey, int WidthKey, int RiseKey), Mesh>();
+            Mesh proxyMesh;
+
+            public Mesh GetOrCreateTread(BandRig band) {
+                var key = (Mathf.RoundToInt(band.StepRun * 10000f), Mathf.RoundToInt(band.BandWidth * 10000f));
+                if (treadMeshes.TryGetValue(key, out var existing) && existing != null) return existing;
+                var created = BuildTreadMesh(band);
+                treadMeshes[key] = created;
+                return created;
+            }
+
+            public Mesh GetOrCreateRiser(BandRig band) {
+                var key = (
+                    Mathf.RoundToInt(band.StepRun * 10000f),
+                    Mathf.RoundToInt(band.BandWidth * 10000f),
+                    Mathf.RoundToInt(band.StepRise * 10000f));
+                if (riserMeshes.TryGetValue(key, out var existing) && existing != null) return existing;
+                var created = BuildRiserMesh(band);
+                riserMeshes[key] = created;
+                return created;
+            }
+
+            public Mesh GetOrCreateProxy() {
+                if (proxyMesh != null) return proxyMesh;
+                proxyMesh = BuildBandProxyMesh();
+                return proxyMesh;
+            }
+
+            public void Dispose() {
+                foreach (var mesh in treadMeshes.Values) DestroyObject(mesh);
+                foreach (var mesh in riserMeshes.Values) DestroyObject(mesh);
+                treadMeshes.Clear();
+                riserMeshes.Clear();
+                if (proxyMesh != null) {
+                    DestroyObject(proxyMesh);
+                    proxyMesh = null;
+                }
+            }
+        }
+
+        /// <summary>
         /// Build one vertical module view under <paramref name="parent"/>. The parent
         /// must be an identity world root (the station renderer contract); the view
         /// places its own pivot. Returns false for an unknown type or a record without
         /// the endpoints the recipe needs, leaving no partial object behind.
         /// </summary>
-        public static bool TryBuild(VerticalModuleRequest request, Transform parent, out VerticalModuleView view) {
+        public static bool TryBuild(VerticalModuleRequest request, Transform parent, out VerticalModuleView view) =>
+            TryBuild(request, parent, out view, null);
+
+        internal static bool TryBuild(VerticalModuleRequest request, Transform parent, out VerticalModuleView view,
+            BandStepMeshPool stepMeshPool) {
             view = null;
             if (parent == null || string.IsNullOrEmpty(request.Type)) return false;
             VerticalModuleKind kind;
@@ -485,7 +670,7 @@ namespace Metro.App.Views {
             }
             var root = new GameObject(string.IsNullOrEmpty(request.ModuleId) ? "vertical-module" : request.ModuleId);
             root.transform.SetParent(parent, false);
-            var context = new BuildContext { Request = request, Root = root.transform, Kind = kind };
+            var context = new BuildContext { Request = request, Root = root.transform, Kind = kind, StepMeshPool = stepMeshPool };
             var candidate = new VerticalModuleView { ModuleId = request.ModuleId ?? "", Type = request.Type, Kind = kind, Root = root.transform, MaterialFor = request.MaterialFor };
             try {
                 bool built;
@@ -553,7 +738,7 @@ namespace Metro.App.Views {
         /* -------------------------------------------------------------- motion */
 
         /// <summary>Port of <c>escalatorStepHeight</c> (sim/escalators.ts).</summary>
-        internal static double StepHeight(double along, double inclineLength, double risePerM, double horizontalPerM) {
+        public static double StepHeight(double along, double inclineLength, double risePerM, double horizontalPerM) {
             double bend = Math.Min(StairTransitionLength / horizontalPerM, inclineLength / 4.0);
             double Bottom(double u) {
                 if (u <= -bend) return 0;
@@ -568,6 +753,11 @@ namespace Metro.App.Views {
         /// in the authored travel direction (<c>to − from</c>) at 0.5 m/s and wraps into
         /// <c>[0, chainLength)</c>; a step is hidden only while the comb covers it, so the
         /// visible span never shows a step teleporting from one landing to the other.
+        ///
+        /// Local step poses are written into compact arrays for GPU-instanced submission
+        /// by <see cref="EscalatorStepInstancedDrawer"/>, and only lightweight anchor
+        /// transforms (<c>tread-0</c> / <c>tread-last</c> in PlayMode, all <c>tread-i</c>
+        /// anchors in EditMode) touch Unity's Transform API.
         /// </summary>
         internal static bool ApplyBand(VerticalModuleView view, ModuleMotionState state) {
             var band = view.Band;
@@ -583,46 +773,57 @@ namespace Metro.App.Views {
             phase = Wrap(phase, band.ChainLength);
             view.PhaseMeters = phase;
             if (view.Steps == null) return true;
-            for (int i = 0; i < view.Steps.Count; i++) {
+
+            int count = view.Steps.Count;
+            var localPositions = view.StepLocalPositions;
+            var riserScales = view.StepRiserScales;
+            var stepVisible = view.StepVisible;
+            if (localPositions == null || localPositions.Length != count) {
+                view.StepLocalPositions = localPositions = new Vector3[count];
+                view.StepRiserScales = riserScales = new float[count];
+                view.StepVisible = stepVisible = new bool[count];
+            }
+
+            var rotation = view.BandStepLocalRotation;
+            double minVisible = -band.Flat + band.Pitch * .5;
+            double maxVisible = band.InclineLength + band.Flat - band.Pitch * .5;
+            float invStepRise = band.StepRise > 1e-6f ? 1f / band.StepRise : 0f;
+
+            for (int i = 0; i < count; i++) {
                 var step = view.Steps[i];
                 double u = Wrap(step.Index * band.Pitch + phase, band.ChainLength);
                 double along = u - band.Flat;
                 double height = StepHeight(along, band.InclineLength, band.Climb.z, band.RunPerMetre);
                 double next = StepHeight(along + band.Pitch, band.InclineLength, band.Climb.z, band.RunPerMetre);
-                bool covered = along < -band.Flat + band.Pitch * .5 || along > band.InclineLength + band.Flat - band.Pitch * .5;
+                bool covered = along < minVisible || along > maxVisible;
                 float riserHeight = (float)Math.Max(0.0, next - height);
                 Vector3 position;
-                Quaternion rotation;
                 if (band.PrefabFrame) {
                     // Prefab local x = horizontal run, local y = elevation; the source
                     // step position is (climb.xy * along, height + 0.015), so the
                     // elevation channel is `height` itself (it already includes the
                     // climb), never `climb.z * along` on top of it.
                     position = new Vector3((float)(along * band.RunPerMetre), (float)(height + .015), 0f);
-                    rotation = Quaternion.identity;
                 } else {
-                    var documentPosition = new Vector3(
+                    position = new Vector3(
                         (float)(band.Climb.x * along),
-                        (float)(band.Climb.y * along),
-                        (float)(height + .015));
-                    position = Doc(documentPosition);
-                    rotation = Quaternion.Euler(0f, -band.YawDegrees, 0f);
+                        (float)(height + .015),
+                        (float)(band.Climb.y * along));
                 }
+
+                localPositions[i] = position;
+                bool visible = !covered;
+                stepVisible[i] = visible;
+                riserScales[i] = visible && riserHeight > 1e-5f ? riserHeight * invStepRise : 0f;
+
                 var tread = step.Tread;
-                if (tread) {
+                if (tread != null) {
                     tread.localPosition = position;
                     tread.localRotation = rotation;
-                    tread.gameObject.SetActive(!covered);
-                }
-                var riser = step.Riser;
-                if (riser) {
-                    riser.localPosition = position;
-                    riser.localRotation = rotation;
-                    bool visible = !covered && riserHeight > 1e-5f;
-                    riser.gameObject.SetActive(visible);
-                    if (visible) riser.localScale = new Vector3(1f, riserHeight / band.StepRise, 1f);
+                    if (tread.gameObject.activeSelf != visible) tread.gameObject.SetActive(visible);
                 }
             }
+            view.LocalPoseVersion++;
             return true;
         }
 
@@ -1389,24 +1590,7 @@ namespace Metro.App.Views {
                 }
             }
             band.PrefabFrame = true;
-            view.Steps = new List<BandStep>(band.Count);
-            var treadMesh = BuildTreadMesh(band);
-            var riserMesh = BuildRiserMesh(band);
-            view.Meshes.Add(treadMesh);
-            view.Meshes.Add(riserMesh);
-            var treadMaterials = new[] { context.Material(PaletteSteel), context.Material(PaletteWarm) };
-            var riserMaterial = context.Material(PaletteSteel);
-            var group = new GameObject("band").transform;
-            group.SetParent(instance.transform, false);
-            view.Register("band", group, true);
-            for (int i = 0; i < band.Count; i++) {
-                var tread = NewMeshObject("tread-" + i, group, treadMesh, treadMaterials);
-                var riser = NewMeshObject("riser-" + i, group, riserMesh, riserMaterial);
-                var step = new BandStep { Index = i, Tread = tread, Riser = riser };
-                view.Steps.Add(step);
-                if (i == 0) view.Register("tread-0", tread, true);
-                if (i == band.Count - 1) view.Register("tread-last", tread, true);
-            }
+            SetupBandInstancedSteps(context, view, band, instance.transform);
         }
 
         static void BuildBandDimensioned(BuildContext context, VerticalModuleView view, BandRig band) {
@@ -1569,23 +1753,132 @@ namespace Metro.App.Views {
             view.Register("truss", runFrame, false);
 
             band.PrefabFrame = false;
-            view.Steps = new List<BandStep>(band.Count);
-            var treadMesh = BuildTreadMesh(band);
-            var riserMesh = BuildRiserMesh(band);
-            view.Meshes.Add(treadMesh);
-            view.Meshes.Add(riserMesh);
-            var treadMaterials = new[] { context.Material(PaletteSteel), context.Material(PaletteWarm) };
-            var riserMaterial = context.Material(PaletteSteel);
-            var group = new GameObject("band").transform;
-            group.SetParent(context.Root, false);
-            view.Register("band", group, true);
-            for (int i = 0; i < band.Count; i++) {
-                var tread = NewMeshObject("tread-" + i, group, treadMesh, treadMaterials);
-                var riser = NewMeshObject("riser-" + i, group, riserMesh, riserMaterial);
-                view.Steps.Add(new BandStep { Index = i, Tread = tread, Riser = riser });
-                if (i == 0) view.Register("tread-0", tread, true);
-                if (i == band.Count - 1) view.Register("tread-last", tread, true);
+            SetupBandInstancedSteps(context, view, band, context.Root);
+        }
+
+        static void SetupBandInstancedSteps(BuildContext context, VerticalModuleView view, BandRig band, Transform bandParent) {
+            Mesh treadMesh;
+            Mesh riserMesh;
+            Mesh proxyMesh;
+            if (context.StepMeshPool != null) {
+                treadMesh = context.StepMeshPool.GetOrCreateTread(band);
+                riserMesh = context.StepMeshPool.GetOrCreateRiser(band);
+                proxyMesh = context.StepMeshPool.GetOrCreateProxy();
+            } else {
+                treadMesh = BuildTreadMesh(band);
+                riserMesh = BuildRiserMesh(band);
+                proxyMesh = BuildBandProxyMesh();
+                view.Meshes.Add(treadMesh);
+                view.Meshes.Add(riserMesh);
+                view.Meshes.Add(proxyMesh);
             }
+
+            var steelMaterial = context.Material(PaletteSteel);
+            var warmMaterial = context.Material(PaletteWarm);
+            if (steelMaterial != null && !steelMaterial.enableInstancing) steelMaterial.enableInstancing = true;
+            if (warmMaterial != null && !warmMaterial.enableInstancing) warmMaterial.enableInstancing = true;
+            var treadMaterials = new[] { steelMaterial, warmMaterial };
+
+            var groupGo = new GameObject("band", typeof(MeshFilter), typeof(MeshRenderer));
+            var group = groupGo.transform;
+            group.SetParent(bandParent, false);
+            var proxyFilter = groupGo.GetComponent<MeshFilter>();
+            proxyFilter.sharedMesh = proxyMesh;
+            var proxyRenderer = groupGo.GetComponent<MeshRenderer>();
+            proxyRenderer.sharedMaterials = treadMaterials;
+            proxyRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            proxyRenderer.receiveShadows = false;
+            proxyRenderer.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
+            proxyRenderer.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
+            view.Register("band", group, true);
+
+            var stepRotation = band.PrefabFrame ? Quaternion.identity : Quaternion.Euler(0f, -band.YawDegrees, 0f);
+            var stepRotationMatrix = Matrix4x4.Rotate(stepRotation);
+
+            view.BandGroup = group;
+            view.BandProxyRenderer = proxyRenderer;
+            view.BandTreadMesh = treadMesh;
+            view.BandTreadMaterials = treadMaterials;
+            view.BandRiserMesh = riserMesh;
+            view.BandRiserMaterial = steelMaterial;
+            view.BandStepLocalRotation = stepRotation;
+            view.BandStepLocalRotationMatrix = stepRotationMatrix;
+            view.BandLocalBounds = ComputeBandLocalBounds(band, treadMesh, riserMesh, stepRotationMatrix);
+            view.StepLocalPositions = new Vector3[band.Count];
+            view.StepRiserScales = new float[band.Count];
+            view.StepVisible = new bool[band.Count];
+            view.WorldTreadMatrices = new Matrix4x4[band.Count];
+            view.WorldRiserMatrices = new Matrix4x4[band.Count];
+            view.WorldTreadCount = 0;
+            view.WorldRiserCount = 0;
+            view.LocalPoseVersion = 0;
+            view.BuiltWorldPoseVersion = -1;
+            view.HasCachedWorldTransform = false;
+
+            // Zero per-step MeshRenderers / MeshFilters: all step geometry renders via
+            // EscalatorStepInstancedDrawer. Keep lightweight anchor-only Transforms for
+            // tread-0 / tread-last in PlayMode (and all tread-i anchors in EditMode for
+            // deterministic unit-test inspection).
+            bool createAllTreadAnchors = !Application.isPlaying;
+            view.Steps = new List<BandStep>(band.Count);
+            for (int i = 0; i < band.Count; i++) {
+                Transform tread = null;
+                if (createAllTreadAnchors || i == 0 || i == band.Count - 1) {
+                    var anchor = new GameObject("tread-" + i);
+                    tread = anchor.transform;
+                    tread.SetParent(group, false);
+                    if (i == 0) view.Register("tread-0", tread, true);
+                    if (i == band.Count - 1) view.Register("tread-last", tread, true);
+                }
+                view.Steps.Add(new BandStep { Index = i, Tread = tread, Riser = null });
+            }
+        }
+
+        static Mesh BuildBandProxyMesh() {
+            var mesh = new Mesh { name = "escalator band proxy" };
+            mesh.SetVertices(Array.Empty<Vector3>());
+            mesh.SetTriangles(Array.Empty<int>(), 0, false);
+            mesh.bounds = new Bounds(Vector3.zero, Vector3.zero);
+            return mesh;
+        }
+
+        static Bounds ComputeBandLocalBounds(BandRig band, Mesh treadMesh, Mesh riserMesh, Matrix4x4 stepRotationMatrix) {
+            var localTread = treadMesh != null ? TransformBounds(treadMesh.bounds, stepRotationMatrix) : new Bounds(Vector3.zero, Vector3.one * .5f);
+            Bounds localStep = localTread;
+            if (riserMesh != null) {
+                var riserBounds = riserMesh.bounds;
+                riserBounds.min = new Vector3(riserBounds.min.x, riserBounds.min.y * 1.1f, riserBounds.min.z);
+                riserBounds.max = new Vector3(riserBounds.max.x, riserBounds.max.y * 1.1f, riserBounds.max.z);
+                localStep.Encapsulate(TransformBounds(riserBounds, stepRotationMatrix));
+            }
+            double[] samples = { -band.Flat, 0.0, band.InclineLength, band.InclineLength + band.Flat };
+            Bounds bounds = default;
+            bool any = false;
+            for (int i = 0; i < samples.Length; i++) {
+                double along = samples[i];
+                double height = StepHeight(along, band.InclineLength, band.Climb.z, band.RunPerMetre);
+                Vector3 pos = band.PrefabFrame
+                    ? new Vector3((float)(along * band.RunPerMetre), (float)(height + .015), 0f)
+                    : new Vector3((float)(band.Climb.x * along), (float)(height + .015), (float)(band.Climb.y * along));
+                var sampleBounds = new Bounds(pos + localStep.center, localStep.size);
+                if (!any) { bounds = sampleBounds; any = true; }
+                else bounds.Encapsulate(sampleBounds);
+            }
+            bounds.Expand(0.5f);
+            return bounds;
+        }
+
+        internal static Bounds TransformBounds(in Bounds local, in Matrix4x4 matrix) {
+            var center = matrix.MultiplyPoint3x4(local.center);
+            var ext = local.extents;
+            var axisX = matrix.MultiplyVector(new Vector3(ext.x, 0f, 0f));
+            var axisY = matrix.MultiplyVector(new Vector3(0f, ext.y, 0f));
+            var axisZ = matrix.MultiplyVector(new Vector3(0f, 0f, ext.z));
+            var worldExt = new Vector3(
+                Mathf.Abs(axisX.x) + Mathf.Abs(axisY.x) + Mathf.Abs(axisZ.x),
+                Mathf.Abs(axisX.y) + Mathf.Abs(axisY.y) + Mathf.Abs(axisZ.y),
+                Mathf.Abs(axisX.z) + Mathf.Abs(axisY.z) + Mathf.Abs(axisZ.z));
+            return new Bounds(center, worldExt * 2f);
         }
 
         static void RegisterBandAnchors(BuildContext context, VerticalModuleView view, BandRig band, Vector3Int from, Vector3Int to) {
@@ -2337,6 +2630,7 @@ namespace Metro.App.Views {
             public Transform Root;
             public VerticalModuleKind Kind;
             public int LevelMin, LevelMax;
+            public BandStepMeshPool StepMeshPool;
             public Material Material(int palette) => Request.MaterialFor != null ? Request.MaterialFor(palette) : DefaultMaterial(palette);
         }
 
@@ -2644,7 +2938,7 @@ namespace Metro.App.Views {
             return matrix.rotation;
         }
 
-        internal static double Wrap(double value, double modulo) {
+        public static double Wrap(double value, double modulo) {
             if (modulo <= 0) return value;
             double wrapped = value % modulo;
             return wrapped < 0 ? wrapped + modulo : wrapped;
@@ -3140,6 +3434,317 @@ namespace Metro.App.Views {
     }
 
     /// <summary>
+    /// Shared GPU-instanced renderer for every escalator and moving-walkway step band in one
+    /// station world. Replaces ~100 per-step <see cref="MeshRenderer"/>s and ~100 step
+    /// <see cref="GameObject"/>s per escalator with batched <see cref="Graphics.DrawMeshInstanced"/>
+    /// calls grouped by <c>(mesh, submesh, material, layer, sectionPlane)</c> and chunked to
+    /// <see cref="MaxInstancesPerDraw"/> (1023) matrices per draw call.
+    ///
+    /// Visibility (<c>Base</c> / <c>Ghost</c> / <c>Clear</c> / <c>Hidden</c>) and section
+    /// clipping are driven transparently by each band's single zero-triangle proxy
+    /// <see cref="MeshRenderer"/> under its <see cref="StationVisibilityTarget"/>.
+    /// </summary>
+    [ExecuteAlways]
+    public sealed class EscalatorStepInstancedDrawer : MonoBehaviour {
+        public const int MaxInstancesPerDraw = 1023;
+
+        static readonly int SectionClipId = Shader.PropertyToID("_SectionClip");
+        static readonly int SectionPlaneId = Shader.PropertyToID("_SectionPlane");
+
+        public struct DrawBucketSnapshot {
+            public Mesh Mesh;
+            public int SubmeshIndex;
+            public Material Material;
+            public int Layer;
+            public bool HasSection;
+            public Vector4 SectionPlane;
+            public int Count;
+        }
+
+        sealed class DrawBucket {
+            public Mesh Mesh;
+            public int SubmeshIndex;
+            public Material Material;
+            public int Layer;
+            public bool HasSection;
+            public Vector4 SectionPlane;
+            public Matrix4x4[] Buffer = new Matrix4x4[256];
+            public int Count;
+
+            public void Reset(Mesh mesh, int submeshIndex, Material material, int layer, bool hasSection, Vector4 sectionPlane) {
+                Mesh = mesh;
+                SubmeshIndex = submeshIndex;
+                Material = material;
+                Layer = layer;
+                HasSection = hasSection;
+                SectionPlane = sectionPlane;
+                Count = 0;
+            }
+
+            public void Append(Matrix4x4[] source, int count) {
+                if (count <= 0) return;
+                int needed = Count + count;
+                if (needed > Buffer.Length) {
+                    int nextCap = Buffer.Length;
+                    while (nextCap < needed) nextCap *= 2;
+                    Array.Resize(ref Buffer, nextCap);
+                }
+                Array.Copy(source, 0, Buffer, Count, count);
+                Count = needed;
+            }
+        }
+
+        readonly List<VerticalModuleView> bands = new List<VerticalModuleView>(64);
+        readonly HashSet<VerticalModuleView> bandSet = new HashSet<VerticalModuleView>();
+        readonly List<DrawBucket> buckets = new List<DrawBucket>(16);
+        readonly List<Material> scratchMaterials = new List<Material>(4);
+        readonly Plane[] frustumPlanes = new Plane[6];
+        readonly Matrix4x4[] submitChunk = new Matrix4x4[MaxInstancesPerDraw];
+        MaterialPropertyBlock scratchBlock;
+        MaterialPropertyBlock submitBlock;
+        int activeBucketCount;
+
+        public bool PauseDuringExplodedView = true;
+        public int RegisteredBandCount => bands.Count;
+        public int ActiveBucketCount => activeBucketCount;
+        public int LastDrawCallCount { get; private set; }
+        public int LastTreadInstanceCount { get; private set; }
+        public int LastRiserInstanceCount { get; private set; }
+        public int LastVisibleBandCount { get; private set; }
+        public int LastCulledBandCount { get; private set; }
+
+        public static EscalatorStepInstancedDrawer EnsureFor(Transform root) {
+            if (root == null) return null;
+            return root.GetComponent<EscalatorStepInstancedDrawer>() ??
+                root.gameObject.AddComponent<EscalatorStepInstancedDrawer>();
+        }
+
+        public void Register(VerticalModuleView view) {
+            if (view == null || view.Band == null) return;
+            if (view.RegisteredDrawer != null && !ReferenceEquals(view.RegisteredDrawer, this)) {
+                view.RegisteredDrawer.Unregister(view);
+            }
+            if (bandSet.Add(view)) {
+                bands.Add(view);
+                view.RegisteredDrawer = this;
+            }
+        }
+
+        public void Unregister(VerticalModuleView view) {
+            if (view == null) return;
+            if (bandSet.Remove(view)) {
+                bands.Remove(view);
+            }
+            if (ReferenceEquals(view.RegisteredDrawer, this)) {
+                view.RegisteredDrawer = null;
+            }
+        }
+
+        public void Clear() {
+            for (int i = 0; i < bands.Count; i++) {
+                var view = bands[i];
+                if (view != null && ReferenceEquals(view.RegisteredDrawer, this)) {
+                    view.RegisteredDrawer = null;
+                }
+            }
+            bands.Clear();
+            bandSet.Clear();
+            activeBucketCount = 0;
+            LastDrawCallCount = 0;
+            LastTreadInstanceCount = 0;
+            LastRiserInstanceCount = 0;
+            LastVisibleBandCount = 0;
+            LastCulledBandCount = 0;
+        }
+
+        void OnDestroy() => Clear();
+
+        void LateUpdate() {
+            if (!Application.isPlaying) return;
+            if (PauseDuringExplodedView && StationExplodedView.IsStandaloneActive) return;
+            var cam = StationViewFeature.Active?.viewCamera ?? Camera.main;
+            Submit(cam, submitToGpu: true);
+        }
+
+        /// <summary>Build the per-material draw buckets without submitting GPU draw calls (for deterministic tests).</summary>
+        public void CollectDrawBuckets(Camera cullCamera = null) => Submit(cullCamera, submitToGpu: false);
+
+        /// <summary>Build and immediately submit GPU draw calls.</summary>
+        public void SubmitNow(Camera cullCamera = null) => Submit(cullCamera, submitToGpu: true);
+
+        public bool TryGetBucket(int index, out DrawBucketSnapshot snapshot) {
+            if (index < 0 || index >= activeBucketCount) {
+                snapshot = default;
+                return false;
+            }
+            var b = buckets[index];
+            snapshot = new DrawBucketSnapshot {
+                Mesh = b.Mesh,
+                SubmeshIndex = b.SubmeshIndex,
+                Material = b.Material,
+                Layer = b.Layer,
+                HasSection = b.HasSection,
+                SectionPlane = b.SectionPlane,
+                Count = b.Count,
+            };
+            return true;
+        }
+
+        public int CopyBucketMatrices(int index, Matrix4x4[] destination) {
+            if (index < 0 || index >= activeBucketCount || destination == null) return 0;
+            var b = buckets[index];
+            int count = Math.Min(b.Count, destination.Length);
+            if (count > 0) Array.Copy(b.Buffer, 0, destination, 0, count);
+            return count;
+        }
+
+        void Submit(Camera cullCamera, bool submitToGpu) {
+            activeBucketCount = 0;
+            LastDrawCallCount = 0;
+            LastTreadInstanceCount = 0;
+            LastRiserInstanceCount = 0;
+            LastVisibleBandCount = 0;
+            LastCulledBandCount = 0;
+            if (bands.Count == 0) return;
+
+            bool hasFrustum = cullCamera != null;
+            if (hasFrustum) GeometryUtility.CalculateFrustumPlanes(cullCamera, frustumPlanes);
+
+            for (int i = bands.Count - 1; i >= 0; i--) {
+                var view = bands[i];
+                if (view == null || view.Band == null || view.BandGroup == null || view.BandProxyRenderer == null) {
+                    if (view != null) {
+                        bandSet.Remove(view);
+                        if (ReferenceEquals(view.RegisteredDrawer, this)) view.RegisteredDrawer = null;
+                    }
+                    bands.RemoveAt(i);
+                    continue;
+                }
+
+                var proxyRenderer = view.BandProxyRenderer;
+                var groupGo = view.BandGroup.gameObject;
+                if (!groupGo.activeInHierarchy || !proxyRenderer.enabled) continue;
+
+                if (!view.EnsureBandWorldBounds(out var worldBounds)) continue;
+                if (hasFrustum && !GeometryUtility.TestPlanesAABB(frustumPlanes, worldBounds)) {
+                    LastCulledBandCount++;
+                    continue;
+                }
+
+                LastVisibleBandCount++;
+                view.EnsureBandWorldMatrices();
+                if (view.WorldTreadCount <= 0 && view.WorldRiserCount <= 0) continue;
+
+                scratchMaterials.Clear();
+                proxyRenderer.GetSharedMaterials(scratchMaterials);
+                Material steelMat = scratchMaterials.Count > 0 ? scratchMaterials[0] : view.BandRiserMaterial;
+                Material warmMat = scratchMaterials.Count > 1 ? scratchMaterials[1] : steelMat;
+                if (steelMat == null && warmMat == null) continue;
+
+                bool hasSection = false;
+                Vector4 sectionPlane = Vector4.zero;
+                bool supportsSection = (steelMat != null && steelMat.HasProperty(SectionClipId)) ||
+                    (warmMat != null && warmMat.HasProperty(SectionClipId));
+                if (supportsSection && proxyRenderer.HasPropertyBlock()) {
+                    scratchBlock ??= new MaterialPropertyBlock();
+                    proxyRenderer.GetPropertyBlock(scratchBlock);
+                    if (scratchBlock.GetFloat(SectionClipId) > 0.5f) {
+                        hasSection = true;
+                        sectionPlane = scratchBlock.GetVector(SectionPlaneId);
+                    }
+                }
+
+                int layer = groupGo.layer;
+                var treadMesh = view.BandTreadMesh;
+                if (view.WorldTreadCount > 0 && treadMesh != null) {
+                    if (steelMat != null) {
+                        AppendToBucket(treadMesh, 0, steelMat, layer, hasSection, sectionPlane, view.WorldTreadMatrices, view.WorldTreadCount);
+                    }
+                    if (treadMesh.subMeshCount > 1 && warmMat != null) {
+                        AppendToBucket(treadMesh, 1, warmMat, layer, hasSection, sectionPlane, view.WorldTreadMatrices, view.WorldTreadCount);
+                    }
+                    LastTreadInstanceCount += view.WorldTreadCount;
+                }
+
+                var riserMesh = view.BandRiserMesh;
+                if (view.WorldRiserCount > 0 && riserMesh != null && steelMat != null) {
+                    AppendToBucket(riserMesh, 0, steelMat, layer, hasSection, sectionPlane, view.WorldRiserMatrices, view.WorldRiserCount);
+                    LastRiserInstanceCount += view.WorldRiserCount;
+                }
+            }
+
+            if (!submitToGpu || activeBucketCount == 0) return;
+
+            bool supportsInstancing = SystemInfo.supportsInstancing;
+            const UnityEngine.Rendering.ShadowCastingMode shadowMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+
+            for (int b = 0; b < activeBucketCount; b++) {
+                var bucket = buckets[b];
+                if (bucket.Count <= 0 || bucket.Mesh == null || bucket.Material == null) continue;
+                var mat = bucket.Material;
+                if (!mat.enableInstancing) mat.enableInstancing = true;
+
+                MaterialPropertyBlock block = null;
+                if (bucket.HasSection) {
+                    submitBlock ??= new MaterialPropertyBlock();
+                    submitBlock.Clear();
+                    submitBlock.SetVector(SectionPlaneId, bucket.SectionPlane);
+                    submitBlock.SetFloat(SectionClipId, 1f);
+                    block = submitBlock;
+                }
+
+                if (supportsInstancing) {
+                    if (bucket.Count <= MaxInstancesPerDraw) {
+                        Graphics.DrawMeshInstanced(bucket.Mesh, bucket.SubmeshIndex, mat,
+                            bucket.Buffer, bucket.Count, block, shadowMode, true, bucket.Layer);
+                        LastDrawCallCount++;
+                    } else {
+                        for (int offset = 0; offset < bucket.Count; offset += MaxInstancesPerDraw) {
+                            int len = Math.Min(MaxInstancesPerDraw, bucket.Count - offset);
+                            Array.Copy(bucket.Buffer, offset, submitChunk, 0, len);
+                            Graphics.DrawMeshInstanced(bucket.Mesh, bucket.SubmeshIndex, mat,
+                                submitChunk, len, block, shadowMode, true, bucket.Layer);
+                            LastDrawCallCount++;
+                        }
+                    }
+                } else {
+                    for (int k = 0; k < bucket.Count; k++) {
+                        Graphics.DrawMesh(bucket.Mesh, bucket.Buffer[k], mat, bucket.Layer,
+                            null, bucket.SubmeshIndex, block, shadowMode, true);
+                        LastDrawCallCount++;
+                    }
+                }
+            }
+        }
+
+        void AppendToBucket(Mesh mesh, int submeshIndex, Material material, int layer,
+            bool hasSection, Vector4 sectionPlane, Matrix4x4[] matrices, int count) {
+            for (int i = 0; i < activeBucketCount; i++) {
+                var existing = buckets[i];
+                if (ReferenceEquals(existing.Mesh, mesh) &&
+                    existing.SubmeshIndex == submeshIndex &&
+                    ReferenceEquals(existing.Material, material) &&
+                    existing.Layer == layer &&
+                    existing.HasSection == hasSection &&
+                    (!hasSection || existing.SectionPlane == sectionPlane)) {
+                    existing.Append(matrices, count);
+                    return;
+                }
+            }
+            DrawBucket bucket;
+            if (activeBucketCount < buckets.Count) {
+                bucket = buckets[activeBucketCount];
+            } else {
+                bucket = new DrawBucket();
+                buckets.Add(bucket);
+            }
+            activeBucketCount++;
+            bucket.Reset(mesh, submeshIndex, material, layer, hasSection, sectionPlane);
+            bucket.Append(matrices, count);
+        }
+    }
+
+    /// <summary>
     /// The station-world renderer for stairs, escalators, walkways and lifts
     /// (<see cref="IStationViewRenderer"/>). It loops the committed document's four
     /// vertical types, resolves each through <c>ModuleViews.Resolve</c> /
@@ -3164,6 +3769,8 @@ namespace Metro.App.Views {
             public readonly Dictionary<string, VerticalModuleView> ById = new Dictionary<string, VerticalModuleView>(StringComparer.Ordinal);
             public readonly Dictionary<string, HashSet<StationCellKey>> ReadCellsById =
                 new Dictionary<string, HashSet<StationCellKey>>(StringComparer.Ordinal);
+            public EscalatorStepInstancedDrawer Drawer;
+            public VerticalModuleViews.BandStepMeshPool StepMeshPool;
             public Material[] Materials;
             public Func<int, Material> MaterialFor;
             /// <summary>
@@ -3175,6 +3782,10 @@ namespace Metro.App.Views {
             public StationFinishLibrary Finishes;
             public Func<string, Material> FinishFor;
             public double ClockOrigin = double.NaN;
+
+            public void EnsureStepMeshPool() {
+                if (StepMeshPool == null) StepMeshPool = new VerticalModuleViews.BandStepMeshPool();
+            }
 
             public void EnsureFinishes(Shader shader) {
                 if (Finishes != null || shader == null) return;
@@ -3195,9 +3806,11 @@ namespace Metro.App.Views {
                 Views.Add(view);
                 ById[view.ModuleId] = view;
                 if (readCells != null) ReadCellsById[view.ModuleId] = readCells;
+                if (view.Band != null && Drawer != null) Drawer.Register(view);
             }
 
             public void Reset() {
+                if (Drawer != null) Drawer.Clear();
                 for (int i = 0; i < Views.Count; i++) {
                     var view = Views[i];
                     if (view == null) continue;
@@ -3212,6 +3825,11 @@ namespace Metro.App.Views {
 
             public void Dispose() {
                 Reset();
+                Drawer = null;
+                if (StepMeshPool != null) {
+                    StepMeshPool.Dispose();
+                    StepMeshPool = null;
+                }
                 if (Materials != null) {
                     for (int i = 0; i < Materials.Length; i++) VerticalModuleViews.DestroyObject(Materials[i]);
                     Materials = null;
@@ -3250,12 +3868,16 @@ namespace Metro.App.Views {
                         state.Views.RemoveAt(i);
                         state.ById.Remove(oldView.ModuleId);
                         state.ReadCellsById.Remove(oldView.ModuleId);
+                        if (state.Drawer != null) state.Drawer.Unregister(oldView);
                         if (oldView.Root != null) commit.RetiredViews.Add(oldView.Root.gameObject);
                         oldView.Dispose();
                     }
                 }
 
                 var roleRoot = world.RoleRoot(RoleName);
+                if (state.Drawer == null && roleRoot != null) {
+                    state.Drawer = EscalatorStepInstancedDrawer.EnsureFor(roleRoot);
+                }
                 for (int i = 0; i < staged.Count; i++) {
                     var (view, readCells) = staged[i];
                     view.Root.SetParent(roleRoot, false);
@@ -3290,6 +3912,7 @@ namespace Metro.App.Views {
         public string Role => RoleName;
         /// <summary>The most recently built world that is still live (for frame sinks and commands).</summary>
         public static VerticalModuleRenderer Current { get; private set; }
+        public EscalatorStepInstancedDrawer ActiveDrawer => ActiveState()?.Drawer;
         public IReadOnlyList<VerticalModuleView> Views {
             get {
                 var state = ActiveState();
@@ -3307,6 +3930,7 @@ namespace Metro.App.Views {
             }
             state.Reset();
             state.EnsureMaterials(context.Shader);
+            state.EnsureStepMeshPool();
             Current = this;
             var document = context.Document;
             if (document == null) return;
@@ -3335,6 +3959,7 @@ namespace Metro.App.Views {
 
             try { state.EnsureFinishes(context.Shader); } catch (Exception) { /* a missing finish export falls back to the palette */ }
             var roleRoot = context.RoleRoot(RoleName);
+            state.Drawer = EscalatorStepInstancedDrawer.EnsureFor(roleRoot);
             for (int i = 0; i < modules.Count; i++) {
                 var module = modules[i];
                 if (module == null || !IsVerticalType(module.Type)) continue;
@@ -3368,7 +3993,7 @@ namespace Metro.App.Views {
                 }
                 var request = VerticalModuleRequest.FromFacts(module.Facts, prefab, prefabKey, solid, state.MaterialFor,
                     state.FinishFor, cellFinish, verticalNeighbours);
-                if (!VerticalModuleViews.TryBuild(request, roleRoot, out var view)) {
+                if (!VerticalModuleViews.TryBuild(request, roleRoot, out var view, state.StepMeshPool)) {
                     context.ReportUnresolved("vertical-build", module.Type, module.Id, "the authored record could not be built");
                     continue;
                 }
@@ -3489,6 +4114,7 @@ namespace Metro.App.Views {
             if (removedIds.Count == 0 && dirtyIds.Count == 0) return true;
 
             state.EnsureMaterials(context.World.Shader);
+            state.EnsureStepMeshPool();
             try { state.EnsureFinishes(context.World.Shader); } catch (Exception) { }
 
             var rampAndExitFacts = dirtyIds.Count > 0
@@ -3527,7 +4153,7 @@ namespace Metro.App.Views {
                     }
                     var request = VerticalModuleRequest.FromFacts(module.Facts, prefab, prefabKey, solid, state.MaterialFor,
                         state.FinishFor, cellFinish, rampAndExitFacts);
-                    if (!VerticalModuleViews.TryBuild(request, context.StagingRoot, out var view)) {
+                    if (!VerticalModuleViews.TryBuild(request, context.StagingRoot, out var view, state.StepMeshPool)) {
                         context.ReportUnresolved("vertical-build", module.Type, module.Id, "the authored record could not be built");
                         continue;
                     }
@@ -3573,7 +4199,9 @@ namespace Metro.App.Views {
                     CabinFraction = float.NaN, DoorFraction = float.NaN, PhaseMeters = double.NaN, CabinHeight = double.NaN,
                 };
                 if (view.Band != null) {
-                    if (view.Root != null && !view.Root.gameObject.activeInHierarchy) {
+                    if ((view.Root != null && !view.Root.gameObject.activeInHierarchy) ||
+                        (!StationExplodedView.IsStandaloneActive &&
+                         view.BandProxyRenderer != null && !view.BandProxyRenderer.enabled)) {
                         view.BandDirty = true;
                         continue;
                     }

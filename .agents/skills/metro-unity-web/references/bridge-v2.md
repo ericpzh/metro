@@ -143,12 +143,18 @@ producing one stylesheet shared by the player and benchmark route.
   `Emulation.setFocusEmulationEnabled`, `Emulation.setDefaultBackgroundColorOverride`) on a
   `Windows.UI.Composition` `ContainerVisual`, capturing `DXGI_FORMAT_B8G8R8A8_UNORM` frames
   via `GraphicsCaptureItem.CreateFromVisual` + `Direct3D11CaptureFramePool.CreateFreeThreaded`.
-- **Shared memory (`MUI2`, `0x4D554932`):** Premultiplied DComp pixels are unpremultiplied to
-  straight sRGB BGRA32 into a lock-free double-buffered `MemoryMappedFile` (max
-  `3840 × 2160`, auto `rasterScale` `0.65–2.5`). `StationDesktopUiPresenter` uploads dirty
-  sequences into a `Texture2D(BGRA32)` via `LoadRawTextureData(IntPtr, int)` on a UV-flipped
-  (`(0, 1, 1, -1)`) `RawImage` inside `StationDesktopUiCanvas` (`ScreenSpaceOverlay`,
-  `sortingOrder = 32000`, `pixelPerfect = true`).
+- **Shared memory (`MUI2`, `0x4D554932`) & startup backdrop:** Premultiplied DComp pixels
+  are unpremultiplied to straight sRGB BGRA32 into a lock-free double-buffered
+  `MemoryMappedFile` (max `3840 × 2160`, auto `rasterScale` `0.65–2.5`). Capture waits for
+  `navigationStarted` and refuses to publish an all-transparent initial frame (`sequence == 0 && !hasVisiblePixel`).
+  `StationDesktopUiPresenter` launches WebView2 eagerly in `Awake()` and shows a native themed
+  `StartupBackdrop` loading card (hidden on `-benchmark` and smoke runs) over the 3D viewport
+  until the first visible WebView2 frame arrives, then uploads dirty sequences into a
+  `Texture2D(BGRA32)` via `LoadRawTextureData(IntPtr, int)` on a UV-flipped (`(0, 1, 1, -1)`)
+  `RawImage` inside `StationDesktopUiCanvas` (`ScreenSpaceOverlay`, `sortingOrder = 32000`,
+  `pixelPerfect = true`). Avoid native `<select>` popups in overlay UI — Chromium renders them
+  in a separate OS HWND outside `CoreWebView2CompositionController` capture (use pure-DOM
+  controls instead).
 - **Virtual origin, feedback links & overlay CSS:** Intercepts `https://app.metro.local/*`
   (`WebResourceRequested`) serving `dist-unity-ui` at `/game/_unity/UI/`,
   `public/module-thumbnails/` at `/game/_unity/UI/module-thumbnails/`, and `public/audio/` at
@@ -175,7 +181,10 @@ producing one stylesheet shared by the player and benchmark route.
   `1000 ms` before `Kill()` so Chromium flushes `localStorage`. Standalone Windows builds
   atomically autosave to `Application.persistentDataPath/autosave.metro.json` every 15 s
   (when revision advances) and on destroy/quit, skipping benchmark runs and restoring the
-  pre-benchmark station + `station.resync` when returning from benchmark mode.
+  pre-benchmark station + `station.resync` when returning from benchmark mode. On startup,
+  standalone autosave restore is deferred past WebView2 launch (`ReadStandaloneAutosaveInBackground`
+  off the main thread + frame-yielded `OpenPreReadDocumentYielded`) so large stations never
+  freeze startup on a blank viewport.
 - **Editor integration (`StationEditorReactOverlay.cs`):** Overrides
   `StationDesktopUiPresenter.PathResolver` to build
   `.preview/unity/editor-ui-host/bin/MetroEditorWebView.exe` and `game/dist-unity-ui` on

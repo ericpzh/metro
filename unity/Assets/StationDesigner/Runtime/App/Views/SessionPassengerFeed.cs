@@ -104,23 +104,48 @@ namespace Metro.App.Views {
     /// </summary>
     public sealed class StationCrowdStateContributor : IStationStateContributor {
         readonly Func<StationSimulationSession> source;
+        readonly Func<StationSimulationHost> hostSource;
 
         public StationCrowdStateContributor(Func<StationSimulationSession> source) {
             this.source = source ?? throw new ArgumentNullException(nameof(source));
         }
 
+        public StationCrowdStateContributor(Func<StationSimulationHost> hostSource) {
+            this.hostSource = hostSource ?? throw new ArgumentNullException(nameof(hostSource));
+            source = () => this.hostSource()?.Session;
+        }
+
         public string Key => "crowd";
 
         public JObject BuildPayload(Metro.Build.StationDocument document, Metro.Build.StationIndex index) {
-            var host = StationGameHost.ResolveActive();
-            if (host?.Simulation is StationSimulationHost simHost) {
+            var simHost = hostSource != null
+                ? hostSource()
+                : StationGameHost.ResolveActive()?.Simulation as StationSimulationHost;
+            if (simHost != null && (hostSource != null || ReferenceEquals(simHost.Session, source()))) {
                 var published = simHost.PublishedFrame;
                 if (published != null) {
-                    return simHost.WithSessionLock(s => Build(s, published.Motion.Passengers, published.Motion.Gates));
+                    return Build(published);
                 }
                 return simHost.WithSessionLock(s => Build(s));
             }
             return Build(source());
+        }
+
+        /// <summary>The bounded crowd payload from an immutable published simulation frame, or null when absent.</summary>
+        public static JObject Build(StationPublishedSimFrame published) {
+            if (published == null || !published.HasServices) return null;
+            return BuildCore(
+                published.Motion.Passengers ?? Array.Empty<StationPassengerFrame>(),
+                published.Motion.Gates ?? Array.Empty<StationGateFrame>(),
+                published.PublishedPassengerLimit,
+                published.QueuedTotal,
+                published.GateQueueTotal,
+                published.BoardedOnboard,
+                published.Spawned,
+                published.Boarded,
+                published.Alighted,
+                published.Exited,
+                published.Stuck);
         }
 
         /// <summary>The bounded crowd payload for one session, or null when there is none.</summary>
@@ -132,13 +157,39 @@ namespace Metro.App.Views {
             if (session == null) return null;
             var services = session.Services;
             if (services == null) return null;
-            var frames = cachedFrames ?? session.PassengerFrames();
-            var gates = cachedGates ?? session.GateFrames();
+            var frames = cachedFrames ?? session.PassengerFrames() ?? Array.Empty<StationPassengerFrame>();
+            var gates = cachedGates ?? session.GateFrames() ?? Array.Empty<StationGateFrame>();
+            int limit = services.Options != null ? services.Options.PublishedPassengerLimit : 0;
+            return BuildCore(
+                frames,
+                gates,
+                limit,
+                services.QueueTotal,
+                services.GateQueueTotal,
+                services.Onboard,
+                services.Spawned,
+                services.Boarded,
+                services.Alighted,
+                services.Exited,
+                services.Stuck);
+        }
+
+        static JObject BuildCore(
+            StationPassengerFrame[] frames,
+            StationGateFrame[] gates,
+            int limit,
+            int queuedTotal,
+            int gateQueueTotal,
+            int onboard,
+            int spawned,
+            int boarded,
+            int alighted,
+            int exited,
+            int stuck) {
             // The profile that is actually bound: the public scene has no catalogue, so
             // it truthfully reports `bound: false` and no recipe ids instead of inventing
             // a stand-in identity (H3's local/public separation, visible over the bridge).
             var catalogue = PassengerCatalogueAnchor.Resolve();
-            int limit = services.Options.PublishedPassengerLimit;
             int published = limit <= 0 ? frames.Length : Math.Min(frames.Length, limit);
             var passengers = new JArray();
             for (int i = 0; i < published; i++) {
@@ -197,14 +248,14 @@ namespace Metro.App.Views {
             return new JObject {
                 ["passengersTotal"] = frames.Length,
                 ["published"] = published,
-                ["queued"] = services.QueueTotal,
-                ["gateQueue"] = services.GateQueueTotal,
-                ["boarding"] = services.Onboard,
-                ["spawned"] = services.Spawned,
-                ["boarded"] = services.Boarded,
-                ["alighted"] = services.Alighted,
-                ["exited"] = services.Exited,
-                ["stuck"] = services.Stuck,
+                ["queued"] = queuedTotal,
+                ["gateQueue"] = gateQueueTotal,
+                ["boarding"] = onboard,
+                ["spawned"] = spawned,
+                ["boarded"] = boarded,
+                ["alighted"] = alighted,
+                ["exited"] = exited,
+                ["stuck"] = stuck,
                 ["catalogue"] = new JObject {
                     ["bound"] = catalogue != null,
                     ["count"] = catalogue != null ? catalogue.Count : 0,
@@ -257,7 +308,7 @@ namespace Metro.App.Views {
             if (host == stationHost && contributor != null) return;
             host = stationHost;
             contributor = new StationCrowdStateContributor(
-                () => (stationHost.Simulation as StationSimulationHost)?.Session);
+                () => stationHost.Simulation as StationSimulationHost);
             stationHost.RegisterStateContributor(contributor);
         }
 

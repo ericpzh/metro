@@ -282,6 +282,7 @@ internal sealed unsafe class SharedFrameBuffer : IDisposable {
 
             byte* srcBase = (byte*)pData;
             uint* dstRow = (uint*)dstSlot;
+            bool hasVisiblePixel = false;
             for (int y = 0; y < copyH; y++) {
                 uint* srcRow = (uint*)(srcBase + (long)y * rowPitch);
                 for (int x = 0; x < copyW; x++) {
@@ -289,9 +290,11 @@ internal sealed unsafe class SharedFrameBuffer : IDisposable {
                     uint a = px >> 24;
                     if (a == 255u) {
                         dstRow[x] = px;
+                        hasVisiblePixel = true;
                     } else if (a == 0u) {
                         dstRow[x] = 0u;
                     } else {
+                        hasVisiblePixel = true;
                         // Convert DComp premultiplied sRGB BGRA into straight sRGB BGRA so Unity's
                         // standard sRGB Texture2D + UI/Default shader composites without dark fringes.
                         uint recip = UnpremulRecip[a];
@@ -302,6 +305,12 @@ internal sealed unsafe class SharedFrameBuffer : IDisposable {
                     }
                 }
                 dstRow += copyW;
+            }
+
+            // Never publish a completely transparent pre-paint initial frame: Unity keeps its
+            // startup backdrop up until the first real DOM paint (e.g. #game-loading) lands.
+            if (Interlocked.Read(ref sequence) == 0 && !hasVisiblePixel) {
+                return false;
             }
 
             int metaOffset = nextSlot == 0 ? 16 : 32;
@@ -849,6 +858,7 @@ internal sealed class OffscreenWebViewHost : NativeWindow, IDisposable {
     private DateTime activeUntilUtc = DateTime.UtcNow.AddSeconds(4);
     private DateTime lastIdleCaptureUtc = DateTime.MinValue;
     private bool captureInProgress;
+    private bool navigationStarted;
     private bool webViewReady;
     private bool shuttingDown;
 
@@ -1035,6 +1045,7 @@ internal sealed class OffscreenWebViewHost : NativeWindow, IDisposable {
             }
 
             MarkDirty(3000);
+            navigationStarted = true;
             coreWebView.Navigate(VirtualOrigin + options.InitialRoute);
         } catch (Exception ex) {
             Program.LogFatal(options, "WebView2 init failed: " + ex);
@@ -1255,7 +1266,7 @@ internal sealed class OffscreenWebViewHost : NativeWindow, IDisposable {
                 }
             }
 
-            if (shm == null || controller == null || Handle == IntPtr.Zero || captureInProgress) return;
+            if (shm == null || controller == null || !navigationStarted || Handle == IntPtr.Zero || captureInProgress) return;
             var now = DateTime.UtcNow;
             bool isActive = now <= activeUntilUtc;
             if (!isActive && (now - lastIdleCaptureUtc).TotalMilliseconds < 32) return;

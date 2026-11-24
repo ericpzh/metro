@@ -120,9 +120,17 @@ Reference for `tools/unity-web/`, `tools/unity-windows-bundle/`, `unity/wrangler
     dispatches `metro:benchmark-mode`, and sends `benchmark.mode { active: true }` so
     `Tutorial.tsx` never opens and desktop autosave pauses.
 - **Presets, graphics & measurement:**
-  - Selectors: station (`zoo`, `tanwei`, `tianhe`), 3-tier model detail (`low`, `balanced`,
-    `high`), 5 FSR 1.0 upscaling presets (`ultra` `1/1.3`, `quality` `1/1.5`, `balanced`
-    `1/1.7`, `performance` `0.5`, `native` `1.0`), and view (`regular` | `explode`).
+  - Selectors: pure-DOM station toggle buttons (`benchmarkChoices benchmarkStations`,
+    `data-station="zoo|tanwei|tianhe"`, avoiding native `<select>` popups invisible to offscreen
+    WebView2 capture), 3-tier model detail (`low`, `balanced`, `high`), 5 FSR 1.0 upscaling
+    presets (`ultra` `1/1.3`, `quality` `1/1.5`, `balanced` `1/1.7`, `performance` `0.5`,
+    `native` `1.0`), and view (`regular` | `explode` | `tour`, where `tour` runs
+    `game/src/app/benchmark/benchmarkCameraTour.ts` — opens at `2/3` overview, zooms way in to
+    `13.5 m` full-LOD0 distance, and stays within `13.2–14.2 m` across framerate-invariant
+    station-specific world pans, orbits, and `Q`/`E` ±5 m storey transitions + `frame()` +
+    per-storey hotspot recentering via `view.set level`, `camera.orbit`, `camera.pan`, and
+    `camera.zoom`, initialized from live `camera.zoom` ack / `state.camera` pose and plotting
+    teal Q/E floor-switch markers on both the FPS and `FrameTimeChart` graphs).
   - Before opening the station, `UnityBenchmarkRoute.tsx` snapshots saved `PlayerPrefs` via
     `graphics.get`, applies the chosen profile + upscaling via `graphics.set` (`urp-fsr1` on
     `graphicsShaderLevel >= 45`; `webgl-fsr1` two-pass EASU + RCAS
@@ -132,7 +140,11 @@ Reference for `tools/unity-web/`, `tools/unity-windows-bundle/`, `unity/wrangler
     `benchmark.stop` (`StationBenchmarkRecorder.cs` collects native `Time.unscaledDeltaTime`,
     ticks, `ProfilerRecorder("Total Used Memory")`, and `SystemInfo` hardware on
     desktop/Editor; WebGL uses `requestAnimationFrame`, `performance.memory`, and WebGL
-    renderer info) and plots FPS (scaled ceiling via `fpsCeilingFor`) and resource charts.
+    renderer info) and renders three time-series charts: FPS (scaled ceiling via
+    `fpsCeilingFor`), shared frame generation time in ms (`FrameTimeChart` in
+    `game/src/app/benchmark/FrameTimeChart.tsx`, also used by Web Three.js
+    `BenchmarkRoute.tsx`, with `frameTimeCeilingFor`/`frameTimePath`, 60 FPS / 16.7 ms
+    and 30 FPS / 33.3 ms guides, and train-arrival markers), and system resource usage.
 
 ## Node contract test suite (`unity/tests/*.test.mjs`)
 

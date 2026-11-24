@@ -214,5 +214,41 @@ and per-model triangle counts, see
   (`OutputAlpha` forces `alpha = 1`, pinned by `StationRenderTests`).
   `Resources/StationUnlitTransparentRef.mat` preserves transparent `URP/Unlit`,
   and `ProjectSettings/GraphicsSettings.asset` keeps `m_InstancingStripping: 2`
-  (`Keep All`) so `StationInstancedSurfaceBatch` (`Graphics.DrawMeshInstanced`,
-  `BatchThreshold = 6`, `<= 1,023` instances/draw) renders in built players.
+  (`Keep All`) so instanced drawers (`<= 1,023` instances/draw) render in built
+  players.
+- **GPU instancing, static batching & crowd culling invariants:**
+  - **Escalator steps (`VerticalModuleViews`, `EscalatorStepInstancedDrawer`,
+    `StationExplodedTrayBuilder`):** Zero per-step `MeshRenderer`s (`PlayMode`
+    spawns anchor-only `tread-0`/`tread-last`; `EditMode` keeps anchor-only
+    `tread-0..N`). Each band carries one zero-triangle proxy `MeshRenderer` so
+    `StationVisibilityTarget` drives `Base`/`Ghost`/`Clear`/`Hidden`/section-clip
+    (check `material.HasProperty("_SectionClip")` before reading stale
+    `MaterialPropertyBlock` clip floats). `EscalatorStepInstancedDrawer` carries
+    `[ExecuteAlways]` (skipping `LateUpdate` outside PlayMode), pauses during
+    standalone Exploded View, frustum-culls band bounds, and pools step meshes;
+    `StationExplodedTrayBuilder` reads `BandTreadMesh`/`BandRiserMesh` and
+    `TryGetStepWorldPose` (`StationPerfEscalatorInstancingTests`).
+  - **Multi-LOD prefab batching & openings (`StationPrefabBatch`,
+    `StationModuleGroups`, `OpeningModuleViews`):** `StationPrefabMeshTemplate`
+    combines readable same-material child meshes across Unity 6 multi-LOD tiers
+    (`lodCount > 1`); `StationInstancedSurfaceDrawer` frustum-culls batches
+    (`0.25 m` margin) and caches `enableInstancing`/`lodCount`;
+    `StationEquipmentModuleRenderer` uses `EquipBatchThreshold = 3` (preserving
+    2-bin `StationHighlightRetentionTests` individual views), `EquipChunkSize = 64`
+    (preserving `StationPassengerAndBatchParityTests`), and compacts remaining
+    singletons. `OpeningModuleViews` merges static opaque PSD boxes per
+    `(run, colour)`, compacts `Gate`/`Door`/`Cubicle` static subtrees, and
+    GPU-instances canonical `psd-end:cover` runs (`>= 128`/band, leaving Zoo's
+    101/103 covers 1:1 for `OpeningModuleViewTests`) (`StationPerfStaticBatchingTests`).
+  - **Crowd hot path (`PassengerCrowdView`):** Runs pure-managed 6-plane frustum
+    culling before Transform/LOD/tone/clip work and suppresses offscreen meshes
+    via `Skin.forceRenderingOff = true` — **never** `Skin.enabled = false`, which
+    would trip `StationVisibilityTarget`'s permanent retirement check on floor
+    switches. `GetSharedTonedMaterials` must not re-apply Ghost/Clear opacity when
+    `sourceMats` already came from `StationVisibilityTarget`'s `GhostOf`/`ClearOf`
+    materials. Tick pose alignment rotates reusable lists with O(N) two-pointer
+    merging (zero per-tick dictionary copies) (`StationPerfCrowdHotPathTests`).
+  - **Desktop pipeline guardrails:** Keep `GraphicsJobMode.Native` **off** on
+    Win64 D3D12 (causes >500 ms sync stalls with `RenderMeshInstanced`/`Texture2D.Apply`),
+    and note `glTF-pbrMetallicRoughness.shadergraph` ships with
+    `m_DOTSInstancing: false` (so URP GPU Resident Drawer skips glTFast meshes).

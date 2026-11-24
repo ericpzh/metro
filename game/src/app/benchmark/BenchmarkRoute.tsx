@@ -8,14 +8,16 @@ import { benchmarkRoutingDiagnostic, prepareBenchmarkWorker } from '../store/sli
 import { setLanguage, useLanguage } from '../i18n.ts'
 import { benchmarkLanguagePath } from '../languageRoute.ts'
 import { EXAMPLE_STATION_IDS, type ExampleStationId } from '../../data/reference-station.ts'
+import { CameraTourDriver, cameraTourPlanFor, type TourLevelSwitchRecord } from './benchmarkCameraTour.ts'
 import { summarizeFrameIntervals } from './benchmarkStats.ts'
 import { BENCHMARK_COPY, benchmarkCopy } from './benchmarkCopy.ts'
+import { FrameTimeChart } from './FrameTimeChart.tsx'
 import './benchmark.css'
 
 type Backend = 'ts' | 'wasm'
 const local = import.meta.env?.MODE === 'wasm-experiment' && typeof location !== 'undefined' && ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname)
 type Quality = 'low' | 'high'
-type View = 'regular' | 'explode'
+type View = 'regular' | 'explode' | 'tour'
 type Phase = 'setup' | 'preparing' | 'running' | 'result' | 'error'
 interface FrameSample { at: number; interval: number; tick: number }
 interface ArrivalSample { at: number; tick: number }
@@ -32,6 +34,7 @@ interface Result {
   view: View
   frames: FrameSample[]
   arrivals: ArrivalSample[]
+  levelSwitches: TourLevelSwitchRecord[]
   resources: ResourceSample[]
   stats: NonNullable<ReturnType<typeof summarizeFrameIntervals>>
   browser: string
@@ -64,7 +67,22 @@ function browserLabel(userAgent: string): string {
   return 'Browser'
 }
 
-function sceneFor(view: View): { framesRendered: number; zoomBy: (factor: number) => void; setViewDirection: (direction: THREE.Vector3, useOrtho: boolean) => void; renderer: { domElement: HTMLCanvasElement; getContext: () => WebGLRenderingContext | WebGL2RenderingContext; render: (scene: THREE.Scene, camera: THREE.Camera) => void } } | null {
+function viewLabel(view: View, copy: ReturnType<typeof benchmarkCopy>): string {
+  return view === 'explode' ? copy.explode : view === 'tour' ? copy.tour : copy.normal
+}
+
+function sceneFor(view: View): {
+  framesRendered: number
+  zoomBy: (factor: number) => void
+  orbitBy: (dxPx: number, dyPx: number) => void
+  panByScreenFraction: (rightFraction: number, forwardFraction: number) => void
+  setPreset: (name: 'iso' | 'plan' | 'front' | 'side' | 'custom') => void
+  setLevel: (z: number, ghost: boolean) => void
+  frame: () => void
+  setViewDirection: (direction: THREE.Vector3, useOrtho: boolean) => void
+  captureEditorView?: () => { position: THREE.Vector3; target: THREE.Vector3 }
+  renderer: { domElement: HTMLCanvasElement; getContext: () => WebGLRenderingContext | WebGL2RenderingContext; render: (scene: THREE.Scene, camera: THREE.Camera) => void }
+} | null {
   const host = window as typeof window & { __benchmarkScene?: typeof window.__scene }
   return (view === 'explode' ? host.__benchmarkScene : window.__scene) ?? null
 }
@@ -148,10 +166,14 @@ function BenchmarkChart({ result, copy }: { result: Result; copy: ReturnType<typ
         const x = at / DURATION_MS * width
         return <g key={`${tick}-${index}`}><line x1={x} x2={x} y1="0" y2={height} className="benchmarkArrival"/><text x={Math.min(width - 42, x + 4)} y={14 + (index % 2) * 14} className="benchmarkArrivalLabel">{copy.tick} {tick}</text></g>
       })}
+      {result.levelSwitches.map(({ at, level, key }, index) => {
+        const x = Math.min(width, Math.max(0, at / DURATION_MS * width))
+        return <g key={`lvl-${at}-${level}-${index}`}><line x1={x} x2={x} y1="0" y2={height} className="benchmarkLevelSwitch"/><text x={Math.min(width - 56, x + 4)} y={height - 6 - (index % 2) * 13} className="benchmarkLevelSwitchLabel">{key} {level}m</text></g>
+      })}
       <text x="0" y="-12" className="benchmarkAxisTitle">FPS</text>
       <text x={width / 2} y={height + 65} className="benchmarkAxisTitle" textAnchor="middle">{copy.secondsWall}</text>
     </svg>
-    <div className="benchmarkChartNote">{copy.chartNote}</div>
+    <div className="benchmarkChartNote">{result.levelSwitches.length > 0 ? copy.tourChartNote : copy.chartNote}</div>
   </div>
 }
 
@@ -228,8 +250,11 @@ export function BenchmarkRoute(): React.ReactElement {
     store.loadReference(stationId)
     // The Regular preset fixes the storey each demo is measured at: the Zoo
     // platform and the Tianhe Park concourse. Tanwei keeps its opening level.
-    if (view === 'regular' && stationId === 'zoo') useStore.getState().setActiveZ(-15)
-    if (view === 'regular' && stationId === 'tianhe') useStore.getState().setActiveZ(-5)
+    // The Camera tour preset opens on each station's scripted starting storey.
+    const tourPlan = view === 'tour' ? cameraTourPlanFor(stationId) : null
+    if (tourPlan) useStore.getState().setActiveZ(tourPlan.initialLevel)
+    else if (view === 'regular' && stationId === 'zoo') useStore.getState().setActiveZ(-15)
+    else if (view === 'regular' && stationId === 'tianhe') useStore.getState().setActiveZ(-5)
     try {
       await waitUntil(() => !!window.__metro?.getState().metrics, 90_000, copy.setupError)
       if (backend === 'wasm') {
@@ -269,12 +294,36 @@ export function BenchmarkRoute(): React.ReactElement {
         if (stationId === 'zoo') scene.setViewDirection(new THREE.Vector3(-1, 1, 1), false)
         scene.zoomBy(2 / 3)
         await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+      } else if (tourPlan) {
+        if (tourPlan.initialDirection) {
+          scene.setViewDirection(new THREE.Vector3(...tourPlan.initialDirection), false)
+        } else {
+          scene.setPreset('iso')
+        }
+        scene.setLevel(tourPlan.initialLevel, true)
+        scene.frame()
+        scene.zoomBy(tourPlan.initialZoom)
+        await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
       }
       setLoadingProgress(100)
       setPhase('running')
       const frames: FrameSample[] = []
       const arrivals: ArrivalSample[] = []
+      const levelSwitches: TourLevelSwitchRecord[] = []
       const resources: ResourceSample[] = []
+      const capturedPose = tourPlan ? scene.captureEditorView?.() : undefined
+      const tourDriver = tourPlan
+        ? new CameraTourDriver(
+            stationId,
+            capturedPose
+              ? {
+                  centerX: capturedPose.target.x,
+                  centerY: capturedPose.target.y,
+                  initialDistance: capturedPose.position.distanceTo(capturedPose.target),
+                }
+              : undefined,
+          )
+        : null
       const gl = scene.renderer.getContext() as WebGL2RenderingContext
       const timerExt = gl.getExtension('EXT_disjoint_timer_query_webgl2')
       const pendingGpu: WebGLQuery[] = []
@@ -327,6 +376,24 @@ export function BenchmarkRoute(): React.ReactElement {
           if (count > lastArrivals) arrivals.push({ at: now - started, tick: metrics?.tick ?? 0 })
           lastArrivals = count
           const elapsed = now - started
+          if (tourDriver) {
+            const move = tourDriver.advance(elapsed)
+            for (const step of move.levelSteps) {
+              storeApi.getState().setActiveZ(step.level)
+              scene.setLevel(step.level, true)
+              scene.frame()
+              levelSwitches.push({ at: elapsed, level: step.level, key: step.key })
+            }
+            if (Math.abs(move.orbitDx) > 1e-5 || Math.abs(move.orbitDy) > 1e-5) {
+              scene.orbitBy(move.orbitDx, move.orbitDy)
+            }
+            if (Math.abs(move.zoomFactor - 1) > 1e-6) {
+              scene.zoomBy(move.zoomFactor)
+            }
+            if (Math.abs(move.panRightFrac) > 1e-6 || Math.abs(move.panForwardFrac) > 1e-6) {
+              scene.panByScreenFraction(move.panRightFrac, move.panForwardFrac)
+            }
+          }
           if (elapsed >= resources.length * 1000 + 1000 || resources.length === 0 && elapsed >= 1000) {
             const intervalMs = Math.min(1000, elapsed - (resources.length * 1000))
             resources.push({ at: elapsed, cpu: Math.min(100, cpuMs / Math.max(1, intervalMs) * 100), gpu: timerExt ? Math.min(100, gpuMs / Math.max(1, intervalMs) * 100) : null, ram: Number.isFinite(memoryApi.memory?.usedJSHeapSize) ? memoryApi.memory!.usedJSHeapSize! / (1024 * 1024) : null })
@@ -365,7 +432,7 @@ export function BenchmarkRoute(): React.ReactElement {
       if (backend === 'wasm' && (routing?.backend !== 'wasm' || wasmSearches <= 0)) {
         throw new Error(routing?.reason ?? copy.wasmError)
       }
-      setResult({ backend, wasmSearches, ticks: finalTick - initialTick, station: current.station.name, stationId, activeLevel: current.activeZ, quality, upscalingMode, view, frames, arrivals, resources, stats,
+      setResult({ backend, wasmSearches, ticks: finalTick - initialTick, station: current.station.name, stationId, activeLevel: current.activeZ, quality, upscalingMode, view, frames, arrivals, resources, stats, levelSwitches,
         browser: navigator.userAgent, gpu, cpuCores: navigator.hardwareConcurrency || null,
         memoryGb: (navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? null,
         viewport: `${canvas.clientWidth} × ${canvas.clientHeight}`, pixelRatio: window.devicePixelRatio,
@@ -403,8 +470,17 @@ export function BenchmarkRoute(): React.ReactElement {
       <div className="benchmarkEyebrow">{copy.eyebrow}</div>
       <h1>{copy.title}</h1>
       <p>{copy.intro}</p>
-      {local && <label>{copy.backend}<select value={backend} onChange={event => setBackend(event.target.value as Backend)}><option value="ts">TypeScript</option><option value="wasm">WebAssembly</option></select></label>}
-      <label>{copy.station}<select value={stationId} onChange={(event) => setStationId(event.target.value as ExampleStationId)}>{EXAMPLE_STATION_IDS.map(id => <option key={id} value={id}>{copy[id]}</option>)}</select></label>
+      {local && <fieldset><legend>{copy.backend}</legend><div className="benchmarkChoices">
+        <button type="button" aria-pressed={backend === 'ts'} onClick={() => setBackend('ts')}>TypeScript</button>
+        <button type="button" aria-pressed={backend === 'wasm'} onClick={() => setBackend('wasm')}>WebAssembly</button>
+      </div></fieldset>}
+      <fieldset><legend>{copy.station}</legend>
+        <div className="benchmarkChoices benchmarkStations" role="group" aria-label={copy.station}>
+          {EXAMPLE_STATION_IDS.map(id => (
+            <button key={id} type="button" data-station={id} aria-pressed={stationId === id} onClick={() => setStationId(id)}>{copy[id]}</button>
+          ))}
+        </div>
+      </fieldset>
       <fieldset><legend>{copy.graphics}</legend><div className="benchmarkChoices">
         <button type="button" aria-pressed={quality === 'low'} onClick={() => setQuality('low')}>{copy.low}</button>
         <button type="button" aria-pressed={quality === 'high'} onClick={() => setQuality('high')}>{copy.high}</button>
@@ -417,6 +493,7 @@ export function BenchmarkRoute(): React.ReactElement {
       <fieldset><legend>{copy.view}</legend><div className="benchmarkChoices">
         <button type="button" aria-pressed={view === 'regular'} onClick={() => setView('regular')}>{copy.normal}</button>
         <button type="button" aria-pressed={view === 'explode'} onClick={() => setView('explode')}>{copy.explode}</button>
+        <button type="button" aria-pressed={view === 'tour'} onClick={() => setView('tour')}>{copy.tour}</button>
       </div></fieldset>
       <button className="benchmarkStart" type="button" onClick={() => void begin()}>{copy.start}</button>
       <small>{copy.keepVisible}</small>
@@ -432,20 +509,21 @@ export function BenchmarkRoute(): React.ReactElement {
         <div className="benchmarkLoadingMeta"><span>{loadingProgress}%</span><span>{copy.controlsLocked}</span></div>
       </div>
     </section>}
-    {phase === 'running' && <aside className="benchmarkHud"><div><b>{copy.running}</b><span>{`${remaining}${copy.seconds} · ${copy[stationId]} · ${quality === 'low' ? copy.low : copy.high} · ${copy.fsr}: ${fsrLabels[upscalingMode]} · ${view === 'explode' ? copy.explode : copy.normal} · ${copy.controlsLocked}`}</span></div></aside>}
+    {phase === 'running' && <aside className="benchmarkHud"><div><b>{copy.running}</b><span>{`${remaining}${copy.seconds} · ${copy[stationId]} · ${quality === 'low' ? copy.low : copy.high} · ${copy.fsr}: ${fsrLabels[upscalingMode]} · ${viewLabel(view, copy)} · ${copy.controlsLocked}`}</span></div></aside>}
     {(phase === 'error' || phase === 'result') && <main className="benchmarkPage benchmarkResultsPage">
       {phase === 'error' ? <section className="benchmarkSetup"><h1>{copy.couldNotFinish}</h1><p role="alert">{error}</p><button type="button" className="benchmarkStart" onClick={retry}>{copy.back}</button></section> : result && <article className="benchmarkResult">
         <header className="benchmarkResultHeader"><div><div className="benchmarkEyebrow">{copy.first30}</div><h1>{stationLabel(result.stationId, language)}</h1><p>{result.quality === 'low' ? copy.low : copy.high} · {copy.fsr}: {fsrLabels[result.upscalingMode]} · 16× · {browserLabel(result.browser)} / {result.gpu}</p></div><button type="button" onClick={retry}>{copy.again}</button></header>
-        <div className="benchmarkMetricRow"><div><span>{copy.average}</span><strong>{result.stats.averageFps.toFixed(2)}</strong></div><div><span>{copy.low1}</span><strong>{result.stats.onePercentLowFps.toFixed(2)}</strong></div><div><span>{copy.worst}</span><strong>{result.stats.worstFrameMs.toFixed(0)} <small>ms</small></strong></div><div><span>{copy.view}</span><strong>{result.view === 'explode' ? copy.explode : copy.normal}</strong></div></div>
+        <div className="benchmarkMetricRow"><div><span>{copy.average}</span><strong>{result.stats.averageFps.toFixed(2)}</strong></div><div><span>{copy.low1}</span><strong>{result.stats.onePercentLowFps.toFixed(2)}</strong></div><div><span>{copy.worst}</span><strong>{result.stats.worstFrameMs.toFixed(0)} <small>ms</small></strong></div><div><span>{copy.view}</span><strong>{viewLabel(result.view, copy)}</strong></div></div>
         <BenchmarkChart result={result} copy={copy}/>
+        <section className="benchmarkFrameTimeSection"><h2>{copy.frameTimeTitle}</h2><FrameTimeChart frames={result.frames} arrivals={result.arrivals} stats={result.stats} copy={copy} levelSwitches={result.levelSwitches}/></section>
         <section className="benchmarkResourceSection"><h2>{copy.resourceUsage}</h2><ResourceChart result={result} copy={copy}/></section>
         <section className="benchmarkHardware"><h2>{copy.hardware}</h2><dl>
           <div><dt>{copy.browser}</dt><dd>{result.browser}</dd></div><div><dt>{copy.gpu}</dt><dd>{result.gpu}</dd></div>
           <div><dt>{copy.cores}</dt><dd>{result.cpuCores ?? copy.unavailable}</dd></div><div><dt>{copy.memory}</dt><dd>{result.memoryGb ? `${result.memoryGb} GB` : copy.unavailable}</dd></div>
           <div><dt>{copy.viewport}</dt><dd>{result.viewport} {copy.dpr} {result.pixelRatio.toFixed(2)}</dd></div><div><dt>{copy.geometry}</dt><dd>{result.cells.toLocaleString()} {copy.cells} · {result.modules.toLocaleString()} {copy.modules}</dd></div>
-          <div><dt>{copy.run}</dt><dd>{stationLabel(result.stationId, language)} · {result.quality === 'low' ? copy.low : copy.high} · {copy.fsr}: {fsrLabels[result.upscalingMode]} · {result.view === 'explode' ? copy.explode : copy.normal} · {copy.level} {result.activeLevel} m · {result.view === 'regular' ? `${copy.zoom} · ` : ''}16× · 30{copy.secShort}</dd></div>
+          <div><dt>{copy.run}</dt><dd>{stationLabel(result.stationId, language)} · {result.quality === 'low' ? copy.low : copy.high} · {copy.fsr}: {fsrLabels[result.upscalingMode]} · {viewLabel(result.view, copy)} · {result.view === 'tour' ? `${copy.tourMoves} · ` : `${copy.level} ${result.activeLevel} m · ${result.view === 'regular' ? `${copy.zoom} · ` : ''}`}16× · 30{copy.secShort}</dd></div>
           <div><dt>{copy.backend}</dt><dd>{result.backend === 'wasm' ? 'WebAssembly' : 'TypeScript'} · {result.wasmSearches.toLocaleString()} {copy.wasmSearches} · {result.ticks.toLocaleString()} {copy.tick}</dd></div>
-          <div><dt>{copy.samples}</dt><dd>{Math.max(0, result.frames.length - 1).toLocaleString()} {copy.intervals} · {result.arrivals.length} {copy.arrivals}</dd></div>
+          <div><dt>{copy.samples}</dt><dd>{Math.max(0, result.frames.length - 1).toLocaleString()} {copy.intervals} · {result.arrivals.length} {copy.arrivals}{result.levelSwitches.length > 0 ? ` · ${result.levelSwitches.length} ${copy.levelSwitches}` : ''}</dd></div>
         </dl><p>{copy.intervalInfo}</p></section>
       </article>}
     </main>}

@@ -93,6 +93,18 @@ namespace Metro.App.Views {
         static readonly Dictionary<StationDisplayArtwork.Scope, List<TvEntry>> byScope =
             new Dictionary<StationDisplayArtwork.Scope, List<TvEntry>>();
         static bool sinkRegistered;
+        static long publishVersion;
+
+        /// <summary>Monotonically incremented whenever any TV face's published display state changes.</summary>
+        public static long PublishVersion => publishVersion;
+
+        /// <summary>
+        /// Test seam: override whether <see cref="StateContributor.BuildPayload"/> defers plate
+        /// repaints to <see cref="Advance"/> (defaults to <c>Application.isPlaying</c>).
+        /// </summary>
+        public static bool? DeferStateContributorRepaintOverride;
+
+        public static bool DefersStateContributorRepaint => DeferStateContributorRepaintOverride ?? Application.isPlaying;
 
         /// <summary>The poster catalogue, sorted by slug, from the exported table.</summary>
         public static Texture2D[] Catalogue {
@@ -216,6 +228,7 @@ namespace Metro.App.Views {
                 var scope = pair.Key;
                 if (scope == null || scope.Locale == next) continue;
                 scope.Locale = next;
+                publishVersion++;
                 for (int e = 0; e < pair.Value.Count; e++) {
                     for (int f = 0; f < pair.Value[e].Faces.Count; f++) {
                         pair.Value[e].Faces[f].PlateKey = "";
@@ -229,16 +242,22 @@ namespace Metro.App.Views {
         public sealed class StateContributor : IStationStateContributor {
             public string Key => "displays";
             public Newtonsoft.Json.Linq.JObject BuildPayload(StationDocument document, StationIndex index) {
-                var current = StationDisplayModuleRenderer.Active != null
-                    ? StationDisplayModuleRenderer.Active.Current
-                    : null;
-                var scope = current?.Displays;
-                if (scope != null) {
-                    var host = StationGameHost.ResolveActive();
-                    var published = (host?.Simulation as StationSimulationHost)?.PublishedFrame;
-                    var doc = document ?? host?.Document;
-                    if (published != null && doc != null) {
-                        RefreshPlates(scope, current.World, doc, published.Motion, true);
+                // During PlayMode, Sink.Tick -> Advance() owns budgeted, visible-only TV plate
+                // repaints (DefaultMaxNewPaintsPerAdvance, skipHidden: true). Avoid synchronous
+                // unbounded RefreshPlates on 10 Hz state publishes; keep the synchronous EditMode
+                // refresh path intact for EditMode tests that call BuildPayload without Advance().
+                if (!DefersStateContributorRepaint) {
+                    var current = StationDisplayModuleRenderer.Active != null
+                        ? StationDisplayModuleRenderer.Active.Current
+                        : null;
+                    var scope = current?.Displays;
+                    if (scope != null) {
+                        var host = StationGameHost.ResolveActive();
+                        var published = (host?.Simulation as StationSimulationHost)?.PublishedFrame;
+                        var doc = document ?? host?.Document;
+                        if (published != null && doc != null) {
+                            RefreshPlates(scope, current.World, doc, published.Motion, true);
+                        }
                     }
                 }
                 return Publish();
@@ -359,6 +378,7 @@ namespace Metro.App.Views {
             }
             if (!byScope.TryGetValue(scope, out var list)) byScope[scope] = list = new List<TvEntry>();
             list.Add(entry);
+            publishVersion++;
             var clock = haveFrame ? initialFrame.Clock : default;
             for (int i = 0; i < entry.Faces.Count; i++) {
                 var face = entry.Faces[i];
@@ -396,6 +416,7 @@ namespace Metro.App.Views {
             var slug = all[((poster % all.Length) + all.Length) % all.Length].name;
             if (!StationDisplayArtwork.PaintUpright(scope, face.Surface, slug)) return false;
             face.PosterSlug = slug;
+            publishVersion++;
             scope.Notes.Add(LedgerPrefix + face.ModuleId + ":window" + face.Slot + ":" + slug);
             return true;
         }
@@ -482,7 +503,10 @@ namespace Metro.App.Views {
                 }
             }
             scope.TvTickCursor = deferredAny ? nextCursor : (start + 1) % count;
-            if (scope.PlateTextures.Count > MaxCachedPlateTextures) TrimUnusedPlateCache(scope, entries);
+            if ((LastPaintedPlates > 0 && scope.PlateTextures.Count > 16) ||
+                scope.PlateTextures.Count > MaxCachedPlateTextures) {
+                TrimUnusedPlateCache(scope, entries);
+            }
             return swaps;
         }
 
@@ -563,7 +587,10 @@ namespace Metro.App.Views {
             StampFace(face, simTick, haveFrame, frame.Trains, railToken, edgeToken, document, scope, status, clock, data);
             face.Plate.sharedMaterial = material;
             world?.RecaptureArtwork(face.Plate);
-            face.PlateKey = data.Key;
+            if (!string.Equals(face.PlateKey, data.Key, StringComparison.Ordinal)) {
+                face.PlateKey = data.Key;
+                publishVersion++;
+            }
             scope.Notes.Add("tv-plate:" + face.ModuleId + ":face" + face.Slot +
                 ":track=" + face.TrackId + ":line=" + face.LineId +
                 ":minute=" + face.Minute + ":date=" + face.Date +
@@ -584,14 +611,28 @@ namespace Metro.App.Views {
             face.LastLines = document?.Lines;
             face.LastDocName = document?.Name ?? "";
             face.LastLocale = scope.Locale ?? "";
+            int minute = (int)(clock.TimeOfDaySeconds / 60);
+            string s0 = status.Arrivals.Length > 0 ? status.Arrivals[0].ToString() : "none";
+            string s1 = status.Arrivals.Length > 1 ? status.Arrivals[1].ToString() : "none";
+            string s2 = status.Arrivals.Length > 2 ? status.Arrivals[2].ToString() : "none";
+            bool publishedChanged =
+                !string.Equals(face.TrackId, status.TrackId, StringComparison.Ordinal) ||
+                !string.Equals(face.LineId, status.LineId, StringComparison.Ordinal) ||
+                !string.Equals(face.Direction, status.Direction, StringComparison.Ordinal) ||
+                face.Minute != minute ||
+                !string.Equals(face.Date, data.Date, StringComparison.Ordinal) ||
+                !string.Equals(face.Status0, s0, StringComparison.Ordinal) ||
+                !string.Equals(face.Status1, s1, StringComparison.Ordinal) ||
+                !string.Equals(face.Status2, s2, StringComparison.Ordinal);
             face.TrackId = status.TrackId;
             face.LineId = status.LineId;
             face.Direction = status.Direction;
-            face.Minute = (int)(clock.TimeOfDaySeconds / 60);
+            face.Minute = minute;
             face.Date = data.Date;
-            face.Status0 = status.Arrivals.Length > 0 ? status.Arrivals[0].ToString() : "none";
-            face.Status1 = status.Arrivals.Length > 1 ? status.Arrivals[1].ToString() : "none";
-            face.Status2 = status.Arrivals.Length > 2 ? status.Arrivals[2].ToString() : "none";
+            face.Status0 = s0;
+            face.Status1 = s1;
+            face.Status2 = s2;
+            if (publishedChanged) publishVersion++;
         }
 
         static void TrimUnusedPlateCache(StationDisplayArtwork.Scope scope, List<TvEntry> entries) {
@@ -614,9 +655,7 @@ namespace Metro.App.Views {
                     scope.PlateTextures.Remove(key);
                     if (tex != null) {
                         scope.Textures.Remove(tex);
-                        if (tex is RenderTexture rt && rt.IsCreated()) rt.Release();
-                        if (Application.isPlaying) UnityEngine.Object.Destroy(tex);
-                        else UnityEngine.Object.DestroyImmediate(tex);
+                        StationTvPlatePainter.ReleasePlateTarget(tex);
                     }
                     TotalEvictedPlates++;
                 }
@@ -686,11 +725,16 @@ namespace Metro.App.Views {
             face != null ? StationDisplayArtwork.Poster(face.PosterSlug) : null;
 
         internal static void ReleaseScope(StationDisplayArtwork.Scope scope) {
-            if (scope != null) byScope.Remove(scope);
+            if (scope != null && byScope.Remove(scope)) {
+                publishVersion++;
+                if (byScope.Count == 0) StationTvPlatePainter.ClearPlateTargetPool();
+            }
         }
 
         public static void Reset() {
             byScope.Clear();
+            publishVersion++;
+            StationTvPlatePainter.ClearPlateTargetPool();
             StationTvSchedule.Reset();
         }
 

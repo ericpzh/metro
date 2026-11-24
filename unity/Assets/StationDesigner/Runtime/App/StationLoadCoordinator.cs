@@ -237,6 +237,128 @@ namespace Metro.App {
             return Install(read, string.IsNullOrEmpty(id) ? read.Document.Source.Hash : id, markLoad: markLoad);
         }
 
+        /// <summary>Install a document already parsed/indexed off the main thread by <see cref="StationDocumentReader.Read"/>.</summary>
+        public StationLoadResult OpenPreRead(StationReadResult read, string id) {
+            if (read == null || read.Document == null || read.Index == null) {
+                return StationLoadResult.Rejected(new StationRejection("invalid-document", StationRecordKind.Document,
+                    "document", id ?? "", "Pre-read station document was empty."), revision);
+            }
+            Action<string> markLoad = StationLoadProbe.Begin(id, document != null);
+            return Install(read, string.IsNullOrEmpty(id) ? read.Document.Source.Hash : id, markLoad: markLoad);
+        }
+
+        /// <summary>
+        /// Frame-yielded install of a pre-read document and optional pre-built simulation session
+        /// so desktop startup keeps pumping the loading screen animation while heavy renderers build.
+        /// </summary>
+        public IEnumerator OpenPreReadYielded(
+            StationReadResult read,
+            StationSimulationSession prebuiltSession,
+            string id,
+            Action<StationLoadResult> onComplete) {
+            if (disposed) {
+                onComplete?.Invoke(StationLoadResult.Rejected(new StationRejection("disposed", StationRecordKind.Document,
+                    "station", "", "Station load coordinator is disposed."), revision));
+                yield break;
+            }
+            if (read == null || read.Document == null || read.Index == null) {
+                onComplete?.Invoke(StationLoadResult.Rejected(new StationRejection("invalid-document", StationRecordKind.Document,
+                    "document", id ?? "", "Pre-read station document was empty."), revision));
+                yield break;
+            }
+
+            Action<string> markLoad = StationLoadProbe.Begin(id, document != null);
+            string resolvedId = string.IsNullOrEmpty(id) ? read.Document.Source.Hash : id;
+            var candidate = new StationWorldView(parent, "Station " + (string.IsNullOrEmpty(resolvedId) ? read.Document.Name : resolvedId), renderers, Assets);
+            Exception buildError = null;
+            var buildEnum = candidate.BuildYielded(read.Document, read.Index, markLoad, err => buildError = err);
+            while (buildEnum.MoveNext()) {
+                yield return buildEnum.Current;
+                if (disposed) {
+                    candidate.Dispose();
+                    yield break;
+                }
+            }
+            if (buildError != null) {
+                candidate.Dispose();
+                var buildRejection = buildError is StationViewBuildException viewErr
+                    ? new StationRejection("render-failed", StationRecordKind.Document, "renderer", viewErr.Role, viewErr.Message)
+                    : new StationRejection("render-failed", StationRecordKind.Document, "renderer", "", buildError.Message);
+                onComplete?.Invoke(StationLoadResult.Rejected(buildRejection, revision));
+                yield break;
+            }
+
+            IStationSimulationHost stageTarget = simulation;
+            StationRejection simRejection = null;
+            try {
+                if (stageTarget != null) {
+                    markLoad?.Invoke("simulation.stage.begin");
+                    if (prebuiltSession != null && stageTarget is StationSimulationHost concreteSim) {
+                        concreteSim.StagePrebuiltSession(read.Document, prebuiltSession);
+                    } else {
+                        stageTarget.StageInstall(read.Document, read.Index, isEdit: false, editKind: null);
+                    }
+                    markLoad?.Invoke("simulation.stage.end");
+                    stageTarget.CommitInstall();
+                }
+            } catch (Exception error) {
+                Abort(candidate, stageTarget);
+                simRejection = new StationRejection("simulation-failed", StationRecordKind.Document, "simulation", "", error.Message);
+            }
+            if (simRejection != null) {
+                onComplete?.Invoke(StationLoadResult.Rejected(simRejection, revision));
+                yield break;
+            }
+            yield return null;
+            if (disposed) {
+                candidate.Dispose();
+                yield break;
+            }
+
+            var previous = world;
+            previousCommittedRead = null;
+            previousCommittedRevision = revision;
+            var nextRevision = revision + 1;
+            world = candidate;
+            markLoad?.Invoke("activate.begin");
+            world.Activate();
+            markLoad?.Invoke("activate.end");
+            if (previous != null) {
+                BeforePreviousDispose?.Invoke(previous);
+                previous.Dispose();
+                previous = null;
+                markLoad?.Invoke("previous.dispose-requested");
+            }
+
+            document = read.Document;
+            index = read.Index;
+            committedRead = read;
+            revision = nextRevision;
+            string materializedHash = read.Document.PeekMaterializedHash();
+            sourceId = !string.IsNullOrEmpty(resolvedId) ? resolvedId : (!string.IsNullOrEmpty(materializedHash) ? materializedHash : sourceId);
+            if (!string.IsNullOrEmpty(materializedHash)) {
+                sourceHash = materializedHash;
+                sourceHashRevision = revision;
+            } else {
+                sourceHash = "";
+            }
+            cameraBounds = ComputeCameraBounds(read.Index);
+
+            var info = new StationCommitInfo {
+                Document = document, Index = index, Revision = revision, SourceId = sourceId,
+                SourceHash = PeekSourceHash() ?? "", IsEdit = false, EditKind = null,
+                CameraBounds = cameraBounds, LocalView = null,
+                View = world.Summary(), Diagnostics = Merge(read.Diagnostics, world.Unresolved),
+            };
+            Committed?.Invoke(info);
+            markLoad?.Invoke("committed revision=" + revision);
+            var result = new StationLoadResult {
+                Accepted = true, Revision = revision, Document = document, Index = index,
+                CameraBounds = cameraBounds, View = info.View, Diagnostics = info.Diagnostics,
+            };
+            onComplete?.Invoke(result);
+        }
+
         static void RequestWebGlSweep() {
 #if UNITY_WEBGL && !UNITY_EDITOR
             GC.Collect();
@@ -715,6 +837,32 @@ namespace Metro.App {
     /// never sees JSON, Prefabs or the scene.
     /// </summary>
     /// <summary>
+    /// Immutable snapshot of live station statistics and history watermark published inside
+    /// <see cref="StationPublishedSimFrame"/> so main-thread state contributors never lock
+    /// the simulation worker.
+    /// </summary>
+    public sealed class StationPublishedStatistics {
+        public readonly string RunId;
+        public readonly StationStatisticsSnapshot Metrics;
+        public readonly int HistoryCount;
+        public readonly double HistoryStart;
+        public readonly int HistoryStep;
+
+        public StationPublishedStatistics(
+            string runId,
+            in StationStatisticsSnapshot metrics,
+            int historyCount,
+            double historyStart,
+            int historyStep) {
+            RunId = runId ?? "";
+            Metrics = metrics;
+            HistoryCount = historyCount;
+            HistoryStart = historyStart;
+            HistoryStep = historyStep;
+        }
+    }
+
+    /// <summary>
     /// Coherent, immutable simulation frame published by <see cref="StationSimulationHost"/>
     /// so main-thread presentation sinks, audio, bridge state, and benchmarks never read
     /// mutable simulation state while the desktop worker thread is stepping.
@@ -723,14 +871,24 @@ namespace Metro.App {
         public long Generation;
         public long Tick;
         public long Epoch;
+        public long SessionRevision;
         public bool Playing;
         public int Speed;
         public double SimTimeSeconds;
         public double PresentationFraction;
         public StationMotionFrame Motion;
         public int WalkNodeCount;
+        public bool HasServices;
+        public int PublishedPassengerLimit;
         public int QueuedTotal;
+        public int GateQueueTotal;
         public int BoardedOnboard;
+        public int Spawned;
+        public int Boarded;
+        public int Alighted;
+        public int Exited;
+        public int Stuck;
+        public StationPublishedStatistics Statistics;
         public string ClockPayloadJson;
         public string CapabilitiesPayloadJson;
     }
@@ -779,6 +937,9 @@ namespace Metro.App {
         StationDocument committedDocument;
         long generation;
         StationPublishedSimFrame publishedFrame;
+        StationSimulationSession lastPublishedStatsSession;
+        long lastPublishedStatsSessionRevision = long.MinValue;
+        StationPublishedStatistics lastPublishedStats;
         double pendingDeltaSeconds;
         double subTickElapsedSeconds;
         long lastSubTickSeen = long.MinValue;
@@ -881,24 +1042,67 @@ namespace Metro.App {
         }
 #endif
 
+        StationPublishedStatistics CapturePublishedStatisticsLocked(StationSimulationSession activeSession) {
+            string runId = activeSession.StatisticsRunId ?? "";
+            var metrics = activeSession.Statistics;
+            var history = activeSession.History;
+            int historyCount = history != null ? history.Count : 0;
+            double historyStart = history != null ? history.Start : 0;
+            int historyStep = history != null ? history.Step : StationStatisticsHistory.SampleSeconds;
+            long sessionRev = activeSession.SessionRevision;
+            if (ReferenceEquals(lastPublishedStatsSession, activeSession) &&
+                lastPublishedStats != null &&
+                lastPublishedStatsSessionRevision == sessionRev &&
+                string.Equals(lastPublishedStats.RunId, runId, StringComparison.Ordinal) &&
+                lastPublishedStats.Metrics.Tick == metrics.Tick &&
+                lastPublishedStats.HistoryCount == historyCount &&
+                lastPublishedStats.HistoryStart == historyStart &&
+                lastPublishedStats.HistoryStep == historyStep &&
+                lastPublishedStats.Metrics.SimTime == metrics.SimTime &&
+                lastPublishedStats.Metrics.Population == metrics.Population &&
+                lastPublishedStats.Metrics.TickMs == metrics.TickMs) {
+                return lastPublishedStats;
+            }
+            var snapshot = new StationPublishedStatistics(runId, in metrics, historyCount, historyStart, historyStep);
+            lastPublishedStatsSession = activeSession;
+            lastPublishedStatsSessionRevision = sessionRev;
+            lastPublishedStats = snapshot;
+            return snapshot;
+        }
+
         StationPublishedSimFrame PublishFrameLocked() {
             if (session == null) {
+                lastPublishedStatsSession = null;
+                lastPublishedStatsSessionRevision = long.MinValue;
+                lastPublishedStats = null;
                 System.Threading.Volatile.Write(ref publishedFrame, null);
                 return null;
             }
             var motion = session.Snapshot();
+            var services = session.Services;
+            var stats = CapturePublishedStatisticsLocked(session);
             var next = new StationPublishedSimFrame {
                 Generation = generation,
                 Tick = session.Tick,
                 Epoch = session.PresentationEpoch,
+                SessionRevision = session.SessionRevision,
                 Playing = session.Playing,
                 Speed = session.Speed,
                 SimTimeSeconds = session.Clock?.SimTime ?? 0,
                 PresentationFraction = session.PresentationFraction,
                 Motion = motion,
                 WalkNodeCount = session.WalkGraph?.NodeCount ?? 0,
-                QueuedTotal = session.Services?.QueueTotal ?? 0,
-                BoardedOnboard = session.Services?.Onboard ?? 0,
+                HasServices = services != null,
+                PublishedPassengerLimit = services != null && services.Options != null ? services.Options.PublishedPassengerLimit : 0,
+                QueuedTotal = services?.QueueTotal ?? 0,
+                GateQueueTotal = services?.GateQueueTotal ?? 0,
+                BoardedOnboard = services?.Onboard ?? 0,
+                Spawned = services?.Spawned ?? 0,
+                Boarded = services?.Boarded ?? 0,
+                Alighted = services?.Alighted ?? 0,
+                Exited = services?.Exited ?? 0,
+                Stuck = services?.Stuck ?? 0,
+                Statistics = stats,
                 ClockPayloadJson = session.ClockPayloadJson(),
                 CapabilitiesPayloadJson = session.CapabilitiesPayloadJson(),
             };
@@ -937,6 +1141,23 @@ namespace Metro.App {
                 }
                 var setup = StationSessionProjection.Setup(document, index, "sim-" + (document.Source.Hash ?? ""));
                 pendingSession = new StationSimulationSession(setup);
+            } catch {
+                stagingHold = false;
+                throw;
+            }
+        }
+
+        /// <summary>Stage a <see cref="StationSimulationSession"/> already constructed off the main thread.</summary>
+        public void StagePrebuiltSession(StationDocument document, StationSimulationSession prebuilt) {
+            if (prebuilt == null) throw new ArgumentNullException(nameof(prebuilt));
+            DrainWorkerForStaging();
+            pendingSession = null;
+            pendingEdit = null;
+            pendingDocument = document;
+            pendingIsEdit = false;
+            try {
+                SimStageFailureInjector?.Invoke(document);
+                pendingSession = prebuilt;
             } catch {
                 stagingHold = false;
                 throw;
@@ -1077,6 +1298,9 @@ namespace Metro.App {
                 pendingDocument = null;
                 pendingIsEdit = false;
                 stagingHold = false;
+                lastPublishedStatsSession = null;
+                lastPublishedStatsSessionRevision = long.MinValue;
+                lastPublishedStats = null;
                 System.Threading.Volatile.Write(ref publishedFrame, null);
             }
             PassengerPoseFeeds.Clear();
