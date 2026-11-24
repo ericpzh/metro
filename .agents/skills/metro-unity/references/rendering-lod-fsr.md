@@ -185,15 +185,34 @@ and per-model triangle counts, see
 
 ## 7. Glass, GPU instancing & player shader-variant preservation
 
-- **Generated glass (`StationGlass`):** All procedurally generated transparent
-  glass (`StationGlass.Create` / `MakeTransparent`, default tint `#a8d8e6`,
-  `queue = 3000`, `_ZWrite = 0`, `_SURFACE_TYPE_TRANSPARENT`) clones
+- **Generated glass (`StationGlass`) & Linear color space:** All procedurally
+  generated transparent glass (`StationGlass.Create` / `MakeTransparent`, default
+  sRGB tint `#a8d8e6`, `queue = 3000`, `_ZWrite = 0`, `_SrcBlend = SrcAlpha`,
+  `_DstBlend = OneMinusSrcAlpha`, `_BlendModePreserveSpecular = 0`,
+  `_SURFACE_TYPE_TRANSPARENT` enabled, `_ALPHAPREMULTIPLY_ON` disabled) clones
   `Resources/StationGlassRef.mat` (`URP/Lit`) when using `Universal Render Pipeline/Lit`.
-  Never mutate shared imported glTFast asset materials directly.
-- **Shader variant preservation in player builds:**
-  `Resources/StationGlassRef.mat` and `Resources/StationUnlitTransparentRef.mat`
-  serialize `_SURFACE_TYPE_TRANSPARENT` on disk so URP variant stripping retains
-  transparent variants in WebGL/Windows builds. `ProjectSettings/GraphicsSettings.asset`
-  keeps `m_InstancingStripping: 2` (`Keep All`) so `StationInstancedSurfaceBatch`
-  (`Graphics.DrawMeshInstanced`, `BatchThreshold = 6`, `<= 1,023` instances/draw)
-  renders in built players.
+  Pass authored **sRGB** `Color` directly to `SetColor("_BaseColor", ...)` —
+  Unity converts `Color` properties sRGB → linear automatically in Linear color
+  space (`m_ActiveColorSpace: 1`), so calling `.linear` first double-darkens
+  pale sky-blue into deep teal. Never mutate shared imported glTFast asset
+  materials directly.
+- **Glazed lift material parity (`VerticalModuleViews`):** Glazed lifts use
+  `PaletteLiftSteel` (`#b7bdc4`, `_Metallic = 0.18`, `_Smoothness = 0.68`,
+  matching `LiftModel.ts` so stainless stays readable with `reflectionIntensity = 0`)
+  for `shaft`, `portals`, `caps`, and `cabin-body`, and `PaletteLiftGlass`
+  (`#a8d8e6`, opacity `0.20`) for glazed shaft/portal/cabin panels and leaves;
+  steel lifts keep `PaletteDark` caps. Shared across main world, EditMode
+  defaults, and exploded trays via `VerticalModuleViews.CreatePaletteMaterial`.
+- **Shader variant preservation in player builds:** URP `Lit.shader` declares
+  both `_SURFACE_TYPE_TRANSPARENT` and `_ALPHAPREMULTIPLY_ON` as
+  `shader_feature_local_fragment`. `Resources/StationGlassRef.mat` MUST keep
+  the exact straight-alpha keyword set (`_SURFACE_TYPE_TRANSPARENT` enabled,
+  `_ALPHAPREMULTIPLY_ON` disabled, `_BlendModePreserveSpecular = 0`,
+  `_SrcBlend = 5`) matching runtime `StationGlass` and `StationVisibilityPalette`
+  translucent clones; serializing `_ALPHAPREMULTIPLY_ON` causes Windows `.exe`
+  and WebGL builds to strip the straight-alpha variant and fall back to opaque
+  (`OutputAlpha` forces `alpha = 1`, pinned by `StationRenderTests`).
+  `Resources/StationUnlitTransparentRef.mat` preserves transparent `URP/Unlit`,
+  and `ProjectSettings/GraphicsSettings.asset` keeps `m_InstancingStripping: 2`
+  (`Keep All`) so `StationInstancedSurfaceBatch` (`Graphics.DrawMeshInstanced`,
+  `BatchThreshold = 6`, `<= 1,023` instances/draw) renders in built players.

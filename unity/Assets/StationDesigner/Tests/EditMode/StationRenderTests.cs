@@ -1,3 +1,4 @@
+using System.Linq;
 using Metro.App;
 using Metro.App.Views;
 using Metro.View;
@@ -125,7 +126,14 @@ public class StationRenderTests {
             Assert.AreEqual(StationGlass.TransparentQueue, glass.renderQueue);
             Assert.IsTrue(glass.IsKeywordEnabled("_SURFACE_TYPE_TRANSPARENT"),
                 "without the keyword URP forces output alpha 1 and the pane is opaque again");
-            Assert.AreEqual(.26f, glass.GetColor("_BaseColor").a, 1e-4f);
+            Assert.IsFalse(glass.IsKeywordEnabled("_ALPHAPREMULTIPLY_ON"),
+                "straight-alpha SrcAlpha/OneMinusSrcAlpha glass must keep _ALPHAPREMULTIPLY_ON disabled");
+            var expected = (Color)StationGlass.DefaultTint;
+            var actual = glass.GetColor("_BaseColor");
+            Assert.AreEqual(expected.r, actual.r, 1e-3f, "URP SetColor converts sRGB->linear automatically; do not pre-linearize");
+            Assert.AreEqual(expected.g, actual.g, 1e-3f);
+            Assert.AreEqual(expected.b, actual.b, 1e-3f);
+            Assert.AreEqual(.26f, actual.a, 1e-4f);
             Assert.AreEqual("Transparent", glass.GetTag("RenderType", false));
         } finally {
             Object.DestroyImmediate(glass);
@@ -139,18 +147,70 @@ public class StationRenderTests {
         Assert.AreEqual("Universal Render Pipeline/Lit", refMat.shader.name);
         Assert.IsTrue(refMat.IsKeywordEnabled("_SURFACE_TYPE_TRANSPARENT"),
             "serialized reference material must enable _SURFACE_TYPE_TRANSPARENT");
+        Assert.IsFalse(refMat.IsKeywordEnabled("_ALPHAPREMULTIPLY_ON"),
+            "serialized reference material must match runtime straight-alpha keyword set so player builds do not strip it");
         Assert.AreEqual(1f, refMat.GetFloat("_Surface"));
+        Assert.AreEqual((float)BlendMode.SrcAlpha, refMat.GetFloat("_SrcBlend"));
+        Assert.AreEqual((float)BlendMode.OneMinusSrcAlpha, refMat.GetFloat("_DstBlend"));
         Assert.AreEqual(StationGlass.TransparentQueue, refMat.renderQueue);
 
-        var liftGlass = Metro.App.Views.VerticalModuleViews.DefaultMaterial(Metro.App.Views.VerticalModuleViews.PaletteGlass);
+        var expected = (Color)StationGlass.DefaultTint;
+        var liftGlass = Metro.App.Views.VerticalModuleViews.DefaultMaterial(Metro.App.Views.VerticalModuleViews.PaletteLiftGlass);
         Assert.IsTrue(StationGlass.IsTransparent(liftGlass), "lift shaft glass must use the transparent surface");
         Assert.IsTrue(liftGlass.IsKeywordEnabled("_SURFACE_TYPE_TRANSPARENT"));
+        Assert.IsFalse(liftGlass.IsKeywordEnabled("_ALPHAPREMULTIPLY_ON"));
         var baseColor = liftGlass.GetColor("_BaseColor");
-        var expected = ((Color)StationGlass.DefaultTint).linear;
-        Assert.AreEqual(expected.r, baseColor.r, 0.02f, "lift glass must use the light sky tint, not dark teal");
+        Assert.AreEqual(expected.r, baseColor.r, 0.02f, "lift glass must use sRGB sky tint, not double-linearized dark teal");
         Assert.AreEqual(expected.g, baseColor.g, 0.02f);
         Assert.AreEqual(expected.b, baseColor.b, 0.02f);
-        Assert.AreEqual(.26f, baseColor.a, 1e-4f);
+        Assert.AreEqual(Metro.App.Views.VerticalModuleViews.LiftGlassOpacity, baseColor.a, 1e-4f);
+
+        var liftSteel = Metro.App.Views.VerticalModuleViews.DefaultMaterial(Metro.App.Views.VerticalModuleViews.PaletteLiftSteel);
+        Assert.AreEqual(.18f, liftSteel.GetFloat("_Metallic"), 1e-4f, "glazed lift stainless must stay readable without an envmap");
+        Assert.AreEqual(.68f, liftSteel.GetFloat("_Smoothness"), 1e-4f);
+
+        // Verify glazed vs steel lift part material assignment (caps, frame, glass).
+        var host = new GameObject("lift-material-parity-probe");
+        try {
+            var glazedReq = new Metro.App.Views.VerticalModuleRequest {
+                ModuleId = "lift-glazed", Type = "lift", ConfigJson = "{\"rises\":[5]}",
+                X = 0, Y = 0, Z = 0, Width = 2, Depth = 2,
+                HasEndpoints = true, FromX = 0, FromY = 0, FromZ = 0, ToX = 0, ToY = 0, ToZ = 5,
+            };
+            Assert.IsTrue(Metro.App.Views.VerticalModuleViews.TryBuild(glazedReq, host.transform, out var glazedView));
+            try {
+                var shaftRenderer = glazedView.Root.GetComponentsInChildren<MeshRenderer>(true)
+                    .First(r => r.name == "shaft");
+                var capsRenderer = glazedView.Root.GetComponentsInChildren<MeshRenderer>(true)
+                    .First(r => r.name == "caps");
+                var glassRenderer = glazedView.Root.GetComponentsInChildren<MeshRenderer>(true)
+                    .First(r => r.name == "shaft-glass");
+                Assert.AreSame(liftSteel, shaftRenderer.sharedMaterial, "glazed lift frame uses bright stainless");
+                Assert.AreSame(liftSteel, capsRenderer.sharedMaterial, "glazed lift caps use bright stainless, not dark steel");
+                Assert.AreSame(liftGlass, glassRenderer.sharedMaterial, "glazed lift shaft uses 0.20 sky-tint lift glass");
+            } finally {
+                glazedView.Dispose();
+            }
+
+            var steelReq = new Metro.App.Views.VerticalModuleRequest {
+                ModuleId = "lift-steel", Type = "lift", ConfigJson = "{\"style\":\"steel\",\"rises\":[5]}",
+                X = 4, Y = 0, Z = 0, Width = 2, Depth = 2,
+                HasEndpoints = true, FromX = 4, FromY = 0, FromZ = 0, ToX = 4, ToY = 0, ToZ = 5,
+            };
+            Assert.IsTrue(Metro.App.Views.VerticalModuleViews.TryBuild(steelReq, host.transform, out var steelView));
+            try {
+                var capsRenderer = steelView.Root.GetComponentsInChildren<MeshRenderer>(true)
+                    .First(r => r.name == "caps");
+                Assert.AreSame(
+                    Metro.App.Views.VerticalModuleViews.DefaultMaterial(Metro.App.Views.VerticalModuleViews.PaletteDark),
+                    capsRenderer.sharedMaterial,
+                    "steel lift caps use darkSteel matching LiftModel.ts");
+            } finally {
+                steelView.Dispose();
+            }
+        } finally {
+            Object.DestroyImmediate(host);
+        }
     }
 
     [Test]

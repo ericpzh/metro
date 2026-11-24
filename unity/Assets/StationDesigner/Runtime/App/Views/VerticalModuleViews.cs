@@ -361,8 +361,12 @@ namespace Metro.App.Views {
         public const float LiftSpeed = 1.5f;
 
         // Palette ids shared with StationMaterials so a generated part reads as the
-        // same station kit (index order is the palette's own).
+        // same station kit (index order is the palette's own), plus two glazed-lift
+        // overrides matching `LiftModel.ts` (`steel` metalness 0.18 / roughness 0.32,
+        // `glass` opacity 0.20).
         public const int PaletteGlass = 10, PaletteSteel = 6, PaletteDark = 5, PaletteLight = 13, PaletteLine = 7, PaletteWarm = 8, PalettePlatform = 2, PaletteRed = 9, PaletteGreen = 12;
+        public const int PaletteLiftSteel = 14, PaletteLiftGlass = 15;
+        public const float LiftGlassOpacity = .20f;
 
         /// <summary>The escalator family's authored reference run (Escalator.prefab).</summary>
         public const int CanonicalEscalatorRunCells = 9;
@@ -412,19 +416,26 @@ namespace Metro.App.Views {
             new Color32(181, 192, 195, 255), new Color32(42, 107, 118, 255), new Color32(217, 169, 61, 255),
             new Color32(139, 77, 59, 255), new Color32(79, 140, 148, 255), new Color32(83, 60, 49, 255),
             new Color32(75, 120, 58, 255), new Color32(215, 227, 225, 255),
+            new Color32(183, 189, 196, 255), StationGlass.DefaultTint,
         };
 
         internal static void ConfigurePaletteMaterial(Material material, int palette) {
             if (!material) return;
-            if (palette == PaletteGlass) {
+            if (palette == PaletteGlass || palette == PaletteLiftGlass) {
                 if (material.HasProperty("_BaseColor")) material.SetColor("_BaseColor", StationGlass.DefaultTint);
                 if (material.HasProperty("_Color")) material.SetColor("_Color", StationGlass.DefaultTint);
-                StationGlass.MakeTransparent(material, .26f);
+                StationGlass.MakeTransparent(material, palette == PaletteLiftGlass ? LiftGlassOpacity : .26f);
                 return;
             }
             if (palette == PaletteSteel) {
                 if (material.HasProperty("_Metallic")) material.SetFloat("_Metallic", .72f);
                 if (material.HasProperty("_Smoothness")) material.SetFloat("_Smoothness", .66f);
+            } else if (palette == PaletteLiftSteel) {
+                // `LiftModel.buildGlassLift`: keep stainless readable under the station's
+                // lights without an environment map (`metalness = 0.18, roughness = 0.32`).
+                material.enableInstancing = true;
+                if (material.HasProperty("_Metallic")) material.SetFloat("_Metallic", .18f);
+                if (material.HasProperty("_Smoothness")) material.SetFloat("_Smoothness", .68f);
             } else if (palette == PaletteDark) {
                 if (material.HasProperty("_Metallic")) material.SetFloat("_Metallic", .35f);
                 if (material.HasProperty("_Smoothness")) material.SetFloat("_Smoothness", .45f);
@@ -434,15 +445,21 @@ namespace Metro.App.Views {
             }
         }
 
+        internal static Material CreatePaletteMaterial(Shader shader, int palette, string name) {
+            palette = Mathf.Clamp(palette, 0, Palette.Length - 1);
+            if (palette == PaletteGlass || palette == PaletteLiftGlass)
+                return StationGlass.Create(shader, name, StationGlass.DefaultTint, palette == PaletteLiftGlass ? LiftGlassOpacity : .26f);
+            var material = new Material(shader) { color = Palette[palette], name = name };
+            ConfigurePaletteMaterial(material, palette);
+            return material;
+        }
+
         /// <summary>Fallback material for tests and a host with no palette (the shader is found once).</summary>
         public static Material DefaultMaterial(int palette) {
             palette = Mathf.Clamp(palette, 0, Palette.Length - 1);
             if (DefaultMaterials.TryGetValue(palette, out var existing) && existing) return existing;
             if (!defaultShader) defaultShader = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Unlit/Color") ?? Shader.Find("Sprites/Default");
-            var material = palette == PaletteGlass
-                ? StationGlass.Create(defaultShader, "Vertical " + palette, StationGlass.DefaultTint, .26f)
-                : new Material(defaultShader) { color = Palette[palette], name = "Vertical " + palette };
-            if (palette != PaletteGlass) ConfigurePaletteMaterial(material, palette);
+            var material = CreatePaletteMaterial(defaultShader, palette, "Vertical " + palette);
             DefaultMaterials[palette] = material;
             return material;
         }
@@ -2158,7 +2175,7 @@ namespace Metro.App.Views {
                     group.localRotation = Quaternion.identity;
                     rig.FrontGroup = group;
                     rig.Front = new List<LiftLeaf>(4);
-                    BuildLiftLeaves(view, group, rig.Front, false, k, context.Material(steel ? PaletteSteel : PaletteGlass), 2.24f, 1.19f, false);
+                    BuildLiftLeaves(view, group, rig.Front, false, k, context.Material(steel ? PaletteSteel : PaletteLiftGlass), 2.24f, 1.19f, false);
                     view.Register("landing-doors-" + level + "-front", group, true);
                 }
                 if (backServed[i]) {
@@ -2168,7 +2185,7 @@ namespace Metro.App.Views {
                     group.localRotation = Quaternion.identity;
                     rig.BackGroup = group;
                     rig.Back = new List<LiftLeaf>(4);
-                    BuildLiftLeaves(view, group, rig.Back, true, k, context.Material(steel ? PaletteSteel : PaletteGlass), 2.24f, 1.19f, false);
+                    BuildLiftLeaves(view, group, rig.Back, true, k, context.Material(steel ? PaletteSteel : PaletteLiftGlass), 2.24f, 1.19f, false);
                     view.Register("landing-doors-" + level + "-back", group, true);
                 }
                 levelRigs.Add(rig);
@@ -2197,21 +2214,22 @@ namespace Metro.App.Views {
             cabinFrontGroup.SetParent(cabin, false);
             view.Register("cabin-door-front", cabinFrontGroup, true);
             var cabinFront = new List<LiftLeaf>(4);
-            BuildLiftLeaves(view, cabinFrontGroup, cabinFront, false, k, context.Material(steel ? PaletteDark : PaletteGlass), 2.15f, 1.24f, true);
+            BuildLiftLeaves(view, cabinFrontGroup, cabinFront, false, k, context.Material(steel ? PaletteDark : PaletteLiftGlass), 2.15f, 1.24f, true);
             var cabinBack = new List<LiftLeaf>(4);
             if (anyBack) {
                 var cabinBackGroup = new GameObject("cabin-door-back").transform;
                 cabinBackGroup.SetParent(cabin, false);
                 view.Register("cabin-door-back", cabinBackGroup, true);
-                BuildLiftLeaves(view, cabinBackGroup, cabinBack, true, k, context.Material(steel ? PaletteDark : PaletteGlass), 2.15f, 1.24f, true);
+                BuildLiftLeaves(view, cabinBackGroup, cabinBack, true, k, context.Material(steel ? PaletteDark : PaletteLiftGlass), 2.15f, 1.24f, true);
             }
 
-            view.Meshes.Add(shaft.Build(frame, context.Material(PaletteSteel), "shaft"));
-            if (shaftGlass.VertexCount > 0) view.Meshes.Add(shaftGlass.Build(frame, context.Material(PaletteGlass), "shaft-glass"));
+            int frameSteel = steel ? PaletteSteel : PaletteLiftSteel;
+            view.Meshes.Add(shaft.Build(frame, context.Material(frameSteel), "shaft"));
+            if (shaftGlass.VertexCount > 0) view.Meshes.Add(shaftGlass.Build(frame, context.Material(PaletteLiftGlass), "shaft-glass"));
             view.Meshes.Add(guides.Build(frame, context.Material(PaletteDark), "guides"));
-            view.Meshes.Add(caps.Build(frame, context.Material(steel ? PaletteSteel : PaletteDark), "caps"));
-            if (portals.VertexCount > 0) view.Meshes.Add(portals.Build(frame, context.Material(PaletteSteel), "portals"));
-            if (portalGlass.VertexCount > 0) view.Meshes.Add(portalGlass.Build(frame, context.Material(PaletteGlass), "portal-glass"));
+            view.Meshes.Add(caps.Build(frame, context.Material(steel ? PaletteDark : PaletteLiftSteel), "caps"));
+            if (portals.VertexCount > 0) view.Meshes.Add(portals.Build(frame, context.Material(frameSteel), "portals"));
+            if (portalGlass.VertexCount > 0) view.Meshes.Add(portalGlass.Build(frame, context.Material(PaletteLiftGlass), "portal-glass"));
             view.Lift = new LiftRig {
                 Frame = frame, Cabin = cabin, PivotZ = pivot.z, Height = height,
                 Stops = stops, Levels = levels, LevelRigs = levelRigs,
@@ -2296,8 +2314,8 @@ namespace Metro.App.Views {
                 else glass.Box(new Vector3(0f, .72f * k, 1.3f), new Vector3(1.38f * k, .025f * k, 2.12f), Quaternion.identity);
                 body.Box(new Vector3(0f, .72f * k, .2f), new Vector3(1.44f * k, .055f * k, .2f), Quaternion.identity);
             }
-            view.Meshes.Add(body.Build(cabin, context.Material(PaletteSteel), "cabin-body"));
-            if (glass.VertexCount > 0) view.Meshes.Add(glass.Build(cabin, context.Material(PaletteGlass), "cabin-glass"));
+            view.Meshes.Add(body.Build(cabin, context.Material(steel ? PaletteSteel : PaletteLiftSteel), "cabin-body"));
+            if (glass.VertexCount > 0) view.Meshes.Add(glass.Build(cabin, context.Material(PaletteLiftGlass), "cabin-glass"));
         }
 
         static Mesh BoxMesh(string name, Vector3 size) {
@@ -3168,12 +3186,7 @@ namespace Metro.App.Views {
                 if (shader == null || Materials != null) return;
                 Materials = new Material[VerticalModuleViews.Palette.Length];
                 for (int i = 0; i < Materials.Length; i++) {
-                    if (i == VerticalModuleViews.PaletteGlass) {
-                        Materials[i] = StationGlass.Create(shader, "Vertical " + i, StationGlass.DefaultTint, .26f);
-                    } else {
-                        Materials[i] = new Material(shader) { color = VerticalModuleViews.Palette[i], name = "Vertical " + i };
-                        VerticalModuleViews.ConfigurePaletteMaterial(Materials[i], i);
-                    }
+                    Materials[i] = VerticalModuleViews.CreatePaletteMaterial(shader, i, "Vertical " + i);
                 }
                 MaterialFor = palette => Materials[Mathf.Clamp(palette, 0, Materials.Length - 1)];
             }

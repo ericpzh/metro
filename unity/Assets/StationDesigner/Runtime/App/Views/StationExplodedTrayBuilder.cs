@@ -811,14 +811,7 @@ namespace Metro.App.Views {
             if (sharedLiftPalette != null) return;
             sharedLiftPalette = new Material[VerticalModuleViews.Palette.Length];
             for (int i = 0; i < sharedLiftPalette.Length; i++) {
-                var mat = new Material(fallbackShader) {
-                    color = VerticalModuleViews.Palette[i],
-                    name = "ExplodedLiftShared #" + i,
-                };
-                if (mat.HasProperty(BaseColorId)) mat.SetColor(BaseColorId, VerticalModuleViews.Palette[i]);
-                if (i == VerticalModuleViews.PaletteGlass) {
-                    StationGlass.MakeTransparent(mat, 0.26f);
-                }
+                var mat = VerticalModuleViews.CreatePaletteMaterial(fallbackShader, i, "ExplodedLiftShared #" + i);
                 ownedMaterials.Add(mat);
                 sharedLiftPalette[i] = mat;
             }

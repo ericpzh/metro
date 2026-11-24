@@ -39,7 +39,8 @@ namespace Metro.App {
 
         /// <summary>
         /// Build a transparent URP Lit glass material. <paramref name="tint"/> is the
-        /// authored sRGB colour (converted to linear, as `THREE.Color` does);
+        /// authored sRGB colour (Unity's <c>SetColor</c> converts <c>Color</c> shader
+        /// properties from sRGB to linear automatically in Linear colour space);
         /// <paramref name="opacity"/> is the source's alpha.
         /// </summary>
         public static Material Create(Shader shader, string name, Color tint, float opacity,
@@ -53,7 +54,7 @@ namespace Metro.App {
             } else {
                 material = new Material(shader) { name = name };
             }
-            Apply(material, tint.linear, opacity, smoothness, metallic, doubleSided);
+            Apply(material, tint, opacity, smoothness, metallic, doubleSided);
             return material;
         }
 
@@ -67,9 +68,6 @@ namespace Metro.App {
             var tint = material.HasProperty("_BaseColor") ? material.GetColor("_BaseColor")
                 : material.HasProperty("_Color") ? material.GetColor("_Color")
                 : Color.white;
-            // A palette mints `color = <sRGB byte colour>`, which URP stores as raw gamma
-            // values; the source converts to linear in `new THREE.Color(hex)`. Convert once.
-            tint = tint.linear;
             Apply(material, tint, opacity, smoothness, metallic, doubleSided);
         }
 
@@ -82,11 +80,13 @@ namespace Metro.App {
             if (material.HasProperty("_Metallic")) material.SetFloat("_Metallic", metallic);
             if (material.HasProperty("_Cull")) material.SetFloat("_Cull", doubleSided ? 0f : 2f);
 
-            // URP's transparent surface: alpha blend, no depth write, queued after opaque.
-            // All four are needed; the keyword is what makes the fragment keep its alpha
-            // (`OutputAlpha`) instead of forcing 1.
+            // URP's transparent straight-alpha surface: alpha blend, no depth write, queued
+            // after opaque. All keywords must match `Resources/StationGlassRef.mat`
+            // (`_SURFACE_TYPE_TRANSPARENT` enabled, `_ALPHAPREMULTIPLY_ON` disabled) so
+            // standalone/WebGL player builds never strip this variant and fall back to opaque.
             if (material.HasProperty("_Surface")) material.SetFloat("_Surface", 1f);
             if (material.HasProperty("_Blend")) material.SetFloat("_Blend", 0f);
+            if (material.HasProperty("_BlendModePreserveSpecular")) material.SetFloat("_BlendModePreserveSpecular", 0f);
             if (material.HasProperty("_SrcBlend")) material.SetFloat("_SrcBlend", (float)BlendMode.SrcAlpha);
             if (material.HasProperty("_DstBlend")) material.SetFloat("_DstBlend", (float)BlendMode.OneMinusSrcAlpha);
             if (material.HasProperty("_SrcBlendAlpha")) material.SetFloat("_SrcBlendAlpha", (float)BlendMode.One);
