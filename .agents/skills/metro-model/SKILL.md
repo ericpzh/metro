@@ -64,7 +64,11 @@ changing character geometry, posture, or crowd atlas schemas.
   normals across color cuts, locks soles during simplification, packs `73`
   walking frames + `24`-sample activity palettes across `8` height fits × `3`
   hand modes, and generates `≤ 10%` Low-LOD topologies via
-  `tools/passenger-low-topology.mjs`. Always follow a direct baker run with
+  `tools/passenger-low-topology.mjs` (per-region connected-component
+  `MeshoptSimplifier.simplifyWithAttributes` in A-pose reference frame using
+  16-bone skin weights + multi-frame pose deltas, area-weighted budgets, and
+  locked extrema — never spatial `ConvexHull` envelopes, so arms never web to
+  the torso or legs). Always follow a direct baker run with
   `node tools/passenger-source-lf.mjs` (bundled in `npm run bake:passengers`).
 
 See [`references/soft-human-pipeline.md`](references/soft-human-pipeline.md) for

@@ -143,9 +143,12 @@ the passenger inventory in
       `218,396` shared vertices, `73` frames (`frame 0` = relaxed-arm standing
       pose + `3 × 24` walk frames, lossless frame-delta via
       `tools/passenger-bake-geometry.mjs`, zlib-base64), full topology padded to
-      `8,101` triangles, Low LOD topology padded to `791` triangles (`≤ 10%` per
-      recipe via `tools/passenger-low-topology.mjs` preserving palette boundaries
-      and pose extrema).
+      `8,101` triangles, Low LOD topology padded to `794` triangles (`412`–`794`,
+      `≤ 10%` per recipe via `tools/passenger-low-topology.mjs`, splitting each
+      palette region into connected mesh components and simplifying directly with
+      `MeshoptSimplifier.simplifyWithAttributes` over A-pose positions, 16-bone
+      skin weights, and multi-frame pose deltas with area-weighted budgets and
+      locked extrema — zero arm-to-leg, forearm-to-torso, or cross-arm bridging).
     - `passenger-activities.json` (`version: 3`): same `218,396` bind vertices and
       `16`-bone rig (`rootBone: 15`, `armBones: [9..14]`), `24` samples × `8`
       height fits (`0.5`–`1.2`) × `3` hand modes (`default`, `right`, `left`) ×

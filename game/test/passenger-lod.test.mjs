@@ -8,6 +8,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import * as THREE from 'three'
 import human from '../src/assets/passenger-approved.json' with { type: 'json' }
+import activities from '../src/assets/passenger-activities.json' with { type: 'json' }
 import {
   passengerBody, passengerMesh, passengerMaterial, PASSENGER_HAS_LOW_DETAIL, PASSENGER_LOW_TRIANGLES,
   PASSENGER_FULL_TRIANGLES, passengerAppearance,
@@ -116,6 +117,43 @@ test('the offline reducer leaves authoritative poses and topology unchanged and 
   assert.throws(() => passengerLowTopology({ indices: [0, 1, 2], poses: new Int16Array(9), vertices: 3 }), /at least ten/)
   const invalid = Array(10).fill([0, 1, 2]).flat()
   assert.throws(() => passengerLowTopology({ indices: invalid, poses: new Int16Array(9), vertices: 3, regions: [0, 1, 0] }), /crosses palette/)
+})
+
+test('Low topology never webs arms to the legs or torso across all 440 baked appearances', () => {
+  const bind = new Float32Array(Buffer.from(decodePassengerBytes(activities.data, activities.encoding)).buffer)
+  const lowRaw = decoded('lowIndices')
+  const low = human.indexBits === 32
+    ? new Uint32Array(lowRaw.buffer, lowRaw.byteOffset, lowRaw.byteLength / 4)
+    : new Uint16Array(lowRaw.buffer, lowRaw.byteOffset, lowRaw.byteLength / 2)
+  const boneIndex = Object.fromEntries(activities.boneNames.map((name, idx) => [name, idx]))
+  const leftArm = new Set([boneIndex.LeftArm, boneIndex.LeftForearm])
+  const rightArm = new Set([boneIndex.RightArm, boneIndex.RightForearm])
+  const arms = new Set([...leftArm, ...rightArm])
+  const forearms = new Set([boneIndex.LeftForearm, boneIndex.RightForearm])
+  const legs = new Set([boneIndex.LeftHip, boneIndex.LeftThigh, boneIndex.LeftLeg, boneIndex.RightHip, boneIndex.RightThigh, boneIndex.RightLeg])
+  const torso = new Set([boneIndex.Waist, boneIndex.Chest, boneIndex.Hips])
+  const dominantBone = new Uint8Array(human.vertices)
+  for (let v = 0; v < human.vertices; v++) {
+    const o = v * 16
+    let bestWeight = -1, bestBone = 0
+    for (let k = 0; k < 4; k++) {
+      if (bind[o + 8 + k] > bestWeight) { bestWeight = bind[o + 8 + k]; bestBone = bind[o + 12 + k] }
+    }
+    dominantBone[v] = bestBone
+  }
+  for (const [variant, model] of human.library.entries()) {
+    const start = variant * human.lowCorners
+    const end = start + model.lowTriangles * 3
+    for (let i = start; i < end; i += 3) {
+      const bones = [dominantBone[low[i]], dominantBone[low[i + 1]], dominantBone[low[i + 2]]]
+      assert.equal(bones.some(b => arms.has(b)) && bones.some(b => legs.has(b)), false,
+        `${model.id}: Low triangle connects arm to leg (${bones.map(b => activities.boneNames[b]).join(', ')})`)
+      assert.equal(bones.some(b => forearms.has(b)) && bones.some(b => torso.has(b)), false,
+        `${model.id}: Low triangle connects forearm to torso (${bones.map(b => activities.boneNames[b]).join(', ')})`)
+      assert.equal(bones.some(b => leftArm.has(b)) && bones.some(b => rightArm.has(b)), false,
+        `${model.id}: Low triangle bridges left and right arms`)
+    }
+  }
 })
 
 test('reduced bodies keep their projected surfaces, not just isolated extremum triangles', () => {

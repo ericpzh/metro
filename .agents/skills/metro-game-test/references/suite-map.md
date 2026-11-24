@@ -196,7 +196,7 @@ Categorized index of every `*.test.mjs` file in `game/test/`, shared helpers, an
 | `passenger-atlas.test.mjs` | Lossless temporal delta packing (16-bit pos, 8-bit norm) |
 | `passenger-clothing.test.mjs` | FBX/recipe hashes, RGB stops, skirt shell bridge, faces |
 | `passenger-library.test.mjs` [P] | Adult/child appearance/bag pools, decoders, poses, straps |
-| `passenger-lod.test.mjs` [P] | Hard 10% Low budget, silhouette/ground checks, dispose |
+| `passenger-lod.test.mjs` [P] | Hard 10% Low budget, zero arm/body webbing, silhouette/ground checks, dispose |
 | `passenger-size.test.mjs` | 20% child pool, 98% scale, height/width ranges, shadows |
 | `passenger-view.test.mjs` | Instanced crowd, stair stride, handedness, bags, picking |
 

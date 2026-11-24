@@ -182,8 +182,11 @@ and methodology/frame captures in
 - **Skinned passenger LOD invariant:** `PassengerCatalogueBuilder.LoadMeshTier`
   binds `Generated/Passengers/Lods/Models/...-lod{1,2}.glb` onto
   `PassengerCatalogue` only when `skin.bones` names and `sharedMesh.bindposes`
-  match `LOD0` in exact order. Every asset under `Generated/Passengers/`
-  remains `INTERNAL_REVIEW_ONLY`.
+  match `LOD0` in exact order and `passenger-lods.json` matches
+  `passenger-library.manifest.json`'s `recipeSha256`. `LOD2` reuses the
+  topology-preserving baked `lowIndices` from `passenger-approved.json` (no
+  spatial `ConvexHull` limb-to-body bridging). Every asset under
+  `Generated/Passengers/` remains `INTERNAL_REVIEW_ONLY`.
 
 ## Promotion stop-gates & troubleshooting
 

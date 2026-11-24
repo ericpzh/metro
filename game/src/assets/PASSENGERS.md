@@ -28,8 +28,10 @@ smooth normals, and sole vertices are locked during simplification. Material reg
 90 authored RGB colors. Simplification preserves weights and color boundaries;
 standing plus 24 frames for each of the three gaits are losslessly delta-packed.
 218,396 shared animated vertices serve all 440 recipes. Full topology pads to
-8,101 triangles, Low to 791; each recipe's Low topology stays below 10% of its full
-triangles and retains pose extrema. MeshBasicMaterial uses the baked smooth
+8,101 triangles, Low to 794; each recipe's Low topology stays below 10% of its full
+triangles, simplifies connected palette-region components directly over A-pose
+positions with 16-bone weights and multi-frame pose deltas (never spatial
+ConvexHull envelopes), and retains pose extrema without arm-to-body webbing. MeshBasicMaterial uses the baked smooth
 normals for a small fixed light term, retaining the rounded white head against
 pale station surfaces. High and Low people are fully opaque (opacity 1, transparent false), with depth
 testing and depth writes enabled. Road traffic retains its own alpha policy.

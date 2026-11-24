@@ -229,7 +229,7 @@ budget, pinned by `game/test/train-lod.test.mjs`).
 
 ### Passenger models (乘客)
 
-All 440 baked soft-human variants (`game/src/assets/passenger-approved.json`) share 218,396 animated vertices and pack High/Low index tables over the same pose atlas: High spans 4,179–8,101 triangles (padded to 8,101) and Low spans 399–791 triangles (padded to 791, `< 10%` per variant; pinned by `game/test/passenger-lod.test.mjs`, see `game/src/assets/PASSENGERS.md`). Ambient road vehicles use authored Low car, bus, bicycle, and scooter meshes in bounded instance pools.
+All 440 baked soft-human variants (`game/src/assets/passenger-approved.json`) share 218,396 animated vertices and pack High/Low index tables over the same pose atlas: High spans 4,179–8,101 triangles (padded to 8,101) and Low spans 412–794 triangles (padded to 794, `< 10%` per variant; pinned by `game/test/passenger-lod.test.mjs`, see `game/src/assets/PASSENGERS.md`). Ambient road vehicles use authored Low car, bus, bicycle, and scooter meshes in bounded instance pools.
 
 ### Unity native Mesh LOD generation
 

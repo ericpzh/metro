@@ -1,6 +1,6 @@
 {
   "algorithm": "sha256-utf8-lf",
-  "recipeSha256": "e2a692407b21e5c92a582af19eba449d9a22912e40c57f8fa0a17e2be7654843",
+  "recipeSha256": "d74a42f8012d4528feaa8ba5f923f7630c7b9269d57e0209c03be1100ae56709",
   "sourceHashes": {
     "game/src/sim/activities.ts": "ed0a7b7cf124d6099eff9d41a2e003a1d921794ca2de97e6288c8199f2d8386d",
     "game/src/sim/constants.ts": "ee9795c7e58c70830da9f86426993e7c8f5720e003c30f5c448aced3dfc275c1",
@@ -17,7 +17,7 @@
     "model/src/soft-human/bag-shell.js": "68b111c49dff307bab480daf91ac341225db5da551355b8b6fb09212fd41f33b",
     "model/src/soft-human/bag-connectors.js": "02bf89f353fc6be32427d29e77767fa1be6678975e1bb523582cbcaac590bf87",
     "model/src/soft-human/catalog.js": "a5912fa97e95fb37d53c2afcffe589cdf28046240e827bfc162634f3dbbffc2f",
-    "tools/bake-soft-passengers.mjs": "b2fd4267cbfc8e93c9754d583e53340859a1d086c31fd4b70acde4eeeec685fa",
-    "tools/passenger-low-topology.mjs": "8cd27653b6691c0b4802ee86dce22fc033d9f63f0ebcac72d4ae04df1680e9c2"
+    "tools/bake-soft-passengers.mjs": "c6e956fac8f1bfb3d2205d41f556aa50f2b74548cda0587b08a7b7fc9abf2706",
+    "tools/passenger-low-topology.mjs": "b59d8ad395ad5fc5297ee258742bab1618e1a8c506496756b26ff9588cb10edc"
   }
 }
