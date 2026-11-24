@@ -1,0 +1,8 @@
+{
+  "name": "YourPublisher.StationDesigner",
+  "publisher": "CN=00000000-0000-0000-0000-000000000000",
+  "publisherDisplayName": "Your Publisher Display Name",
+  "displayName": "Station Designer",
+  "description": "3D metro station design and live passenger flow sandbox.",
+  "version": "1.0.0.0"
+}

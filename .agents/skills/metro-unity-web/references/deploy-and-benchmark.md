@@ -14,7 +14,7 @@ Reference for `tools/unity-web/`, `tools/unity-windows-bundle/`, `unity/wrangler
 | `tools/unity-web/local-worker.mjs` | Production Cloudflare Worker (`unity/wrangler.jsonc`) and local Wrangler Worker: canonical redirects, HTML `lang` + `ASSET_PREFIX` rewriting, and zero-copy split-asset streaming. |
 | `tools/unity-web/serve-latest-pack.mjs` / `static-pack-server.mjs` | Plain Node HTTP server (`npm run preview:unity`, default port `8799`, `--pack <dir> --port <n> --ip <addr>`) mirroring `local-worker.mjs` routing and split-file reassembly across `/game/` and `/game/unity/` without `workerd`. |
 | `tools/unity-web/pack-release.mjs`, `release-worker.mjs`, `release-contract.mjs`, `route-contract.mjs` | Content-addressed immutable release pipeline (`/_unity/<releaseId>/...`, `releaseId = <sourceSha>-<artifactSha256[0..16]>`, `schemaVersion: 1` manifest, `Cache-Control: public, max-age=31536000, immutable`, `window.metroLaunch`). |
-| `tools/unity-web/build-windows.mjs` / `pack-windows-exe.mjs` | Isolated `StandaloneWindows64` builder (`--configuration Release\|Development`, `--out <dir>`, `--no-passengers`) and single-file `.exe` packager assembling `.preview/unity/StationDesigner.exe`. |
+| `tools/unity-web/build-windows.mjs` / `pack-windows-exe.mjs` / `pack-windows-msix.mjs` | Isolated `StandaloneWindows64` builder (`--configuration Release\|Development`, `--out <dir>`, `--no-passengers`, `--no-bundle`, `--msix [--version <v>] [--identity <json>] [--dev-sign]`), single-file `.exe` packager (`.preview/unity/StationDesigner.exe`), and Microsoft Store `.msix` packager (`msix-identity.example.json`, `.preview/unity/StationDesigner-<version>-x64.msix`). |
 | `tools/unity-windows-bundle/` | Self-contained `net10.0-windows` single-file launcher (`StationDesignerLauncher.csproj`, `Program.cs`, `StationDesigner.ico`) that verifies/extracts the appended `METRO_BUNDLE_V1` zip payload and launches `MetroStation.exe`. |
 | `tools/unity-web/verify-station-game.mjs` | Headless Chrome verifier driving `window.__metroStationBridge` against a packed `StationGameLocal` build (`--packed <dir> --demo zoo\|tanwei\|tianhe\|all --locale both\|zh\|en --only case[,case] --timeout-ms <n> --load-probe`; set `METRO_STATIC_SERVER=1` to bypass `workerd`). |
 | `tools/unity-web/smoke.mjs`, `smoke-release.mjs`, `smoke-first-playable.mjs`, `smoke-zoo-playable.mjs` | Headless Chrome smoke runners for raw local packs, immutable release artifacts, and legacy slice scenes. |
@@ -104,6 +104,31 @@ Reference for `tools/unity-web/`, `tools/unity-windows-bundle/`, `unity/wrangler
    `-benchmark`, `--en` / `-en` / `-lang en`, `-metroRoute <path>`, `--bundle-verify`,
    `--bundle-extract-only`.
 
+## Microsoft Store MSIX (`npm run build:unity:msix`)
+
+1. `npm run build:unity:msix` invokes `build-windows.mjs --msix`, which enforces `--no-passengers`
+   (stripping `Generated/Passengers/` and `StationGameLocalWeb.unity` from the isolated
+   `.preview/unity/win-workspace/project` copy so only the public `StationGameLocal.unity` scene
+   is built) and skips the portable SFX wrapper (`--no-bundle`).
+2. `pack-windows-msix.mjs` resolves `makeappx.exe`, `makepri.exe`, and `signtool.exe` from the
+   Windows SDK (`C:\Program Files (x86)\Windows Kits\10\bin`) or auto-restores
+   `Microsoft.Windows.SDK.BuildTools` into the NuGet cache via `dotnet restore` (no admin needed),
+   publishes self-contained `win-x64` `MetroEditorWebView.exe`, strips `.pdb`/`.xml`, and gates
+   the staged tree with `node unity/tests/passenger-profile.test.mjs --pack <stageDir>`.
+3. Partner Center identity (`name`, `publisher`, `publisherDisplayName`, `version`) is kept out
+   of Git in `.preview/unity/msix-identity.local.json` (template:
+   `tools/unity-web/msix-identity.example.json`; overridable via `--identity`, `--version`, or
+   `METRO_MSIX_*` env vars).
+4. Tile PNGs (`StoreLogo`, `Square44x44Logo` plated & unplated `targetsize-16..256`,
+   `Square150x150Logo`, `Wide310x150Logo`, `Square310x310Logo` across scales `100`/`200`/`400`)
+   are resampled from `design/icon/station-designer-blue-bold.png`, indexed into a single unified
+   `resources.pri` (`<packaging>` auto-split removed so no stray `resources.scale-*.pri` files
+   enter the single `.msix`), paired with an `x64` `Windows.FullTrustApplication` (`runFullTrust`)
+   `AppxManifest.xml`, and packed into unsigned `.preview/unity/StationDesigner-<version>-x64.msix`
+   (and `.preview/unity/StationDesigner.msix`) for Microsoft Store upload (the Store re-signs it
+   automatically). Pass `--dev-sign` to also produce a locally self-signed `.dev-signed.msix` +
+   `.preview/unity/win-workspace/msix-dev-cert/dev-sign.cer` for local sideload testing.
+
 ## Interactive Benchmark Route (`/game/unity/benchmark`)
 
 - **Entry points:** Direct URL `/game/unity/benchmark` or `/game/unity/benchmark/en`,
@@ -161,7 +186,7 @@ Run with `npm run test:unity` (no Unity Editor required):
 - **Artwork providers:** `exit-face.test.mjs`, `calligraphy-face.test.mjs`.
 - **Packaging, Workers, benchmark & safety guards:** `unity-preview-pipeline.test.mjs`,
   `unity-benchmark.test.mjs`, `web-release-contract.test.mjs`, `web-release-worker.test.mjs`,
-  `smoke-negative.test.mjs`, `passenger-profile.test.mjs` (also supports
+  `windows-msix.test.mjs`, `smoke-negative.test.mjs`, `passenger-profile.test.mjs` (also supports
   `node unity/tests/passenger-profile.test.mjs --pack <pack-dir>`).
 - **Runtime/asset structure guards:** `runtime-layering.test.mjs`, `asset-meta.test.mjs`,
   `edge-placement.test.mjs`, `renderer-audit.test.mjs`, `runtime-model-inventory.test.mjs`,

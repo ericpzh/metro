@@ -128,7 +128,7 @@ Run from the repository root (`package.json`):
 | Install deps (root / all sub-apps) | `npm install` · `npm run setup:all` (`setup`, `setup:game`, `setup:model`) |
 | Dev stack (`web` :5173 + `game` :5174 + `stats` :5176) | `npm start` or `npm run dev:all` (reuses listening ports; excludes `model`) |
 | Individual dev servers | `npm run dev` (`:5173`) · `npm run dev:game` (`:5174`) · `npm run dev:model` (`:5175`) · `npm run dev:stats` (`:5176`) |
-| Unity local WebGL & Windows `.exe` | `npm start unity` (`127.0.0.1:8787/game/`) · `npm run build:unity` · `npm run build:unity:windows` |
+| Unity local WebGL, Windows `.exe` & Store MSIX | `npm start unity` (`127.0.0.1:8787/game/`) · `npm run build:unity` · `npm run build:unity:windows` · `npm run build:unity:msix` |
 | Production builds & local preview | `npm run build` (`web`) · `npm run build:game` · `npm run build:model` · `npm run build:stats` · `npm run preview:local` (`:4173`) |
 | Tests & audits | `npm run test:game` · `npm run test:perf` · `npm run test:unity` · `npm run test:stats` · `npm run audit:i18n` |
 | Browser checks (site, UI & stats) | `npm run check:demos` · `npm run check:tutorial` · `npm run check:roads` · `npm run check:info-panel` · `npm run check:stats:reports` |

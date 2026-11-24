@@ -5,9 +5,10 @@
 // and game/dist-unity-ui, switches the isolated workspace to Win64, and builds
 // MetroStation.exe via unity/scripts/metro-unity.ps1 build-windows.
 import { spawnSync } from 'node:child_process'
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { packWindowsExe } from './pack-windows-exe.mjs'
+import { packWindowsMsix } from './pack-windows-msix.mjs'
 
 const repo = resolve(import.meta.dirname, '../..')
 const unityDir = join(repo, 'unity')
@@ -18,14 +19,29 @@ const args = process.argv.slice(2)
 let configuration = 'Release'
 let outDir = ''
 let noPassengers = false
+let buildMsix = false
+let noBundle = false
+let msixVersion = ''
+let msixIdentity = ''
+let devSign = false
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--configuration' && i + 1 < args.length) configuration = args[++i]
   else if (args[i] === '--out' && i + 1 < args.length) outDir = resolve(repo, args[++i])
   else if (args[i] === '--no-passengers') noPassengers = true
+  else if (args[i] === '--msix') buildMsix = true
+  else if (args[i] === '--no-bundle') noBundle = true
+  else if (args[i] === '--version' && i + 1 < args.length) msixVersion = args[++i]
+  else if (args[i] === '--identity' && i + 1 < args.length) msixIdentity = args[++i]
+  else if (args[i] === '--dev-sign') devSign = true
   else if (args[i] === '--help' || args[i] === '-h') {
-    console.log('Usage: node tools/unity-web/build-windows.mjs [--configuration Release|Development] [--out .preview/unity/<dir>] [--no-passengers]')
+    console.log('Usage: node tools/unity-web/build-windows.mjs [--configuration Release|Development] [--out .preview/unity/<dir>] [--no-passengers] [--msix [--version 1.0.0.0] [--identity <json>] [--dev-sign]] [--no-bundle]')
     process.exit(0)
   }
+}
+// Microsoft Store MSIX builds are public releases: force clean public scene unless explicitly disabled.
+if (buildMsix) {
+  noPassengers = true
+  noBundle = true
 }
 
 if (!outDir) {
@@ -74,6 +90,13 @@ mkdirSync(projectDir, { recursive: true })
 for (const sub of ['Assets', 'Packages', 'ProjectSettings', 'asset-recipes']) {
   const src = join(unityDir, sub)
   if (existsSync(src)) robocopy(src, join(projectDir, sub), ['/MIR', '/MT:16'])
+}
+if (noPassengers) {
+  // Keep public Win64 / MSIX workspaces strictly free of INTERNAL_REVIEW_ONLY passenger assets.
+  rmSync(join(projectDir, 'Assets/StationDesigner/Generated/Passengers'), { recursive: true, force: true })
+  rmSync(join(projectDir, 'Assets/StationDesigner/Generated/Passengers.meta'), { force: true })
+  rmSync(join(projectDir, 'Assets/StationDesigner/Scenes/StationGameLocalWeb.unity'), { force: true })
+  rmSync(join(projectDir, 'Assets/StationDesigner/Scenes/StationGameLocalWeb.unity.meta'), { force: true })
 }
 // StandaloneWindows64 BuildPipeline flips UnityConnectSettings m_Enabled 0 -> 1 inside
 // the project copy; pre-normalize it in the isolated workspace so provenance matches.
@@ -150,17 +173,34 @@ if (!existsSync(webViewExe) || !existsSync(uiManifest)) {
   throw new Error(`Missing staged StreamingAssets/MetroUi in ${playerDir}`)
 }
 
-// 5. Pack everything (UnityPlayer.dll, Data, self-contained MetroEditorWebView, UI, audio)
-// into ONE standalone single-file StationDesigner.exe.
-const bundledExe = join(outDir, 'StationDesigner.exe')
-await packWindowsExe(repo, playerDir, bundledExe)
-const latestExe = join(repo, '.preview/unity/StationDesigner.exe')
-copyFileSync(bundledExe, latestExe)
-if (process.platform === 'win32') {
-  spawnSync('icacls', [latestExe, '/setintegritylevel', 'Medium'], { windowsHide: true })
-}
+if (buildMsix) {
+  const res = await packWindowsMsix(repo, playerDir, '', {
+    version: msixVersion || undefined,
+    identityPath: msixIdentity || undefined,
+    devSign,
+  })
+  const latestMsix = join(repo, '.preview/unity/StationDesigner.msix')
+  if (res.outputMsix !== latestMsix) copyFileSync(res.outputMsix, latestMsix)
+  console.log(`\n[unity-win] Microsoft Store MSIX ready: ${res.outputMsix}`)
+  console.log(`[unity-win] Latest copy:                ${latestMsix}`)
+  if (res.devSigned) {
+    console.log(`[unity-win] Dev-signed sideload copy:   ${res.devSigned.signedMsix}`)
+  }
+} else if (!noBundle) {
+  // 5. Pack everything (UnityPlayer.dll, Data, self-contained MetroEditorWebView, UI, audio)
+  // into ONE standalone single-file StationDesigner.exe.
+  const bundledExe = join(outDir, 'StationDesigner.exe')
+  await packWindowsExe(repo, playerDir, bundledExe)
+  const latestExe = join(repo, '.preview/unity/StationDesigner.exe')
+  copyFileSync(bundledExe, latestExe)
+  if (process.platform === 'win32') {
+    spawnSync('icacls', [latestExe, '/setintegritylevel', 'Medium'], { windowsHide: true })
+  }
 
-console.log(`\n[unity-win] Single-file standalone executable ready: ${latestExe}`)
-console.log(`[unity-win] Archived copy: ${bundledExe}`)
-console.log(`[unity-win] Run game:      "${latestExe}"`)
-console.log(`[unity-win] Run benchmark: "${latestExe}" -benchmark`)
+  console.log(`\n[unity-win] Single-file standalone executable ready: ${latestExe}`)
+  console.log(`[unity-win] Archived copy: ${bundledExe}`)
+  console.log(`[unity-win] Run game:      "${latestExe}"`)
+  console.log(`[unity-win] Run benchmark: "${latestExe}" -benchmark`)
+} else {
+  console.log(`\n[unity-win] Raw Windows player ready: ${playerDir}`)
+}

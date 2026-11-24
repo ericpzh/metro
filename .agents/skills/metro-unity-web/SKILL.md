@@ -86,6 +86,9 @@ npm run deploy:unity                             # build public StationGameLocal
 
 # 6. Portable single-file Windows standalone executable (.preview/unity/StationDesigner.exe)
 npm run build:unity:windows
+
+# 7. Microsoft Store MSIX package (.preview/unity/StationDesigner-<version>-x64.msix; public scene, unsigned for Store signing)
+npm run build:unity:msix -- [--version 1.0.0.0] [--dev-sign]
 ```
 
 ## Load-bearing contracts

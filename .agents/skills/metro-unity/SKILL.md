@@ -59,6 +59,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/unity-parity/check-uni
 npm run test:unity                # Node contract & packaging tests (unity/tests/*.test.mjs)
 npm run build:unity               # isolated WebGL build + React UI pack
 npm run build:unity:windows       # isolated Win64 build + portable .preview/unity/StationDesigner.exe
+npm run build:unity:msix          # isolated public Win64 build + Store-ready .preview/unity/StationDesigner-<ver>-x64.msix
 ./unity/scripts/metro-local-player.ps1 -Serve -Port 8801  # loopback-only soft-human WebGL pack
 ```
 
