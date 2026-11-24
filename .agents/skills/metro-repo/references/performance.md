@@ -16,6 +16,7 @@ Active performance contracts, measurement rules, and per-model geometry inventor
 - [perf-unity.md](perf-unity.md) — Unity 6 URP 3-tier LODs, non-active storey step-down, FSR 1.0 upscaling, retained edits, WebGL memory/Brotli packaging, Windows `.exe` startup/benchmark, and sparse routing parity.
 - [perf-benchmarks.md](perf-benchmarks.md) — verified `npm` scripts, browser/route benchmarks, Unity EditMode/PlayMode perf suites, and standalone player benchmarks.
 - [perf-benchmark-matrix.md](perf-benchmark-matrix.md) — full 264-combination serial benchmark matrix (240 `regular`/`explode` + 24 LOD0 close-up `tour`) across Web (Three.js localhost), Unity WebGL (localhost), and Unity Desktop (`.exe`).
+- [perf-tianhe-object-latency.md](perf-tianhe-object-latency.md) — full 102-object real-click placement & pick latency matrix on Tianhe Park (Paused `0×` and Live `1×` peak rush) across Unity Desktop (`.exe`), Unity WebGL, and Web (Three.js).
 - [unity-model-lod-inventory.md](unity-model-lod-inventory.md) — Unity `LOD0`/`LOD1`/`LOD2` triangle inventory across rigid prefabs, procedural probes, compacted trains, and passengers.
 
 ## Per-model geometry detail inventory (Web Three.js)

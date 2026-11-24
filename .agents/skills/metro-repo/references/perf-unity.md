@@ -94,6 +94,25 @@ for measurement rules and [perf-benchmarks.md](perf-benchmarks.md) for commands.
   suppression, and single-level target indexing to visit only affected storey
   bands on Q/E switches. Unchanged accepted `view.set level` commands no-op
   without running `Visibility.Apply` or `RefreshHover`.
+- **Measured Tianhe Park 102-object placement & pick baseline (`d019f4d2`, `high` / `native` FSR, `0×` & `1×`)**:
+  Full matrix in [perf-tianhe-object-latency.md](perf-tianhe-object-latency.md).
+  On Tianhe Park (`151,852` cells, `76,438` modules), Unity Desktop `.exe`
+  (Mono) placement splits into 4 tiers: fast local (`48–380 ms`, 47 cases),
+  heavy local (`435–1,330 ms`, 27 cases; `StageLocal.equipment` ~400 ms +
+  `StageLocal.contact-shadows` ~240 ms + ramp `StageLocal.cells` ~380 ms),
+  full-view fallback (`6,320–6,980 ms`, 23 cases across 11 families: `booth`,
+  `track`, `pillar`, `roof`, `exit`, `tv`, `glass`, `calligraphy`, `linemap`,
+  `psd-end`, `guidepost`), and sign full-document + full-sim fallback
+  (`9,460–9,590 ms` host present / ~11.4 s click→reply, ~1.05 GB alloc from
+  `local-sign-repair` + `full-stage-install` + `delta: false`, which
+  deterministically triggers `abort("OOM")` on Unity WebGL). Unity WebGL
+  (IL2CPP WASM) runs C# rebuild stages ~1.4×–1.7× faster than Desktop Mono
+  (P50 `261–287 ms` vs `441–447 ms`; fallback P50 `5,340–5,464 ms` vs
+  `6,472–6,479 ms`). Real-click pick host `ack` is `17–44 ms` median, while
+  React UI adoption lags to ~`95 ms` median because `stationBridge.ts`
+  `reduce()` omits `payload.edit` on `kind === "ack"` and waits for the 100 ms
+  periodic `state` tick. `exit-doorway-1`, `exit-virtual`, and `traffic-light`
+  currently return `no-candidate` in `StationModuleFamilies.TryParse`.
 
 ## Crowds, displays & exploded view memory
 

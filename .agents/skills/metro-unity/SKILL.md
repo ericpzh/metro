@@ -18,7 +18,7 @@ Station Designer Unity 6 URP port under `unity/` and `tools/unity-parity/`.
 | Retained edits, picking, visibility, cutaway, skybox, exploded view, LODs, FSR 1.0 & glass | [references/rendering-lod-fsr.md](references/rendering-lod-fsr.md) |
 | Shared React UI (`game/src/unity-web/`), Bridge v2, WebView2, WebGL pack/deploy & `unity/tests/` | [metro-unity-web](../metro-unity-web/SKILL.md) |
 | Three.js/GLB conversion (`tools/unity-assets/`), finishes, passenger profiles & Mesh LOD baking | [metro-unity-assets](../metro-unity-assets/SKILL.md) |
-| Unity performance invariants & per-model LOD triangle inventory | [perf-unity.md](../metro-repo/references/perf-unity.md), [unity-model-lod-inventory.md](../metro-repo/references/unity-model-lod-inventory.md) |
+| Unity performance invariants, Tianhe edit latency matrix & LOD inventory | [perf-unity.md](../metro-repo/references/perf-unity.md), [perf-tianhe-object-latency.md](../metro-repo/references/perf-tianhe-object-latency.md), [unity-model-lod-inventory.md](../metro-repo/references/unity-model-lod-inventory.md) |
 | TypeScript behavioral reference (`game/src/` sim, build, render) | [metro-game](../metro-game/SKILL.md), [metro-game-sim](../metro-game-sim/SKILL.md), [metro-game-render](../metro-game-render/SKILL.md) |
 
 ## Pinned toolchain

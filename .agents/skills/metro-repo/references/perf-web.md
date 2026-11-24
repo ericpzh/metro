@@ -10,7 +10,12 @@ inventories, and [perf-benchmarks.md](perf-benchmarks.md) for commands.
   misses). Track API-to-render, two-RAF, GPU completion, and worker installation
   separately. Run `npm run bench:editor-actions` (see
   [perf-benchmarks.md](perf-benchmarks.md)) for per-action captures under
-  `.preview/perf/editor-actions/`.
+  `.preview/perf/editor-actions/`. For real-click full-catalog placement and
+  pick latencies on Tianhe Park (`high` / `native` FSR, `0×` & `1×`: `102/102`
+  objects OK, P50 `155–169 ms` click→render, P95 `374–386 ms`, 4 outliers
+  `> 900 ms`: `block/auto-walls`, `wall`, `checkout`, `checkout-cafe-pastry`;
+  pick P50 `31–33 ms` eyedropper/select, `66–68 ms` move), see
+  [perf-tianhe-object-latency.md](perf-tianhe-object-latency.md).
 - **Single scene pick**: Resolve at most one scene raycast per pointer event and
   share it across tools, surface aims, selection, and audio
   (`check-tool-picking.mjs`, `check-geometry-snapping.mjs`).

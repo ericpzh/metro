@@ -13,6 +13,10 @@ measurement. See [performance.md](performance.md) for engineering rules,
   Unity WebGL verifiers; default hardware ANGLE for web browser benchmarks).
   Never publish `--software-gpu`, profiled, or incomplete captures to shared
   matrices.
+- **Tianhe Park object placement & pick latency matrix**: See
+  [perf-tianhe-object-latency.md](perf-tianhe-object-latency.md) for the 102-object
+  real-click placement & pick latency matrix on Tianhe Park (`0×` Paused & `1×`
+  peak rush) across Unity Desktop (`.exe`), Unity WebGL, and Web (Three.js).
 - **Separate instrumentation**: Collect clean timings, CPU profiles, and Chrome
   traces in separate runs.
 - **Shared playback presets** (`bench-sim-stalls.mjs`, `/benchmark`, and
