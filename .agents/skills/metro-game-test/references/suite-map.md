@@ -295,7 +295,7 @@ Categorized index of every `*.test.mjs` file in `game/test/`, shared helpers, an
 | `game-loading.test.mjs` | Early loading shell visibility, dismissal, error text |
 | `ui-theme.test.mjs` | Three UI themes: default fallback, apply, reload persist |
 | `tutorial.test.mjs` | Empty paused startup, progress/opt-out, benchmark bypass |
-| `new-station-confirmation.test.mjs` | Top-bar button & Ctrl+N confirmation before replacement |
+| `new-station-confirmation.test.mjs` | Shared `ReplaceStationDialog` save-first confirmation for New (`Ctrl+N`), Example stations, and Open save (`Ctrl+L`) across Web & Unity |
 | `topbar-playback.test.mjs` | Top-bar play/pause resuming like Space alongside speeds |
 | `topbar-report-issue.test.mjs` | Settings menu report-issue tile layout & outbound action |
 | `report-issue-route.test.mjs` | Locale `/stats/report` + `/stats/en/report` & dev host |

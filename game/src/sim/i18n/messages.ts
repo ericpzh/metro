@@ -2351,6 +2351,14 @@ export const messages = {
     "zh": "打开{0}示例车站",
     "en": "Open the {0} example station"
   },
+  "open_example_station_confirm_title": {
+    "zh": "打开{0}示例车站？",
+    "en": "Open the {0} example station?"
+  },
+  "open_example_station": {
+    "zh": "打开示例车站",
+    "en": "Open example station"
+  },
   "value_station_concourse_preview": {
     "zh": "{0}站大厅预览",
     "en": "{0} station concourse preview"
@@ -2402,6 +2410,14 @@ export const messages = {
   "open_save_ctrl_l": {
     "zh": "打开存档（Ctrl+L）",
     "en": "Open save (Ctrl+L)"
+  },
+  "open_save_confirm_title": {
+    "zh": "打开存档？",
+    "en": "Open saved station?"
+  },
+  "open_save_confirm": {
+    "zh": "打开存档",
+    "en": "Open save"
   },
   "open_490": {
     "zh": "打开",

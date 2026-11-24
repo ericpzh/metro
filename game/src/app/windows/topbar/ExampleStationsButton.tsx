@@ -5,14 +5,18 @@ import { EXAMPLE_STATIONS } from './exampleStations.ts'
 import { openExampleWithLoading } from '../../gameLoading.ts'
 import { useStore } from '../../store.ts'
 import { useStationHost } from '../StationHost.tsx'
+import { ReplaceStationDialog } from './ReplaceStationDialog.tsx'
 
-/** The button and shortcut open the same chooser; only a card loads a station. */
+type ExampleStation = (typeof EXAMPLE_STATIONS)[number]
+
+/** The button and shortcut open the same chooser; confirming a card loads a station. */
 export function ExampleStationsButton(): React.ReactElement {
   useLanguage()
   const host = useStationHost()
   const buttonRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const [open, setOpen] = useState(false)
+  const [pendingStation, setPendingStation] = useState<ExampleStation | null>(null)
 
   const show = (): void => {
     const button = buttonRef.current
@@ -30,6 +34,23 @@ export function ExampleStationsButton(): React.ReactElement {
     window.addEventListener('metro:examples', show)
     return () => window.removeEventListener('metro:examples', show)
   }, [])
+
+  const cancel = (): void => {
+    setPendingStation(null)
+    buttonRef.current?.focus()
+  }
+  const confirm = (): void => {
+    const station = pendingStation
+    setPendingStation(null)
+    if (!station) return
+    if (host) { host.openDemo(station.id); return }
+    void openExampleWithLoading(() => {
+      const epoch = useStore.getState().stationEpoch
+      station.load()
+      return useStore.getState().stationEpoch !== epoch
+    }, () => useStore.getState().setNotice(document.documentElement.lang === 'en'
+      ? 'Could not open the example station.' : '无法打开示例车站。'))
+  }
 
   return (
     <>
@@ -71,13 +92,7 @@ export function ExampleStationsButton(): React.ReactElement {
               className="exampleStationCard"
               onClick={() => {
                 menuRef.current?.hidePopover()
-                if (host) { host.openDemo(station.id); return }
-                void openExampleWithLoading(() => {
-                  const epoch = useStore.getState().stationEpoch
-                  station.load()
-                  return useStore.getState().stationEpoch !== epoch
-                }, () => useStore.getState().setNotice(document.documentElement.lang === 'en'
-                  ? 'Could not open the example station.' : '无法打开示例车站。'))
+                setPendingStation(station)
               }}
               aria-label={t('open_the_value_example_station', translate(station.name))}
             >
@@ -90,6 +105,13 @@ export function ExampleStationsButton(): React.ReactElement {
           ))}
         </div>
       </div>
+      <ReplaceStationDialog
+        open={pendingStation !== null}
+        title={pendingStation ? t('open_example_station_confirm_title', translate(pendingStation.name)) : ''}
+        confirmLabel={t('open_example_station')}
+        onCancel={cancel}
+        onConfirm={confirm}
+      />
     </>
   )
 }

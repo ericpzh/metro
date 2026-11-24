@@ -3,6 +3,7 @@ import { useLanguage } from '../../i18n.ts'
 import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../../store.ts'
 import { useStationHost } from '../StationHost.tsx'
+import { ReplaceStationDialog } from './ReplaceStationDialog.tsx'
 
 /** The button and Ctrl+N share one confirmation before replacing the current station. */
 export function NewStationButton(): React.ReactElement {
@@ -11,28 +12,12 @@ export function NewStationButton(): React.ReactElement {
   const newStation = useStore((s) => s.newStation)
   const [open, setOpen] = useState(false)
   const triggerRef = useRef<HTMLButtonElement>(null)
-  const confirmRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
     const show = (): void => setOpen(true)
     window.addEventListener('metro:new-station', show)
     return () => window.removeEventListener('metro:new-station', show)
   }, [])
-
-  useEffect(() => {
-    if (!open) return
-    confirmRef.current?.focus()
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') {
-        e.preventDefault()
-        e.stopPropagation()
-        setOpen(false)
-        triggerRef.current?.focus()
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [open])
 
   const cancel = (): void => {
     setOpen(false)
@@ -61,20 +46,13 @@ export function NewStationButton(): React.ReactElement {
           <path d="M8 8.5v4M6 10.5h4" />
         </svg>
       </button>
-      {open && (
-        <div className="newStationDialog" role="presentation" onMouseDown={(e) => {
-          if (e.target === e.currentTarget) cancel()
-        }}>
-          <section className="newStationPanel" role="dialog" aria-modal="true" aria-labelledby="newStationTitle" aria-describedby="newStationMessage">
-            <h2 id="newStationTitle">{t('new_station')}</h2>
-            <p id="newStationMessage">{t('the_current_station_will_be_replaced_save_anything_you_want_to_k')}</p>
-            <div className="newStationActions">
-              <button type="button" onClick={cancel}>{t('cancel')}</button>
-              <button ref={confirmRef} type="button" className="primary" onClick={confirm}>{t('new_station_483')}</button>
-            </div>
-          </section>
-        </div>
-      )}
+      <ReplaceStationDialog
+        open={open}
+        title={t('new_station')}
+        confirmLabel={t('new_station_483')}
+        onCancel={cancel}
+        onConfirm={confirm}
+      />
     </>
   )
 }

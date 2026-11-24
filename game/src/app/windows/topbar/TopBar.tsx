@@ -12,6 +12,7 @@ import { SimulationControls } from './SimulationControls.tsx'
 import { openSaveWithLoading } from '../../gameLoading.ts'
 import { CityStyleSelect } from './CityStyleSelect.tsx'
 import { FileButtons } from './FileButtons.tsx'
+import { ReplaceStationDialog } from './ReplaceStationDialog.tsx'
 import { useStationHost } from '../StationHost.tsx'
 import { stationHostCommit } from '../../stationHostBridge.ts'
 
@@ -77,14 +78,24 @@ export function TopBar({ files }: { files?: { save: () => void; open: (text: str
   const redo = host?.redo ?? storeRedo
   const canUndo = host?.getHistory ? hostHistory.canUndo : storeCanUndo
   const canRedo = host?.getHistory ? hostHistory.canRedo : storeCanRedo
+  const [confirmOpenSave, setConfirmOpenSave] = useState(false)
+  const openButtonRef = useRef<HTMLButtonElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
-  // Ctrl+L opens the file picker, but the input lives here while the key
-  // handler lives in App, so it arrives as an event.
+  // Ctrl+L requests the same save-first confirmation as the Open button before
+  // opening the file picker; the key handler lives in App, so it arrives as an event.
   useEffect(() => {
-    const open = (): void => fileRef.current?.click()
+    const open = (): void => setConfirmOpenSave(true)
     window.addEventListener('metro:open', open)
     return () => window.removeEventListener('metro:open', open)
   }, [])
+  const cancelOpenSave = (): void => {
+    setConfirmOpenSave(false)
+    openButtonRef.current?.focus()
+  }
+  const confirmOpenSaveDialog = (): void => {
+    setConfirmOpenSave(false)
+    fileRef.current?.click()
+  }
   return (
     <div className="topbar">
       <div className="brand">
@@ -98,7 +109,18 @@ export function TopBar({ files }: { files?: { save: () => void; open: (text: str
       <button className="ghost iconBtn" onClick={() => window.dispatchEvent(new Event('metro:tutorial'))} title={t('tutorial_title')} aria-label={t('tutorial_title')}>
         <IoIosBookmarks aria-hidden="true" />
       </button>
-      <FileButtons onSave={files?.save ?? (host ? () => host.save() : saveToFile)} onOpen={() => fileRef.current?.click()} />
+      <FileButtons
+        onSave={files?.save ?? (host ? () => host.save() : saveToFile)}
+        onOpen={() => setConfirmOpenSave(true)}
+        openButtonRef={openButtonRef}
+      />
+      <ReplaceStationDialog
+        open={confirmOpenSave}
+        title={t('open_save_confirm_title')}
+        confirmLabel={t('open_save_confirm')}
+        onCancel={cancelOpenSave}
+        onConfirm={confirmOpenSaveDialog}
+      />
       <input
         ref={fileRef}
         type="file"

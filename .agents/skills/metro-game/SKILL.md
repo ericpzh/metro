@@ -148,8 +148,11 @@ sim/    ->  sim/ only                (zero external packages, DOM, three, or rea
   - `B` (delete), `P` (pick), and `M` (move) toggle back to `previousTool`.
   - Build-rail folders use `Shift+1..0` (`RAIL_FOLDERS`); inspector folders use
     `Alt+1..4` (`INSPECTOR_FOLDERS`).
-  - Both the New Station button and `Ctrl+N` open the same `NewStationButton`
-    confirmation dialog before calling `newStation()`.
+  - All station-replacement flows — New Station (`NewStationButton` / `Ctrl+N`),
+    Example Stations (`ExampleStationsButton` card click / `Ctrl+Shift+N`), and
+    Open Save (`TopBar` / `FileButtons` / `Ctrl+L`) — open the shared
+    `ReplaceStationDialog` save-first confirmation modal before replacing the
+    current station (across both Three.js and Unity builds).
   - `SettingsMenu.tsx` houses the benchmark action in its heading, 4 audio sliders,
     4 setting tiles (graphics quality / Unity model detail, FSR 1.0 upscaling, edge
     scrolling, anonymous stats sharing), and 4 action tiles (restart, report issue to
