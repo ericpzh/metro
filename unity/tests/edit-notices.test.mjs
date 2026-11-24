@@ -57,3 +57,25 @@ test('the notice key changes with the outcome and not with a repeated one', () =
   assert.notEqual(noticeKey(a), noticeKey(b))
   assert.equal(noticeKey(null), '')
 })
+
+test('room tool refusals map to localized room messages in both languages', () => {
+  const minSize = { kind: 'blocked', code: 'min-size', tool: 'zone', zoneBrush: 'ticket', width: 2, height: 1 }
+  assert.match(noticeText(minSize, 'zh-CN'), /3×3.*2×1/)
+  assert.match(noticeText(minSize, 'en'), /3×3.*2×1/)
+
+  const clash = { kind: 'blocked', code: 'clash', tool: 'zone', zoneBrush: 'ticket' }
+  assert.match(noticeText(clash, 'zh-CN'), /重叠/)
+  assert.match(noticeText(clash, 'en'), /cannot overlap/i)
+
+  const noFloor = { kind: 'blocked', code: 'no-floor', tool: 'zone', zoneBrush: 'info' }
+  assert.match(noticeText(noFloor, 'zh-CN'), /地面/)
+  assert.match(noticeText(noFloor, 'en'), /complete floor/i)
+
+  const track = { kind: 'blocked', code: 'track', tool: 'zone', zoneBrush: 'ticket' }
+  assert.match(noticeText(track, 'zh-CN'), /轨道.*房间/)
+  assert.match(noticeText(track, 'en'), /rooms on track/i)
+
+  const notFloor = { kind: 'blocked', code: 'not-floor', tool: 'zone', zoneBrush: 'paid' }
+  assert.match(noticeText(notFloor, 'zh-CN'), /地板/)
+  assert.match(noticeText(notFloor, 'en'), /painted on floors/i)
+})

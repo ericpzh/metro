@@ -71,9 +71,12 @@ namespace Metro.App {
         Material cellOkMaterial;
         Material cellBadMaterial;
         Material cellRingMaterial;
+        Material zoneMaterial;
         Material cursorOkMaterial;
         Material cursorBadMaterial;
         Material blockerOutlineMaterial;
+        StationMaterials boothOkMaterials;
+        StationMaterials boothBadMaterials;
         StationIndex index;
         bool bound;
 
@@ -285,7 +288,13 @@ namespace Metro.App {
                 if (go == null) continue;
                 count++;
                 var renderer = go.GetComponent<Renderer>();
-                if (renderer != null && renderer.enabled && renderer.isVisible) visible++;
+                if (renderer != null) {
+                    if (renderer.enabled && renderer.isVisible) visible++;
+                    continue;
+                }
+                foreach (var child in go.GetComponentsInChildren<Renderer>(false)) {
+                    if (child != null && child.enabled && child.isVisible) { visible++; break; }
+                }
             }
         }
 
@@ -307,21 +316,119 @@ namespace Metro.App {
         }
 
         /// <summary>
-        /// The 分区 brush's floor tint (plan 27 §6): a thin top-face slab on every floor cell
-        /// the drag covers, in the armed zone's own palette colour, and the warning red when the
-        /// brush is the eraser. It is the same `cellOwned` layer the other ghosts use, so one
-        /// gesture owns the preview at a time.
+        /// The 分区 / 房间 brush's live preview (plan 27 §6):
+        /// * During a facility room drag (`ticket` / `info`), draws the translucent 3D booth
+        ///   (through `BoothModuleViews.TryBuild`, keeping counter/screen/glass contrast) plus its
+        ///   auto-stocked staff benches and the corner cursor ring — matching the web build's
+        ///   `ZoneTool.showFacilityPreview`.
+        /// * On hover or a fare/room-zone drag, draws a thin top-face slab on every covered floor
+        ///   cell in the armed zone's own palette colour (or warning red when erasing), plus the
+        ///   cursor ring.
         /// </summary>
         public void ShowZone(StationZonePreview preview) {
+            ClearGhost();
             ClearCells();
             if (!bound || preview == null || IsUiHidden()) return;
-            var tint = preview.Floor.Count > 0 ? preview.Floor : preview.Rect;
-            if (tint.Count == 0) return;
-            var rgb = preview.Colour;
-            var colour = new Color(((rgb >> 16) & 0xFF) / 255f, ((rgb >> 8) & 0xFF) / 255f, (rgb & 0xFF) / 255f, 0.42f);
-            var material = CellMaterial(!preview.Erase, colour);
-            foreach (var cell in tint) BuildBox(FaceBounds(cell, StationFace.Top), material, cellOwned);
-            StationEditSession.Ghost = Summary("zone");
+            if (preview.Facility.Length > 0 && preview.Width > 0 && preview.Height > 0) {
+                bool ok = string.IsNullOrEmpty(preview.Notice);
+                var tint = ok ? new Color(0x16 / 255f, 0x8c / 255f, 1f, 0.55f) : new Color(1f, 0.27f, 0.2f, 0.55f);
+                var area = preview.FacilityRect;
+                BuildBoothGhost(preview.Facility, area, preview.Front, ok, tint);
+                var benches = StationFacilityPlanner.BoothBenchSpots(area, preview.Front);
+                for (int i = 0; i < benches.Count; i++) {
+                    var spot = benches[i];
+                    var benchDraft = new StationEditDraft {
+                        Id = "facility-preview-bench-" + i,
+                        Type = "bench",
+                        X = spot.X,
+                        Y = spot.Y,
+                        Z = area.Z,
+                        Rotation = spot.Rotation,
+                    };
+                    benchDraft.Set(true, "auto");
+                    if (!TryBuildPrefabGhost(benchDraft, tint)) BuildBoxGhost(benchDraft, tint);
+                }
+                if (!string.IsNullOrEmpty(preview.BlockedBy) && TryBlockerBounds(preview.BlockedBy, out var blocker)) {
+                    BuildLineBox(blocker, RefusalOutlineMaterial(), cellOwned);
+                }
+                if (preview.HasCursor) {
+                    BuildLineBox(CursorBounds(preview.Cursor), CursorMaterial(ok), cellOwned);
+                }
+                StationEditSession.Ghost = Summary("zone");
+                return;
+            }
+            var tintCells = preview.Floor.Count > 0 ? preview.Floor : preview.Rect;
+            if (tintCells.Count > 0) {
+                var rgb = preview.Colour;
+                var colour = new Color(((rgb >> 16) & 0xFF) / 255f, ((rgb >> 8) & 0xFF) / 255f, (rgb & 0xFF) / 255f, 0.42f);
+                var material = ZoneMaterial(colour);
+                foreach (var cell in tintCells) BuildBox(FaceBounds(cell, StationFace.Top), material, cellOwned);
+            }
+            if (preview.HasCursor) {
+                bool cursorOk = string.IsNullOrEmpty(preview.Notice) && !preview.Erase;
+                BuildLineBox(CursorBounds(preview.Cursor), CursorMaterial(cursorOk), cellOwned);
+            }
+            if (tintCells.Count > 0 || preview.HasCursor) {
+                StationEditSession.Ghost = Summary("zone");
+            }
+        }
+
+        void BuildBoothGhost(string kind, StationFacilityRect area, int front, bool ok, Color tint) {
+            var palette = GhostBoothMaterials(ok);
+            if (palette != null) {
+                var cfg = new Dictionary<string, string>(StringComparer.Ordinal) {
+                    ["kind"] = kind ?? "ticket",
+                    ["stocked"] = "true",
+                    ["front"] = (((front % 4) + 4) % 4).ToString(System.Globalization.CultureInfo.InvariantCulture),
+                };
+                var facts = new ModuleFacts {
+                    Id = "facility-preview",
+                    Type = "booth",
+                    X = area.X0,
+                    Y = area.Y0,
+                    Z = area.Z,
+                    ExactZ = area.Z,
+                    Width = area.Width,
+                    Depth = area.Height,
+                    Config = new ModuleConfig(cfg),
+                };
+                if (Views.BoothModuleViews.TryBuild(facts, transform, palette, out var view, out _) && view != null) {
+                    view.name = "ghost facility booth " + kind;
+                    foreach (var renderer in view.GetComponentsInChildren<Renderer>(true)) {
+                        if (renderer == null) continue;
+                        renderer.forceMeshLod = 0;
+                        renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                        renderer.receiveShadows = false;
+                    }
+                    owned.Add(view);
+                    return;
+                }
+            }
+            var fallback = new StationBox(area.X0, area.Y0, area.Z + 1, area.X1 + 1, area.Y1 + 1, area.Z + 3.4);
+            BuildBox(WorldFromDocument(fallback), Tinted(ok, tint), owned);
+        }
+
+        StationMaterials GhostBoothMaterials(bool ok) {
+            if (ok && boothOkMaterials != null) return boothOkMaterials;
+            if (!ok && boothBadMaterials != null) return boothBadMaterials;
+            var shader = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Unlit/Color");
+            if (shader == null) return null;
+            var tint = ok
+                ? new Color(0x16 / 255f, 0x8c / 255f, 1f, 1f)
+                : new Color(1f, 0x30 / 255f, 0x30 / 255f, 1f);
+            var palette = StationMaterials.CreateGhost(shader, tint, 0.62f, 0.34f);
+            if (ok) boothOkMaterials = palette; else boothBadMaterials = palette;
+            return palette;
+        }
+
+        Material ZoneMaterial(Color colour) {
+            if (zoneMaterial == null) {
+                zoneMaterial = CreateUnlitTransparent("edit zone ghost", colour);
+            } else {
+                if (zoneMaterial.HasProperty("_BaseColor")) zoneMaterial.SetColor("_BaseColor", colour);
+                if (zoneMaterial.HasProperty("_Color")) zoneMaterial.SetColor("_Color", colour);
+            }
+            return zoneMaterial;
         }
 
         /// <summary>
@@ -563,6 +670,7 @@ namespace Metro.App {
             ApplyClip(selectedFill, visibility.SectionClipping, plane); ApplyClip(hoverFill, visibility.SectionClipping, plane);
             ApplyClip(cellOkMaterial, visibility.SectionClipping, plane); ApplyClip(cellBadMaterial, visibility.SectionClipping, plane);
             ApplyClip(cellRingMaterial, visibility.SectionClipping, plane);
+            ApplyClip(zoneMaterial, visibility.SectionClipping, plane);
             ApplyClip(eraseMaterial, visibility.SectionClipping, plane);
         }
         static void ApplyClip(Material material, bool clip, Vector4 plane) {
@@ -687,9 +795,14 @@ namespace Metro.App {
             if (cellOkMaterial != null) Destroy(cellOkMaterial);
             if (cellBadMaterial != null) Destroy(cellBadMaterial);
             if (cellRingMaterial != null) Destroy(cellRingMaterial);
+            if (zoneMaterial != null) Destroy(zoneMaterial);
             if (cursorOkMaterial != null) Destroy(cursorOkMaterial);
             if (cursorBadMaterial != null) Destroy(cursorBadMaterial);
             if (blockerOutlineMaterial != null) Destroy(blockerOutlineMaterial);
+            boothOkMaterials?.Dispose();
+            boothOkMaterials = null;
+            boothBadMaterials?.Dispose();
+            boothBadMaterials = null;
         }
 
         static void Destroy(UnityEngine.Object value) {
@@ -1020,17 +1133,10 @@ namespace Metro.App {
             if (ok && okMaterial != null) return okMaterial;
             if (!ok && badMaterial != null) return badMaterial;
             var shader = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Unlit/Color");
-            var material = new Material(shader) { name = ok ? "edit ghost" : "edit refusal" };
-            if (material.HasProperty("_BaseColor")) material.SetColor("_BaseColor", colour);
-            if (material.HasProperty("_Color")) material.SetColor("_Color", colour);
-            if (material.HasProperty("_Surface")) material.SetFloat("_Surface", 1f);
-            if (material.HasProperty("_Blend")) material.SetFloat("_Blend", 0f);
-            if (material.HasProperty("_SrcBlend")) material.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
-            if (material.HasProperty("_DstBlend")) material.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
-            if (material.HasProperty("_ZWrite")) material.SetFloat("_ZWrite", 0f);
-            material.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
-            material.SetOverrideTag("RenderType", "Transparent");
-            material.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+            var material = shader != null
+                ? StationGlass.Create(shader, ok ? "edit ghost" : "edit refusal",
+                    new Color(colour.r, colour.g, colour.b, 1f), colour.a, 0.25f, 0f, doubleSided: true)
+                : new Material(Shader.Find("Sprites/Default")) { name = ok ? "edit ghost" : "edit refusal" };
             if (ok) okMaterial = material; else badMaterial = material;
             return material;
         }

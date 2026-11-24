@@ -21,6 +21,10 @@ namespace Metro.App {
 
         readonly Material[] materials;
 
+        StationMaterials(Material[] materials) {
+            this.materials = materials;
+        }
+
         public StationMaterials(Shader shader) {
             if (!shader) throw new ArgumentNullException(nameof(shader));
             materials = new Material[Colours.Length];
@@ -34,10 +38,34 @@ namespace Metro.App {
             }
         }
 
+        /// <summary>
+        /// Translucent ghost palette matching the web renderer's <c>GhostSystem.tintModuleGhost</c>:
+        /// every slot keeps its base contrast, washed 72% toward <paramref name="tint"/> with
+        /// straight-alpha URP Lit materials so counter rims, screens and glass panels remain
+        /// distinct inside a translucent room preview.
+        /// </summary>
+        public static StationMaterials CreateGhost(Shader shader, Color tint, float solidOpacity = 0.62f,
+            float glassOpacity = 0.34f) {
+            if (!shader) throw new ArgumentNullException(nameof(shader));
+            var mats = new Material[Colours.Length];
+            for (int i = 0; i < mats.Length; i++) {
+                Color baseColour = i == Glass ? (Color)StationGlass.DefaultTint : (Color)Colours[i];
+                Color washed = Color.Lerp(baseColour, tint, 0.72f);
+                float alpha = i == Glass ? glassOpacity : solidOpacity;
+                float smoothness = i == Glass ? 0.85f : 0.25f;
+                mats[i] = StationGlass.Create(shader, "ghost palette " + i, washed, alpha, smoothness, 0f, true);
+            }
+            return new StationMaterials(mats);
+        }
+
         public Material this[int colour] => materials[Mathf.Clamp(colour, 0, materials.Length - 1)];
 
         public void Dispose() {
-            foreach (var material in materials) UnityEngine.Object.Destroy(material);
+            foreach (var material in materials) {
+                if (!material) continue;
+                if (Application.isPlaying) UnityEngine.Object.Destroy(material);
+                else UnityEngine.Object.DestroyImmediate(material);
+            }
         }
     }
 }

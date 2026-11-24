@@ -282,7 +282,9 @@ namespace Metro.App {
             // A gesture in flight answers for itself: its recorded owner and operation decide,
             // so a release aims exactly the plane its press and drags aimed.
             if (StationCellTool.HasGesture) return !StationCellTool.Gesture.Remove;
+            if (StationZoneTool.HasGesture) return !StationZoneTool.GestureErase;
             if (button == 2) return false;
+            if (string.Equals(tool, "zone", StringComparison.Ordinal)) return true;
             return StationCellTool.WantsWorkPlane(tool);
         }
 
@@ -418,16 +420,20 @@ namespace Metro.App {
                 } else if (StationZoneTool.HasGesture) {
                     if (staleTool || staleRevision) {
                         StationZoneTool.Cancel();
+                        editHost.Preview?.ClearCells();
+                        editHost.Preview?.ClearGhost();
                         reason = staleTool ? "stale-tool" : "stale-revision";
                     } else if (camera != null) {
                         var releaseHit = StationEditScene.PickRay(host, host.Coordinator?.World, camera, ray,
-                            activeLevel, visibility, false, out _, out _);
+                            activeLevel, visibility, !StationZoneTool.GestureErase, out _, out _);
                         committed = StationZoneTool.Finish(host, releaseHit, pointer, out code, out reason);
                         if (committed) {
                             editHost.Bind(host);
                             AfterCommit(host, editHost, "");
-                        } else if (!string.IsNullOrEmpty(reason) && code == null) {
-                            reply["reason"] = reason;
+                        } else {
+                            editHost.Preview?.ClearCells();
+                            editHost.Preview?.ClearGhost();
+                            if (!string.IsNullOrEmpty(reason) && code == null) reply["reason"] = reason;
                         }
                     }
                 } else if (StationSurfaceTool.HasGesture) {
@@ -717,6 +723,7 @@ namespace Metro.App {
                 StationPillarTool.Cancel();
                 StationCellTool.Cancel();
                 StationSurfaceTool.Cancel();
+                StationZoneTool.Cancel();
                 ClearPlan(host, editHost);
             }
             RefreshHover(host);
@@ -978,13 +985,21 @@ namespace Metro.App {
                     return;
                 }
                 case "zone": {
-                    // The 分区 brush labels **floor**: press anchors, release paints the dragged
-                    // rectangle, and the secondary button (or the 无分区 tile) takes a label off.
+                    // The 分区 / 房间 brush labels floor or builds counters: press anchors, release
+                    // commits the dragged rectangle, and the secondary button removes a booth or
+                    // erases floor labels.
                     StationCellTool.Cancel();
+                    int revisionBeforeZone = host.CurrentRevision;
                     StationZoneTool.Begin(host, hit, pointer, pointer.Button, out reason);
                     if (!string.IsNullOrEmpty(reason)) reply["reason"] = reason;
-                    StationZoneTool.Publish();
-                    editHost.Preview?.ShowZone(StationZoneTool.Preview);
+                    if (host.CurrentRevision != revisionBeforeZone) {
+                        editHost.Bind(host);
+                        AfterCommit(host, editHost, "");
+                    } else {
+                        editHost.EnsureBound(host);
+                        StationZoneTool.Publish();
+                        editHost.Preview?.ShowZone(StationZoneTool.Preview);
+                    }
                     reply["zone"] = StationEditSession.Zone != null ? StationEditSession.Zone.ToJson() : null;
                     return;
                 }
@@ -1095,9 +1110,17 @@ namespace Metro.App {
                 // A right tap on the brush takes the label off exactly like arming 无分区: the
                 // same gesture, cancelled into the eraser (`ZoneTool`'s `info.button === 2`).
                 // Immediate booth removal in Begin completes without opening a drag gesture.
+                int revisionBeforeZone = host.CurrentRevision;
                 StationZoneTool.Begin(host, hit, pointer, 2, out reason);
                 if (StationZoneTool.HasGesture) {
                     StationZoneTool.Finish(host, hit, pointer, out code, out reason);
+                }
+                if (host.CurrentRevision != revisionBeforeZone) {
+                    editHost.Bind(host);
+                    AfterCommit(host, editHost, "");
+                } else {
+                    editHost.Preview?.ClearCells();
+                    editHost.Preview?.ClearGhost();
                 }
                 StationZoneTool.Publish();
                 if (!string.IsNullOrEmpty(reason) && code == null) reply["reason"] = reason;
@@ -1206,11 +1229,11 @@ namespace Metro.App {
                 return;
             }
             if (StationZoneTool.HasGesture || string.Equals(tool, "zone", StringComparison.Ordinal)) {
-                // A zone drag tints the floor its rectangle covers; a still pointer tints the
-                // one cell it is over (and says so when that cell is not floor).
+                // A zone drag tints the floor its rectangle covers; a facility drag previews the
+                // 3D booth and its auto benches; a still pointer tints the cell under it.
                 StationZoneTool.Aim(host, hit, pointer);
                 StationZoneTool.Publish();
-                editHost.Preview?.ClearGhost();
+                editHost.EnsureBound(host);
                 editHost.Preview?.ShowZone(StationZoneTool.Preview);
                 reply["zone"] = StationEditSession.Zone != null ? StationEditSession.Zone.ToJson() : null;
                 return;

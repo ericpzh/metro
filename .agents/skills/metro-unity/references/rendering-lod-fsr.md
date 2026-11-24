@@ -55,8 +55,11 @@ and per-model triangle counts, see
   `GameObject`, `Renderer.enabled`, camera mask, `ClipInterval`, submesh cull
   mode, negative-scale winding flip, per-triangle `IsPointKept`, and per-tile
   `StationBatchSpan`s on combined batches). `NeedsWorkPlane` permits active-storey
-  plane fallback only on adds (never secondary erase or delete); `OwnsPress` and
-  `CancelActiveGesture` handle chord/mask-loss/Escape cancellation with zero
+  plane fallback on adds and primary `zone`/facility room gestures (never secondary
+  erase or delete); `StationZoneTool` also resolves winning booth hits onto their
+  footprint, reads `facilityRot` live during held drags, cancels on `zoneBrush`
+  switches, and refuses track beds (`StationFacilityPlanner.Plan`, `reason = "track"`).
+  `OwnsPress` and `CancelActiveGesture` handle chord/mask-loss/Escape cancellation with zero
   picks or revisions; `ProbeBudgetFor` bounds `edit.probe` candidate walks by
   cell count (`48` at `20k+`, `96` at `8k+`, `192` otherwise); post-commit hover
   re-aim defers to coalesced `StationGameHost.RequestHoverRefresh`; parked carried
@@ -69,7 +72,15 @@ and per-model triangle counts, see
   document commits and the pick registry.
   - Selection draws the module's rendered bounds expanded by `SelectionPad = 0.06 m`
     as a `#55b6ff` `MeshTopology.Lines` box.
-  - Placement previews pin `renderer.forceMeshLod = 0` so ghosts stay full detail.
+  - Placement previews pin `renderer.forceMeshLod = 0` so ghosts stay full detail,
+    and `Tinted` uses `StationGlass.Create` straight-alpha URP Lit materials so
+    player builds preserve transparency.
+  - Room tool previews (`ShowZone` after `editHost.EnsureBound(host)`) render
+    translucent 3D booths via `BoothModuleViews.TryBuild` +
+    `StationMaterials.CreateGhost` (`#168cff` valid / `#ff3030` refused) plus
+    auto-stocked staff benches (`StationFacilityPlanner.BoothBenchSpots`), clash
+    outlines, and the flat corner cursor ring; zone hover/paint uses a dedicated
+    per-colour `zoneMaterial` and clears on refused/stale releases (`StationZoneBrushTests`).
   - Cell erase previews merge into one dynamic retained mesh (`BuildEraseBatch`),
     cancelling shared quarter-patch faces and rendering with the section-aware
     depth-biased `Metro/Station Highlight` (`Resources/StationHighlight.shader`,

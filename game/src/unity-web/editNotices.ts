@@ -23,6 +23,11 @@ export interface BuildOutcome {
   tool?: string
   /** The armed 设备 palette id, so a bridge and a tunnel read differently. */
   moduleType?: string
+  /** The armed 分区/房间 brush id (`ticket`, `info`, `paid`, `none`, …). */
+  zoneBrush?: string
+  /** The aimed room footprint width/height (for `min-size`). */
+  width?: number
+  height?: number
 }
 
 /** A code's own message. Unknown codes fall back to the host's sentence. */
@@ -49,6 +54,10 @@ const MESSAGES: Record<string, MessageKey> = {
   'no-module': 'nothing_selected_yet',
   'stale-tool': 'cannot_place_equipment_here_choose_another_location',
   'stale-revision': 'cannot_place_equipment_here_choose_another_location',
+  clash: 'different_room_types_cannot_overlap',
+  'min-size': 'room_minimum_is_value_value_current_size_is_value_value_draw_a_l',
+  'no-floor': 'lay_a_complete_floor_before_drawing_a_room_here',
+  'too-large': 'drag_area_too_large',
 }
 
 /** The tool-scoped overrides that read better than the generic sentence. */
@@ -66,13 +75,26 @@ function keyFor(outcome: BuildOutcome): MessageKey | null {
   if (code === 'floor' && (tool === 'rail' || tool === 'tunnel')) {
     return 'platform_track_needs_a_solid_floor_at_least_three_cells_wide'
   }
+  if (code === 'track' && tool === 'zone') return 'cannot_build_rooms_on_track'
+  if (code === 'not-floor' && tool === 'zone') {
+    return outcome.zoneBrush === 'none'
+      ? 'zones_can_only_be_erased_on_floors'
+      : 'zones_can_only_be_painted_on_floors'
+  }
   return MESSAGES[code] ?? null
 }
 
-/** The one-line label a code needs when its message has a slot. */
-function argumentFor(outcome: BuildOutcome): string {
-  if ((outcome.code ?? '') === 'over-limit') return '10000'
-  return ''
+/** The format slots a code needs when its message is parameterized. */
+function argumentsFor(outcome: BuildOutcome): Array<string | number> {
+  const code = outcome.code ?? ''
+  if (code === 'over-limit') return ['10000']
+  if (code === 'too-large') return ['400']
+  if (code === 'min-size') {
+    const w = typeof outcome.width === 'number' && outcome.width > 0 ? outcome.width : 1
+    const h = typeof outcome.height === 'number' && outcome.height > 0 ? outcome.height : 1
+    return [3, 3, w, h]
+  }
+  return []
 }
 
 /**
@@ -85,7 +107,7 @@ export function noticeText(outcome: BuildOutcome | null | undefined, locale: Lan
   // A stale gesture is not actionable: the shell already re-aims, so it stays silent.
   if ((outcome.kind ?? '') === 'stale') return ''
   const key = keyFor(outcome)
-  if (key) return tForLanguage(locale, key, argumentFor(outcome))
+  if (key) return tForLanguage(locale, key, ...argumentsFor(outcome))
   const reason = typeof outcome.reason === 'string' ? outcome.reason.trim() : ''
   const code = outcome.code ?? ''
   // Nothing was published (the host clears the notice with an empty outcome): say nothing.
@@ -101,5 +123,8 @@ export function noticeText(outcome: BuildOutcome | null | undefined, locale: Lan
 /** A stable key for one outcome, so the shell only shows a *new* notice once. */
 export function noticeKey(outcome: BuildOutcome | null | undefined): string {
   if (!outcome) return ''
-  return `${outcome.kind ?? ''}|${outcome.code ?? ''}|${outcome.tool ?? ''}|${outcome.moduleType ?? ''}`
+  const size = typeof outcome.width === 'number' && typeof outcome.height === 'number'
+    ? `|${outcome.width}x${outcome.height}`
+    : ''
+  return `${outcome.kind ?? ''}|${outcome.code ?? ''}|${outcome.tool ?? ''}|${outcome.moduleType ?? ''}${size}`
 }

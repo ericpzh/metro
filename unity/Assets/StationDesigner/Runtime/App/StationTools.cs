@@ -245,6 +245,7 @@ namespace Metro.App {
             // The palette id the player had armed before this command: a same-tool swap to another
             // tile is an **owner** change, not a plain replan (plan 28 §2).
             string paletteBefore = StationToolSelection.Setting("moduleType");
+            string zoneBrushBefore = StationToolSelection.Setting(StationZoneTool.BrushSetting);
             if (!StationToolSelection.TrySelect(requested, out previous, out code)) {
                 rejectCode = code;
                 rejectReason = string.Equals(code, "unknown-tool", StringComparison.Ordinal)
@@ -255,7 +256,10 @@ namespace Metro.App {
             bool settingsChanged = StationToolSelection.ApplySettings(payload["settings"] as JObject);
             bool toolChanged = !string.Equals(previous, StationToolSelection.Active, StringComparison.Ordinal);
             bool ownerChanged = !string.Equals(paletteBefore, StationToolSelection.Setting("moduleType"),
-                StringComparison.Ordinal);
+                StringComparison.Ordinal) ||
+                (string.Equals(StationToolSelection.Active, "zone", StringComparison.Ordinal) &&
+                 !string.Equals(zoneBrushBefore, StationToolSelection.Setting(StationZoneTool.BrushSetting),
+                     StringComparison.Ordinal));
             // A still pointer has to be re-aimed: `R`, `Tab` and every rail/tile setting change
             // what the same pixel now resolves to (`BlockTool.refreshHover`). A tool change also
             // drops any plan the old owner was drawing, so ghost and commit cannot disagree; the

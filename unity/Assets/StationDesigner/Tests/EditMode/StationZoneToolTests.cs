@@ -463,6 +463,112 @@ namespace Metro.EditModeTests {
             Assert.AreEqual(0, AutoBenches().Count);
         }
 
+        [Test]
+        public void ACounterCannotBeBuiltOnATrackCell() {
+            Assert.IsTrue(host.OpenDocument(TrackFloorSave(), "file").Accepted);
+            int before = host.CurrentRevision;
+            ArmZone("ticket");
+            var down = StationCellFixture.Hit(0, 0, 0, true);
+            Assert.IsTrue(StationZoneTool.Begin(host, down, Pointer(100, 100, 0), 0, out _));
+            var far = StationCellFixture.Hit(2, 2, 0, true);
+            StationZoneTool.Aim(host, far, Pointer(220, 220, 220));
+            Assert.AreEqual("track", StationZoneTool.Preview.Notice);
+            Assert.IsFalse(StationZoneTool.Finish(host, far, Pointer(220, 220, 260), out _, out var reason));
+            Assert.AreEqual("track", reason);
+            Assert.AreEqual(before, host.CurrentRevision, "a track-straddling room writes nothing");
+        }
+
+        [Test]
+        public void RotatingDuringAHeldFacilityDragUpdatesThePreviewAndCommitFront() {
+            Assert.IsTrue(host.OpenDocument(ZonedSave(), "file").Accepted);
+            ArmZone("ticket");
+            StationToolSelection.ApplySettings(new JObject { ["facilityRot"] = 0 });
+            var down = StationCellFixture.Hit(0, 0, 0, true);
+            Assert.IsTrue(StationZoneTool.Begin(host, down, Pointer(100, 100, 0), 0, out var reason), reason);
+            var far = StationCellFixture.Hit(2, 2, 0, true);
+            StationZoneTool.Aim(host, far, Pointer(220, 220, 200));
+            Assert.AreEqual(0, StationZoneTool.Preview.Front);
+            // Pressing R mid-drag updates facilityRot; the active drag must reflect it live.
+            StationToolSelection.ApplySettings(new JObject { ["facilityRot"] = 1 });
+            StationZoneTool.Aim(host, far, Pointer(220, 220, 220));
+            Assert.AreEqual(1, StationZoneTool.Preview.Front);
+            Assert.IsTrue(StationZoneTool.Finish(host, far, Pointer(220, 220, 260), out var code, out reason), code ?? reason);
+            var booth = host.Index.GetModule("booth-1");
+            Assert.IsNotNull(booth);
+            Assert.AreEqual(1, booth.Config.Int("front", -1), "the committed booth keeps the rotated front");
+        }
+
+        [Test]
+        public void AWorkPlaneHitOnOpenStreetBuildsABoothOutsideTheMeshWindow() {
+            Assert.IsTrue(host.OpenDocument(ZonedSave(), "file").Accepted);
+            ArmZone("info");
+            // Simulate a pointer hitting the z=0 work plane outside the generated street mesh window.
+            var startPlane = new StationSceneHit {
+                Level = 0,
+                WorkPlane = new StationPlacementHit(24, 24, 0, 24, 24, 0, false, new StationPoint(24.5, 24.5, 1), 1, new StationPoint(0, 0, 1)),
+            };
+            var endPlane = new StationSceneHit {
+                Level = 0,
+                WorkPlane = new StationPlacementHit(26, 26, 0, 26, 26, 0, false, new StationPoint(26.5, 26.5, 1), 1, new StationPoint(0, 0, 1)),
+            };
+            Assert.IsTrue(StationZoneTool.Begin(host, startPlane, Pointer(100, 100, 0), 0, out var reason), reason);
+            StationZoneTool.Aim(host, endPlane, Pointer(240, 240, 200));
+            Assert.AreEqual(3, StationZoneTool.Preview.Width);
+            Assert.AreEqual(3, StationZoneTool.Preview.Height);
+            Assert.AreEqual("", StationZoneTool.Preview.Notice);
+            Assert.IsTrue(StationZoneTool.Finish(host, endPlane, Pointer(240, 240, 240), out var code, out reason), code ?? reason);
+            var booth = host.Index.GetModule("booth-1");
+            Assert.IsNotNull(booth, "open-street work-plane drag must build the booth");
+            Assert.AreEqual(24, booth.X);
+            Assert.AreEqual(24, booth.Y);
+            Assert.AreEqual("info", booth.Config.Text("kind"));
+        }
+
+        [Test]
+        public void ShowZoneBuildsA3DBoothAndBenchGhostDuringAFacilityDrag() {
+            Assert.IsTrue(host.OpenDocument(ZonedSave(), "file").Accepted);
+            var editHost = StationEditHost.Ensure();
+            Assert.IsTrue(editHost.EnsureBound(host));
+            ArmZone("ticket");
+            var down = StationCellFixture.Hit(0, 0, 0, true);
+            Assert.IsTrue(StationZoneTool.Begin(host, down, Pointer(100, 100, 0), 0, out _));
+            var far = StationCellFixture.Hit(3, 3, 0, true);
+            StationZoneTool.Aim(host, far, Pointer(260, 260, 220));
+            editHost.Preview.ShowZone(StationZoneTool.Preview);
+            var summary = StationEditSession.Ghost;
+            Assert.IsNotNull(summary, "a facility drag publishes a ghost summary");
+            Assert.AreEqual("zone", (string)summary["kind"]);
+            // 1 booth mesh root + 2 auto-bench ghosts for a 4 × 4 counter.
+            Assert.AreEqual(3, (int)summary["ghosts"], "3D booth ghost + 2 auto-bench ghosts: " + summary);
+            Assert.GreaterOrEqual((int)summary["cells"], 1, "cursor outline is drawn on the cell layer");
+            editHost.Preview.ClearAll();
+        }
+
+        [Test]
+        public void ZoneNeedsWorkPlaneForPrimaryAddAndNotForSecondaryErase() {
+            ArmZone("ticket");
+            Assert.IsTrue(StationPointerRouter.NeedsWorkPlane("zone", 0), "primary zone/room needs work plane");
+            Assert.IsFalse(StationPointerRouter.NeedsWorkPlane("zone", 2), "secondary erase must not invent work-plane hits");
+        }
+
+        static string TrackFloorSave() {
+            var cells = new JArray();
+            for (int x = 0; x < 6; x++) {
+                for (int y = 0; y < 6; y++) {
+                    var cell = new JObject { ["x"] = x, ["y"] = y, ["z"] = 0, ["fill"] = "solid" };
+                    if (x == 1 && y == 1) cell["finish"] = new JObject { ["top"] = "floor.track" };
+                    cells.Add(cell);
+                }
+            }
+            return new JObject {
+                ["format"] = "metro-save", ["formatVersion"] = 1, ["gameVersion"] = "0.2.0",
+                ["savedAt"] = "2026-01-01T00:00:00.000Z",
+                ["name"] = "Track fixture", ["nameEn"] = "", ["city"] = "guangzhou", ["seed"] = 1234567,
+                ["levelBase"] = 0, ["storeyHeight"] = 5,
+                ["static"] = new JObject { ["cells"] = cells, ["modules"] = new JArray(), ["lines"] = new JArray() },
+            }.ToString(Newtonsoft.Json.Formatting.None);
+        }
+
         StationCellEditWorld StationCellWorld() => StationCellEditWorld.Build(host.Index);
 
         /// <summary>

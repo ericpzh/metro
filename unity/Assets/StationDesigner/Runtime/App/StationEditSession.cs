@@ -243,7 +243,7 @@ namespace Metro.App {
         /// </summary>
         public static void PublishNotice(string kind, string code, string reason, string tool) {
             if (string.IsNullOrEmpty(code) && string.IsNullOrEmpty(reason)) { Notice = null; return; }
-            Notice = new JObject {
+            var notice = new JObject {
                 ["kind"] = kind ?? "",
                 ["code"] = code ?? "",
                 ["reason"] = reason ?? "",
@@ -251,6 +251,15 @@ namespace Metro.App {
                 // The armed 设备 palette so a bridge and a tunnel refuse differently in the shell.
                 ["moduleType"] = StationToolSelection.Setting("moduleType") ?? "",
             };
+            if (string.Equals(tool, "zone", StringComparison.Ordinal)) {
+                notice["zoneBrush"] = StationZoneTool.ArmedBrush();
+                var zonePreview = StationZoneTool.Preview;
+                if (zonePreview != null && zonePreview.Width > 0 && zonePreview.Height > 0) {
+                    notice["width"] = zonePreview.Width;
+                    notice["height"] = zonePreview.Height;
+                }
+            }
+            Notice = notice;
         }
 
         public static void ClearNotice() => Notice = null;

@@ -19,6 +19,9 @@ namespace Metro.App {
         /// <summary>The covered cells that are not floor (no tint, no write).</summary>
         public readonly List<StationCellKey> Skipped = new List<StationCellKey>();
         public StationCellKey Anchor;
+        /// <summary>The aimed cell for the flat cursor ring (hover cell or active drag corner).</summary>
+        public StationCellKey Cursor;
+        public bool HasCursor;
         /// <summary>The armed brush id (`unpaid`, `paid`, `store`, … or `none`).</summary>
         public string Paint = "";
         public bool Erase;
@@ -28,6 +31,10 @@ namespace Metro.App {
         public string Notice = "";
         /// <summary>The counter brush (`ticket` / `info`) when the drag builds a facility room.</summary>
         public string Facility = "";
+        /// <summary>The resolved facility room footprint (including any absorbed same-kind room).</summary>
+        public StationFacilityRect FacilityRect;
+        /// <summary>The counter's quarter-turn front direction (`0..3`, from `facilityRot`).</summary>
+        public int Front;
         /// <summary>The footprint a counter drag would build or extend (its rect cells).</summary>
         public readonly List<StationCellKey> Rect = new List<StationCellKey>();
         /// <summary>The room already standing there that refuses the drag (`clash`), when any.</summary>
@@ -51,6 +58,7 @@ namespace Metro.App {
                     ["kind"] = Facility,
                     ["w"] = Width,
                     ["h"] = Height,
+                    ["front"] = Front,
                     ["blockedBy"] = BlockedBy ?? "",
                     ["cells"] = CellsJson(Rect),
                 };
@@ -86,9 +94,13 @@ namespace Metro.App {
 
         public static StationZonePreview Preview => preview;
         public static bool HasGesture => gesture != null;
+        public static bool GestureErase => gesture != null && gesture.Erase;
+        public static bool GestureFacility => gesture != null && gesture.Facility;
 
         sealed class StationZoneGesture {
             public StationCellKey Anchor;
+            public StationCellKey LastCorner;
+            public bool HasLastCorner;
             public int Button;
             public string Paint = "";
             public bool Erase;
@@ -119,6 +131,42 @@ namespace Metro.App {
         static bool IsFacility(string brush) =>
             StationFacilityRules.IsBoothBrush(brush);
 
+        static int CurrentFacilityFront(int fallback = 0) =>
+            ((StationToolSelection.SettingInt("facilityRot", fallback) % 4) + 4) % 4;
+
+        /// <summary>
+        /// Resolve the cell a zone/room pointer hit addresses: a winning facility module resolves
+        /// onto its own floor footprint (so extending or deleting a booth works by clicking its
+        /// counter or glazing), an authored/ground cell resolves directly, and a work-plane miss
+        /// falls back to the active plane cell so rooms can be dragged across holes or outside the
+        /// generated street window just like `CameraSystem.pick`.
+        /// </summary>
+        static bool TryResolveCell(StationSceneHit hit, bool facility, out StationCellKey cell) {
+            cell = default;
+            if (hit == null) return false;
+            if (facility && hit.HasModule && hit.ModuleWins && hit.Module != null &&
+                StationFacilityRules.IsFacility(hit.Module.Type)) {
+                var own = StationFacilityRules.RectOf(hit.Module);
+                int mx = Mathf.Clamp(Mathf.FloorToInt((float)hit.ModulePoint.X), own.X0, own.X1);
+                int my = Mathf.Clamp(Mathf.FloorToInt((float)hit.ModulePoint.Y), own.Y0, own.Y1);
+                cell = new StationCellKey(mx, my, hit.Module.Z);
+                return true;
+            }
+            if (hit.HasCell) {
+                cell = hit.CellKey;
+                return true;
+            }
+            if (hit.HasModule && hit.ModuleWins && hit.EditCell.HasCell) {
+                cell = new StationCellKey(hit.EditCell.X, hit.EditCell.Y, hit.EditCell.Z);
+                return true;
+            }
+            if (hit.HasWorkPlane) {
+                cell = new StationCellKey(hit.WorkPlane.X, hit.WorkPlane.Y, hit.WorkPlane.Z);
+                return true;
+            }
+            return false;
+        }
+
         /// <summary>
         /// Arm a zone gesture from one press. A press on a cell that is not floor paints nothing
         /// and says why (`ZoneTool.onDown`), rather than opening a drag that would write a label
@@ -129,11 +177,17 @@ namespace Metro.App {
             reason = null;
             var world = World(host);
             if (world == null) { reason = "no-session"; return false; }
-            if (hit == null || !hit.HasCell) { reason = "no-cell"; return false; }
+            if (hit == null) { reason = "no-cell"; return false; }
             var brush = ArmedBrush();
             if (button == 2) {
                 var index = host.Index;
-                var room = StationFacilityPlanner.At(index, hit.Cell.X, hit.Cell.Y, hit.Cell.Z);
+                StationModuleRecord room = null;
+                if (hit.HasModule && hit.ModuleWins && hit.Module != null &&
+                    string.Equals(hit.Module.Type, "booth", StringComparison.Ordinal)) {
+                    room = hit.Module;
+                } else if (TryResolveCell(hit, true, out var removeCell)) {
+                    room = StationFacilityPlanner.At(index, removeCell.X, removeCell.Y, removeCell.Z);
+                }
                 if (room != null && string.Equals(room.Type, "booth", StringComparison.Ordinal)) {
                     var removal = StationFacilityPlanner.PlanRemoval(index, room.Id);
                     if (removal.HasWork) {
@@ -151,11 +205,12 @@ namespace Metro.App {
             } else if (IsFacility(brush)) {
                 return BeginFacility(host, world, hit, pointer, button, out reason);
             }
-            var cell = hit.CellKey;
+            if (!TryResolveCell(hit, false, out var cell)) { reason = "no-cell"; return false; }
             bool erase = button == 2 || StationZoneIds.IsErase(brush);
             if (!world.IsFloor(cell)) {
                 preview = new StationZonePreview {
-                    Anchor = cell, Paint = erase ? StationZoneIds.None : brush, Erase = erase,
+                    Anchor = cell, Cursor = cell, HasCursor = true,
+                    Paint = erase ? StationZoneIds.None : brush, Erase = erase,
                     Colour = ColourFor(brush, erase), Notice = "not-floor",
                 };
                 StationEditSession.Zone = preview;
@@ -164,6 +219,8 @@ namespace Metro.App {
             }
             gesture = new StationZoneGesture {
                 Anchor = cell,
+                LastCorner = cell,
+                HasLastCorner = true,
                 Button = button,
                 Paint = erase ? StationZoneIds.None : brush,
                 Erase = erase,
@@ -184,19 +241,23 @@ namespace Metro.App {
         static bool BeginFacility(StationGameHost host, StationZoneWorld world, StationSceneHit hit,
             StationPointerEvent pointer, int button, out string reason) {
             reason = null;
+            if (!TryResolveCell(hit, true, out var startCell)) { reason = "no-cell"; return false; }
             var index = host.Index;
-            int x = hit.Cell.X, y = hit.Cell.Y, z = hit.Cell.Z;
+            int x = startCell.X, y = startCell.Y, z = startCell.Z;
             var brush = ArmedBrush();
             // §5.7: a room stands on the **block under the pointer**, not on the storey the
             // player is editing, and a press on the room's own wall walks down to that block.
             int standZ = StationFacilityPlanner.StandZ(index, x, y, z);
+            var anchor = new StationCellKey(x, y, standZ);
             gesture = new StationZoneGesture {
-                Anchor = new StationCellKey(x, y, standZ),
+                Anchor = anchor,
+                LastCorner = anchor,
+                HasLastCorner = true,
                 Button = button,
                 Paint = brush,
                 Facility = true,
                 Kind = brush,
-                Front = StationToolSelection.SettingInt("facilityRot", 0),
+                Front = CurrentFacilityFront(),
                 PressX = pointer.X,
                 PressY = pointer.Y,
                 PressTimeMs = pointer.TimeMs,
@@ -212,14 +273,18 @@ namespace Metro.App {
             var world = World(host);
             if (world == null) return;
             if (gesture == null) {
-                if (hit == null || !hit.HasCell) { preview = new StationZonePreview(); return; }
                 var brush = ArmedBrush();
-                var hovered = hit.CellKey;
                 bool erase = StationZoneIds.IsErase(brush);
                 bool facility = IsFacility(brush);
+                if (!TryResolveCell(hit, facility, out var hovered)) {
+                    preview = new StationZonePreview();
+                    StationEditSession.Zone = null;
+                    return;
+                }
                 if (!world.IsFloor(hovered)) {
                     preview = new StationZonePreview {
-                        Anchor = hovered, Paint = erase ? StationZoneIds.None : brush, Erase = erase,
+                        Anchor = hovered, Cursor = hovered, HasCursor = true,
+                        Paint = erase ? StationZoneIds.None : brush, Erase = erase,
                         Colour = facility ? FacilityColour : ColourFor(brush, erase), Notice = "not-floor",
                     };
                     StationEditSession.Zone = preview;
@@ -228,29 +293,41 @@ namespace Metro.App {
                 // A counter brush hovers as the same single tinted floor cell the fare brush does
                 // (`ZoneTool.onMove` reads the armed brush's colour before it is a facility drag).
                 if (facility) {
-                    preview = new StationZonePreview { Anchor = hovered, Paint = brush, Colour = FacilityColour };
+                    preview = new StationZonePreview {
+                        Anchor = hovered, Cursor = hovered, HasCursor = true,
+                        Paint = brush, Colour = FacilityColour,
+                    };
                     preview.Floor.Add(hovered);
                     StationEditSession.Zone = preview;
                     return;
                 }
                 var single = StationZonePlanner.Plan(world, new[] { hovered }, brush);
-                preview = PreviewOf(single, hovered);
+                preview = PreviewOf(single, hovered, hovered);
                 StationEditSession.Zone = preview;
                 return;
             }
             if (gesture.Facility) {
-                var corner = new StationCellKey(hit.Cell.X, hit.Cell.Y, gesture.Anchor.Z);
+                gesture.Front = CurrentFacilityFront(gesture.Front);
+                if (TryResolveCell(hit, true, out var aimCell)) {
+                    gesture.LastCorner = new StationCellKey(aimCell.X, aimCell.Y, gesture.Anchor.Z);
+                    gesture.HasLastCorner = true;
+                }
+                var corner = gesture.HasLastCorner ? gesture.LastCorner : gesture.Anchor;
                 var rect = new StationFacilityRect(gesture.Anchor.X, gesture.Anchor.Y, corner.X, corner.Y, gesture.Anchor.Z);
                 var facilityPlan = StationFacilityPlanner.Plan(host.Index, gesture.Kind, rect, gesture.Front);
-                preview = FacilityPreviewOf(facilityPlan, gesture.Anchor);
+                preview = FacilityPreviewOf(facilityPlan, gesture.Anchor, corner, gesture.Front);
                 StationEditSession.Zone = preview;
                 return;
             }
-            var cells = gesture.Anchor == hit.CellKey
+            if (!TryResolveCell(hit, false, out var zoneAim)) return;
+            var target = new StationCellKey(zoneAim.X, zoneAim.Y, gesture.Anchor.Z);
+            gesture.LastCorner = target;
+            gesture.HasLastCorner = true;
+            var cells = gesture.Anchor == target
                 ? new List<StationCellKey> { gesture.Anchor }
-                : StationCellPlanner.RectCells(gesture.Anchor, hit.CellKey, gesture.Anchor.Z, false);
+                : StationCellPlanner.RectCells(gesture.Anchor, target, gesture.Anchor.Z, false);
             var plan = StationZonePlanner.Plan(world, cells, gesture.Paint);
-            preview = PreviewOf(plan, gesture.Anchor);
+            preview = PreviewOf(plan, gesture.Anchor, target);
             StationEditSession.Zone = preview;
         }
 
@@ -273,13 +350,16 @@ namespace Metro.App {
                 reason = "stale-revision";
                 return false;
             }
-            var target = hit != null && hit.HasCell ? hit.CellKey : current.Anchor;
+            var target = TryResolveCell(hit, current.Facility, out var releaseCell)
+                ? new StationCellKey(releaseCell.X, releaseCell.Y, current.Anchor.Z)
+                : (current.HasLastCorner ? current.LastCorner : current.Anchor);
             if (current.Facility) {
+                int front = CurrentFacilityFront(current.Front);
                 var rect = new StationFacilityRect(current.Anchor.X, current.Anchor.Y, target.X, target.Y, current.Anchor.Z);
-                var facilityPlan = StationFacilityPlanner.Plan(host.Index, current.Kind, rect, current.Front);
+                var facilityPlan = StationFacilityPlanner.Plan(host.Index, current.Kind, rect, front);
                 if (!facilityPlan.Ok) {
                     reason = facilityPlan.Reason;
-                    preview = FacilityPreviewOf(facilityPlan, current.Anchor);
+                    preview = FacilityPreviewOf(facilityPlan, current.Anchor, target, front);
                     StationEditSession.Zone = preview;
                     return false;
                 }
@@ -333,9 +413,11 @@ namespace Metro.App {
         /// <summary>Publish the aimed patch into the session snapshot.</summary>
         public static void Publish() => StationEditSession.Zone = preview.HasPlan ? preview : null;
 
-        static StationZonePreview PreviewOf(StationZonePlan plan, StationCellKey anchor) {
+        static StationZonePreview PreviewOf(StationZonePlan plan, StationCellKey anchor, StationCellKey cursor) {
             var preview = new StationZonePreview {
                 Anchor = anchor,
+                Cursor = cursor,
+                HasCursor = true,
                 Paint = plan.Paint,
                 Erase = plan.Erase,
                 Colour = ColourFor(plan.Paint, plan.Erase),
@@ -350,11 +432,16 @@ namespace Metro.App {
         /// <summary>The counter brush's own tint (`FACILITY_OPTIONS`'s single colour).</summary>
         public static int FacilityColour => 0x42a5c4;
 
-        static StationZonePreview FacilityPreviewOf(StationFacilityPlan plan, StationCellKey anchor) {
+        static StationZonePreview FacilityPreviewOf(StationFacilityPlan plan, StationCellKey anchor,
+            StationCellKey cursor, int front) {
             var preview = new StationZonePreview {
                 Anchor = anchor,
+                Cursor = cursor,
+                HasCursor = true,
                 Paint = plan.Kind,
                 Facility = plan.Kind,
+                FacilityRect = plan.Rect,
+                Front = front,
                 Colour = plan.Ok ? FacilityColour : 0xff7a7a,
                 Width = plan.Width,
                 Height = plan.Height,

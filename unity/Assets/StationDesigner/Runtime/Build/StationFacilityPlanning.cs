@@ -232,6 +232,28 @@ namespace Metro.Build {
                 return plan;
             }
             if (current.CellCount > StationFacilityRules.MaxCells) { plan.Reason = "too-large"; return plan; }
+            // A room may not straddle the rails: its floor must not be a track bed (`ZoneTool.ts`).
+            HashSet<(int X, int Y)> trackAtZ = null;
+            foreach (var module in index.Document.Modules) {
+                if (module == null || !string.Equals(module.Type, "track", StringComparison.Ordinal)) continue;
+                foreach (var at in StationFootprints.TrackCells(module)) {
+                    if ((int)Math.Round(at.Z) != current.Z) continue;
+                    (trackAtZ ??= new HashSet<(int, int)>()).Add(((int)Math.Round(at.X), (int)Math.Round(at.Y)));
+                }
+            }
+            for (int y = current.Y0; y <= current.Y1; y++) {
+                for (int x = current.X0; x <= current.X1; x++) {
+                    if (trackAtZ != null && trackAtZ.Contains((x, y))) {
+                        plan.Reason = "track";
+                        return plan;
+                    }
+                    var cell = index.GetCell(x, y, current.Z);
+                    if (cell != null && cell.IsSolid && string.Equals(cell.FinishTop, "floor.track", StringComparison.Ordinal)) {
+                        plan.Reason = "track";
+                        return plan;
+                    }
+                }
+            }
             // Every rect cell must already be floor — at grade the implicit street is floor,
             // so a room or counter may be drawn on virgin ground, but never across a dug hole.
             for (int y = current.Y0; y <= current.Y1; y++) {
