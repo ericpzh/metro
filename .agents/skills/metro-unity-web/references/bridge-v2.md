@@ -147,9 +147,11 @@ producing one stylesheet shared by the player and benchmark route.
   are unpremultiplied to straight sRGB BGRA32 into a lock-free double-buffered
   `MemoryMappedFile` (max `3840 × 2160`, auto `rasterScale` `0.65–2.5`). Capture waits for
   `navigationStarted` and refuses to publish an all-transparent initial frame (`sequence == 0 && !hasVisiblePixel`).
-  `StationDesktopUiPresenter` launches WebView2 eagerly in `Awake()` and shows a native themed
-  `StartupBackdrop` loading card (hidden on `-benchmark` and smoke runs) over the 3D viewport
-  until the first visible WebView2 frame arrives, then uploads dirty sequences into a
+  `StationDesktopUiPresenter` launches WebView2 eagerly in `Awake()` (`TryBindAndStartWorker`)
+  and shows a native themed `StartupBackdrop` loading card (colors/copy synced via
+  `PlayerPrefs` from `view.set` `"theme"` and `exit.locale`, animated sweeping bar; hidden on
+  `-benchmark` and smoke runs) over the 3D viewport until the first visible WebView2 frame
+  arrives, then uploads dirty sequences into a
   `Texture2D(BGRA32)` via `LoadRawTextureData(IntPtr, int)` on a UV-flipped (`(0, 1, 1, -1)`)
   `RawImage` inside `StationDesktopUiCanvas` (`ScreenSpaceOverlay`, `sortingOrder = 32000`,
   `pixelPerfect = true`). Avoid native `<select>` popups in overlay UI — Chromium renders them
@@ -182,9 +184,12 @@ producing one stylesheet shared by the player and benchmark route.
   atomically autosave to `Application.persistentDataPath/autosave.metro.json` every 15 s
   (when revision advances) and on destroy/quit, skipping benchmark runs and restoring the
   pre-benchmark station + `station.resync` when returning from benchmark mode. On startup,
-  standalone autosave restore is deferred past WebView2 launch (`ReadStandaloneAutosaveInBackground`
-  off the main thread + frame-yielded `OpenPreReadDocumentYielded`) so large stations never
-  freeze startup on a blank viewport.
+  standalone autosave restore is deferred past WebView2 launch:
+  `ReadStandaloneAutosaveInBackground` parses the document and builds
+  `StationSimulationSession` off the main thread, then `RunStandaloneAutosaveInstall` drives
+  frame-yielded `OpenPreReadDocumentYielded` (holding incoming `station.resync` until commit)
+  so large stations keep `#game-loading` animating smoothly without freezing startup or
+  flashing the 3D scene early.
 - **Editor integration (`StationEditorReactOverlay.cs`):** Overrides
   `StationDesktopUiPresenter.PathResolver` to build
   `.preview/unity/editor-ui-host/bin/MetroEditorWebView.exe` and `game/dist-unity-ui` on

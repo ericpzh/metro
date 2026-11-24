@@ -83,6 +83,13 @@ project layers in `tools/unity-parity/check-unity-compile.ps1`:
   disposing the outgoing world (`BeforePreviousDispose` fires right before old
   world teardown). Every `IStationViewRenderer` singleton must key state per
   `StationWorldView` and prune only `IsDisposed` worlds in `Release()`.
+  For non-blocking desktop startup, `StationLoadCoordinator.OpenPreReadYielded`
+  accepts a background-parsed `StationReadResult` and optional pre-built
+  `StationSimulationSession` (`StationSimulationHost.StagePrebuiltSession`),
+  drives `StationWorldView.BuildYielded` (yielding between renderers), and
+  runs `IStationYieldedViewRenderer` implementations such as
+  `StationCellRenderer.BuildYielded` (off-thread `StationCellMeshWorkspace.Create`
+  + `10 ms` time-sliced `EnumerateChunkMeshesDirect`).
 - Host-initiated browser artwork requests (signs, PSD headers & decals, street
   exits, calligraphy, train cab marks) must publish via
   `StationGameHost.PublishOutbound` — never WebGL-only
