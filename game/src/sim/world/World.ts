@@ -228,11 +228,17 @@ export class World {
   private cGridH = 1
   private cGridMinX = 0
   private cGridMinY = 0
-  private cCounts = new Int32Array(1)
-  private cStart = new Int32Array(2)
-  private cOrder = new Int32Array(1)
+  private cHead = new Int32Array(1)
+  private cTail = new Int32Array(1)
+  private cHeadStamp = new Int32Array(1)
+  private cStamp = 0
+  private cNext = new Int32Array(1)
+  private cActiveCells = new Int32Array(1)
+  private cActiveCount = 0
   /** Crowd count within ~2 m of each collision cell's centre, for the derate. */
   private cellDensity = new Float32Array(1)
+  private cellDensityStamp = new Int32Array(1)
+  private densStamp = 0
   /**
    * The same crowd, counted from the bodies' side: every standing passenger
    * charges the cell it is in **and the ring around it**, so a cell with nobody
@@ -241,6 +247,13 @@ export class World {
    * exactly the wrong way round for pricing the crowd around a gate.
    */
   private crowdNear = new Float32Array(1)
+  private crowdNearStamp = new Int32Array(1)
+  private nearStamp = 0
+  private touchedNearCells = new Int32Array(1)
+  private cellNodesStart = new Int32Array(2)
+  private cellNodes = new Int32Array(0)
+  private pricedNodes = new Int32Array(0)
+  private pricedNodesCount = 0
   /**
    * Gate re-choices spent this tick. The fare-line decision skips the path cache
    * (§7.2), so it is a synchronous search inside the tick and has to be rationed
@@ -657,8 +670,10 @@ export class World {
     })
     if (!reuseGraph) this.setupGrid()
     else {
-      this.cCounts.fill(0); this.cStart.fill(0); this.cOrder.fill(0)
-      this.cellDensity.fill(0); this.crowdNear.fill(0)
+      this.cStamp = 0; this.cHeadStamp.fill(0); this.cActiveCount = 0
+      this.densStamp = 0; this.cellDensityStamp.fill(0)
+      this.nearStamp = 0; this.crowdNearStamp.fill(0)
+      this.pricedNodesCount = 0
     }
     this.nextDispatch.clear()
     let stagger = 0
@@ -696,12 +711,48 @@ export class World {
     this.cGridMinY = Math.floor(g.minY) - 2
     this.cGridW = clamp(Math.ceil((g.maxX - g.minX) / COLLISION_CELL) + 4, 4, 1024)
     this.cGridH = clamp(Math.ceil((g.maxY - g.minY) / COLLISION_CELL) + 4, 4, 1024)
-    const cnb = this.cGridW * this.cGridH * this.gridL
-    this.cCounts = new Int32Array(cnb)
-    this.cStart = new Int32Array(cnb + 1)
-    this.cOrder = new Int32Array(Math.max(64, this.pool.count + 64))
+    const band = this.cGridW * this.cGridH
+    const cnb = band * this.gridL
+    const cap = Math.max(64, this.pool.count + 64)
+    this.cHead = new Int32Array(cnb)
+    this.cTail = new Int32Array(cnb)
+    this.cHeadStamp = new Int32Array(cnb)
+    this.cStamp = 0
+    this.cNext = new Int32Array(cap)
+    this.cActiveCells = new Int32Array(cap)
+    this.cActiveCount = 0
     this.cellDensity = new Float32Array(cnb)
+    this.cellDensityStamp = new Int32Array(cnb)
+    this.densStamp = 0
     this.crowdNear = new Float32Array(cnb)
+    this.crowdNearStamp = new Int32Array(cnb)
+    this.nearStamp = 0
+    this.touchedNearCells = new Int32Array(Math.max(256, cap * 25))
+    // Precompute CSR map from collision cell -> graph nodes for exact-replay
+    // touched-cell congestion pricing without scanning all graph nodes per tick.
+    const counts = new Int32Array(cnb)
+    const nodeCells = new Int32Array(g.nodeCount)
+    for (let n = 0; n < g.nodeCount; n++) {
+      const c = this.collisionCellIndex(g.nodeX[n], g.nodeY[n], g.nodeZ[n], band)
+      nodeCells[n] = c
+      counts[c]++
+    }
+    const starts = new Int32Array(cnb + 1)
+    let acc = 0
+    for (let c = 0; c < cnb; c++) {
+      starts[c] = acc
+      acc += counts[c]
+    }
+    starts[cnb] = acc
+    const nodes = new Int32Array(g.nodeCount)
+    for (let c = 0; c < cnb; c++) counts[c] = starts[c]
+    for (let n = 0; n < g.nodeCount; n++) {
+      nodes[counts[nodeCells[n]]++] = n
+    }
+    this.cellNodesStart = starts
+    this.cellNodes = nodes
+    this.pricedNodes = new Int32Array(g.nodeCount)
+    this.pricedNodesCount = 0
   }
 
   /* -------------------------------------------------------------- public */
@@ -2135,6 +2186,10 @@ export class World {
     const H = this.cGridH
     const band = W * H
     const ps2 = PERSONAL_SPACE * PERSONAL_SPACE
+    const head = this.cHead
+    const headStamp = this.cHeadStamp
+    const next = this.cNext
+    const stamp = this.cStamp
     for (let i = 0; i < live.length; i++) {
       const a = live[i]
       // A rider is inside a train, not standing on the floor: it neither pushes
@@ -2154,8 +2209,9 @@ export class World {
           const xx = gx + ox
           if (xx < 0 || xx >= W) continue
           const c = lz * band + yy * W + xx
-          for (let k = this.cStart[c]; k < this.cStart[c + 1]; k++) {
-            const b = live[this.cOrder[k]]
+          if (headStamp[c] !== stamp) continue
+          for (let k = head[c]; k >= 0; k = next[k]) {
+            const b = live[k]
             if (b === a || b.dead || b.state === STATE_RIDING || b.train >= 0) continue
             const dx = ax - b.x
             const dy = ay - b.y
@@ -2770,96 +2826,140 @@ export class World {
    */
   private localDensity(a: Agent): number {
     const band = this.cGridW * this.cGridH
-    return this.cellDensity[this.collisionCellIndex(a.x, a.y, a.z, band)]
+    const c = this.collisionCellIndex(a.x, a.y, a.z, band)
+    return this.cellDensityStamp[c] === this.densStamp ? this.cellDensity[c] : 0
   }
 
   /**
    * Precompute the crowd count within 2 m of every collision cell's centre,
-   * from the current grid. Agents in the same cell share the value, so the work
-   * is one pass over the non-empty cells instead of one scan per agent — which
-   * is what made a crush expensive.
+   * from the current grid. Only occupied cells are visited, and per-tick
+   * stamping avoids clearing the full grid.
    */
   private computeCellDensity(): void {
     const W = this.cGridW
     const H = this.cGridH
     const band = W * H
     const dens = this.cellDensity
+    const densStampArr = this.cellDensityStamp
+    let dStamp = ++this.densStamp
+    if (dStamp >= 0x7fffffff) {
+      densStampArr.fill(0)
+      dStamp = this.densStamp = 1
+    }
+    const head = this.cHead
+    const headStamp = this.cHeadStamp
+    const next = this.cNext
+    const cStamp = this.cStamp
+    const active = this.cActiveCells
+    const activeCount = this.cActiveCount
     const live = this.pool.live
-    dens.fill(0)
-    for (let lz = 0; lz < this.gridL; lz++) {
+    const minX = this.cGridMinX
+    const minY = this.cGridMinY
+    for (let ai = 0; ai < activeCount; ai++) {
+      const c = active[ai]
+      const lz = Math.floor(c / band)
       const base = lz * band
-      for (let gy = 0; gy < H; gy++) {
-        for (let gx = 0; gx < W; gx++) {
-          const c = base + gy * W + gx
-          if (this.cStart[c + 1] === this.cStart[c]) continue
-          const cx = this.cGridMinX + (gx + 0.5) * COLLISION_CELL
-          const cy = this.cGridMinY + (gy + 0.5) * COLLISION_CELL
-          let n = -1 // the agents in this cell count themselves out
-          for (let oy = -2; oy <= 2; oy++) {
-            const yy = gy + oy
-            if (yy < 0 || yy >= H) continue
-            for (let ox = -2; ox <= 2; ox++) {
-              const xx = gx + ox
-              if (xx < 0 || xx >= W) continue
-              const nc = base + yy * W + xx
-              for (let k = this.cStart[nc]; k < this.cStart[nc + 1]; k++) {
-                const b = live[this.cOrder[k]]
-                const dx = b.x - cx
-                const dy = b.y - cy
-                if (dx * dx + dy * dy < 4) n++
-              }
-            }
+      const rem = c - base
+      const gy = Math.floor(rem / W)
+      const gx = rem - gy * W
+      const cx = minX + (gx + 0.5) * COLLISION_CELL
+      const cy = minY + (gy + 0.5) * COLLISION_CELL
+      let n = -1 // the agents in this cell count themselves out
+      for (let oy = -2; oy <= 2; oy++) {
+        const yy = gy + oy
+        if (yy < 0 || yy >= H) continue
+        const row = base + yy * W
+        for (let ox = -2; ox <= 2; ox++) {
+          const xx = gx + ox
+          if (xx < 0 || xx >= W) continue
+          const nc = row + xx
+          if (headStamp[nc] !== cStamp) continue
+          for (let k = head[nc]; k >= 0; k = next[k]) {
+            const b = live[k]
+            const dx = b.x - cx
+            const dy = b.y - cy
+            if (dx * dx + dy * dy < 4) n++
           }
-          dens[c] = n
         }
       }
+      dens[c] = n
+      densStampArr[c] = dStamp
     }
   }
 
   /**
-   * Price the crowd into the graph, node by node (§7.3). What a passenger has to
-   * walk through is the bodies already standing there, and `waitQ` cannot see
-   * them: a queue that has not formed at a server yet does not exist for A*, so
-   * a route that is about to become a crush is still priced as empty floor.
-   *
-   * The bodies are scattered into their own cell and the ring around it, so a
-   * node knows who is standing *beside* it — which is the whole case being
-   * priced: the crowd pressed at a gate bank is on the tiles in front of the
-   * gate, not inside it. Every node then reads its own cell, capped (past a
-   * crush one more body is not another second of detour) and written onto the
-   * path finder for every search this tick.
+   * Price the crowd into the graph, node by node (§7.3). Only cells touched by
+   * a standing body's 5×5 neighborhood and nodes touched on the previous tick
+   * are updated, producing exact congestion values without scanning all nodes.
    */
   private priceCongestion(): void {
-    const g = this.graph
     const W = this.cGridW
     const H = this.cGridH
     const band = W * H
     const near = this.crowdNear
-    near.fill(0)
+    const nearStampArr = this.crowdNearStamp
+    let nStamp = ++this.nearStamp
+    if (nStamp >= 0x7fffffff) {
+      nearStampArr.fill(0)
+      nStamp = this.nearStamp = 1
+    }
+    const out = this.path.congestion
+    const priced = this.pricedNodes
+    for (let i = 0; i < this.pricedNodesCount; i++) out[priced[i]] = 0
+    this.pricedNodesCount = 0
+
     const live = this.pool.live
+    const maxTouched = live.length * 25
+    if (this.touchedNearCells.length < maxTouched) {
+      this.touchedNearCells = new Int32Array(Math.max(maxTouched, this.touchedNearCells.length * 2))
+    }
+    const touched = this.touchedNearCells
+    let touchedCount = 0
+    const minX = this.cGridMinX
+    const minY = this.cGridMinY
     for (let i = 0; i < live.length; i++) {
       const a = live[i]
       // A rider is in a car, not on the floor: the platform beside a berthed
       // train must not be priced as a crush because the train is full.
       if (a.dead || a.train >= 0) continue
-      const gx = Math.floor((a.x - this.cGridMinX) / COLLISION_CELL)
-      const gy = Math.floor((a.y - this.cGridMinY) / COLLISION_CELL)
+      const gx = Math.floor((a.x - minX) / COLLISION_CELL)
+      const gy = Math.floor((a.y - minY) / COLLISION_CELL)
       const base = this.levelBucket(a.z) * band
       for (let oy = -2; oy <= 2; oy++) {
         const yy = gy + oy
         if (yy < 0 || yy >= H) continue
+        const row = base + yy * W
         for (let ox = -2; ox <= 2; ox++) {
           const xx = gx + ox
           if (xx < 0 || xx >= W) continue
-          near[base + yy * W + xx]++
+          const nc = row + xx
+          if (nearStampArr[nc] !== nStamp) {
+            nearStampArr[nc] = nStamp
+            near[nc] = 1
+            touched[touchedCount++] = nc
+          } else {
+            near[nc]++
+          }
         }
       }
     }
-    const out = this.path.congestion
-    for (let n = 0; n < g.nodeCount; n++) {
-      const bodies = near[this.collisionCellIndex(g.nodeX[n], g.nodeY[n], g.nodeZ[n], band)]
-      out[n] = (bodies > CONGESTION_CAP ? CONGESTION_CAP : bodies) * CONGESTION_S
+    const starts = this.cellNodesStart
+    const nodes = this.cellNodes
+    let pCount = 0
+    for (let t = 0; t < touchedCount; t++) {
+      const c = touched[t]
+      const start = starts[c]
+      const end = starts[c + 1]
+      if (start === end) continue
+      const bodies = near[c]
+      const price = (bodies > CONGESTION_CAP ? CONGESTION_CAP : bodies) * CONGESTION_S
+      for (let k = start; k < end; k++) {
+        const node = nodes[k]
+        out[node] = price
+        priced[pCount++] = node
+      }
     }
+    this.pricedNodesCount = pCount
   }
 
   private levelBucket(z: number): number {
@@ -2871,37 +2971,42 @@ export class World {
   }
 
   /**
-   * Rebuild the fine collision grid from the current positions. It is built
-   * after the movement pass, so it reflects where the crowd actually is now.
-   * Riders aboard a consist are left out: they stand in a car, not on the floor,
-   * so neither the separation pass nor the density derate may see them.
+   * Rebuild the fine collision grid from the current positions using stamped
+   * per-cell linked lists. Preserves ascending agent index traversal order
+   * while avoiding full-grid clears and prefix sums.
    */
   private buildCollisionGrid(live: readonly Agent[]): void {
     const n = live.length
-    if (this.cOrder.length < n) this.cOrder = new Int32Array(Math.max(n, this.cOrder.length * 2))
-    const counts = this.cCounts
-    counts.fill(0)
-    const W = this.cGridW
-    const H = this.cGridH
-    const band = W * H
-    for (let i = 0; i < n; i++) {
-      if (live[i].train >= 0) continue
-      counts[this.collisionCellIndex(live[i].x, live[i].y, live[i].z, band)]++
+    if (this.cNext.length < n) this.cNext = new Int32Array(Math.max(n, this.cNext.length * 2))
+    if (this.cActiveCells.length < n) this.cActiveCells = new Int32Array(Math.max(n, this.cActiveCells.length * 2))
+    const head = this.cHead
+    const tail = this.cTail
+    const headStamp = this.cHeadStamp
+    const next = this.cNext
+    const active = this.cActiveCells
+    let stamp = ++this.cStamp
+    if (stamp >= 0x7fffffff) {
+      headStamp.fill(0)
+      stamp = this.cStamp = 1
     }
-    let acc = 0
-    const nb = band * this.gridL
-    for (let c = 0; c < nb; c++) {
-      this.cStart[c] = acc
-      acc += counts[c]
-    }
-    this.cStart[nb] = acc
-    const cursor = counts
-    for (let c = 0; c < nb; c++) cursor[c] = this.cStart[c]
+    const band = this.cGridW * this.cGridH
+    let activeCount = 0
     for (let i = 0; i < n; i++) {
       const a = live[i]
       if (a.train >= 0) continue
-      this.cOrder[cursor[this.collisionCellIndex(a.x, a.y, a.z, band)]++] = i
+      const c = this.collisionCellIndex(a.x, a.y, a.z, band)
+      next[i] = -1
+      if (headStamp[c] !== stamp) {
+        headStamp[c] = stamp
+        head[c] = i
+        tail[c] = i
+        active[activeCount++] = c
+      } else {
+        next[tail[c]] = i
+        tail[c] = i
+      }
     }
+    this.cActiveCount = activeCount
   }
 
   private collisionCellIndex(x: number, y: number, z: number, band: number): number {

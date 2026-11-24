@@ -1,6 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { explodedView, explodedPoses, explodedLiftPoses, EXPLODED_LIFT_ABSENT } from '../src/render/explodedView.ts'
+import { ExplodedLayout } from '../src/render/explodedLayout.ts'
+import * as THREE from 'three'
+import { stubCanvas } from './support/stub-canvas.mjs'
 import { moduleFootprint } from '../src/sim/placement.ts'
 import { readFileSync } from 'node:fs'
 
@@ -255,4 +258,111 @@ test('furnishings cannot create a floor or affect the structure packing', () => 
   assert.deepEqual(furnished.offsets, bare.offsets)
   assert.deepEqual(furnished.direction, bare.direction)
   assert.ok(furnished.data.modules.some(module => module.id === 'on-floor'))
+})
+
+test('ExplodedLayout applies the floor current wall visibility to deferred wall meshes and keeps tray placement intact', () => {
+  const layout = new ExplodedLayout([-10])
+  const floorMat = new THREE.MeshStandardMaterial({ color: 0x888888 })
+  const wallMat = new THREE.MeshStandardMaterial({ color: 0xcccccc })
+  const structure = new THREE.Group()
+  structure.userData.levelZ = -10
+  const slabMesh = new THREE.Mesh(new THREE.BoxGeometry(4, 4, 0.2), floorMat)
+  slabMesh.position.set(0, 0, -10)
+  slabMesh.userData.wall = false
+  structure.add(slabMesh)
+
+  const deferred = new THREE.Group()
+  deferred.userData.levelZ = -10
+  const wallMesh = new THREE.Mesh(new THREE.BoxGeometry(4, 0.2, 3), wallMat)
+  wallMesh.position.set(0, 0, -8)
+  wallMesh.userData.wall = true
+  deferred.add(wallMesh)
+
+  const camera = new THREE.OrthographicCamera(-5, 5, 5, -5, 0.1, 100)
+  camera.position.set(0, -10, -8)
+  camera.lookAt(0, 0, -8)
+  camera.updateMatrixWorld()
+
+  try {
+    // 1) Publish initial structure frame, move the tray, then hide walls before deferred equipment flushes.
+    layout.generate([structure], [], 0, undefined, false)
+    layout.shifts[0].set(3, -2, 0)
+    layout.setVisibility(0, true, false)
+
+    // 2) Stage and flush deferred wall equipment while walls are hidden.
+    layout.generate([deferred], [], 0, undefined, true)
+    assert.equal(layout.hasPending(), true)
+    while (!layout.flushPendingStep(100)) { /* drain */ }
+
+    const wallDraws = layout.floors[0].children.filter(m => m.userData.wall === true)
+    assert.equal(wallDraws.length, 1)
+    assert.equal(wallDraws[0].visible, false, 'deferred wall mesh initializes hidden from owning tray')
+
+    // Ray aimed through the shifted wall above the slab misses when walls are hidden.
+    camera.position.set(3, -10, -8)
+    camera.lookAt(3, -2, -8)
+    camera.updateMatrixWorld()
+    assert.equal(layout.pick(0, 0, camera), null, 'hidden deferred wall mesh is excluded from picks')
+
+    // 3) Restoring walls reveals the deferred wall mesh and makes it pickable without moving the tray.
+    layout.setVisibility(0, true, true)
+    assert.equal(wallDraws[0].visible, true, 'showing walls restores deferred wall meshes')
+    assert.deepEqual(layout.shifts[0].toArray(), [3, -2, 0], 'tray placement is unchanged')
+    assert.equal(layout.pick(0, 0, camera), 0, 'restored wall mesh is pickable again')
+  } finally {
+    layout.dispose()
+    slabMesh.geometry.dispose()
+    wallMesh.geometry.dispose()
+    floorMat.dispose()
+    wallMat.dispose()
+  }
+})
+
+test('ExplodedLayout preserves separate draw boundaries for transparent untextured and textured surfaces', () => {
+  const prevDoc = globalThis.document
+  const mkCanvas = (w = 32, h = 16) => {
+    const node = { width: w, height: h }, { g } = stubCanvas(w, h)
+    g.canvas = node; node.getContext = () => g
+    return node
+  }
+  globalThis.document = { createElement: () => mkCanvas() }
+
+  const layout = new ExplodedLayout([-10])
+  const group = new THREE.Group()
+  group.userData.levelZ = -10
+  const untexA = new THREE.MeshBasicMaterial({ color: 0xff0000, transparent: true, opacity: 0.5, depthWrite: false })
+  const untexB = new THREE.MeshBasicMaterial({ color: 0xff0000, transparent: true, opacity: 0.5, depthWrite: false })
+  const untexMid = new THREE.MeshBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.5, depthWrite: false })
+  const texA = new THREE.CanvasTexture(mkCanvas())
+  const texB = new THREE.CanvasTexture(mkCanvas())
+  const texMatA = new THREE.MeshBasicMaterial({ map: texA, transparent: true, opacity: 0.5, depthWrite: false })
+  const texMatB = new THREE.MeshBasicMaterial({ map: texB, transparent: true, opacity: 0.5, depthWrite: false })
+  const opaqueA = new THREE.MeshStandardMaterial({ color: 0x224466, roughness: 0.5 })
+  const opaqueB = new THREE.MeshStandardMaterial({ color: 0x224466, roughness: 0.5 })
+
+  const meshes = [
+    new THREE.Mesh(new THREE.PlaneGeometry(2, 2), untexA),
+    new THREE.Mesh(new THREE.PlaneGeometry(2, 2), untexMid),
+    new THREE.Mesh(new THREE.PlaneGeometry(2, 2), untexB),
+    new THREE.Mesh(new THREE.PlaneGeometry(2, 2), texMatA),
+    new THREE.Mesh(new THREE.PlaneGeometry(2, 2), texMatB),
+    new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), opaqueA),
+    new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), opaqueB),
+  ]
+  meshes.forEach((m, i) => { m.position.set(i * 2, 0, -9); group.add(m) })
+
+  try {
+    layout.generate([group], [], 0, undefined, false)
+    // 5 transparent meshes must remain 5 independent draws + 2 opaque identical materials merge into 1 = 6 total.
+    const transparentDraws = layout.floors[0].children.filter(m => m.material.transparent)
+    const opaqueDraws = layout.floors[0].children.filter(m => !m.material.transparent)
+    assert.equal(transparentDraws.length, 5, 'separately owned untextured and textured transparent surfaces keep separate draws')
+    assert.equal(opaqueDraws.length, 1, 'opaque untextured surfaces still canonicalize and merge')
+  } finally {
+    layout.dispose()
+    meshes.forEach(m => m.geometry.dispose())
+    ;[untexA, untexB, untexMid, texMatA, texMatB, opaqueA, opaqueB].forEach(m => m.dispose())
+    texA.dispose(); texB.dispose()
+    globalThis.document = prevDoc
+  }
 })

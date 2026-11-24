@@ -26,7 +26,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { useStore } from '../src/app/store.ts'
 import { refreshTrackForSelection } from '../src/app/windows/inspector/refreshPlatform.ts'
-import { initSim, selectSimAgent, setFrameHandler, setRouteHandler, subscribeFrame } from '../src/app/store/slices/SimSlice.ts'
+import { initSim, loadSim, replayDensityHandler, selectSimAgent, setDensityHandler, setFrameHandler, setRouteHandler, setSimDensityDemand, subscribeFrame } from '../src/app/store/slices/SimSlice.ts'
 import { defaultLine, makeTrack, placeRail, placeTunnel, trackPieceForLine } from '../src/build/rail.ts'
 import { toState, toStateRepairing, createModule } from '../src/build/model.ts'
 // The same module record `referenceStation()` clones, so damaging it for one test
@@ -1161,4 +1161,147 @@ test('adjacent station names survive undo, redo and save reload', async () => {
   const { text } = await saveToText()
   st().loadFromText(text)
   for (const [key, value] of Object.entries(patch)) assert.equal(st().station.lines[0][key], value)
+})
+
+test('density consumer pairs samples by stationGen and graphRev, clears stale overlays, and keeps motion intact', async () => {
+  const THREE = await import('three')
+  const { CrowdSystem } = await import('../src/render/scene/systems/CrowdSystem.ts')
+  const { SceneContextData } = await import('../src/render/scene/systems/SceneSystem.ts')
+  const blob = new THREE.MeshBasicMaterial()
+  const crowdCtx = new SceneContextData(new THREE.Scene(), { blob }, {})
+  const crowd = new CrowdSystem(crowdCtx)
+  load(twoLines())
+  const frames = []
+  const routes = []
+  const densities = []
+  setFrameHandler((count, agents, density, trains, lifts, intervalMs, simTime, trainServices) => {
+    frames.push([count, agents, density, trains, lifts, intervalMs, simTime, trainServices])
+    crowd.setAgents(agents, count, intervalMs)
+  })
+  setRouteHandler((points, id) => routes.push([points, id]))
+  setDensityHandler((sample) => {
+    densities.push(sample)
+    if (sample) crowd.setDensity(sample.graph.nodes, sample.density, true)
+    else crowd.clearDensity()
+  })
+  setSimDensityDemand(true)
+  try {
+    initSim(st().station, 1)
+    const initMsg = workerInbox.filter((m) => m.type === 'init').pop()
+    const gen1 = initMsg.stationGen
+    assert.ok(gen1 > 0, 'init carries monotonic stationGen')
+    assert.equal(densities.at(-1), null, 'station boot clears stale overlay')
+
+    // Density arriving before graph is installed must be ignored.
+    workerStub.onmessage({ data: { type: 'density', stationGen: gen1, graphRev: 1, density: new Float32Array([1, 2]) } })
+    assert.equal(densities.filter(Boolean).length, 0, 'density before graph install is dropped')
+
+    const nodes1 = new Float32Array([0.5, 0.5, -4, 1.5, 0.5, -4])
+    workerStub.onmessage({
+      data: { type: 'ready', stationGen: gen1, graphRev: 1, nodeCount: 2, nodes: nodes1, exits: [], platforms: [], levelsZ: [-5] },
+    })
+    assert.equal(densities.at(-1), null, 'graph install clears prior overlay before first sample')
+
+    // Deliver two motion state frames so CrowdSystem holds an active interpolation pose pair (prev -> cur).
+    selectSimAgent(42)
+    const token = workerInbox.filter((m) => m.type === 'selectAgent').pop().token
+    const routePts = new Float32Array([0, 0, -4, 1, 0, -4])
+    const histVal = new Float32Array([1, 2, 3, 4, 5, 6, 7])
+    const makeState = (tick, x) => ({
+      type: 'state',
+      stationGen: gen1,
+      graphRev: 1,
+      count: 1,
+      agents: new Float32Array([x, 0.5, -4, 1, 0, 42]),
+      density: new Float32Array(0),
+      trains: new Float32Array(0),
+      lifts: new Float32Array(0),
+      intervalMs: 1000,
+      metrics: { simTime: 3600 + tick, tick },
+      trainServices: [],
+      route: routePts,
+      routeAgent: 42,
+      routeToken: token,
+      history: histVal,
+      historyFrom: 0,
+      historyReset: tick === 9,
+      historyStart: 3600,
+      historyStep: 60,
+    })
+    workerStub.onmessage({ data: makeState(9, 0.5) })
+    workerStub.onmessage({ data: makeState(10, 1.5) })
+    const frameCount = frames.length
+    const routeCount = routes.length
+    const metricsBefore = st().metrics
+    const historyBefore = st().history
+    const prevPoseBefore = Array.from(crowd.prev.subarray(0, 3))
+    const curPoseBefore = Array.from(crowd.cur.subarray(0, 6))
+    const interpOriginBefore = crowdCtx.lastStateTime
+
+    // Density-only sample routes directly to overlay without touching pose pair, interpolation origin, metrics, history or route preview.
+    const d1 = new Float32Array([0.4, 0.8])
+    workerStub.onmessage({ data: { type: 'density', stationGen: gen1, graphRev: 1, density: d1 } })
+    assert.equal(frames.length, frameCount, 'density-only sample does not call frameHandler')
+    assert.equal(routes.length, routeCount, 'density-only sample does not touch route preview')
+    assert.equal(st().metrics, metricsBefore, 'metrics stay intact')
+    assert.equal(st().history, historyBefore, 'history stays intact')
+    assert.deepEqual(Array.from(crowd.prev.subarray(0, 3)), prevPoseBefore, 'interpolation start pose stays intact')
+    assert.deepEqual(Array.from(crowd.cur.subarray(0, 6)), curPoseBefore, 'interpolation end pose stays intact')
+    assert.equal(crowdCtx.lastStateTime, interpOriginBefore, 'interpolation origin timestamp stays intact')
+    assert.equal(densities.at(-1)?.graph.nodes, nodes1)
+    assert.equal(densities.at(-1)?.density, d1)
+
+    // Disabling and re-enabling midway through interpolation leaves pose pair and origin untouched.
+    setSimDensityDemand(false)
+    setSimDensityDemand(true)
+    assert.deepEqual(Array.from(crowd.prev.subarray(0, 3)), prevPoseBefore)
+    assert.deepEqual(Array.from(crowd.cur.subarray(0, 6)), curPoseBefore)
+    assert.equal(crowdCtx.lastStateTime, interpOriginBefore)
+    workerStub.onmessage({ data: { type: 'density', stationGen: gen1, graphRev: 1, density: d1 } })
+    assert.equal(crowdCtx.lastStateTime, interpOriginBefore)
+
+    // Renderer recreation replays matched density.
+    const replayed = []
+    setDensityHandler((sample) => replayed.push(sample))
+    replayDensityHandler()
+    assert.equal(replayed.length, 1)
+    assert.equal(replayed[0]?.graph.nodes, nodes1)
+    assert.equal(replayed[0]?.density, d1)
+    setDensityHandler((sample) => densities.push(sample))
+
+    // Graph replacement (same node count, moved coordinates, graphRev: 2) clears old overlay and rejects rev 1 density.
+    const nodes2 = new Float32Array([10.5, 0.5, -4, 11.5, 0.5, -4])
+    workerStub.onmessage({
+      data: { type: 'ready', stationGen: gen1, graphRev: 2, nodeCount: 2, nodes: nodes2, exits: [], platforms: [], levelsZ: [-5] },
+    })
+    assert.equal(densities.at(-1), null, 'graph replacement clears stale overlay')
+    const afterReplace = densities.length
+    workerStub.onmessage({ data: { type: 'density', stationGen: gen1, graphRev: 1, density: new Float32Array([9, 9]) } })
+    assert.equal(densities.length, afterReplace, 'stale graphRev density is ignored even with identical nodeCount')
+    const d2 = new Float32Array([0.2, 0.9])
+    workerStub.onmessage({ data: { type: 'density', stationGen: gen1, graphRev: 2, density: d2 } })
+    assert.equal(densities.at(-1)?.graph.nodes, nodes2, 'matched graphRev draws at moved coordinates')
+    assert.equal(densities.at(-1)?.density, d2)
+
+    // Station switch clears stale overlay immediately and ignores old stationGen messages.
+    loadSim(st().station)
+    const gen2 = workerInbox.filter((m) => m.type === 'init').pop().stationGen
+    assert.ok(gen2 > gen1)
+    assert.equal(densities.at(-1), null, 'station switch clears stale overlay')
+    assert.equal(st().graph, null, 'station switch clears stale graph')
+    const afterSwitch = densities.length
+    workerStub.onmessage({ data: { type: 'density', stationGen: gen1, graphRev: 2, density: new Float32Array([5, 5]) } })
+    workerStub.onmessage({ data: { type: 'ready', stationGen: gen1, graphRev: 3, nodeCount: 2, nodes: nodes2, exits: [], platforms: [], levelsZ: [-5] } })
+    assert.equal(densities.length, afterSwitch, 'stale stationGen ready and density are dropped')
+    assert.equal(st().graph, null)
+    replayDensityHandler()
+    assert.equal(densities.at(-1), null, 'renderer recreation during station switch replays no stale density')
+  } finally {
+    setSimDensityDemand(false)
+    setDensityHandler(null)
+    setFrameHandler(null)
+    setRouteHandler(null)
+    crowd.dispose()
+    blob.dispose()
+  }
 })

@@ -219,7 +219,7 @@ export async function withPage({ url, profile, debugPort = 9335, windowSize = '1
       eventListeners.get(method).add(listener)
       return () => eventListeners.get(method)?.delete(listener)
     }
-    return { evaluate, send, waitForEvent, onEvent, close: closeSession, chromePath }
+    return { evaluate, send, waitForEvent, onEvent, close: closeSession, chromePath, chromePid: chrome.pid }
   } catch (err) {
     await close()
     throw err

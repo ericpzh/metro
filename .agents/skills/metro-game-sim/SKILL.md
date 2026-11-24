@@ -133,7 +133,15 @@ and sweep-block pedestrian moves (`roadMoveClear`) on their floor only.
 ### 6. Worker Protocol, Edit Classification, and Cache Lifetime
 - `sim/worker.ts` handles `init`, `build`, `build-edit` (bounded splices via
   `sim/stationEdit.ts`), `population` (`sim/populationEdit.ts`), `control`, `restart`, `seek`,
-  `selectAgent`, and `enableWasm`.
+  `selectAgent`, `densityDemand`, and `enableWasm`.
+- Message-owned typed arrays (`agents`, `trains`, `lifts`, `history`, `route`, and demanded
+  `density`) transfer zero-copy. `init` and topology rebuilds publish fresh `ready` graph
+  coordinates carrying monotonic `stationGen` and `graphRev` before their first density sample;
+  `densityDemand` returns a `density`-only message while paused and attaches density to the next
+  scheduled `state` frame during playback. `state` messages carry worker-source
+  `workerCompletedTicks`, `workerTimerMisses`, and `postedAt` diagnostics.
+- `World` uses per-tick stamped cell linked lists and CSR `cellNodes` touched-cell congestion
+  pricing for bit-for-bit exact replay.
 - Cosmetic and sim-inert decor edits (`sim/cosmeticEdit.ts`, `sim/decorInert.ts`) skip graph
   rebuilds; structural builds coalesce over `BUILD_COALESCE_MS` (`100 ms`). A `dirty` flag
   suppresses idle paused snapshots.

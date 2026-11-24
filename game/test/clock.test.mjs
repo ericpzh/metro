@@ -473,3 +473,67 @@ test('the calendar pick is a seek: a date and a time of day become sim seconds',
   const leap = simTimeAtDate({ year: 2024, month: 2, day: 29 }, { year: 2024, month: 2, day: 28 }, 0)
   assert.equal(leap, SIM_DAY)
 })
+
+test('ClockSystem initializes replaced non-first placed clocks and hover previews at the current time while skipping unchanged rigs', async () => {
+  const { ClockSystem } = await import('../src/render/scene/systems/ClockSystem.ts')
+  const calendar = { ...DEFAULT_CALENDAR }
+  const ctx = { lastStateTime: 1000, stateIntervalMs: 1000, stationData: { calendar } }
+  const clocks = new ClockSystem(ctx)
+  const makeRig = () => {
+    const calls = []
+    return {
+      calls,
+      hour: [],
+      minute: [],
+      updateDisplay: (seconds, cal) => calls.push({ seconds, cal }),
+    }
+  }
+
+  const placed0 = makeRig()
+  const placed1 = makeRig()
+  clocks.clockRigs.push(placed0, placed1)
+  clocks.setSimTime(8 * 3600 + 15 * 60)
+
+  // Initial update initializes both placed rigs.
+  clocks.updateClocks(2000)
+  assert.equal(placed0.calls.length, 1)
+  assert.equal(placed1.calls.length, 1)
+  assert.equal(placed1.calls[0].seconds, 8 * 3600 + 15 * 60)
+  assert.equal(placed1.calls[0].cal, calendar)
+
+  // Second paused frame at same time skips redundant writes on unchanged rigs.
+  clocks.updateClocks(2500)
+  assert.equal(placed0.calls.length, 1)
+  assert.equal(placed1.calls.length, 1)
+
+  // Replace non-first placed clock while paused with the same rig count.
+  const replacement = makeRig()
+  clocks.clockRigs[1] = replacement
+  clocks.updateClocks(2600)
+  assert.equal(replacement.calls.length, 1, 'replaced non-first clock updates on its first frame')
+  assert.equal(replacement.calls[0].seconds, 8 * 3600 + 15 * 60)
+  assert.equal(replacement.calls[0].cal, calendar)
+  assert.equal(placed0.calls.length, 1, 'unchanged first clock skips redundant write')
+
+  // Install a hover preview at the same simulated time, then replace it at the same simulated time.
+  const previewA = makeRig()
+  clocks.previewRigs.push(previewA)
+  clocks.updateClocks(2700)
+  assert.equal(previewA.calls.length, 1)
+  assert.equal(previewA.calls[0].seconds, 8 * 3600 + 15 * 60)
+  assert.equal(placed0.calls.length, 1)
+  assert.equal(replacement.calls.length, 1)
+
+  const previewB = makeRig()
+  clocks.previewRigs = [previewB]
+  clocks.updateClocks(2800)
+  assert.equal(previewB.calls.length, 1, 'replaced hover preview updates on its first frame')
+  assert.equal(previewB.calls[0].seconds, 8 * 3600 + 15 * 60)
+  assert.equal(previewB.calls[0].cal, calendar)
+  assert.equal(placed0.calls.length, 1, 'unchanged placed clocks still skip redundant writes')
+  assert.equal(replacement.calls.length, 1)
+
+  // A subsequent paused frame writes to none of them.
+  clocks.updateClocks(2900)
+  assert.equal(previewB.calls.length, 1)
+})

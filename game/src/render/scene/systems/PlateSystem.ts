@@ -19,7 +19,8 @@ import { getLanguage, translate } from '../../../sim/i18n.ts'
 import type { TrainService } from '../../../sim/trainSchedule.ts'
 import { canvasTexture, litPanelMaterial } from '../../models.ts'
 import type { PrintedFace } from '../../models.ts'
-import { drawStationDisplay, STATION_PLATE, tvLineStatus } from '../../stationDisplay.ts'
+import { drawStationDisplay, serviceTvLineStatus, STATION_PLATE, tvLineStatus } from '../../stationDisplay.ts'
+import type { TvLineStatus } from '../../stationDisplay.ts'
 import { calligraphyPlate, drawCalligraphyPanel } from '../../calligraphyFace.ts'
 import { drawLineMapPlaceholder, lineMapPlaceholderPlate } from '../../lineMapFace.ts'
 import { drawSignPanel } from '../../signFace.ts'
@@ -71,6 +72,36 @@ export class PlateSystem extends SceneSystem {
   private services: TrainService[] = []
   private dateText = ''
   private tvInk = new Map<string, string>()
+  private tvCoordsModules: StationData['modules'] | undefined
+  private tvCoords = new Map<string, readonly [number, number, number]>()
+  private pendingTvPlates = new Map<string, {
+    tex: THREE.CanvasTexture
+    status: TvLineStatus | null
+    stationName: string
+    clock: string
+    dateLabel: string
+    ink: string
+  }>()
+  /** Enabled by SceneRenderer to spread multi-TV repaints across frames. */
+  budgetedTvRepaint = false
+
+  get hasPendingTvPlates(): boolean {
+    return this.pendingTvPlates.size > 0
+  }
+
+  private tvCoordOf(id: string, data: StationData | null | undefined): readonly [number, number, number] {
+    const modules = data?.modules
+    if (modules !== this.tvCoordsModules) {
+      this.tvCoordsModules = modules
+      this.tvCoords.clear()
+      if (data) {
+        for (const mod of modelNeighbours({ data }, 'tv')) {
+          this.tvCoords.set(mod.id, [mod.x + 0.5, mod.y + 0.5, mod.z])
+        }
+      }
+    }
+    return this.tvCoords.get(id) ?? [0.5, 0.5, 0]
+  }
 
   private tvStatus(x: number, y: number, z: number) {
     return tvLineStatus(this.ctx.stationData?.lines ?? [], this.services, [x, y, z])
@@ -129,6 +160,7 @@ export class PlateSystem extends SceneSystem {
     for (const tex of this.tvPlates.values()) tex.dispose()
     this.tvPlates.clear()
     this.tvInk.clear()
+    this.pendingTvPlates.clear()
   }
 
   /**
@@ -155,6 +187,8 @@ export class PlateSystem extends SceneSystem {
       if (keep.has(id)) continue
       tex.dispose()
       this.tvPlates.delete(id)
+      this.tvInk.delete(id)
+      this.pendingTvPlates.delete(id)
     }
   }
 
@@ -505,6 +539,54 @@ export class PlateSystem extends SceneSystem {
     return t
   }
 
+  private static statusInkKey(status: TvLineStatus | null): string {
+    if (!status) return ''
+    let key = `${status.name}\0${status.colour}\0${status.terminus}`
+    for (let i = 0; i < status.arrivals.length; i++) {
+      const a = status.arrivals[i]
+      key += `\0${a.minutes}:${a.atPlatform ? 1 : 0}:${a.arriving ? 1 : 0}`
+    }
+    return key
+  }
+
+  private paintTvPlate(
+    id: string,
+    tex: THREE.CanvasTexture,
+    status: TvLineStatus | null,
+    stationName: string,
+    clock: string,
+    dateLabel: string,
+    ink: string,
+  ): void {
+    this.tvInk.set(id, ink)
+    const g = (tex.image as HTMLCanvasElement).getContext('2d')
+    if (!g) return
+    drawStationDisplay(g, status, stationName, clock, dateLabel)
+    tex.needsUpdate = true
+  }
+
+  /** Repaint up to `budget` queued TVs, prioritizing visible ones first. */
+  flushTvPlates(budget = 1, isVisible?: (id: string) => boolean): number {
+    if (this.pendingTvPlates.size === 0 || budget <= 0) return 0
+    let painted = 0
+    if (isVisible) {
+      for (const [id, item] of this.pendingTvPlates) {
+        if (!isVisible(id)) continue
+        this.pendingTvPlates.delete(id)
+        if (this.tvInk.get(id) === item.ink) continue
+        this.paintTvPlate(id, item.tex, item.status, item.stationName, item.clock, item.dateLabel, item.ink)
+        if (++painted >= budget) return painted
+      }
+    }
+    for (const [id, item] of this.pendingTvPlates) {
+      this.pendingTvPlates.delete(id)
+      if (this.tvInk.get(id) === item.ink) continue
+      this.paintTvPlate(id, item.tex, item.status, item.stationName, item.clock, item.dateLabel, item.ink)
+      if (++painted >= budget) break
+    }
+    return painted
+  }
+
   /** Refresh on every worker frame, uploading only when the printed arrivals or clock change. */
   setSimClock(simTime: number, services: TrainService[] = []): void {
     this.lastSimTime = simTime
@@ -515,17 +597,50 @@ export class PlateSystem extends SceneSystem {
     this.ctx.clockText = stamp.clock
     this.dateText = translate(stamp.dateLabel)
     if (!this.tvPlates.size) return
-    const tvs = modelNeighbours({ data: data ?? undefined }, 'tv')
+    const lines = data?.lines ?? []
+    const lineById = new Map<string, LineDef>()
+    for (const line of lines) lineById.set(line.id, line)
+    const validServices: TrainService[] = []
+    const serviceStatuses: Array<TvLineStatus | null> = []
+    const serviceKeys: string[] = []
+    for (const service of services) {
+      if (!lineById.has(service.lineId)) continue
+      validServices.push(service)
+      const status = serviceTvLineStatus(lines, service, lineById)
+      serviceStatuses.push(status)
+      serviceKeys.push(PlateSystem.statusInkKey(status))
+    }
+    const fallbackStatus = serviceTvLineStatus(lines, undefined, lineById)
+    const fallbackKey = PlateSystem.statusInkKey(fallbackStatus)
+    const stationName = data?.name ?? ''
+    const baseInk = `\x01${getLanguage()}\x01${stationName}\x01${stamp.clock}\x01${stamp.dateLabel}`
     for (const [id, tex] of this.tvPlates) {
-      const mod = tvs.find(m => m.id === id)
-      const status = this.tvStatus(mod ? mod.x + 0.5 : 0.5, mod ? mod.y + 0.5 : 0.5, mod?.z ?? 0)
-      const ink = JSON.stringify([status, data?.name, stamp.clock, stamp.dateLabel])
-      if (this.tvInk.get(id) === ink) continue
-      this.tvInk.set(id, ink)
-      const g = (tex.image as HTMLCanvasElement).getContext('2d')
-      if (!g) continue
-      drawStationDisplay(g, status, data?.name ?? '', stamp.clock, stamp.dateLabel)
-      tex.needsUpdate = true
+      const coord = this.tvCoordOf(id, data)
+      let bestIndex = -1
+      let bestDist = Infinity
+      for (let i = 0; i < validServices.length; i++) {
+        const service = validServices[i]
+        const dx = coord[0] - service.x
+        const dy = coord[1] - service.y
+        const along = Math.max(0, Math.abs(dx * service.fx + dy * service.fy) - service.halfLength)
+        const across = dx * service.fy - dy * service.fx
+        const dist = along * along + across * across + (coord[2] - service.z) * (coord[2] - service.z)
+        if (dist < bestDist) {
+          bestDist = dist
+          bestIndex = i
+        }
+      }
+      const status = bestIndex >= 0 ? serviceStatuses[bestIndex] : fallbackStatus
+      const ink = (bestIndex >= 0 ? serviceKeys[bestIndex] : fallbackKey) + baseInk
+      if (this.tvInk.get(id) === ink) {
+        this.pendingTvPlates.delete(id)
+        continue
+      }
+      if (this.budgetedTvRepaint) {
+        this.pendingTvPlates.set(id, { tex, status, stationName, clock: stamp.clock, dateLabel: stamp.dateLabel, ink })
+      } else {
+        this.paintTvPlate(id, tex, status, stationName, stamp.clock, stamp.dateLabel, ink)
+      }
     }
   }
 

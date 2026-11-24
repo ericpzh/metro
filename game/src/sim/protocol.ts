@@ -9,6 +9,10 @@ import type { PopulationEdit } from './populationEdit.ts'
 import type { StationEdit } from './stationEdit.ts'
 
 export interface GraphInfo {
+  /** Monotonic station generation incremented on every `init` / station switch. */
+  stationGen: number
+  /** Monotonic graph revision within `stationGen` (1 on init, +1 per topology rebuild). */
+  graphRev: number
   nodeCount: number
   /** xyz per node, walk-surface height. */
   nodes: Float32Array
@@ -33,7 +37,7 @@ export type ToWorker =
   // `init` boots the world and, sent again, loads a different station: both are
   // a full reset. Live edits arrive as `build`, which rebuilds the graph and
   // keeps the crowd.
-  | { type: 'init'; data: StationData; seed: number; playing: boolean; speed: number; startSeconds?: number; warmup?: number }
+  | { type: 'init'; data: StationData; seed: number; playing: boolean; speed: number; startSeconds?: number; warmup?: number; stationGen?: number }
   | { type: 'build'; data: StationData }
   | { type: 'build-edit'; edit: StationEdit }
   | { type: 'population'; edit: PopulationEdit }
@@ -48,12 +52,27 @@ export type ToWorker =
   // the preview away, and `token` is echoed back on every frame so the renderer can
   // tell "the worker has not seen my selection yet" from "that passenger is gone".
   | { type: 'selectAgent'; id: number; token: number }
+  // Explicit demand for per-node LOS density buffers. When false, the worker omits
+  // the node-count Float32Array copy; toggling on while paused posts a density-only
+  // sample, and during playback attaches density to the next scheduled state frame.
+  | { type: 'densityDemand'; enabled: boolean }
 
 export type FromWorker =
   | RoutingDiagnostic
   | ({ type: 'ready' } & GraphInfo)
   | {
+      type: 'density'
+      stationGen: number
+      graphRev: number
+      density: Float32Array
+    }
+  | {
       type: 'state'
+      stationGen: number
+      graphRev: number
+      workerCompletedTicks: number
+      workerTimerMisses: number
+      postedAt: number
       count: number
       agents: Float32Array
       metrics: Metrics

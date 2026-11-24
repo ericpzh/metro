@@ -46,6 +46,19 @@ export class ClockSystem extends SceneSystem {
    * with (10:09), which is what a station does before the sim has said what time it is.
    */
   private have = false
+  private applied = new WeakMap<ClockRig, { seconds: number; calendar: SimCalendar | undefined }>()
+
+  private applyRig(rig: ClockRig, seconds: number, calendar: SimCalendar | undefined): void {
+    const prev = this.applied.get(rig)
+    if (prev && prev.seconds === seconds && prev.calendar === calendar) return
+    updateRig(rig, seconds, calendar)
+    if (prev) {
+      prev.seconds = seconds
+      prev.calendar = calendar
+    } else {
+      this.applied.set(rig, { seconds, calendar })
+    }
+  }
 
   /**
    * One state frame's sim clock, in seconds since the run began — the same number the worker
@@ -73,11 +86,13 @@ export class ClockSystem extends SceneSystem {
    * is drawing it.
    */
   updateClocks(now: number): void {
-    if (!this.have || (this.clockRigs.length === 0 && this.previewRigs.length === 0)) return
+    const clockCount = this.clockRigs.length
+    const previewCount = this.previewRigs.length
+    if (!this.have || (clockCount === 0 && previewCount === 0)) return
     const alpha = Math.min(1, Math.max(0, (now - this.ctx.lastStateTime) / this.ctx.stateIntervalMs))
     const seconds = this.from + (this.to - this.from) * alpha
     const calendar = this.ctx.stationData?.calendar
-    for (const rig of this.clockRigs) updateRig(rig, seconds, calendar)
-    for (const rig of this.previewRigs) updateRig(rig, seconds, calendar)
+    for (let i = 0; i < clockCount; i++) this.applyRig(this.clockRigs[i], seconds, calendar)
+    for (let i = 0; i < previewCount; i++) this.applyRig(this.previewRigs[i], seconds, calendar)
   }
 }

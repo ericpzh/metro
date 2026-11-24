@@ -27,9 +27,8 @@ export function nearestTrainService(lines: readonly LineDef[], services: readonl
   return nearest
 }
 
-export function tvLineStatus(lines: readonly LineDef[], services: readonly TrainService[], at: readonly [number, number, number]): TvLineStatus | null {
-  const nearest = nearestTrainService(lines, services, at)
-  const line = lines.find((line) => line.id === nearest?.lineId) ?? lines[0]
+export function serviceTvLineStatus(lines: readonly LineDef[], nearest?: TrainService, lineById?: ReadonlyMap<string, LineDef>): TvLineStatus | null {
+  const line = (nearest ? (lineById ? lineById.get(nearest.lineId) : lines.find((candidate) => candidate.id === nearest.lineId)) : undefined) ?? lines[0]
   if (!line) return null
   const direction = nearest?.direction ?? line.direction
   return {
@@ -40,6 +39,10 @@ export function tvLineStatus(lines: readonly LineDef[], services: readonly Train
       arriving: !arrival.atPlatform && arrival.seconds <= TRAIN_APPROACH_S,
     })) ?? [],
   }
+}
+
+export function tvLineStatus(lines: readonly LineDef[], services: readonly TrainService[], at: readonly [number, number, number]): TvLineStatus | null {
+  return serviceTvLineStatus(lines, nearestTrainService(lines, services, at))
 }
 
 export const STATION_PLATE = { width: 960, height: 540 } as const

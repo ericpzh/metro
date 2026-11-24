@@ -11,6 +11,7 @@ import { GeometryDetail } from './geometryDetail.ts'
 import { modelDetailGeometry } from './modelDetail.ts'
 import { detailHeight, isDenseStation } from './detailPolicy.ts'
 import type { GraphicsQuality } from './detailPolicy.ts'
+import { canonicalUntexturedMaterialKey } from './materialCanonical.ts'
 
 // No moving rigs: their screens, wings, hands and cabins keep live references.
 // Static TV surrounds/sign faces can batch; the artwork window stays independent.
@@ -28,7 +29,7 @@ export function equipmentBatchTileSize(quality: GraphicsQuality, moduleCount = 0
 interface Source { mesh: THREE.Mesh; root: THREE.Object3D; matrix: THREE.Matrix4; signature: string; region: AtlasRegion | null; levels?: number[] }
 interface Entry { signature: string; mesh: THREE.Mesh; sources: Source[]; detail?: GeometryDetail }
 interface View { entries: Map<string, Entry>; sources: Set<THREE.Mesh>; buckets: Buckets | null; roots: Map<THREE.Object3D, RootSources> }
-type Buckets = Map<string, { material: THREE.Material; sources: Source[] }>
+type Buckets = Map<string, { material: THREE.Material; canonKey?: string; sources: Source[] }>
 interface RootSources { key: string; matrix: THREE.Matrix4; textures: Set<THREE.Texture>; buckets: Buckets | null }
 
 /** A Low proxy can combine several fittings beyond its owner's Near surface. */
@@ -100,6 +101,26 @@ export class EquipmentBatches {
   private sourceOnlyRoots = new Set<THREE.Object3D>()
   private rootCoverage = new WeakMap<THREE.Object3D, { entries: Entry[]; onlySources: boolean }>()
   private translatedRoots=new WeakMap<THREE.Object3D,THREE.Matrix4>()
+  private canonicalMaterials = new Map<string, THREE.Material>()
+  private planeIds = new WeakMap<THREE.Plane, number>()
+  private nextPlaneId = 0
+
+  private canonicalMaterial(canonKey: string, material: THREE.Material): THREE.Material {
+    let shared = this.canonicalMaterials.get(canonKey)
+    if (!shared) {
+      shared = material.clone()
+      this.canonicalMaterials.set(canonKey, shared)
+    }
+    const target = material.clippingPlanes ?? null
+    const current = shared.clippingPlanes ?? null
+    const sameClip = (current?.length ?? 0) === (target?.length ?? 0) &&
+      (!target || target.every((plane, index) => current?.[index] === plane))
+    if (!sameClip) {
+      shared.clippingPlanes = target
+      shared.needsUpdate = true
+    }
+    return shared
+  }
 
   isFullyBatched(root:THREE.Object3D):boolean { return this.sourceOnlyRoots.has(root) }
 
@@ -357,7 +378,10 @@ export class EquipmentBatches {
       for (const key of affected) {
         const bucket = buckets.get(key)!
         const sources = bucket.sources.filter(s=>unchanged.has(s.root))
-        if (sources.length) buckets.set(key,{material:bucket.material,sources})
+        if (sources.length) {
+          const liveMaterial = sources[0].region?.material ?? (sources[0].mesh.material as THREE.Material)
+          buckets.set(key,{material:liveMaterial,canonKey:bucket.canonKey,sources})
+        }
         else buckets.delete(key)
         changed.add(key)
       }
@@ -366,11 +390,11 @@ export class EquipmentBatches {
       for (const [key, bucket] of local) {
         let existing = buckets.get(key)
         if (incremental && existing && !changed.has(key)) {
-          existing = { material: existing.material, sources: [...existing.sources] }
+          existing = { material: existing.material, canonKey: existing.canonKey, sources: [...existing.sources] }
           buckets.set(key, existing)
         }
         if (existing) existing.sources.push(...bucket.sources)
-        else buckets.set(key, { material: bucket.material, sources: [...bucket.sources] })
+        else buckets.set(key, { material: bucket.material, canonKey: bucket.canonKey, sources: [...bucket.sources] })
         changed.add(key)
       }
     }
@@ -402,13 +426,16 @@ export class EquipmentBatches {
         if (uv) for (let i = 0; i < uv.count && boundedUV; i++) boundedUV = uv.getX(i) >= 0 && uv.getX(i) <= 1 && uv.getY(i) >= 0 && uv.getY(i) <= 1
         const region = boundedUV ? this.atlas.resolve(o.material) : null
         const material = region?.material ?? o.material
+        const allowSortedTransparent = !o.userData.staticInstances && !(material as THREE.MeshBasicMaterial).wireframe
+        const canonKey = region ? undefined : (canonicalUntexturedMaterialKey(material, true, this.planeIds, () => ++this.nextPlaneId, allowSortedTransparent) ?? undefined)
+        const matKey = canonKey ?? material.uuid
         const p = new THREE.Vector3().setFromMatrixPosition(o.matrixWorld)
         const instanceKey = o.userData.staticInstances ? `|static:${o.geometry.uuid}` : ''
         // The slice already resolved visibility and materials. Dense Low uses
         // the same detail for every level span and coherent model part.
         const detailKey = batchTileSize === 256 ? '' : `|${root.userData.levelZs}|coherent:${o.userData.coherentModelDetail === true}`
-        const key = `${Math.floor(p.x / batchTileSize)},${Math.floor(p.y / batchTileSize)}|${material.uuid}|${attributeKey(o.geometry)}|${o.renderOrder}|${o.castShadow}|${o.receiveShadow}|${o.frustumCulled}${instanceKey}${detailKey}`
-        const bucket = local.get(key) ?? { material, sources: [] as Source[] }
+        const key = `${Math.floor(p.x / batchTileSize)},${Math.floor(p.y / batchTileSize)}|${matKey}|${attributeKey(o.geometry)}|${o.renderOrder}|${o.castShadow}|${o.receiveShadow}|${o.frustumCulled}${instanceKey}${detailKey}`
+        const bucket = local.get(key) ?? { material, canonKey, sources: [] as Source[] }
         const matrix = o.matrixWorld.clone()
         const artwork = region ? `${(o.material as THREE.MeshBasicMaterial).map?.uuid}:${region.material.uuid}:${region.u},${region.v},${region.w},${region.h}` : ''
         bucket.sources.push({ mesh: o, root, matrix, signature: `${o.uuid}:${o.geometry.uuid}:${matrix.elements.join(',')}:${artwork}`, region, levels: root.userData.levelZs }); local.set(key, bucket)
@@ -418,7 +445,7 @@ export class EquipmentBatches {
     }
     const alive = incremental ? new Set([...this.entries.keys()].filter(key=>!changed.has(key))) : new Set<string>()
     const rootOrder = new Map(modules.children.map((root,i)=>[root,i]))
-    for (const [key, { material, sources }] of buckets) {
+    for (const [key, { canonKey, sources }] of buckets) {
       if (incremental && !changed.has(key)) continue
       if (incremental) sources.sort((a,b)=>rootOrder.get(a.root)!-rootOrder.get(b.root)!)
       const coarse = sources.map(s => modelDetailGeometry(s.mesh))
@@ -429,9 +456,14 @@ export class EquipmentBatches {
         for (const source of sources) { source.mesh.layers.set(0); this.sources.delete(source.mesh) }
         continue
       }
+      const firstSourceMat = sources[0].region?.material ?? (sources[0].mesh.material as THREE.Material)
+      const mixedOwned = canonKey !== undefined && sources.some(s => (s.region?.material ?? s.mesh.material) !== firstSourceMat)
+      const material = mixedOwned
+        ? this.canonicalMaterial(canonKey, firstSourceMat)
+        : firstSourceMat
       alive.add(key)
       const indexed = material.transparent && batchTileSize === 256 && !(material as THREE.MeshBasicMaterial).wireframe
-      const signature = `${material.transparent}|${indexed}|${coarse.map(g => g?.uuid ?? '').join(',')}|` + sources.map(s => s.signature).join('|')
+      const signature = `${material.uuid}|${material.transparent}|${indexed}|${coarse.map(g => g?.uuid ?? '').join(',')}|` + sources.map(s => s.signature).join('|')
       const old = this.entries.get(key)
       if (old?.signature !== signature) {
         if (old) this.entries.delete(key)
@@ -612,6 +644,10 @@ export class EquipmentBatches {
     this.sourceOnlyRoots.clear()
     this.views.clear()
     this.generation = undefined
+    for (const material of this.canonicalMaterials.values()) material.dispose()
+    this.canonicalMaterials.clear()
+    this.planeIds = new WeakMap()
+    this.nextPlaneId = 0
     this.atlas.dispose()
   }
 }

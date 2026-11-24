@@ -1,6 +1,8 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
-import { attributeKey, bakedGeometry } from './batchGeometry.ts'
+import { attributeKey, bakedGeometry, geometryKey } from './batchGeometry.ts'
+import { canonicalUntexturedMaterialKey, isOpaqueCanonicalSurface } from './materialCanonical.ts'
+import { PanelAtlas, atlasUV } from './panelAtlas.ts'
 import { STOREY_HEIGHT, storeyBand } from '../sim/constants.ts'
 import { ExplodedConnections } from './explodedConnections.ts'
 import { packKey } from '../sim/types.ts'
@@ -95,6 +97,10 @@ export class ExplodedLayout {
   private readonly materials = new Map<THREE.Material, {color?: THREE.Color; emissive?: THREE.Color}>()
   private readonly hidden: Array<[THREE.Object3D, boolean]> = []
   private readonly raycaster = new THREE.Raycaster()
+  private readonly pendingBuckets = new Map<string, {owner:number; wall:boolean; material:THREE.Material; geometries:THREE.BufferGeometry[]; vertices:number}>()
+  private readonly pendingInstanceBuckets = new Map<string, {owner:number; material:THREE.Material; geometry:THREE.BufferGeometry; matrices:THREE.Matrix4[]}>()
+  private readonly geomKeys = new WeakMap<THREE.BufferGeometry, string>()
+  readonly atlas = typeof document !== 'undefined' ? new PanelAtlas() : null
   constructor(readonlyLevels: readonly number[]) {
     this.levels = [...readonlyLevels]
     this.floors = this.levels.map((level,index) => { const floor = new THREE.Group();floor.userData.floorIndex=index;floor.userData.levelZ=level;this.root.add(floor);return floor })
@@ -105,28 +111,88 @@ export class ExplodedLayout {
   }
   readonly levels: readonly number[]
 
-  generate(sources: readonly THREE.Object3D[], hidden: readonly THREE.Object3D[], base = 0, frontWalls?: readonly Cell[]): void {
-    const frontKeys=frontWalls && new Set(frontWalls.map(c=>packKey(c.x,c.y,c.z)))
-    type Bucket = {owner:number; wall:boolean; material:THREE.Material; geometries:THREE.BufferGeometry[]; vertices:number}
-    const buckets = new Map<string, Bucket>()
-    const flush = (bucket: Bucket): void => {
-      if(!bucket.geometries.length)return
-      const geometry=mergeGeometries(bucket.geometries)!
-      for(const part of bucket.geometries)part.dispose()
-      bucket.geometries=[];bucket.vertices=0
-      geometry.computeBoundingBox();geometry.computeBoundingSphere()
-      const material=bucket.material.clone()
-      material.onBeforeCompile=bucket.material.onBeforeCompile
-      material.clippingPlanes=null
-      const color=(material as THREE.MeshBasicMaterial).color
-      const emissive=(material as THREE.MeshStandardMaterial).emissive
-      this.materials.set(material,{color:color?.clone(),emissive:emissive?.clone()})
-      const mesh=new THREE.Mesh(geometry,material)
-      mesh.userData.wall=bucket.wall
-      this.floorBounds[bucket.owner].union(geometry.boundingBox!)
-      this.floors[bucket.owner].add(mesh)
+  hasPending(): boolean {
+    return this.pendingBuckets.size > 0 || this.pendingInstanceBuckets.size > 0
+  }
+
+  private geometryKeyOf(geometry: THREE.BufferGeometry): string {
+    let key = this.geomKeys.get(geometry)
+    if (!key) {
+      key = geometryKey(geometry)
+      this.geomKeys.set(geometry, key)
     }
-    const instanceBuckets = new Map<string, {owner:number; material:THREE.Material; geometry:THREE.BufferGeometry; matrices:THREE.Matrix4[]}>()
+    return key
+  }
+
+  private flushBucket(bucket: {owner:number; wall:boolean; material:THREE.Material; geometries:THREE.BufferGeometry[]; vertices:number}): void {
+    if(!bucket.geometries.length)return
+    const geometry=mergeGeometries(bucket.geometries)!
+    for(const part of bucket.geometries)part.dispose()
+    bucket.geometries=[];bucket.vertices=0
+    geometry.computeBoundingBox();geometry.computeBoundingSphere()
+    const material=bucket.material.clone()
+    material.onBeforeCompile=bucket.material.onBeforeCompile
+    material.clippingPlanes=null
+    const color=(material as THREE.MeshBasicMaterial).color
+    const emissive=(material as THREE.MeshStandardMaterial).emissive
+    this.materials.set(material,{color:color?.clone(),emissive:emissive?.clone()})
+    const mesh=new THREE.Mesh(geometry,material)
+    mesh.userData.wall=bucket.wall
+    if(bucket.wall)mesh.visible=this.wallsVisible[bucket.owner]
+    mesh.matrixAutoUpdate=false
+    mesh.updateMatrix()
+    this.floorBounds[bucket.owner].union(geometry.boundingBox!)
+    this.floors[bucket.owner].add(mesh)
+  }
+
+  private flushInstanceBucket(bucket: {owner:number; material:THREE.Material; geometry:THREE.BufferGeometry; matrices:THREE.Matrix4[]}): void {
+    if(!bucket.matrices.length)return
+    const material=bucket.material.clone()
+    material.onBeforeCompile=bucket.material.onBeforeCompile
+    material.clippingPlanes=null
+    const color=(material as THREE.MeshBasicMaterial).color
+    const emissive=(material as THREE.MeshStandardMaterial).emissive
+    this.materials.set(material,{color:color?.clone(),emissive:emissive?.clone()})
+    const mesh=new THREE.InstancedMesh(bucket.geometry.clone(),material,bucket.matrices.length)
+    bucket.matrices.forEach((matrix,index)=>mesh.setMatrixAt(index,matrix))
+    mesh.instanceMatrix.needsUpdate=true
+    mesh.matrixAutoUpdate=false
+    mesh.updateMatrix()
+    mesh.computeBoundingBox();mesh.computeBoundingSphere()
+    this.floorBounds[bucket.owner].union(mesh.boundingBox!)
+    this.floors[bucket.owner].add(mesh)
+  }
+
+  flushPending(): void {
+    for (const bucket of this.pendingBuckets.values()) this.flushBucket(bucket)
+    this.pendingBuckets.clear()
+    for (const bucket of this.pendingInstanceBuckets.values()) this.flushInstanceBucket(bucket)
+    this.pendingInstanceBuckets.clear()
+  }
+
+  /** Incrementally flush deferred equipment buckets within a frame budget. */
+  flushPendingStep(budgetMs = 6): boolean {
+    const start = typeof performance !== 'undefined' ? performance.now() : 0
+    let flushed = 0
+    for (const [key, bucket] of this.pendingBuckets) {
+      this.pendingBuckets.delete(key)
+      this.flushBucket(bucket)
+      flushed++
+      if (flushed >= 1 && typeof performance !== 'undefined' && performance.now() - start >= budgetMs) return !this.hasPending()
+    }
+    for (const [key, bucket] of this.pendingInstanceBuckets) {
+      this.pendingInstanceBuckets.delete(key)
+      this.flushInstanceBucket(bucket)
+      flushed++
+      if (flushed >= 1 && typeof performance !== 'undefined' && performance.now() - start >= budgetMs) return !this.hasPending()
+    }
+    return !this.hasPending()
+  }
+
+  generate(sources: readonly THREE.Object3D[], hidden: readonly THREE.Object3D[], base = 0, frontWalls?: readonly Cell[], deferFlush = false): void {
+    const frontKeys=frontWalls && new Set(frontWalls.map(c=>packKey(c.x,c.y,c.z)))
+    const buckets = this.pendingBuckets
+    const instanceBuckets = this.pendingInstanceBuckets
     const seen = new Set<THREE.Object3D>()
     for (const source of sources) {
       source.updateWorldMatrix(true,true)
@@ -154,6 +220,18 @@ export class ExplodedLayout {
           if(canInstance && planes.length && !mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox()
           const instanceBox = canInstance && planes.length ? new THREE.Box3() : null
           const local = mesh instanceof THREE.InstancedMesh ? new THREE.Matrix4() : null
+          // Resolve canvas panels into the exploded atlas only for opaque surfaces
+          // so transparent meshes preserve independent back-to-front depth sorting.
+          const opaque = isOpaqueCanonicalSurface(material)
+          let atlasRegion = null
+          if (this.atlas && opaque && !canInstance && materials.length === 1 && !planes.length) {
+            const uv = mesh.geometry.getAttribute('uv')
+            let boundedUV = !!uv
+            if (uv) for (let u = 0; u < uv.count && boundedUV; u++) boundedUV = uv.getX(u) >= 0 && uv.getX(u) <= 1 && uv.getY(u) >= 0 && uv.getY(u) <= 1
+            if (boundedUV) atlasRegion = this.atlas.resolve(material)
+          }
+          const bucketMaterial = atlasRegion?.material ?? material
+          const materialKey = atlasRegion ? bucketMaterial.uuid : (canonicalUntexturedMaterialKey(bucketMaterial, false) ?? bucketMaterial.uuid)
           for (let instance=0;instance<instances;instance++) {
             const matrix=mesh.matrixWorld.clone()
             if(mesh instanceof THREE.InstancedMesh) {
@@ -174,9 +252,9 @@ export class ExplodedLayout {
             }
             if(outside)continue
             if(inside) {
-              const key=`${owner}:${material.uuid}:${mesh.geometry.uuid}`
+              const key=`${owner}:${materialKey}:${opaque ? this.geometryKeyOf(mesh.geometry) : mesh.geometry.uuid}`
               let bucket=instanceBuckets.get(key)
-              if(!bucket){bucket={owner,material,geometry:mesh.geometry,matrices:[]};instanceBuckets.set(key,bucket)}
+              if(!bucket){bucket={owner,material:bucketMaterial,geometry:mesh.geometry,matrices:[]};instanceBuckets.set(key,bucket)}
               bucket.matrices.push(matrix)
               continue
             }
@@ -190,39 +268,26 @@ export class ExplodedLayout {
             }
             geometry=clipFloorGeometry(geometry,material.clippingPlanes??[])
             if (!geometry.getAttribute('position').count) {geometry.dispose();continue}
+            if (atlasRegion) atlasUV(geometry, atlasRegion)
             // Chunk meshes carry a boolean wall marker; equipment must stay visible.
             const parts=frontKeys && typeof mesh.userData.wall==='boolean'
               ? splitFrontWalls(geometry,frontKeys)
               : [{geometry,wall:!frontKeys && mesh.userData.wall===true}]
             for(const {geometry,wall} of parts) {
-              const key=`${owner}:${wall}:${material.uuid}:${attributeKey(geometry)}`
+              const key=`${owner}:${wall}:${materialKey}:${attributeKey(geometry)}`
               let bucket=buckets.get(key)
-              if(!bucket){bucket={owner,wall,material,geometries:[],vertices:0};buckets.set(key,bucket)}
+              if(!bucket){bucket={owner,wall,material:bucketMaterial,geometries:[],vertices:0};buckets.set(key,bucket)}
               bucket.geometries.push(geometry)
               bucket.vertices+=geometry.getAttribute('position').count
               // Bound the temporary inputs retained before each merge. Large
               // stations otherwise keep every baked mesh alive at once.
-              if(bucket.vertices>=131072 || bucket.geometries.length>=1024)flush(bucket)
+              if(bucket.vertices>=131072 || bucket.geometries.length>=1024)this.flushBucket(bucket)
             }
           }
         }
       })
     }
-    for (const bucket of buckets.values()) flush(bucket)
-    for(const bucket of instanceBuckets.values()) {
-      const material=bucket.material.clone()
-      material.onBeforeCompile=bucket.material.onBeforeCompile
-      material.clippingPlanes=null
-      const color=(material as THREE.MeshBasicMaterial).color
-      const emissive=(material as THREE.MeshStandardMaterial).emissive
-      this.materials.set(material,{color:color?.clone(),emissive:emissive?.clone()})
-      const mesh=new THREE.InstancedMesh(bucket.geometry.clone(),material,bucket.matrices.length)
-      bucket.matrices.forEach((matrix,index)=>mesh.setMatrixAt(index,matrix))
-      mesh.instanceMatrix.needsUpdate=true
-      mesh.computeBoundingBox();mesh.computeBoundingSphere()
-      this.floorBounds[bucket.owner].union(mesh.boundingBox!)
-      this.floors[bucket.owner].add(mesh)
-    }
+    if (!deferFlush) this.flushPending()
     for(const object of hidden)this.hidden.push([object,object.visible])
     this.hideSources()
   }
@@ -284,12 +349,16 @@ export class ExplodedLayout {
   }
   dispose():void {
     this.connections?.dispose()
+    for (const bucket of this.pendingBuckets.values()) for (const g of bucket.geometries) g.dispose()
+    this.pendingBuckets.clear()
+    this.pendingInstanceBuckets.clear()
     for(const [object,visible]of this.hidden)object.visible=visible
     this.root.traverse(object=>{
       if(object instanceof THREE.InstancedMesh)object.dispose()
       if(object instanceof THREE.Mesh)object.geometry.dispose()
     })
     for(const material of this.materials.keys())material.dispose()
+    this.atlas?.dispose()
     this.root.removeFromParent();this.root.clear();this.materials.clear()
   }
 }

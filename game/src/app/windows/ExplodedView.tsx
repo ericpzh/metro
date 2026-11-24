@@ -228,11 +228,11 @@ function PreparedViewer({ snapshot }: { snapshot: Snapshot }): React.ReactElemen
           let agentPoses: Float32Array = new Float32Array(0)
           let trainPoses: Float32Array = new Float32Array(0)
           const passengerSupport = explodedPassengerSupport(snapshot.data, snapshot.offsets, snapshot.direction)
-          unsubscribe = subscribeFrame((count, agents, _density, trains, lifts, intervalMs, simTime, services) => {
+          unsubscribe = subscribeFrame((count, agents, _density, trains, lifts, intervalMs, simTime, services, tick) => {
             agentPoses = explodedPoses(agents, 6, snapshot.offsets, snapshot.data.levelBase ?? 0, 0, agentPoses, false, snapshot.direction)
             trainPoses = explodedPoses(trains, 10, snapshot.offsets, snapshot.data.levelBase ?? 0,
               trainOriginForScale(trainScaleForStorey()), trainPoses, true, snapshot.direction)
-            scene.setAgents(agentPoses, filterExplodedPassengers(agentPoses, count, passengerSupport), intervalMs)
+            scene.setAgents(agentPoses, filterExplodedPassengers(agentPoses, count, passengerSupport), intervalMs, tick)
             scene.setTrains(trainPoses)
             scene.setLifts(explodedLiftPoses(lifts, snapshot.offsets, snapshot.direction))
             scene.setSimClock(simTime, services)

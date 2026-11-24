@@ -1,5 +1,17 @@
 # Station Designer — the game
 
+Three.js Tianhe Park playback optimizations (`materialCanonical.ts`, `EquipmentBatches`,
+`ExplodedLayout`, `PlateSystem`, `ModuleSystem`, `ClockSystem`, `EscalatorModel`,
+`LiftSystem`, `CrowdSystem`, `SimSlice`, `sim/worker.ts`, and `sim/world/World.ts`)
+keep deterministic exact replay while transferring worker buffers zero-copy, pairing
+on-demand LOS density with monotonic `(stationGen, graphRev)` graph coordinates,
+budgeting TV repaints with O(1) live module visibility lookups, consolidating
+equivalent untextured static materials (opaque-only in `ExplodedLayout` to preserve
+transparent draw order), and resyncing newly drawable escalator parts and replacement
+clocks while paused. `threejs-tianhe-perf`, `worker-preview`, `line-edit`, `clock`,
+`batching-lifecycle`, and `exploded-view` pin these invariants; see
+[perf-web.md](../.agents/skills/metro-repo/references/perf-web.md) for measured results.
+
 Crowd wayfinding uses a sparse hierarchical router with rolling 16-step local
 walking (`sim/sparsePolicy.ts`, `sim/sparseGraph.ts`, `sim/sparseRouter.ts`,
 `sim/sparseConstants.ts`, mirrored in Unity `Metro.Sim` under `StationSparse*.cs`).

@@ -193,6 +193,88 @@ try {
           }
         })()`)
         if (n===0) {
+          report.transparentBlend = await page.evaluate(`(() => {
+            const scene = __explodedScene, renderer = scene.renderer, gl = renderer.getContext();
+            const Layout = scene.explodedLayout.constructor;
+            const SceneCtor = scene.ctx.scene.constructor;
+            const GroupCtor = scene.explodedLayout.root.constructor;
+            const MeshCtor = scene.explodedLayout.floors.flatMap(f => f.children).find(m => m.isMesh && !m.isInstancedMesh).constructor;
+            const CamCtor = scene.camera.constructor;
+            const sampleMesh = scene.explodedLayout.floors.flatMap(f => f.children).find(m => m.isMesh && m.geometry.attributes.position);
+            const GeoCtor = sampleMesh.geometry.constructor;
+            const AttrCtor = sampleMesh.geometry.attributes.position.constructor;
+            const BasicMatCtor = scene.ctx.mats.blob.constructor;
+            const CanvasTexCtor = scene.ctx.mats.blob.map.constructor;
+            const makeQuad = () => {
+              const g = new GeoCtor();
+              g.setAttribute('position', new AttrCtor(new Float32Array([0,-2,-2, 0,2,-2, 0,2,2, 0,-2,-2, 0,2,2, 0,-2,2]), 3));
+              g.setAttribute('normal', new AttrCtor(new Float32Array([1,0,0, 1,0,0, 1,0,0, 1,0,0, 1,0,0, 1,0,0]), 3));
+              g.setAttribute('uv', new AttrCtor(new Float32Array([0,0, 1,0, 1,1, 0,0, 1,1, 0,1]), 2));
+              return g;
+            };
+            const makeTex = (hex) => {
+              const c = document.createElement('canvas'); c.width = 32; c.height = 32;
+              const ctx2d = c.getContext('2d'); ctx2d.fillStyle = hex; ctx2d.fillRect(0, 0, 32, 32);
+              const t = new CanvasTexCtor(c); t.needsUpdate = true; return t;
+            };
+            const runCase = (textured) => {
+              const layout = new Layout([-10]);
+              const source = new GroupCtor(); source.userData.levelZ = -10;
+              const textures = [];
+              const makeMat = (hex, css) => {
+                if (!textured) return new BasicMatCtor({ color: hex, transparent: true, opacity: 0.5, depthWrite: false, side: 2, toneMapped: false });
+                const map = makeTex(css); textures.push(map);
+                return new BasicMatCtor({ map, transparent: true, opacity: 0.5, depthWrite: false, side: 2, toneMapped: false });
+              };
+              const mA = makeMat(0xff0000, '#ff0000'), mC = makeMat(0x00ff00, '#00ff00'), mB = makeMat(0xff0000, '#ff0000');
+              const qA = new MeshCtor(makeQuad(), mA); qA.position.set(-2, 0, -10);
+              const qC = new MeshCtor(makeQuad(), mC); qC.position.set(-0.3, 0, -10);
+              const qB = new MeshCtor(makeQuad(), mB); qB.position.set(2, 0, -10);
+              source.add(qA, qC, qB);
+              layout.generate([source], [], 0, undefined, false);
+              if (layout.atlas) layout.atlas.update(renderer);
+              const testScene = new SceneCtor();
+              testScene.add(layout.root);
+              const cam = new CamCtor(45, 1, 0.1, 100);
+              cam.up.set(0, 0, 1);
+              const prevClear = renderer.getClearColor(new scene.ctx.scene.background.constructor());
+              const prevAlpha = renderer.getClearAlpha();
+              const prevAutoClear = renderer.autoClear;
+              const size = renderer.getSize(new scene.controls.target.constructor());
+              const sampleSide = (camX) => {
+                cam.position.set(camX, 0, -10);
+                cam.lookAt(0, 0, -10);
+                cam.updateMatrixWorld();
+                renderer.setClearColor(0x000000, 1);
+                renderer.autoClear = true;
+                renderer.render(testScene, cam);
+                const px = new Uint8Array(4);
+                gl.readPixels(Math.floor(gl.drawingBufferWidth / 2), Math.floor(gl.drawingBufferHeight / 2), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+                return [px[0], px[1], px[2]];
+              };
+              try {
+                const posX = sampleSide(10);
+                const negX = sampleSide(-10);
+                const draws = layout.floors[0].children.length;
+                if (draws !== 3) throw Error((textured ? 'textured' : 'untextured') + ' transparent draws merged: ' + draws);
+                if (posX[0] <= posX[1] || negX[0] <= negX[1]) throw Error('transparent blend order flipped: ' + JSON.stringify({ textured, posX, negX }));
+                if (posX[1] < 30 || negX[1] < 30) throw Error('middle tinted surface missing: ' + JSON.stringify({ textured, posX, negX }));
+                if (Math.abs(posX[0] - negX[0]) > 4 || Math.abs(posX[1] - negX[1]) > 4) {
+                  throw Error('asymmetric transparent blend across orbit: ' + JSON.stringify({ textured, posX, negX }));
+                }
+                return { draws, posX, negX };
+              } finally {
+                renderer.setClearColor(prevClear, prevAlpha);
+                renderer.autoClear = prevAutoClear;
+                layout.dispose();
+                [qA, qC, qB].forEach(q => q.geometry.dispose());
+                [mA, mC, mB].forEach(m => m.dispose());
+                textures.forEach(t => t.dispose());
+                scene.requestRender();
+              }
+            };
+            return { untextured: runCase(false), textured: runCase(true) };
+          })()`)
           const shot=await page.send('Page.captureScreenshot',{format:'png'})
           writeFileSync(resolve(output,`${id}-arranged.png`),Buffer.from(shot.data,'base64'))
         }

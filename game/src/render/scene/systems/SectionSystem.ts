@@ -320,6 +320,14 @@ export class SectionSystem extends SceneSystem {
       if (Array.isArray(mat)) for (const one of mat) apply(one)
       else apply(mat)
     }
+    // Cross-module batches may hold canonicalized or atlas-cloned materials;
+    // keep their clipping planes synchronized with the source materials.
+    for (const child of this.modules.batches?.root.children ?? []) {
+      if (!isSurfaceObject(child)) continue
+      const mat = child.material as THREE.Material | THREE.Material[]
+      if (Array.isArray(mat)) for (const one of mat) apply(one)
+      else apply(mat)
+    }
     // **The slice walk clips the materials it derives, not only the ones it was
     // handed.** A ghost clone is cached, so one made before the cut was switched on
     // carries no planes of its own and comes back unclipped on the next walk; giving

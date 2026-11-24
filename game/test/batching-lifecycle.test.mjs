@@ -10,7 +10,7 @@ import { SceneContextData } from '../src/render/scene/systems/SceneSystem.ts'
 import { createModule } from '../src/build/model.ts'
 import { createModelMaterials, disposeModelMaterials, disposeObject, setDoors } from '../src/render/models.ts'
 import { batchPlatformDoors, batchTrainDoors, batchTrainTransparent } from '../src/render/trainBatches.ts'
-import { omitModelDetail } from '../src/render/modelDetail.ts'
+import { omitModelDetail, setModelDetail } from '../src/render/modelDetail.ts'
 import { sortedEquipmentGeometry } from '../src/render/sortedEquipmentGeometry.ts'
 import { stubCanvas } from './support/stub-canvas.mjs'
 import { cameraRig } from './support/camera-rig.mjs'
@@ -637,4 +637,142 @@ test('real module/level systems retain cell-local batches and apply hide/ghost/c
     assert.ok(modules.batches.root.children.every(m => m.material.clippingPlanes[0] === plane && m.material.opacity === 1), 'cut mode restores original ink and clips the batched render surfaces')
     plane.constant = 2; assert.ok(modules.batches.root.children.every(m => m.material.clippingPlanes[0].constant === 2))
   } finally { modules?.clearModules(); if (materials) disposeModelMaterials(materials); blob.dispose(); globalThis.document = previous }
+})
+
+test('surviving equipment owner uses its own live material or live atlas material after deleting the first owner, through undo/redo, clipping, and disposal', () => {
+  // Exercise opaque InstancedMesh, opaque merged fallback, transparent BatchedMesh (native), and transparent indexed fallback.
+  for (const mode of ['instanced', 'merged', 'transparent-batched', 'transparent-indexed']) {
+    const modules = new THREE.Group()
+    const batches = new EquipmentBatches()
+    if (mode === 'transparent-indexed') batches.graphicsQuality = 'low'
+    const transparent = mode.startsWith('transparent-')
+    const matOpts = transparent
+      ? { color: 0x175585, metalness: 0.7, roughness: 0.43, transparent: true, opacity: 0.35 }
+      : { color: 0x175585, metalness: 0.7, roughness: 0.43 }
+    const matA = new THREE.MeshStandardMaterial(matOpts)
+    const matB = new THREE.MeshStandardMaterial(matOpts)
+    let matADisposed = 0, matBDisposed = 0
+    matA.addEventListener('dispose', () => matADisposed++)
+    matB.addEventListener('dispose', () => matBDisposed++)
+    const makeWithProxy = (id, x, mat, width) => {
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(width, 0.2, 1), mat)
+      setModelDetail(mesh, new THREE.BoxGeometry(width, 0.1, 0.5))
+      const g = root([mesh], id, 'fence')
+      g.position.x = x
+      return g
+    }
+    const first = makeWithProxy('fence-a', 0, matA, 1)
+    const second = makeWithProxy('fence-b', 2, matB, mode === 'merged' ? 1.5 : 1)
+    modules.add(first, second)
+    // Dense threshold (20,000 roots) selects indexed sortedEquipmentGeometry fallback on Low quality.
+    const filler = []
+    if (mode === 'transparent-indexed') {
+      for (let i = 0; i < 20_000; i++) {
+        const stub = new THREE.Object3D()
+        stub.userData.surfaceTile = true
+        filler.push(stub)
+      }
+      modules.add(...filler)
+    }
+    try {
+      batches.sync(modules, 'v1', 'g1', 'slice')
+      assert.equal(batches.root.children.length, 1)
+      const combined = batches.root.children[0]
+      if (mode === 'instanced') assert.equal(combined instanceof THREE.InstancedMesh, true)
+      else if (mode === 'transparent-batched') assert.equal(combined instanceof THREE.BatchedMesh, true)
+      else assert.equal(combined instanceof THREE.InstancedMesh || combined instanceof THREE.BatchedMesh, false)
+      const canonicalMat = combined.material
+      assert.notEqual(canonicalMat, matA, `${mode}: two equivalent owners merge onto a batch-owned canonical material`)
+      assert.notEqual(canonicalMat, matB)
+      let canonicalDisposed = 0
+      canonicalMat.addEventListener('dispose', () => canonicalDisposed++)
+
+      // Delete first owner and dispose its material (as ModuleSystem.clearChangedRoots does).
+      modules.remove(first)
+      matA.dispose()
+      batches.invalidateViews(true)
+      batches.sync(modules, 'v2', 'g2', 'slice')
+      assert.equal(batches.root.children.length, 1, `${mode}: surviving owner with Low proxy stays batched`)
+      assert.equal(batches.root.children[0].material, matB, `${mode}: surviving draw uses live owner material, not disposed matA`)
+
+      // Undo: restore a fresh equivalent first owner and verify canonical material resumes.
+      const matA2 = new THREE.MeshStandardMaterial(matOpts)
+      let matA2Disposed = 0
+      matA2.addEventListener('dispose', () => matA2Disposed++)
+      const restored = makeWithProxy('fence-a', 0, matA2, 1)
+      modules.add(restored)
+      batches.invalidateViews(true)
+      batches.sync(modules, 'v3', 'g3', 'slice')
+      assert.equal(batches.root.children.length, 1)
+      assert.notEqual(batches.root.children[0].material, matA2)
+      assert.notEqual(batches.root.children[0].material, matB)
+
+      // Section clipping propagates cleanly across both canonical and single-owner entries.
+      const plane = new THREE.Plane(new THREE.Vector3(1, 0, 0), 1)
+      matA2.clippingPlanes = [plane]
+      matB.clippingPlanes = [plane]
+      batches.invalidateViews()
+      batches.sync(modules, 'v4', 'g4', 'slice-clip')
+      assert.equal(batches.root.children[0].material.clippingPlanes?.[0], plane)
+
+      // Redo deletion while clipped: surviving draw uses clipped live matB.
+      modules.remove(restored)
+      batches.invalidateViews(true)
+      batches.sync(modules, 'v5', 'g5', 'slice-clip')
+      assert.equal(batches.root.children[0].material, matB)
+      assert.equal(batches.root.children[0].material.clippingPlanes?.[0], plane)
+
+      // Teardown disposes batch-owned canonical materials once and leaves live source materials intact.
+      batches.clear()
+      assert.equal(canonicalDisposed, 1, `${mode}: batch-owned canonical material is disposed on clear`)
+      assert.equal(matBDisposed, 0, `${mode}: surviving owner material is not disposed by batch clear`)
+      assert.equal(matA2Disposed, 0)
+      assert.equal(matADisposed, 1)
+      cleanup(restored)
+      matA2.dispose()
+    } finally {
+      batches.clear()
+      cleanup(first)
+      cleanup(second)
+      matB.dispose()
+    }
+  }
+
+  // Atlas-backed panels with Low proxies: deleting first owner keeps the surviving draw on its live atlas material.
+  const previousDoc = globalThis.document
+  globalThis.document = { createElement: () => canvas() }
+  const modules = new THREE.Group()
+  const batches = new EquipmentBatches()
+  const texA = new THREE.CanvasTexture(canvas())
+  const texB = new THREE.CanvasTexture(canvas())
+  const matA = new THREE.MeshBasicMaterial({ map: texA })
+  const matB = new THREE.MeshBasicMaterial({ map: texB })
+  const makePanel = (id, x, mat) => {
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), mat)
+    setModelDetail(mesh, new THREE.PlaneGeometry(1, 1))
+    const g = root([mesh], id, 'sign')
+    g.position.x = x
+    return g
+  }
+  const first = makePanel('sign-a', 0, matA)
+  const second = makePanel('sign-b', 2, matB)
+  modules.add(first, second)
+  try {
+    batches.sync(modules, 'av1', 'ag1', 'slice')
+    assert.equal(batches.root.children.length, 1)
+    const atlasMat = batches.atlas.resolve(matB)?.material
+    assert.ok(atlasMat)
+    assert.equal(batches.root.children[0].material, atlasMat)
+    modules.remove(first)
+    texA.dispose(); matA.dispose()
+    batches.invalidateViews(true)
+    batches.sync(modules, 'av2', 'ag2', 'slice')
+    assert.equal(batches.root.children.length, 1, 'surviving atlas panel with Low proxy stays batched')
+    assert.equal(batches.root.children[0].material, batches.atlas.resolve(matB)?.material, 'surviving draw uses live atlas material')
+  } finally {
+    batches.clear()
+    cleanup(first); cleanup(second)
+    texB.dispose(); matB.dispose()
+    globalThis.document = previousDoc
+  }
 })

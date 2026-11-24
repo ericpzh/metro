@@ -26,8 +26,12 @@ let world: World | null = null
 let playing = false
 let speed = 1
 let timer: number | null = null
-let buffer = new Float32Array(0)
-let density = new Float32Array(0)
+let densityDemanded = false
+let stationGen = 0
+let graphRev = 0
+let completedTicks = 0
+let timerMisses = 0
+let lastStepAt = 0
 /**
  * The newest route-preview request and its token. The token is echoed on every
  * frame so the renderer can tell a frame computed *before* it asked (which says
@@ -35,8 +39,9 @@ let density = new Float32Array(0)
  * left the station") — the two look identical without it.
  */
 let agentToken = 0
-/** The shared empty route, so a frame with nothing selected allocates nothing. */
+/** Shared empty typed arrays, so omitted channels allocate nothing. */
 const NO_ROUTE = new Float32Array(0)
+const NO_DENSITY = new Float32Array(0)
 /**
  * Something the renderer has not been told about yet.
  *
@@ -59,13 +64,46 @@ function cancelBuild(): void {
   pendingBuild = null
 }
 
+function postGraph(w: World): void {
+  const g = w.graph
+  const nodes = new Float32Array(g.nodeCount * 3)
+  for (let i = 0; i < g.nodeCount; i++) {
+    nodes[i * 3] = g.nodeX[i]
+    nodes[i * 3 + 1] = g.nodeY[i]
+    nodes[i * 3 + 2] = g.nodeZ[i]
+  }
+  post(
+    {
+      type: 'ready',
+      stationGen,
+      graphRev,
+      nodeCount: g.nodeCount,
+      nodes,
+      exits: g.exits.map((x) => ({ id: x.id, name: x.name, node: x.node })),
+      platforms: g.platforms.map((p) => ({ id: p.id, name: p.name, line: p.line, doors: p.doors.length, cells: p.cells })),
+      levelsZ: g.levelsZ,
+    },
+    [nodes.buffer],
+  )
+}
+
+function buildDensity(w: World): Float32Array {
+  const out = new Float32Array(w.nodePop.length)
+  out.set(w.nodePop)
+  return out
+}
+
 function applyBuild(): void {
   const data = pendingBuild
   cancelBuild()
   if (!world || !data) return
   const cosmetic = isCosmeticStationEdit(world.data, data)
   world.data = data
-  if (!cosmetic) world.rebuild()
+  if (!cosmetic) {
+    world.rebuild()
+    graphRev++
+    postGraph(world)
+  }
   dirty = true
   run(false)
 }
@@ -166,7 +204,13 @@ function stepping(): boolean {
 function run(advance = true): void {
   if (!world) return
   attachRouting()
-  if (advance && stepping()) world.tickOnce()
+  if (advance && stepping()) {
+    const stepNow = performance.now()
+    if (lastStepAt > 0 && stepNow - lastStepAt > intervalMs() * 1.5) timerMisses++
+    lastStepAt = stepNow
+    world.tickOnce()
+    completedTicks++
+  }
   // Paused with nothing changed since the last frame: there is no news to post.
   else if (!dirty) return
   dirty = false
@@ -174,35 +218,48 @@ function run(advance = true): void {
     routingStatus('wasm', 'ready')
   }
   const w = world
-  const need = w.pool.count * 6
-  if (buffer.length < need) buffer = new Float32Array(Math.max(need, 4096))
-  const count = w.writeTransfer(buffer)
-  // Density for the LOS overlay: one value per graph node.
-  if (density.length !== w.nodePop.length) density = new Float32Array(w.nodePop.length)
-  density.set(w.nodePop)
+  const agents = new Float32Array(w.pool.count * 6)
+  const count = w.writeTransfer(agents)
+  const agentsOut = count * 6 === agents.length ? agents : agents.subarray(0, count * 6)
+  // Density for the LOS overlay: only allocated and transferred when demanded.
+  const densityOut: Float32Array = densityDemanded ? buildDensity(w) : NO_DENSITY
+  const trains = w.trainRenderState()
+  const lifts = w.liftRenderState()
   // The 选择 tool's route preview, rebuilt for the one passenger it belongs to and
   // null when that passenger is no longer in the world. Its buffer is transferred
   // rather than copied: nothing here keeps it.
   const route = w.selectedAgent >= 0 ? w.routeOf(w.selectedAgent) : null
   const points = route ?? NO_ROUTE
-  // The minute's record, as far as the app has been told (§8.1). A copy, like
-  // everything else here: the worker keeps the buffer the next tick writes into.
+  // The minute's record, as far as the app has been told (§8.1). A fresh slice
+  // owned by this message, transferred rather than structured-cloned.
   const historyFrom = postedHistory
   const history = w.history.run(historyFrom)
   postedHistory = w.history.count
   const wasReset = historyReset
   historyReset = false
-  // Post copies (not transfers) so the worker keeps ownership of its buffers;
-  // the payload is ~145 KB and the main thread keeps prev/next anyway.
+  // Transfer message-owned typed arrays zero-copy while keeping worker-owned
+  // world/graph arrays intact.
+  const transfer: Transferable[] = []
+  if (agentsOut.byteLength > 0) transfer.push(agentsOut.buffer)
+  if (densityDemanded && densityOut.byteLength > 0) transfer.push(densityOut.buffer)
+  if (trains.byteLength > 0) transfer.push(trains.buffer)
+  if (lifts.byteLength > 0) transfer.push(lifts.buffer)
+  if (history.byteLength > 0) transfer.push(history.buffer)
+  if (route && points.byteLength > 0) transfer.push(points.buffer)
   post({
     type: 'state',
+    stationGen,
+    graphRev,
+    workerCompletedTicks: completedTicks,
+    workerTimerMisses: timerMisses,
+    postedAt: performance.timeOrigin + performance.now(),
     count,
-    agents: buffer.slice(0, count * 6),
+    agents: agentsOut,
     metrics: metricsOf(w),
-    density: density.slice(),
-    trains: w.trainRenderState(),
+    density: densityOut,
+    trains,
     trainServices: w.trainServices(),
-    lifts: w.liftRenderState(),
+    lifts,
     // The renderer interpolates between snapshots over exactly this window, so
     // speed stays even no matter which multiplier is selected.
     intervalMs: intervalMs(),
@@ -214,7 +271,7 @@ function run(advance = true): void {
     historyReset: wasReset,
     historyStart: w.history.start,
     historyStep: w.history.step,
-  }, route ? [points.buffer] : [])
+  }, transfer)
 }
 
 /** One tick per fire. Speed multiplies ticks per second, never the step. */
@@ -241,6 +298,11 @@ ctx.addEventListener('message', (e: MessageEvent) => {
       }
       playing = msg.playing
       speed = msg.speed
+      stationGen = Math.max(stationGen + 1, msg.stationGen ?? 0)
+      graphRev = 1
+      completedTicks = 0
+      timerMisses = 0
+      lastStepAt = 0
       // A load (or a first boot) is a new run: the app's record goes with it.
       resetHistory()
       // Warm the station so the demo does not open on an empty floor. This is
@@ -248,24 +310,7 @@ ctx.addEventListener('message', (e: MessageEvent) => {
       attachRouting()
       const warm = msg.warmup ?? 0
       for (let i = 0; i < warm; i++) world.tickOnce()
-      const g = world.graph
-      const nodes = new Float32Array(g.nodeCount * 3)
-      for (let i = 0; i < g.nodeCount; i++) {
-        nodes[i * 3] = g.nodeX[i]
-        nodes[i * 3 + 1] = g.nodeY[i]
-        nodes[i * 3 + 2] = g.nodeZ[i]
-      }
-      post(
-        {
-          type: 'ready',
-          nodeCount: g.nodeCount,
-          nodes,
-          exits: g.exits.map((x) => ({ id: x.id, name: x.name, node: x.node })),
-          platforms: g.platforms.map((p) => ({ id: p.id, name: p.name, line: p.line, doors: p.doors.length, cells: p.cells })),
-          levelsZ: g.levelsZ,
-        },
-        [nodes.buffer],
-      )
+      postGraph(world)
       schedule()
       dirty = true
       run()
@@ -303,6 +348,7 @@ ctx.addEventListener('message', (e: MessageEvent) => {
       const wasPlaying = playing
       playing = msg.playing
       speed = msg.speed
+      lastStepAt = 0
       if (world && !wasPlaying && playing && speed > 0) world.notifyPlayResumed()
       schedule()
       dirty = true
@@ -341,6 +387,15 @@ ctx.addEventListener('message', (e: MessageEvent) => {
       agentToken = msg.token
       dirty = true
       if (!stepping()) run()
+      break
+    }
+    case 'densityDemand': {
+      densityDemanded = msg.enabled
+      if (world && msg.enabled && !stepping()) {
+        const densityOut = buildDensity(world)
+        const transfer: Transferable[] = densityOut.byteLength > 0 ? [densityOut.buffer] : []
+        post({ type: 'density', stationGen, graphRev, density: densityOut }, transfer)
+      }
       break
     }
   }

@@ -154,6 +154,7 @@ export class ModuleSystem extends SceneSystem {
     this.classifiedEquipment = this.classifiedContent && JSON.stringify(groundWindow(this.builtData.cells, this.builtData.modules)) === JSON.stringify(groundWindow(data.cells, data.modules))
   }
   readonly moduleMeshes = new ModuleRenderGroup()
+  readonly moduleRootsById = new Map<string, THREE.Object3D>()
   readonly roadTrafficRoots = new Set<THREE.Object3D>()
   /** The instanced 草坪 / 人行道 layer: no per-tile mesh, source or contact blob. */
   readonly surfaces = new SurfaceBatches()
@@ -202,7 +203,7 @@ export class ModuleSystem extends SceneSystem {
 
   private applyMovingModule(): void {
     const root = this.movingModuleId === null ? undefined
-      : this.moduleMeshes.children.find(child => child.userData.moduleId === this.movingModuleId)
+      : this.moduleRootsById.get(this.movingModuleId)
     if (root) {
       this.movingRoot = root
       this.movingVisible = root.visible
@@ -312,8 +313,13 @@ export class ModuleSystem extends SceneSystem {
     super(ctx)
     this.moduleMeshes.addEventListener('childadded', ({ child }) => {
       if (child.userData.moduleType === 'road' || child.userData.roadSignals?.length) this.roadTrafficRoots.add(child)
+      if (typeof child.userData.moduleId === 'string') this.moduleRootsById.set(child.userData.moduleId, child)
     })
-    this.moduleMeshes.addEventListener('childremoved', ({ child }) => this.roadTrafficRoots.delete(child))
+    this.moduleMeshes.addEventListener('childremoved', ({ child }) => {
+      this.roadTrafficRoots.delete(child)
+      const id = child.userData.moduleId
+      if (typeof id === 'string' && this.moduleRootsById.get(id) === child) this.moduleRootsById.delete(id)
+    })
     this.ctx.scene.add(this.moduleMeshes)
     this.batches.root.matrixAutoUpdate = false
     this.ctx.scene.add(this.batches.root)
@@ -345,7 +351,7 @@ export class ModuleSystem extends SceneSystem {
 
   /** Whether level slicing currently draws this placed module. */
   isModuleVisible(id: string): boolean {
-    const root = this.moduleMeshes.children.find((child) => child.userData.moduleId === id)
+    const root = this.moduleRootsById.get(id)
     if (!root) return false
     for (let node: THREE.Object3D | null = root; node; node = node.parent) {
       if (!node.visible) return false
@@ -386,7 +392,7 @@ export class ModuleSystem extends SceneSystem {
     if(translated.size&&this.builtData){
       const previous=new Map(this.builtData.modules.map(m=>[m.id,m]))
       for(const mod of data.modules)if(translated.has(mod.id)){
-        const root=this.moduleMeshes.children.find(g=>g.userData.moduleId===mod.id),old=previous.get(mod.id)!
+        const root=this.moduleRootsById.get(mod.id),old=previous.get(mod.id)!
         if(!root)continue
         root.updateWorldMatrix(true,false)
         const before=root.matrixWorld.clone(),position=root.getWorldPosition(new THREE.Vector3())
@@ -398,7 +404,7 @@ export class ModuleSystem extends SceneSystem {
     if (reuse && !keepIds && this.builtData && this.builtLanguage === getLanguage()) {
       const moved = relocated
       for (const mod of data.modules) if (moved.has(mod.id)) {
-        const root = this.moduleMeshes.children.find(g => g.userData.moduleId === mod.id)
+        const root = this.moduleRootsById.get(mod.id)
         if (!root) continue
         root.updateWorldMatrix(true,false)
         const before=root.matrixWorld.clone(),position=root.getWorldPosition(new THREE.Vector3())
@@ -564,6 +570,7 @@ export class ModuleSystem extends SceneSystem {
       }
       group.userData.moduleId = mod.id
       group.userData.moduleType = mod.type
+      if (group.parent === this.moduleMeshes) this.moduleRootsById.set(mod.id, group)
       if (surface) {
         group.userData.module = mod
         // Cached until this tile's own root is rebuilt: its supporting cell or an
@@ -875,7 +882,7 @@ export class ModuleSystem extends SceneSystem {
     }
     const id = this.hoverModuleId
     if (!id || id === this.selectedModuleId) return
-    const group = this.moduleMeshes.children.find((c) => c.userData.moduleId === id)
+    const group = this.moduleRootsById.get(id)
     if (!group) return
     const box = this.moduleBox(group)
     if (box.isEmpty()) return
@@ -908,7 +915,7 @@ export class ModuleSystem extends SceneSystem {
     this.colliderHelpers = []
     for (const id of this.colliderIds) {
       if (id === this.selectedModuleId) continue
-      const group = this.moduleMeshes.children.find((c) => c.userData.moduleId === id)
+      const group = this.moduleRootsById.get(id)
       if (!group) continue
       const box = this.moduleBox(group)
       if (box.isEmpty()) continue
@@ -927,7 +934,7 @@ export class ModuleSystem extends SceneSystem {
     if (this.selectionHelper) this.selectionHelper.visible = false
     const id = this.selectedModuleId
     if (!id || id === this.movingModuleId) return
-    const group = this.moduleMeshes.children.find((c) => c.userData.moduleId === id)
+    const group = this.moduleRootsById.get(id)
     if (!group) return
     const box = this.moduleBox(group)
     if (box.isEmpty()) return

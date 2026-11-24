@@ -70,21 +70,34 @@ export class SceneRenderer {
 
   /** Add one batch at its packed coordinates. The existing tray supplies any drag offset. */
   appendExplodedEquipment(): boolean {
-    const layout = this.explodedLayout, stages = this.explodedModuleStages
-    if (!layout || !stages) return true
-    const roots = this.modules.moduleMeshes.children
-    const start = roots.length
-    const done = stages.next().done === true
-    const added = roots.slice(start)
-    for (const root of added) {
-      this.level.applyGroupLevel(root, 'module')
-      this.modules.applySourceDetail(root)
+    const layout = this.explodedLayout
+    if (!layout) return true
+    const stages = this.explodedModuleStages
+    if (stages) {
+      const roots = this.modules.moduleMeshes.children
+      const start = roots.length
+      const done = stages.next().done === true
+      const added = roots.slice(start)
+      for (const root of added) {
+        this.level.applyGroupLevel(root, 'module')
+        this.modules.applySourceDetail(root)
+      }
+      layout.generate(added, [], this.ctx.levelBase, undefined, true)
+      if (done) {
+        this.explodedModuleStages = null
+        layout.flushPendingStep(6)
+      }
+      if (layout.selected !== null) layout.select(layout.selected)
+      this.requestRender()
+      return !this.explodedModuleStages && !layout.hasPending()
     }
-    layout.generate(added, [], this.ctx.levelBase)
-    if (layout.selected !== null) layout.select(layout.selected)
-    this.requestRender()
-    if (done) this.explodedModuleStages = null
-    return done
+    if (layout.hasPending()) {
+      const finished = layout.flushPendingStep(6)
+      if (layout.selected !== null) layout.select(layout.selected)
+      this.requestRender()
+      return finished
+    }
+    return true
   }
   private layoutAgents: {buffer:Float32Array;count:number;intervalMs:number}|null=null
   private layoutTrains: Float32Array|null=null
@@ -225,6 +238,14 @@ export class SceneRenderer {
   }
   /** Actual GL submissions, independent of RAF cadence while retaining a still frame. */
   framesRendered = 0
+  /** Authoritative sim tick ID of the latest snapshot installed in this renderer. */
+  lastSnapshotTick = -1
+  /** Wall-clock timestamp (`timeOrigin + now`) when `lastSnapshotTick` arrived. */
+  lastSnapshotDeliveredAt = 0
+  /** Authoritative sim tick ID actually used by the latest submitted frame. */
+  lastRenderedTick = -1
+  /** Milliseconds between installing `lastRenderedTick` and submitting the frame. */
+  lastRenderedLagMs = 0
   onNextFrame?: () => void
 
   requestRender(): void { this.demand.invalidate() }
@@ -388,6 +409,7 @@ export class SceneRenderer {
 
     this.chunks = new ChunkSystem(this.ctx)
     this.plates = new PlateSystem(this.ctx)
+    this.plates.budgetedTvRepaint = true
     this.clocks = new ClockSystem(this.ctx)
     this.roads = new RoadTrafficSystem(this.ctx)
     this.trains = new TrainSystem(this.ctx)
@@ -920,8 +942,12 @@ export class SceneRenderer {
 
   /* -------------------------------------------------------------- agents */
 
-  setAgents(buffer: Float32Array, count: number, intervalMs: number): void {
+  setAgents(buffer: Float32Array, count: number, intervalMs: number, tick?: number): void {
     this.requestRender()
+    if (tick !== undefined) {
+      this.lastSnapshotTick = tick
+      this.lastSnapshotDeliveredAt = performance.timeOrigin + performance.now()
+    }
     if(this.explodedLayout)this.layoutAgents={buffer,count,intervalMs}
     const poses=this.explodedLayout?.offsetPoses(buffer.subarray(0,count*6),6,0,this.layoutPassengerFloors)
     this.crowd.setAgents(poses??buffer, poses?poses.length/6:count, intervalMs,poses?this.layoutPassengerFloors:undefined)
@@ -943,6 +969,11 @@ export class SceneRenderer {
   setOverlayVisible(on: boolean): void {
     this.requestRender()
     this.crowd.setOverlayVisible(on)
+  }
+
+  clearDensity(): void {
+    this.requestRender()
+    this.crowd.clearDensity()
   }
 
   /** 区域 map visibility alone, so an unchanged map is not rebuilt to show it. */
@@ -1227,10 +1258,15 @@ export class SceneRenderer {
       this.trains.updateTrains(now, dt)
       this.trains.updateGeometryDetail()
       this.lifts.updateLifts(now)
-      this.lifts.updateEscalators(dt * (1000 / this.ctx.stateIntervalMs))
       this.crowd.updateGates(dt * (1000 / this.ctx.stateIntervalMs))
+      this.plates.flushTvPlates(1, this.standalonePresentation ? undefined : id => this.modules.isModuleVisible(id))
+      if (this.plates.hasPendingTvPlates) this.requestRender()
       this.modules.batches.atlas.update(this.renderer)
       if (this.modules.batches.atlas.pendingUpdates) this.requestRender()
+      if (this.explodedLayout?.atlas) {
+        this.explodedLayout.atlas.update(this.renderer)
+        if (this.explodedLayout.atlas.pendingUpdates) this.requestRender()
+      }
       this.clocks.updateClocks(now)
       this.roads.update(now, this.modules.roadTrafficRoots, this.sectionSys.on ? this.sectionSys.plane : null)
       this.cameraSys.syncOrtho()
@@ -1246,10 +1282,15 @@ export class SceneRenderer {
       this.modules.batches.updateDetail(drawCamera, this.renderer.domElement.height / this.renderer.getPixelRatio())
       this.modules.surfaces.updateDetail(drawCamera, this.renderer.domElement.height / this.renderer.getPixelRatio())
       this.ghostSys.updateDetail(drawCamera, this.renderer.domElement.height / this.renderer.getPixelRatio())
+      if (!this.standalonePresentation) this.lifts.updateEscalators(dt * (1000 / this.ctx.stateIntervalMs))
       this.explodedLayout?.hideSources()
       this.modules.batches.withHiddenSources(drawCamera, () => this.modules.moduleMeshes.withVisibleRoots(() =>
         this.upscaler.render(() => this.drawFrame(drawCamera))))
       this.framesRendered++
+      this.lastRenderedTick = this.lastSnapshotTick
+      this.lastRenderedLagMs = this.lastSnapshotDeliveredAt > 0
+        ? Math.max(0, (performance.timeOrigin + performance.now()) - this.lastSnapshotDeliveredAt)
+        : 0
       const afterFrame = this.onNextFrame
       this.onNextFrame = undefined
       afterFrame?.()

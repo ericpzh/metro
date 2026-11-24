@@ -22,16 +22,16 @@ Complete file-by-file ownership map of the Three.js rendering layer under `game/
 | `SceneSystem.ts` | `SceneSystem` base class, `SceneContext` / `SceneContextData`, `PickResult`, `SceneStats`, `GateWing`, `moduleLevels`, `blobRadius`, `PAN_UP`, `PAN_DOWN`. |
 | `renderable.ts` | `SurfaceObject` (`Mesh \| Line \| Points`) and `isSurfaceObject` guard so slicing and clipping cover lines/points (e.g. court nets). |
 | `ChunkSystem.ts` | 16³ chunk meshing across four passes (`s` storey, `f` float, `g` street ground, `c` ceilings), content-hash mesh caching, incremental column remeshing, wall-pick proxies, and coarse chunk detail swaps. |
-| `ModuleSystem.ts` | Builds and retains placed module roots (`ModuleRenderGroup`), wires animated rigs to sibling systems, manages contact blobs, `EquipmentBatches`, `SurfaceBatches`, `SourceGeometryDetail`, moving-module masking, and selection/hover/collider boxes. |
+| `ModuleSystem.ts` | Builds and retains placed module roots (`ModuleRenderGroup`), maintains O(1) `moduleRootsById` for live ancestor visibility checks (`isModuleVisible`), wires animated rigs to sibling systems, manages contact blobs, `EquipmentBatches`, `SurfaceBatches`, `SourceGeometryDetail`, moving-module masking, and selection/hover/collider boxes. |
 | `GhostSystem.ts` | Drag add/remove ghosts (auto-growing box pool), cut-aware paint face quads, translucent module and live fence-drag previews (`EquipmentPreview`, `PreviewMaterialCache`), and road node handle pool. |
 | `LevelSystem.ts` | Applies `levelSlicing.ts` rules across chunks, modules, and trains; manages 35% ghost (`dimOf`) and 16% wall (`clearOf`) material caches, `hideWalls`/`hideGround`/`hideRoof`/`autoCeiling`/`hideUI`/`cutaway`, and Q/E `prepareAdjacentViews`. |
-| `SectionSystem.ts` | Cutaway GPU state: single shared `THREE.Plane`, translucent cut sheet/2 m hatch/handle/direction arrow, plane raypicking, and `applyClip` across chunks, modules, surfaces, crowd, and `LevelSystem`. |
-| `TrainSystem.ts` | Live consist pose interpolation (10-float stride), per-bank door easing, platform-aligned PSD opening, parked consist pool (`TRAIN_PARKED_LIMIT = 8`), idle `prepareForStation`, city badge repaints, and `trainDetails` LOD updates. |
-| `LiftSystem.ts` | Elevator cabin interpolation (7-float stride), aligned landing/cabin door easing, `liftPickMeshes`, and sim-clock escalator rolling (`rollEscalator`). |
-| `CrowdSystem.ts` | Dual-topology instanced passengers (`agents`, `agentsLow`), ground blobs, screen-space `pickAgent`, eye-view callback, turnstile wings, swing doors, sink streams, LOS/zone overlays, and route ribbon. |
+| `SectionSystem.ts` | Cutaway GPU state: single shared `THREE.Plane`, translucent cut sheet/2 m hatch/handle/direction arrow, plane raypicking, and `applyClip` across chunks, modules, surfaces, `EquipmentBatches` canonical/atlas materials, crowd, and `LevelSystem`. |
+| `TrainSystem.ts` | Live consist pose interpolation (10-float stride), per-bank door easing, platform-aligned PSD opening, parked fleet cache (`TRAIN_PARKED_LIMIT = 8`), idle `prepareForStation`, city badge repaints, and `trainDetails` LOD updates. |
+| `LiftSystem.ts` | Elevator cabin interpolation (7-float stride), aligned landing/cabin door easing, `liftPickMeshes`, and sim-clock escalator rolling (`rollEscalator`) with drawable-part phase resync. |
+| `CrowdSystem.ts` | Dual-topology instanced passengers (`agents`, `agentsLow`), ground blobs, screen-space `pickAgent`, eye-view callback, spatial-grid turnstile wings, swing doors, sink streams, LOS/zone overlays (`clearDensity`), and route ribbon. |
 | `RoadTrafficSystem.ts` | Instanced ambient vehicles across 6 variants (High/Low + depth prepass), animated junction traffic-signal lenses, and 64-vehicle audio position capture. |
-| `PlateSystem.ts` | Caches, retains, and repaints canvas textures for TV boards, sign faces, calligraphy, line maps, cycling TV ad windows, and live rail-signal aspects (`ownsTexture` protects retained maps). |
-| `ClockSystem.ts` | Drives analogue `ClockRig` hands and digital clock displays for placed clocks and hover previews from interpolated sim time. |
+| `PlateSystem.ts` | Caches, retains, and repaints canvas textures for TV boards (cached TV coords/status keys with 1-panel/frame budgeted visible-first flushing), sign faces, calligraphy, line maps, cycling TV ad windows, and live rail-signal aspects (`ownsTexture` protects retained maps). |
+| `ClockSystem.ts` | Drives analogue `ClockRig` hands and digital clock displays for placed clocks and hover previews from interpolated sim time with per-rig applied-state skipping. |
 | `GridSystem.ts` | Editing lattice translated on Q/E (geometry rebuilt only on horizontal bound changes) and cell cursor ring. |
 | `CameraSystem.ts` | Perspective and orthographic cameras, OrbitControls, wheel/pinch zoom, WASD + edge scrolling, vertical pan, eye view, and shared per-event `withPointerPick` raycasting. |
 | `SkySystem.ts` | Procedural 512² Z-up cloud cubemap shown during `hideUI`, driven by `skyIntensity(simTime)` dawn/dusk curve and matching horizon fog. |
@@ -61,7 +61,8 @@ Complete file-by-file ownership map of the Three.js rendering layer under `game/
 | --- | --- |
 | `batchGeometry.ts` | Winding-correct `bakedGeometry`, content-based `geometryKey` / `equalGeometry`, `attributeKey`, and `BATCH_SOURCE_LAYER = 31`. |
 | `batchStaticModule.ts` | Per-module opaque sibling merging (`batchStaticModule`, `batchStaticParts`) preserving Low variants, protected rigs, and reflected winding. |
-| `equipmentBatches.ts` | Cross-module `EquipmentBatches` (16/64/256 m spatial buckets, instancing vs merging vs sorted transparent batches, 4-view LRU cache, `translateRoots`, `setHiddenModules`, idle retirement). |
+| `equipmentBatches.ts` | Cross-module `EquipmentBatches` (16/64/256 m spatial buckets, value-canonicalized untextured materials resolved from live surviving sources, instancing vs merging vs sorted transparent batches, 4-view LRU cache, `translateRoots`, `setHiddenModules`, idle retirement). |
+| `materialCanonical.ts` | `isOpaqueCanonicalSurface` and `canonicalUntexturedMaterialKey` for value-based untextured material consolidation (opaque-only by default for unsorted callers like `ExplodedLayout`; sorted transparent opt-in for `EquipmentBatches`). |
 | `sortedEquipmentGeometry.ts` | Single-draw indexed per-surface depth sorting for dense Low transparent equipment buckets. |
 | `surfaceBatches.ts` | `SurfaceBatches` instanced outdoor paving layer (`sidewalk`/`lawn`, 64 m per-finish per-storey buckets, `ghostMaterial` slicing, `surfaceModuleIds` picking). |
 | `staticInstances.ts` | `StaticInstances` subclass of `InstancedMesh` with conservative screen-pixel LOD hysteresis (up to 3 LODs) and whole-instance transparency sorting. |
@@ -113,7 +114,7 @@ Complete file-by-file ownership map of the Three.js rendering layer under `game/
 | `passengerEligibility.ts` | Age-pool eligibility predicate (`passengerEligible`) with explicit-false precedence. |
 | `routeLine.ts` | Allocation-free 3D floor-ribbon geometry writer (`writeRouteRibbon`, `routeIndices`, `ROUTE_MAX_POINTS = 1024`). |
 | `explodedView.ts` | Disposable presentation generator (`explodedView`, `isExplodedStructure`): underground infill core retention, room-plan extraction, concave/cardinal tray packing, and near-side front-wall classification. |
-| `explodedLayout.ts` | `ExplodedLayout`, `clipFloorGeometry` (triangle-exact plane slicing), `splitFrontWalls` (voxel-owned front-wall bucket), tray selection/dragging, and pose offsetting. |
+| `explodedLayout.ts` | `ExplodedLayout`, `clipFloorGeometry` (triangle-exact plane slicing), `splitFrontWalls` (voxel-owned front-wall bucket), opaque-only canonicalization/atlas/instanced merging with incremental deferred flushing and live `wallsVisible` initialization, tray selection/dragging, and pose offsetting. |
 | `explodedRamps.ts` | `ExplodedRamps` cloning multi-storey stairs/escalators across trays with shared animated instance buffers and 5 m clip planes. |
 | `explodedConnections.ts` | `ExplodedConnections` dynamic dashed light-blue guide segments joining matching vertical cut points across trays. |
 | `explodedPassengers.ts` | `explodedPassengerSupport` and `filterExplodedPassengers` compacting presentation buffers without editing simulation agents. |

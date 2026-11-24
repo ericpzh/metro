@@ -4,7 +4,7 @@ import {actionSound} from './audioActions.ts'
 import {getAudioVolumes,subscribeAudioVolumes} from './audioSettings.ts'
 import { getUiTheme, subscribeUiTheme, themeVoidColor } from './uiTheme.ts'
 import { showGameLoading } from './gameLoading.ts'
-import { replayFrameHandler } from './store/slices/SimSlice.ts'
+import { replayDensityHandler, replayFrameHandler, setDensityHandler, setSimDensityDemand } from './store/slices/SimSlice.ts'
 import { TouchZoom } from './touchZoom.ts'
 import { placementSurface } from './tools/placementSurface.ts'
 import { clearToolPreview } from './tools/clearPreview.ts'
@@ -87,7 +87,6 @@ export function Viewport(): React.ReactElement {
   const sceneRef = useRef<SceneRenderer | null>(null)
   const savedEditorView = useRef<ReturnType<SceneRenderer['captureEditorView']> | null>(null)
   const overlayRef = useRef(false)
-  const graphNodesRef = useRef<Float32Array>(new Float32Array(0))
   /** Solid cell keys, refreshed with the station, so a drag can tell blocks from void. */
   const solidRef = useRef<Set<string>>(new Set())
   const geometryRef = useRef(new StationGeometry())
@@ -275,7 +274,6 @@ export function Viewport(): React.ReactElement {
   const ortho = useStore((s) => s.ortho)
   const overlayOn = useStore((s) => s.overlayOn)
   const zoneOverlayOn = useStore((s) => s.zoneOverlayOn)
-  const graph = useStore((s) => s.graph)
   const selected = useStore((s) => s.selected)
 
   useEffect(() => {
@@ -284,7 +282,9 @@ export function Viewport(): React.ReactElement {
 
   useEffect(() => {
     overlayRef.current = overlayOn
-    sceneRef.current?.setOverlayVisible(overlayOn)
+    if (!overlayOn) sceneRef.current?.clearDensity()
+    setSimDensityDemand(overlayOn && !exploded)
+    if (overlayOn && !exploded) replayDensityHandler()
   }, [overlayOn, exploded])
 
   const buildZoneOverlay = (): void => {
@@ -344,12 +344,6 @@ export function Viewport(): React.ReactElement {
   useEffect(() => {
     buildZoneOverlay()
   }, [zoneOverlayOn, geometryVersion, activeZ, exploded])
-
-  useEffect(() => {
-    if (!graph) return
-    graphNodesRef.current = graph.nodes
-    sceneRef.current?.setDensity(graph.nodes, new Float32Array(graph.nodeCount), overlayRef.current)
-  }, [graph, exploded])
 
   // 隐藏天花板 is a slice setting like the level itself: it is applied on mount
   // (the renderer's own default matches the store's) and on every change.
@@ -583,14 +577,18 @@ export function Viewport(): React.ReactElement {
     resize()
     const ro = new ResizeObserver(resize)
     ro.observe(canvas)
-    setFrameHandler((count, agents, density, trains, lifts, intervalMs, simTime, trainServices) => {
-      scene.setAgents(agents, count, intervalMs)
+    setFrameHandler((count, agents, _density, trains, lifts, intervalMs, simTime, trainServices, tick) => {
+      scene.setAgents(agents, count, intervalMs, tick)
       scene.setTrains(trains)
       scene.setLifts(lifts)
       // The 电视 station plate prints the station clock, so it follows the sim.
       scene.setSimClock(simTime, trainServices)
-      if (overlayRef.current && graphNodesRef.current.length === density.length * 3) {
-        scene.setDensity(graphNodesRef.current, density, true)
+    })
+    setDensityHandler((sample) => {
+      if (!sample) {
+        scene.clearDensity()
+      } else if (overlayRef.current) {
+        scene.setDensity(sample.graph.nodes, sample.density, true)
       }
     })
     // The 选择 tool's route preview rides the same frame, one step later: the line is
@@ -685,6 +683,7 @@ export function Viewport(): React.ReactElement {
       unsubscribePlaying()
       unsubscribeAudio()
       setFrameHandler(null)
+      setDensityHandler(null)
       setRouteHandler(null)
       window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('keyup', onKeyUp)
@@ -789,6 +788,7 @@ export function Viewport(): React.ReactElement {
       prepareViews = true
     }
     replayFrameHandler()
+    replayDensityHandler()
     const loading = document.getElementById('game-loading')
     if (loading && !loading.hidden) {
       scene.onNextFrame = () => showGameLoading(false)

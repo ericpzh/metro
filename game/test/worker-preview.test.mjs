@@ -303,3 +303,182 @@ test('compact station edits apply in order against a pending build and cancel on
     assert.deepEqual(installed.at(-1), data)
   } finally { World.prototype.rebuild = original }
 })
+
+test('topology rebuilds publish fresh graph coordinates before density with matching generation and revision', async () => {
+  const { CrowdSystem } = await import('../src/render/scene/systems/CrowdSystem.ts')
+  const { SceneContextData } = await import('../src/render/scene/systems/SceneSystem.ts')
+  const THREE = await import('three')
+
+  const base = {
+    name: 'density-base',
+    seed: 1,
+    modules: [],
+    lines: [],
+    cells: [
+      { x: 0, y: 0, z: -5, fill: 'solid' },
+      { x: 1, y: 0, z: -5, fill: 'solid' },
+    ],
+  }
+  const grown = {
+    ...base,
+    cells: [...base.cells, { x: 2, y: 0, z: -5, fill: 'solid' }],
+  }
+  const shiftedSameCount = {
+    ...base,
+    cells: [
+      { x: 10, y: 0, z: -5, fill: 'solid' },
+      { x: 11, y: 0, z: -5, fill: 'solid' },
+    ],
+  }
+  const otherStation = {
+    name: 'density-other',
+    seed: 2,
+    modules: [],
+    lines: [],
+    cells: [{ x: -4, y: 3, z: -5, fill: 'solid' }],
+  }
+
+  const blob = new THREE.MeshBasicMaterial()
+  const crowd = new CrowdSystem(new SceneContextData(new THREE.Scene(), { blob }, {}))
+  const m4 = new THREE.Matrix4()
+  const overlayPositions = () => {
+    const out = []
+    if (!crowd.overlay) return out
+    for (let i = 0; i < crowd.overlay.count; i++) {
+      crowd.overlay.getMatrixAt(i, m4)
+      out.push([m4.elements[12], m4.elements[13], Math.round(m4.elements[14] * 100) / 100])
+    }
+    return out
+  }
+
+  try {
+    post({ type: 'densityDemand', enabled: true })
+    const start0 = frames.length
+    post({ type: 'init', data: base, seed: 1, playing: false, speed: 1 })
+    const initMsgs = frames.slice(start0)
+    const ready0 = initMsgs.find(m => m.type === 'ready')
+    const state0 = initMsgs.find(m => m.type === 'state')
+    assert.ok(ready0 && state0)
+    assert.ok(initMsgs.indexOf(ready0) < initMsgs.indexOf(state0), 'graph installs before its first density sample')
+    assert.equal(state0.stationGen, ready0.stationGen)
+    assert.equal(state0.graphRev, ready0.graphRev)
+    assert.equal(state0.density.length, ready0.nodeCount)
+    crowd.setDensity(ready0.nodes, state0.density, true)
+    assert.ok(overlayPositions().some(([x, y, z]) => x === 0.5 && y === 0.5 && z === -3.94))
+
+    // 1) Paused edit that changes node count.
+    const start1 = frames.length
+    post({ type: 'build', data: grown })
+    flushBuild()
+    const grownMsgs = frames.slice(start1)
+    const ready1 = grownMsgs.find(m => m.type === 'ready')
+    const state1 = grownMsgs.find(m => m.type === 'state')
+    assert.ok(ready1 && state1, 'topology rebuild publishes fresh graph and state')
+    assert.ok(grownMsgs.indexOf(ready1) < grownMsgs.indexOf(state1), 'fresh graph precedes its density sample')
+    assert.equal(ready1.stationGen, ready0.stationGen)
+    assert.equal(ready1.graphRev, ready0.graphRev + 1)
+    assert.equal(state1.stationGen, ready1.stationGen)
+    assert.equal(state1.graphRev, ready1.graphRev)
+    assert.ok(ready1.nodeCount > ready0.nodeCount)
+    assert.equal(state1.density.length, ready1.nodeCount)
+    crowd.setDensity(ready1.nodes, state1.density, true)
+    assert.ok(overlayPositions().some(([x, y, z]) => x === 2.5 && y === 0.5 && z === -3.94), 'added node draws at new coordinate')
+
+    // 2) Undo back to base.
+    const startUndo = frames.length
+    post({ type: 'build', data: base })
+    flushBuild()
+    const undoMsgs = frames.slice(startUndo)
+    const readyUndo = undoMsgs.find(m => m.type === 'ready')
+    const stateUndo = undoMsgs.find(m => m.type === 'state')
+    assert.ok(readyUndo && stateUndo)
+    assert.equal(readyUndo.graphRev, ready1.graphRev + 1)
+    assert.equal(stateUndo.graphRev, readyUndo.graphRev)
+    assert.equal(readyUndo.nodeCount, ready0.nodeCount)
+
+    // 3) Redo / edit that moves nodes while preserving exact nodeCount.
+    const startMove = frames.length
+    post({ type: 'build', data: shiftedSameCount })
+    flushBuild()
+    const moveMsgs = frames.slice(startMove)
+    const readyMove = moveMsgs.find(m => m.type === 'ready')
+    const stateMove = moveMsgs.find(m => m.type === 'state')
+    assert.ok(readyMove && stateMove)
+    assert.ok(moveMsgs.indexOf(readyMove) < moveMsgs.indexOf(stateMove))
+    assert.equal(readyMove.nodeCount, readyUndo.nodeCount, 'node count is preserved')
+    assert.equal(readyMove.graphRev, readyUndo.graphRev + 1, 'graph revision still increments')
+    assert.equal(stateMove.graphRev, readyMove.graphRev)
+    crowd.setDensity(readyMove.nodes, stateMove.density, true)
+    const movedPos = overlayPositions()
+    assert.ok(movedPos.some(([x, y, z]) => x === 10.5 && y === 0.5 && z === -3.94), 'moved nodes draw at new coordinates')
+    assert.ok(!movedPos.some(([x, y, z]) => x === 0.5 && y === 0.5 && z === -3.94), 'old coordinates are gone')
+
+    // 4) Station switch increments stationGen and resets graphRev.
+    const startSwitch = frames.length
+    post({ type: 'init', data: otherStation, seed: 2, playing: false, speed: 1 })
+    const switchMsgs = frames.slice(startSwitch)
+    const readySwitch = switchMsgs.find(m => m.type === 'ready')
+    const stateSwitch = switchMsgs.find(m => m.type === 'state')
+    assert.ok(readySwitch && stateSwitch)
+    assert.ok(switchMsgs.indexOf(readySwitch) < switchMsgs.indexOf(stateSwitch))
+    assert.ok(readySwitch.stationGen > readyMove.stationGen)
+    assert.equal(readySwitch.graphRev, 1)
+    assert.equal(stateSwitch.stationGen, readySwitch.stationGen)
+    assert.equal(stateSwitch.graphRev, 1)
+    crowd.setDensity(readySwitch.nodes, stateSwitch.density, true)
+    assert.ok(overlayPositions().some(([x, y, z]) => x === -3.5 && y === 3.5 && z === -3.94))
+  } finally {
+    post({ type: 'densityDemand', enabled: false })
+    crowd.dispose()
+    blob.dispose()
+  }
+})
+
+test('density demand sends density-only while paused and waits for next scheduled tick during 1x playback', () => {
+  const data = referenceStation()
+  post({ type: 'densityDemand', enabled: false })
+  post({ type: 'init', data, seed: 7, playing: false, speed: 1 })
+  const ready = frames.filter(m => m.type === 'ready').pop()
+  const pausedTick = lastState().metrics.tick
+
+  // Enabling while paused sends a density-only sample without stepping or posting a state frame.
+  const beforePaused = frames.length
+  post({ type: 'densityDemand', enabled: true })
+  const pausedMsgs = frames.slice(beforePaused)
+  assert.equal(pausedMsgs.length, 1)
+  assert.equal(pausedMsgs[0].type, 'density', 'paused refresh is density-only')
+  assert.equal(pausedMsgs[0].stationGen, ready.stationGen)
+  assert.equal(pausedMsgs[0].graphRev, ready.graphRev)
+  assert.equal(pausedMsgs[0].density.length, ready.nodeCount)
+  assert.equal(lastState().metrics.tick, pausedTick, 'paused density refresh does not advance the world')
+
+  // Playback at 1x starting with density disabled: enabling, disabling, and re-enabling
+  // midway through an interpolation posts no extra frame, density sample, or tick.
+  post({ type: 'densityDemand', enabled: false })
+  post({ type: 'control', playing: true, speed: 1 })
+  timerFn()
+  const midTick = lastState().metrics.tick
+  assert.equal(lastState().density.length, 0, 'density starts omitted while off at 1x')
+  const beforeToggle = frames.length
+  post({ type: 'densityDemand', enabled: true })
+  post({ type: 'densityDemand', enabled: false })
+  post({ type: 'densityDemand', enabled: true })
+  assert.equal(frames.length, beforeToggle, 'enabling, disabling, and re-enabling density during 1x playback delivers no extra motion sample or density message')
+  assert.equal(lastState().metrics.tick, midTick, 'and advances no extra tick')
+
+  // The next scheduled tick attaches density to its regular state frame.
+  timerFn()
+  const nextFrame = lastState()
+  assert.equal(nextFrame.metrics.tick, midTick + 1)
+  assert.equal(nextFrame.stationGen, ready.stationGen)
+  assert.equal(nextFrame.graphRev, ready.graphRev)
+  assert.equal(nextFrame.density.length, ready.nodeCount)
+
+  // Disabling omits density on the following scheduled tick.
+  post({ type: 'densityDemand', enabled: false })
+  timerFn()
+  const omitted = lastState()
+  assert.equal(omitted.metrics.tick, midTick + 2)
+  assert.equal(omitted.density.length, 0)
+  post({ type: 'control', playing: false, speed: 1 })
+})

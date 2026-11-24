@@ -72,7 +72,7 @@ export interface SimSlice {
   /** Fold the Unity session's clock in, or clear it when the session goes away. */
   setUnityClock: (seconds: number | null) => void
   setStats: (s: SceneStats) => void
-  setGraph: (g: GraphInfo) => void
+  setGraph: (g: GraphInfo | null) => void
   /** Fold one frame's worth of the run's record in — replace on a reset, append otherwise. */
   setHistory: (update: HistoryUpdate) => void
   /**
@@ -96,11 +96,15 @@ export function prepareBenchmarkWorker(backend: 'ts' | 'wasm'): void {
   client?.terminate()
   client = null
   latestFrame = null
+  latestGraph = null
+  latestDensity = null
+  expectedStationGen = 0
+  densityCb?.(null)
   sentStation = null
   benchmarkBackend = backend
   routingDiagnostic = undefined
   delete (window as Window & { __metroRouting?: RoutingDiagnostic }).__metroRouting
-  useStore.setState({ metrics: null })
+  useStore.setState({ metrics: null, graph: null })
 }
 
 export function benchmarkRoutingDiagnostic(): RoutingDiagnostic | undefined {
@@ -119,6 +123,8 @@ let frameCb:
       /** Sim seconds since midnight, for the in-world clocks (a 电视 plate). */
       simTime: number,
       trainServices: TrainService[],
+      /** Authoritative worker tick ID for this snapshot. */
+      tick?: number,
     ) => void)
   | null = null
 
@@ -159,6 +165,8 @@ export function setFrameHandler(
         /** Sim seconds since midnight, for the in-world clocks (a 电视 plate). */
         simTime: number,
         trainServices: TrainService[],
+        /** Authoritative worker tick ID for this snapshot. */
+        tick?: number,
       ) => void)
     | null,
 ): void {
@@ -170,10 +178,68 @@ export function setRouteHandler(fn: ((points: Float32Array, agentId: number) => 
   routeCb = fn
 }
 
+export interface DensitySample {
+  graph: GraphInfo
+  density: Float32Array
+}
+export type DensityHandler = (sample: DensitySample | null) => void
+
+let densityCb: DensityHandler | null = null
+let expectedStationGen = 0
+let latestGraph: GraphInfo | null = null
+let latestDensity: { stationGen: number; graphRev: number; density: Float32Array } | null = null
+
+/** Viewport registers here to receive graph-paired density updates without re-rendering React. */
+export function setDensityHandler(fn: DensityHandler | null): void {
+  densityCb = fn
+}
+
+/** Replay the latest density sample after renderer recreation only when it matches the installed graph. */
+export function replayDensityHandler(): void {
+  if (!densityCb) return
+  if (
+    latestGraph &&
+    latestDensity &&
+    latestDensity.stationGen === latestGraph.stationGen &&
+    latestDensity.graphRev === latestGraph.graphRev &&
+    latestDensity.density.length === latestGraph.nodeCount
+  ) {
+    densityCb({ graph: latestGraph, density: latestDensity.density })
+  } else {
+    densityCb(null)
+  }
+}
+
+function consumeDensity(stationGen: number | undefined, graphRev: number | undefined, density: Float32Array): void {
+  if (density.length === 0) return
+  if (
+    !latestGraph ||
+    stationGen !== latestGraph.stationGen ||
+    graphRev !== latestGraph.graphRev ||
+    density.length !== latestGraph.nodeCount
+  ) {
+    return
+  }
+  latestDensity = { stationGen, graphRev, density }
+  densityCb?.({ graph: latestGraph, density })
+}
+
 /** The newest route request's token, echoed by the worker. */
 let agentToken = 0
 /** The passenger being previewed, or -1. */
 let agentSelected = -1
+/** Whether the LOS density overlay currently demands per-node density buffers. */
+let densityDemand = false
+
+export function setSimDensityDemand(enabled: boolean): void {
+  const changed = densityDemand !== enabled
+  densityDemand = enabled
+  if (!enabled) {
+    latestDensity = null
+    densityCb?.(null)
+  }
+  if (client && (changed || enabled)) client.postMessage({ type: 'densityDemand', enabled })
+}
 
 /**
  * Preview one passenger's route, or put the line away with `null`. The token
@@ -208,11 +274,45 @@ function ensureClient(): Worker {
       routingDiagnostic = msg
       host.__metroRouting = msg
     } else if (msg.type === 'ready') {
+      if (expectedStationGen > 0 && msg.stationGen !== expectedStationGen) return
+      latestGraph = msg
+      latestDensity = null
+      densityCb?.(null)
       useStore.getState().setGraph(msg)
       // The active storey is already chosen by the load path (basis floor or the
       // lowest level with user placement); the worker's level list includes the
       // infinite ground plane at 0 m, which must not drag the view down to grade.
+    } else if (msg.type === 'density') {
+      if (expectedStationGen > 0 && msg.stationGen !== expectedStationGen) return
+      consumeDensity(msg.stationGen, msg.graphRev, msg.density)
     } else if (msg.type === 'state') {
+      if (msg.stationGen !== undefined && expectedStationGen > 0 && msg.stationGen !== expectedStationGen) return
+      if (typeof window !== 'undefined') {
+        const deliveredAt = performance.timeOrigin + performance.now()
+        const postedAt = msg.postedAt ?? deliveredAt
+        const host = window as Window & {
+          __metroPublication?: {
+            workerCompletedTicks: number
+            workerTimerMisses: number
+            deliveredTick: number
+            deliveredCount: number
+            postedAt: number
+            deliveredAt: number
+            deliveryLagMs: number
+          }
+        }
+        const prev = host.__metroPublication
+        const deliveredCount = (prev?.deliveredCount ?? 0) + 1
+        host.__metroPublication = {
+          workerCompletedTicks: msg.workerCompletedTicks ?? msg.metrics.tick,
+          workerTimerMisses: msg.workerTimerMisses ?? 0,
+          deliveredTick: msg.metrics.tick,
+          deliveredCount,
+          postedAt,
+          deliveredAt,
+          deliveryLagMs: Math.max(0, deliveredAt - postedAt),
+        }
+      }
       useStore.getState().setMetrics(msg.metrics)
       useStore.getState().setHistory({
         values: msg.history,
@@ -228,14 +328,15 @@ function ensureClient(): Worker {
         agentSelected = -1
         useStore.getState().select(null)
       }
-      frameCb?.(msg.count, msg.agents, msg.density, msg.trains, msg.lifts, msg.intervalMs, msg.metrics.simTime, msg.trainServices)
-      latestFrame = [msg.count, msg.agents, msg.density, msg.trains, msg.lifts, msg.intervalMs, msg.metrics.simTime, msg.trainServices]
+      frameCb?.(msg.count, msg.agents, msg.density, msg.trains, msg.lifts, msg.intervalMs, msg.metrics.simTime, msg.trainServices, msg.metrics.tick)
+      latestFrame = [msg.count, msg.agents, msg.density, msg.trains, msg.lifts, msg.intervalMs, msg.metrics.simTime, msg.trainServices, msg.metrics.tick]
       for (const listener of frameListeners) listener(...latestFrame)
       // After the frame: the route is drawn against the positions just posted. A
       // frame answering an *older* request is dropped rather than fed to the scene —
       // a click that moves the preview to another passenger must not flash the last
       // one's line for the interval a message is in flight.
       if (msg.routeToken === agentToken) routeCb?.(msg.route, msg.routeAgent)
+      consumeDensity(msg.stationGen, msg.graphRev, msg.density)
     }
   }
   return client
@@ -245,10 +346,18 @@ function ensureClient(): Worker {
  * paused — the player presses play (or Space) to start the crowd. */
 export function initSim(data: StationData, seed: number, opts: { startSeconds?: number; warmup?: number } = {}): void {
   latestFrame = null
+  latestGraph = null
+  latestDensity = null
+  expectedStationGen++
+  densityCb?.(null)
+  useStore.getState().setGraph(null)
   // A full reset drops every passenger, so the previewed one goes with them — the
   // world's own `selectedAgent` is cleared with the crowd it belonged to.
   agentSelected = -1
-  ensureClient().postMessage({ type: 'init', data, seed, playing: false, speed: 1, ...opts })
+  const created = !client
+  const w = ensureClient()
+  if (created && densityDemand) w.postMessage({ type: 'densityDemand', enabled: true })
+  w.postMessage({ type: 'init', data, seed, playing: false, speed: 1, stationGen: expectedStationGen, ...opts })
   sentStation = data
 }
 
@@ -271,11 +380,19 @@ export function rebuildSim(data: StationData, previous?: StationData): void {
  */
 export function loadSim(data: StationData, opts: { startSeconds?: number; warmup?: number } = {}): void {
   latestFrame = null
+  latestGraph = null
+  latestDensity = null
+  expectedStationGen++
+  densityCb?.(null)
+  useStore.getState().setGraph(null)
   const st = useStore.getState()
   // Same reset as `initSim`: the crowd starts over, so the previewed passenger is
   // not one of the new station's agents.
   agentSelected = -1
-  ensureClient().postMessage({ type: 'init', data, seed: data.seed, playing: st.playing, speed: st.speed, ...opts })
+  const created = !client
+  const w = ensureClient()
+  if (created && densityDemand) w.postMessage({ type: 'densityDemand', enabled: true })
+  w.postMessage({ type: 'init', data, seed: data.seed, playing: st.playing, speed: st.speed, stationGen: expectedStationGen, ...opts })
   sentStation = data
 }
 

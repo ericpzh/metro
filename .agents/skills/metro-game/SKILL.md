@@ -140,9 +140,10 @@ sim/    ->  sim/ only                (zero external packages, DOM, three, or rea
 
 - **App shell & worker seam:** `app/store/Store.ts` composes 12 Zustand slices with
   zero sim logic. High-frequency worker frames flow through `setFrameHandler`,
-  `subscribeFrame`, and `setRouteHandler` directly into `Viewport` / `ExplodedView`
-  without re-rendering React panels. `StationHost` / `stationHostBridge.ts` let the
-  shared React UI delegate document ownership to Unity (`metro-unity-web`).
+  `subscribeFrame`, `setDensityHandler`/`replayDensityHandler`, and `setRouteHandler`
+  directly into `Viewport` / `ExplodedView` without re-rendering React panels.
+  `StationHost` / `stationHostBridge.ts` let the shared React UI delegate document
+  ownership to Unity (`metro-unity-web`).
 - **Shortcuts & dialogs (`AppShell.tsx`, `rail/helpers.ts`, `topbar/`):**
   - `B` (delete), `P` (pick), and `M` (move) toggle back to `previousTool`.
   - Build-rail folders use `Shift+1..0` (`RAIL_FOLDERS`); inspector folders use

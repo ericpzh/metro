@@ -46,19 +46,30 @@ inventories, and [perf-benchmarks.md](perf-benchmarks.md) for commands.
 
 ## Scene batching, retention & textures
 
-- **Cross-module equipment batches** (`game/src/render/equipmentBatches.ts`):
-  Static equipment batches into spatial tiles (`16 m` High, `64 m` Low, `256 m`
-  dense Low when `modules >= DENSE_STATION_MODULES = 20,000`) with bounded view
-  caching (`EQUIPMENT_VIEW_CACHE_SIZE`), cached static-transparent draw sorting
-  (`cacheBatchOrder`), and deterministic `lastSync` work counters pinned by
-  `batching-lifecycle.test.mjs`. Unchanged buckets retain GPU allocations;
-  shrinking below the merge threshold restores surviving sources to layer 0.
-- **Panel atlas** (`game/src/render/panelAtlas.ts`): Releasing a deleted panel
-  returns its rect to the page free list without invalidating surviving roots'
-  UVs (only dormant storey views drop). Live panels (TVs/clocks) compare dirty
-  pixel bounds, upload at most one changed live panel per frame, coalesce fairly
-  to newest pixels, retain CPU pages for context restoration, and request frames
-  until pending uploads drain.
+- **Cross-module equipment batches** (`game/src/render/equipmentBatches.ts`,
+  `materialCanonical.ts`): Static equipment batches into spatial tiles (`16 m`
+  High, `64 m` Low, `256 m` dense Low when `modules >= DENSE_STATION_MODULES =
+  20,000`) with value-canonicalized untextured static materials (resolving each
+  bucket's material from its live surviving sources—single owner uses its own or
+  live atlas material, multi-owner buckets use a batch-owned canonical material
+  with synchronized clipping planes in `SectionSystem.applyClip`; sorted
+  transparent buckets in `EquipmentBatches` may canonicalize normal-blended
+  transparent materials because `sortedBatch`/`sortedEquipmentGeometry` sort per
+  surface), bounded view caching (`EQUIPMENT_VIEW_CACHE_SIZE`), cached
+  static-transparent draw sorting (`cacheBatchOrder`), and deterministic
+  `lastSync` work counters pinned by `batching-lifecycle.test.mjs`. Unchanged
+  buckets retain GPU allocations; shrinking below the merge threshold restores
+  surviving sources to layer 0.
+- **Panel atlas & budgeted TV repaints** (`game/src/render/panelAtlas.ts`,
+  `PlateSystem.ts`, `ModuleSystem.ts`): Releasing a deleted panel returns its
+  rect to the page free list without invalidating surviving roots' UVs (only
+  dormant storey views drop). `PlateSystem` caches TV coordinates and
+  per-service status keys and drains coalesced dirty TVs at 1 panel/frame
+  prioritizing visible modules via `ModuleSystem.moduleRootsById` O(1) live
+  ancestor visibility checks (zero root array scans as station size grows). Live
+  atlas panels compare dirty pixel bounds, upload at most one changed live panel
+  per frame, retain CPU pages for context restoration, and request frames until
+  pending uploads drain.
 - **Outdoor paving instances** (`game/src/render/surfaceBatches.ts`): `lawn` and
   `sidewalk` tiles draw directly from the document via `StaticInstances` in
   `64 m` buckets (`SURFACE_BUCKET_SIZE = 64`) per finish and storey, resolving
@@ -110,13 +121,43 @@ inventories, and [perf-benchmarks.md](perf-benchmarks.md) for commands.
   closing rebuilds the editor renderer.
 - **Structure-first streaming**: Presents the structural frame (`data-ready`)
   first, then streams equipment batches (`data-equipped`), skipping batches
-  hidden by rigid trays, preserving whole instances per floor, and flushing
-  temporary merge inputs at 131,072 vertices or 1,024 meshes.
+  hidden by rigid trays, consolidating cross-stage **opaque** untextured
+  materials, identical-content `InstancedMesh`es (`geometryKey`), and **opaque**
+  `PanelAtlas` faces with `matrixAutoUpdate = false` (preserving independent
+  draw boundaries for transparent untextured and textured surfaces so two-sided
+  orbits maintain exact blend order), initializing deferred wall meshes from
+  each floor's current `wallsVisible` setting before attachment, bounding
+  temporary merge inputs at 131,072 vertices or 1,024 meshes, and flushing
+  deferred buckets incrementally in `6 ms` slices (`flushPendingStep`).
 - **Zero-rewrite drags**: Floor drags translate tray groups without extra picks,
   document commits, or vertex rewrites.
 
-## Simulation: sparse routing & road traffic
+## Simulation: worker transport, collision/congestion & sparse routing
 
+- **Worker transfers & on-demand density** (`game/src/sim/worker.ts`,
+  `protocol.ts`, `SimSlice.ts`): Transfers message-owned `agents`, `trains`,
+  `lifts`, `history`, `route`, and demanded `density` buffers zero-copy. Every
+  `init` and topology rebuild publishes a fresh `ready` graph carrying monotonic
+  `stationGen` and `graphRev` before its first density sample; the consumer
+  clears stale overlays on station switch or graph replacement and consumes
+  density only when both identifiers match (including on renderer recreation).
+  Per-node LOS `density` is only allocated and transferred while `densityDemand`
+  is active; enabling it while paused posts a density-only message (leaving
+  poses, interpolation origin, metrics, history, and route preview intact), and
+  during playback attaches density to the next scheduled `state` tick.
+- **Stamped collision, density & congestion grids** (`game/src/sim/world/World.ts`):
+  Uses per-tick stamped cell linked lists (preserving exact ascending agent
+  traversal order), occupied-cell density evaluation, and precomputed CSR
+  `cellNodes` touched-cell congestion pricing for bit-for-bit exact replay.
+- **Presentation hot loops** (`CrowdSystem.ts`, `EscalatorModel.ts`,
+  `LiftSystem.ts`, `ClockSystem.ts`): Spatial 2 m grids accelerate
+  `detectGateCrossings`; crowd and escalator instance matrices write directly
+  into `instanceMatrix.array`; hidden/standalone escalators and omitted Low
+  sub-meshes skip matrix uploads while accumulating `phase` and resyncing newly
+  drawable parts (including while paused on reveal or Low→High switches) before
+  submission; settled lift poses skip writes; `ClockSystem` tracks per-rig
+  applied `(seconds, calendar)` state so replaced placed or hover-preview clocks
+  initialize on their first frame while unchanged rigs skip redundant writes.
 - **Sparse hierarchical crowd routing** (`game/src/sim/sparseRouter.ts`,
   `sparseConstants.ts`): Uses `16 m` sectors (`SPARSE_SECTOR_SIZE = 16`),
   rolling 16-step local horizon (`SPARSE_WALK_HORIZON = 16`, refill at `4`),
@@ -136,3 +177,69 @@ inventories, and [perf-benchmarks.md](perf-benchmarks.md) for commands.
   junction capacity and feeder count. Ambient traffic uses the road/signal
   registry, bounded instanced vehicle pools, and fixed simulation steps even
   while the street storey is hidden.
+
+## Measured Tianhe Park playback (`bench-sim-stalls.mjs`, hardware ANGLE D3D11)
+
+Captured serially with the same upgraded `tools/bench-sim-stalls.mjs` runner on
+`NVIDIA GeForce RTX 4080 SUPER` / `Intel Core i7-14700KF`, `HeadlessChrome/157.0.0.0`,
+`1600×900`, DPR 1, 60 Hz display, 16× speed (`base`: clean `HEAD` `b8e8773b` vs
+`cand`: current tree; raw captures under `.preview/perf/threejs-tianhe/{base,cand}-*.json`).
+Tianhe rows report the **3-run median**; steady state is the pre-chosen `16–30 s`
+window after dense opening/staging completes (`structureReadyMs` and
+`equipmentReadyMs` captured separately).
+
+- **Fixed-tick visible workload match (`tick = 460`, identical camera):**
+  - Regular Low & High (`base` = `cand`): `population = 2,212`, `trainArrivals = 12`,
+    `agentCount = 2,219`, `trainGroups = 8`, camera `[185.47, -159.96, 75.47]` → `[85.5, -40.0, -9.5]`.
+  - Exploded Low & High (`base` = `cand`): `population = 2,212`, `trainArrivals = 12`,
+    `agentCount = 1,989`, `trainGroups = 6`, camera `[447.68, -296.01, 244.30]` → `[148.5, 63.0, -10.0]`.
+- **Source-to-frame publication check (Tianhe 30 s at 16×, expected `480 ± 1` ticks):**
+  `base` completed `483` ticks (`484` delivered snapshots, `19–36` consumer gap
+  misses); `cand` completed `484` worker ticks at the source with **`0` worker timer
+  misses** across all 12 Tianhe runs (`485` delivered snapshots, `maxTickLag = 0`,
+  median delivery lag `8.1–31.4 ms`, median render lag `38.5–54.3 ms`).
+- **Fixed-seed exact replay (`HEAD` `b8e8773b` vs current across live edit, undo,
+  redo & both Tianhe departure waves, 480 ticks, 3,570 agents, 24 arrivals):**
+  `46.22 → 28.65 ms/tick` (-38.0%), 100% bit-for-bit exact match on all 4
+  checkpoints (`agentsHash`, `trainsHash`, `liftsHash`, `historyHash`,
+  `nodePopHash`, and all metrics).
+- **Peak-crowd paused camera orbit (Tianhe Regular Low, 1,473 agents):**
+  `57.0 FPS` avg (`p50 16.9 ms`, `p95 20.0 ms`, worst `32.7 ms`); paused density
+  overlay toggle delivered without advancing `tick` (`162 → 162`).
+- **Tianhe Exploded repeated open/close recovery (2 cycles, Low, `0` errors):**
+  Editor renderer released on open (`editorReleased: true`), ready `12.8 / 12.1 s`,
+  equipped `21.9 / 21.4 s`, close `13.3 / 12.0 s`, steady CDP JS heap `398.1 → 417.4 MiB`
+  open and `757.4 → 776.8 MiB` after return.
+- **Tianhe 1× presentation check (15 s, Regular Low):** `p50 16.9 ms` (`rAF p50
+  17.2 ms`), `p95 29.3 ms`, `15` completed worker ticks / `0` worker timer misses /
+  `16` delivered snapshots, worker `8.2 ms/tick`, `1,757` draws, `6.90 GiB` peak WS.
+- **Editor feedback vs worker graph install (Tianhe, High, `bench-editor-actions.mjs`):**
+  `preview` (`23.1 ms` gate, `56.3 ms` fence), `pickup` (`46.8 / 46.0 ms`), and
+  `move-preview` (`84.3 / 77.6 ms`) pass `< 100 ms`; full 76k-module `place`
+  (`325.3 / 245.4 ms`), `drop` (`311.3 / 372.1 ms`), and `delete` (`227.7 /
+  192.6 ms`) remain bounded by `modules.buildModules` + `syncBatches`, separate
+  from async worker graph installation (`2,365 ms` off-main-thread).
+
+### Tianhe Park 3-run median (`base` `b8e8773b` → `cand`, 30 s at 16×)
+
+| Case | Full 30 s sub / rAF FPS (1% low) | Steady (`16–30 s`) sub=rAF FPS / 1% low | Steady `p50 / p95 / p99 / worst` (ms) | Draws | Struct / Equip ready (s) | Steady CDP JS / Peak JS / Peak WS / Peak Priv | Worker ticks / misses / `tickMs` / lag (del/ren p50) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| **Regular Low** | 20.0→**27.9** / 21.7→**29.6** (0.5→0.7) | 38.4→**50.6** / 17.3→**20.2** | 24.5→**17.0** / 38.7→**35.0** / 53.5→**47.3** / 65.5→**55.5** | 2,827→**1,714** | 4.7→4.7 / 16.8→**16.2** | 616→736 MiB / 4.23→4.39 / 7.85→**7.67** / 10.16→**10.10** GiB | 483→484 / **0** (17 cMiss) / 54.3→**23.8** ms / 14.5 / 40.9 ms |
+| **Regular High** | 10.0→**11.7** / 11.7→**13.4** (0.3→0.3) | 19.0→**21.5** / 10.8→**12.1** | 53.7→**39.8** / 72.3→**63.6** / 78.0→**72.0** / 102.2→**101.3** | 6,315→**5,456** | 4.7→4.8 / 17.4→**17.1** | 644→832 MiB / 3.99→4.04 / 8.47→**8.06** / 11.11→**10.78** GiB | 483→484 / **0** (30 cMiss) / 54.0→**23.8** ms / 31.4 / 54.3 ms |
+| **Exploded Low** | 25.3→**44.5** / 25.3→**44.5** (2.0→**2.5**) | 25.8→**53.5** / 5.0→**26.8** | 33.8→**16.2** / 78.8→**33.6** / 108.7→**35.4** / 208.4→**41.6** | 5,680→**1,767** | 6.5→6.5 / 25.4→**21.0** | 582→**452** MiB / 2.22→3.70 / 6.09→7.48 / 8.36→10.34 GiB | 483→484 / **0** (10 cMiss) / 54.1→**24.2** ms / 8.1 / 38.6 ms |
+| **Exploded High** | 23.4→**39.7** / 23.4→**39.7** (1.9→**2.3**) | 23.4→**41.8** / 5.0→**20.4** | 36.5→**18.3** / 81.8→**42.5** / 121.9→**47.3** / 217.8→**51.3** | 6,321→**1,940** | 7.4→7.5 / 28.8→**22.6** | 597→**403** MiB / 2.68→4.33 / 7.07→8.53 / 9.84→11.90 GiB | 483→484 / **0** (9 cMiss) / 54.4→**23.9** ms / 10.2 / 38.5 ms |
+
+> [!NOTE]
+> Exploded steady-state CDP JS heap dropped **-22% to -32%** (`582→452` / `597→403 MiB`),
+> while transient staging peak Working Set rose `+1.39–1.46 GiB` (`6.09→7.48` / `7.07→8.53 GiB`)
+> while deferred cross-stage merge buckets stay resident before final flush; Regular Low and High
+> peak Working Set both improved (`7.85→7.67` / `8.47→8.06 GiB`).
+
+### Smaller-station matched guards (`base` `b8e8773b` → `cand`, 20 s at 16×, steady = `10–20 s`)
+
+| Case | Full 20 s FPS | Steady FPS / 1% low | Steady `p50 / p95 / p99 / worst` (ms) | Draws | Struct / Equip (s) | Steady CDP JS / Peak WS | Worker ticks / misses / `tickMs` |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| **Zoo Regular Low** | 59.9→**59.9** | 59.9→**59.9** / 43.9→**46.4** | 16.7→16.7 / 17.4→17.5 / 20.9→**18.4** / 25.1→31.8 | 873→**832** | 5.4→5.5 / 5.4→5.5 | 172→**170** MiB / 3.68→3.81 GiB | 323→323 / **0** / 6.8→**4.2** ms |
+| **Zoo Exploded Low** | 56.4→56.2 | 59.2→**59.9** / 18.8→**53.7** | 16.7→16.7 / 17.2→17.4 / 49.5→**18.1** / 56.8→**19.4** | 1,159→**503** | 3.2→**3.1** / 4.6→4.6 | 167→**151** MiB / 2.93→3.55 GiB | 323→323 / **0** / 6.8→**4.5** ms |
+| **Tanwei Regular Low** | 59.8→**59.9** | 59.9→**59.9** / 34.2→**49.3** | 16.7→16.7 / 18.0→18.2 / 24.7→**19.6** / 32.6→**21.3** | 1,460→**1,416** | 8.3→8.3 / 8.3→8.3 | 260→343 MiB / 4.50→4.55 GiB | 322→323 / **0** / 17.9→**8.3** ms |
+| **Tanwei Exploded Low** | 54.6→**54.8** | 59.5→**60.0** / 22.3→**53.8** | 16.7→16.7 / 17.3→17.4 / 38.8→**18.4** / 49.0→**19.2** | 1,532→**589** | 3.3→3.4 / 6.1→6.3 | 321→**208** MiB / 4.36→**3.73** GiB | 323→323 / **0** / 15.0→**8.2** ms |

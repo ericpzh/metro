@@ -133,6 +133,12 @@ export class CrowdSystem extends SceneSystem {
   gateWings: GateWing[] = []
   swingDoors: Array<{ pivot: THREE.Group; sign: number; x: number; y: number; z: number; open: number; target: number; occupied: boolean; cubicleX?: number; cubicleY?: number }> = []
   activitySinks: Array<{stream: THREE.Object3D; x: number; y: number; z: number}> = []
+  private gateGrid = new Map<number, GateWing[]>()
+  private gateGridSig: readonly [number, GateWing | undefined, GateWing | undefined] = [-1, undefined, undefined]
+  private doorGrid = new Map<number, CrowdSystem['swingDoors']>()
+  private doorGridSig: readonly [number, CrowdSystem['swingDoors'][number] | undefined, CrowdSystem['swingDoors'][number] | undefined] = [-1, undefined, undefined]
+  private sinkGrid = new Map<number, CrowdSystem['activitySinks']>()
+  private sinkGridSig: readonly [number, CrowdSystem['activitySinks'][number] | undefined, CrowdSystem['activitySinks'][number] | undefined] = [-1, undefined, undefined]
   /** The 选择 tool's route line, its own scratch buffer, and the two rings. */
   private route: THREE.Mesh
   private routePos: Float32Array
@@ -171,11 +177,7 @@ export class CrowdSystem extends SceneSystem {
   private poseScratch: [number, number, number, number] = [0, 0, 0, 0]
   private appearanceScratch: PassengerAppearance = [0, 0, 0, 0, 0]
   private passengerColor = new THREE.Color()
-  private zAxis = new THREE.Vector3(0, 0, 1)
-  private tmpQ = new THREE.Quaternion()
-  private tmpM = new THREE.Matrix4()
   private tmpP = new THREE.Vector3()
-  private tmpS = new THREE.Vector3(1, 1, 1)
 
   constructor(ctx: SceneContext) {
     super(ctx)
@@ -605,6 +607,12 @@ export class CrowdSystem extends SceneSystem {
     if (this.overlay) this.overlay.visible = on
   }
 
+  clearDensity(): void {
+    if (!this.overlay) return
+    this.dropOverlay(this.overlay)
+    this.overlay = null
+  }
+
   /** 区域 map visibility, without rebuilding the map. */
   setZoneOverlayVisible(on: boolean): void {
     if (this.zoneOverlay) this.zoneOverlay.visible = on
@@ -726,12 +734,11 @@ export class CrowdSystem extends SceneSystem {
     low.count = 0; low.appearance = false
     const dt = this.playing && this.lastRenderTime > 0 ? Math.max(0, Math.min(0.05, (now - this.lastRenderTime) / 1000)) : 0
     this.lastRenderTime = now
-    const m = this.tmpM
-    const q = this.tmpQ
     const pos = this.tmpP
-    const scale = this.tmpS
-    const axis = this.zAxis
     const n = this.agentCount
+    const fullMatArr = full.mesh.instanceMatrix.array as Float32Array
+    const lowMatArr = low.mesh.instanceMatrix.array as Float32Array
+    const blobMatArr = this.blobs.instanceMatrix.array as Float32Array
     let followed = false
     let blobCount = 0
     /** True once the previewed passenger was drawn: the route goes with them. */
@@ -742,7 +749,6 @@ export class CrowdSystem extends SceneSystem {
       const id = this.cur[o + 5]
       const appearance = this.appearanceScratch
       for (let a = 0; a < 5; a++) appearance[a] = this.appearances[i * 5 + a]
-      scale.set(appearance[2], appearance[3], appearance[1])
       const px = this.prev[p]
       const py = this.prev[p + 1]
       const pz = this.prev[p + 2]
@@ -769,28 +775,27 @@ export class CrowdSystem extends SceneSystem {
       }
       activityKind=passengerDisplayedActivity(activityKind,appearance[0],activityTime)
       if (activityKind && activityKind !== 5 && activityKind !== 6 && activityKind !== 11) this.yaws[i] = activity[2]
-      q.setFromAxisAngle(axis, this.yaws[i])
       const travelled = passengerWalkDistance(this.cur[o + 3], dx, dy, cz - pz)
       const moving = travelled > 1e-5 ? 1 : 0
       this.gaitWeights[i] += (moving - this.gaitWeights[i]) * Math.min(1, dt * 12)
       // Fore/aft mesh scaling changes the physical step length, including for
       // children. Phase uses the same distance as the displayed translation.
-      const frames = passengerFrames(travelled * alpha / appearance[2], this.gaitPhases[i], this.gaitWeights[i], this.poseScratch, passengerWalkProfile(id))
+      const walkProfile = passengerWalkProfile(id)
+      const frames = passengerFrames(travelled * alpha / appearance[2], this.gaitPhases[i], this.gaitWeights[i], this.poseScratch, walkProfile)
       const frozen = this.frozen.get(id)
       if (frozen) {
         pos.copy(frozen.position)
         this.yaws[i] = frozen.yaw
-        q.setFromAxisAngle(axis, frozen.yaw)
       }
       const shown = frozen?.pose ?? frames
       this.renderedPoses.set(shown, i * 4)
-      const activityPhase = ((frames[0] - PASSENGER_WALK_PROFILES[passengerWalkProfile(id)].firstFrame) + frames[2]) / PASSENGER_WALK_FRAMES
+      const activityPhase = ((frames[0] - PASSENGER_WALK_PROFILES[walkProfile].firstFrame) + frames[2]) / PASSENGER_WALK_FRAMES
       const drawnActivity = frozen?.activity
       const at = i * 4
       this.renderedActivities[at] = drawnActivity?.[0] ?? activityKind
       this.renderedActivities[at+1] = drawnActivity?.[1] ?? activityTime
       this.renderedActivities[at+2] = drawnActivity?.[2] ?? activityPhase
-      this.renderedActivities[at+3] = drawnActivity?.[3] ?? passengerActionChannel(activityKind,appearance[0],id,passengerWalkProfile(id))
+      this.renderedActivities[at+3] = drawnActivity?.[3] ?? passengerActionChannel(activityKind,appearance[0],id,walkProfile)
       // Only the crowd on the storeys that are actually drawn: an agent on a
       // hidden floor above (or a ghosted one below) would otherwise float over
       // the visible floor, reading as "seen through" it.
@@ -802,7 +807,8 @@ export class CrowdSystem extends SceneSystem {
         // The storey this instance stands on decides its topology, and the same
         // value is recorded per instance so the split is inspectable.
         const level = storeyBand(pos.z, this.ctx.levelBase, this.ctx.storeyHeight)
-        const group = this.crowdDetail(level) === 'low' ? low : full
+        const isLow = this.crowdDetail(level) === 'low'
+        const group = isLow ? low : full
         const slot = group.count++
         if (group.ids[slot] !== id) {
           group.ids[slot] = id
@@ -816,16 +822,24 @@ export class CrowdSystem extends SceneSystem {
         group.level.setX(slot, level)
         group.pose.setXYZW(slot, shown[0], shown[1], shown[2], shown[3])
         const ap = this.renderedActivities
-        group.activity.setXYZW(slot, ap[i * 4], ap[i * 4 + 1], ap[i * 4 + 2], ap[i * 4 + 3])
-        m.compose(pos, q, scale)
-        group.mesh.setMatrixAt(slot, m)
+        group.activity.setXYZW(slot, ap[at], ap[at + 1], ap[at + 2], ap[at + 3])
+        const yaw = this.yaws[i]
+        const cos = Math.cos(yaw), sin = Math.sin(yaw)
+        const sx = appearance[2], sy = appearance[3], sz = appearance[1]
+        const matArr = isLow ? lowMatArr : fullMatArr
+        const off = slot * 16
+        matArr[off] = cos * sx;      matArr[off + 1] = sin * sx;  matArr[off + 2] = 0;   matArr[off + 3] = 0
+        matArr[off + 4] = -sin * sy; matArr[off + 5] = cos * sy;  matArr[off + 6] = 0;   matArr[off + 7] = 0
+        matArr[off + 8] = 0;         matArr[off + 9] = 0;         matArr[off + 10] = sz; matArr[off + 11] = 0
+        matArr[off + 12] = pos.x;    matArr[off + 13] = pos.y;    matArr[off + 14] = pos.z; matArr[off + 15] = 1
         if (contactShadowVisible(pos.z, this.ctx.activeZ, this.ctx.hideUI || this.ctx.cutaway,
           this.ctx.levelBase, this.ctx.storeyHeight)) {
           // Pack only active-storey shadows, avoiding ghost-floor overdraw and uploads.
-          scale.z = 1
-          m.compose(pos, q, scale)
-          m.elements[14] += 0.03
-          this.blobs.setMatrixAt(blobCount++, m)
+          const boff = blobCount++ * 16
+          blobMatArr[boff] = cos * sx;      blobMatArr[boff + 1] = sin * sx;  blobMatArr[boff + 2] = 0;  blobMatArr[boff + 3] = 0
+          blobMatArr[boff + 4] = -sin * sy; blobMatArr[boff + 5] = cos * sy;  blobMatArr[boff + 6] = 0;  blobMatArr[boff + 7] = 0
+          blobMatArr[boff + 8] = 0;         blobMatArr[boff + 9] = 0;         blobMatArr[boff + 10] = 1; blobMatArr[boff + 11] = 0
+          blobMatArr[boff + 12] = pos.x;    blobMatArr[boff + 13] = pos.y;    blobMatArr[boff + 14] = pos.z + 0.03; blobMatArr[boff + 15] = 1
         }
       }
       // The 选择 tool's ring sits on the body it belongs to, moved with it through
@@ -898,6 +912,49 @@ export class CrowdSystem extends SceneSystem {
     return crowdVisible(z, this.ctx.activeZ, this.ctx.ghost, this.ctx.hideUI, this.ctx.levelBase, this.ctx.storeyHeight)
   }
 
+  private static deviceCellKey(cx: number, cy: number): number {
+    return (cx + 32768) * 65536 + (cy + 32768)
+  }
+
+  private ensureDeviceGrids(): void {
+    const gLen = this.gateWings.length
+    if (gLen !== this.gateGridSig[0] || this.gateWings[0] !== this.gateGridSig[1] || this.gateWings[gLen - 1] !== this.gateGridSig[2]) {
+      this.gateGrid.clear()
+      for (let i = 0; i < gLen; i++) {
+        const g = this.gateWings[i]
+        const key = CrowdSystem.deviceCellKey(Math.floor(g.x * 0.5), Math.floor(g.y * 0.5))
+        let bucket = this.gateGrid.get(key)
+        if (!bucket) { bucket = []; this.gateGrid.set(key, bucket) }
+        bucket.push(g)
+      }
+      this.gateGridSig = [gLen, this.gateWings[0], this.gateWings[gLen - 1]]
+    }
+    const dLen = this.swingDoors.length
+    if (dLen !== this.doorGridSig[0] || this.swingDoors[0] !== this.doorGridSig[1] || this.swingDoors[dLen - 1] !== this.doorGridSig[2]) {
+      this.doorGrid.clear()
+      for (let i = 0; i < dLen; i++) {
+        const d = this.swingDoors[i]
+        const key = CrowdSystem.deviceCellKey(Math.floor(d.x * 0.5), Math.floor(d.y * 0.5))
+        let bucket = this.doorGrid.get(key)
+        if (!bucket) { bucket = []; this.doorGrid.set(key, bucket) }
+        bucket.push(d)
+      }
+      this.doorGridSig = [dLen, this.swingDoors[0], this.swingDoors[dLen - 1]]
+    }
+    const sLen = this.activitySinks.length
+    if (sLen !== this.sinkGridSig[0] || this.activitySinks[0] !== this.sinkGridSig[1] || this.activitySinks[sLen - 1] !== this.sinkGridSig[2]) {
+      this.sinkGrid.clear()
+      for (let i = 0; i < sLen; i++) {
+        const s = this.activitySinks[i]
+        const key = CrowdSystem.deviceCellKey(Math.floor(s.x * 0.5), Math.floor(s.y * 0.5))
+        let bucket = this.sinkGrid.get(key)
+        if (!bucket) { bucket = []; this.sinkGrid.set(key, bucket) }
+        bucket.push(s)
+      }
+      this.sinkGridSig = [sLen, this.activitySinks[0], this.activitySinks[sLen - 1]]
+    }
+  }
+
   /**
    * Count the passengers crossing each gate's lane. Called once per worker
    * snapshot, because `prev`/`cur` only change then — the per-frame loop in
@@ -907,55 +964,107 @@ export class CrowdSystem extends SceneSystem {
    */
   private detectGateCrossings(): void {
     const n = this.agentCount
-    for (const sink of this.activitySinks) {
-      sink.stream.visible=false
-      for (let i=0;i<n;i++) {
-        const o=i*6,value=this.cur[o+4]
-        if (Math.floor(value/1048576)!==10 || Math.abs(this.cur[o+2]-sink.z)>.5 || Math.hypot(this.cur[o]-sink.x,this.cur[o+1]-sink.y)>.8) continue
-        const time=unpackActivity(value,this.activityScratch)[1]
-        if(time>2&&time<8){sink.stream.visible=true;break}
-      }
+    const hasSinks = this.activitySinks.length > 0
+    const hasDoors = this.swingDoors.length > 0
+    const hasGates = this.gateWings.length > 0
+    for (let i = 0; i < this.activitySinks.length; i++) this.activitySinks[i].stream.visible = false
+    for (let i = 0; i < this.swingDoors.length; i++) {
+      const door = this.swingDoors[i]
+      door.target = 0
+      door.occupied = false
     }
-    for (const door of this.swingDoors) {
-      door.target = 0; door.occupied = false
-      for (let i=0;i<n;i++) {
-        const o=i*6
-        if (Math.abs(this.cur[o+2]-door.z)>.5 || Math.hypot(this.cur[o]-door.x,this.cur[o+1]-door.y)>1.25) continue
-        const kind=Math.floor(this.cur[o+4]/1048576)
-        if (kind===9 && door.cubicleX !== undefined && Math.hypot(this.cur[o]-door.cubicleX,this.cur[o+1]-door.cubicleY!)<.35) door.occupied=true
-        else if (this.cur[o+3]===AgentState.Walking || this.cur[o+3]===AgentState.Arriving) door.target=1
-      }
-      if (door.occupied) door.target=0
-    }
-    if (n === 0 || this.gateWings.length === 0) return
+    if (n === 0 || (!hasSinks && !hasDoors && !hasGates)) return
+    this.ensureDeviceGrids()
+    const cur = this.cur
+    const prev = this.prev
     for (let i = 0; i < n; i++) {
       const o = i * 6
-      const p = i * 3
-      const ax = this.cur[o]
-      const ay = this.cur[o + 1]
-      const az = this.cur[o + 2]
-      const bx = this.prev[p]
-      const by = this.prev[p + 1]
-      const bz = this.prev[p + 2]
-      for (const g of this.gateWings) {
-        // Gate lanes live on one storey; skip agents on another.
-        if (Math.abs(az - g.z) > 0.75 && Math.abs(bz - g.z) > 0.75) continue
-        // The clearance between queued bodies and the node means a genuine
-        // crossing always has a sizeable step along the crossing axis; a
-        // walker drifting along the gate row does not.
-        const sPrev = (g.axisY ? by : bx) - (g.axisY ? g.y : g.x)
-        const sCur = (g.axisY ? ay : ax) - (g.axisY ? g.y : g.x)
-        // The queue is held outside the gate cell, so only a passenger that was
-        // outside can be entering: either stepping in past the cell edge, or
-        // jumping clean across to the far side in one snapshot at speed.
-        if (Math.abs(sPrev) < GATE_EDGE) continue
-        const inside = Math.abs(sCur) < GATE_EDGE
-        const crossed = (sPrev < 0) !== (sCur < 0)
-        if (!inside && !crossed) continue
-        if (Math.abs(sCur - sPrev) < 0.12) continue
-        const lat = g.axisY ? (bx + ax) / 2 - g.x : (by + ay) / 2 - g.y
-        if (Math.abs(lat) > 0.45) continue
-        if (g.pending < 4) g.pending++
+      const ax = cur[o]
+      const ay = cur[o + 1]
+      const az = cur[o + 2]
+      const cx = Math.floor(ax * 0.5)
+      const cy = Math.floor(ay * 0.5)
+      if (hasSinks) {
+        const value = cur[o + 4]
+        if (Math.floor(value / 1048576) === 10) {
+          const time = unpackActivity(value, this.activityScratch)[1]
+          if (time > 2 && time < 8) {
+            for (let gx = cx - 1; gx <= cx + 1; gx++) {
+              for (let gy = cy - 1; gy <= cy + 1; gy++) {
+                const bucket = this.sinkGrid.get(CrowdSystem.deviceCellKey(gx, gy))
+                if (!bucket) continue
+                for (let k = 0; k < bucket.length; k++) {
+                  const sink = bucket[k]
+                  if (sink.stream.visible) continue
+                  if (Math.abs(az - sink.z) <= 0.5 && Math.hypot(ax - sink.x, ay - sink.y) <= 0.8) {
+                    sink.stream.visible = true
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+      if (hasDoors) {
+        const state = cur[o + 3]
+        const kind = Math.floor(cur[o + 4] / 1048576)
+        const walkingOrArriving = state === AgentState.Walking || state === AgentState.Arriving
+        if (kind === 9 || walkingOrArriving) {
+          for (let gx = cx - 1; gx <= cx + 1; gx++) {
+            for (let gy = cy - 1; gy <= cy + 1; gy++) {
+              const bucket = this.doorGrid.get(CrowdSystem.deviceCellKey(gx, gy))
+              if (!bucket) continue
+              for (let k = 0; k < bucket.length; k++) {
+                const door = bucket[k]
+                if (Math.abs(az - door.z) > 0.5 || Math.hypot(ax - door.x, ay - door.y) > 1.25) continue
+                if (kind === 9 && door.cubicleX !== undefined && Math.hypot(ax - door.cubicleX, ay - door.cubicleY!) < 0.35) {
+                  door.occupied = true
+                } else if (walkingOrArriving) {
+                  door.target = 1
+                }
+              }
+            }
+          }
+        }
+      }
+      if (hasGates) {
+        const p = i * 3
+        const bx = prev[p]
+        const by = prev[p + 1]
+        const bz = prev[p + 2]
+        const dx = ax - bx
+        const dy = ay - by
+        if (dx * dx + dy * dy < 0.0144) continue // |sCur - sPrev| < 0.12 impossible
+        const minX = Math.floor((Math.min(ax, bx) - 1) * 0.5)
+        const maxX = Math.floor((Math.max(ax, bx) + 1) * 0.5)
+        const minY = Math.floor((Math.min(ay, by) - 1) * 0.5)
+        const maxY = Math.floor((Math.max(ay, by) + 1) * 0.5)
+        for (let gx = minX; gx <= maxX; gx++) {
+          for (let gy = minY; gy <= maxY; gy++) {
+            const bucket = this.gateGrid.get(CrowdSystem.deviceCellKey(gx, gy))
+            if (!bucket) continue
+            for (let k = 0; k < bucket.length; k++) {
+              const g = bucket[k]
+              // Gate lanes live on one storey; skip agents on another.
+              if (Math.abs(az - g.z) > 0.75 && Math.abs(bz - g.z) > 0.75) continue
+              const sPrev = (g.axisY ? by : bx) - (g.axisY ? g.y : g.x)
+              const sCur = (g.axisY ? ay : ax) - (g.axisY ? g.y : g.x)
+              if (Math.abs(sPrev) < GATE_EDGE) continue
+              const inside = Math.abs(sCur) < GATE_EDGE
+              const crossed = (sPrev < 0) !== (sCur < 0)
+              if (!inside && !crossed) continue
+              if (Math.abs(sCur - sPrev) < 0.12) continue
+              const lat = g.axisY ? (bx + ax) / 2 - g.x : (by + ay) / 2 - g.y
+              if (Math.abs(lat) > 0.45) continue
+              if (g.pending < 4) g.pending++
+            }
+          }
+        }
+      }
+    }
+    if (hasDoors) {
+      for (let i = 0; i < this.swingDoors.length; i++) {
+        if (this.swingDoors[i].occupied) this.swingDoors[i].target = 0
       }
     }
   }

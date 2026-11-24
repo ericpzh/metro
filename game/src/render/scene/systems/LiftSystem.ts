@@ -46,6 +46,28 @@ export class LiftSystem extends SceneSystem {
   escalatorRolls: EscalatorRoll[] = []
   /** False while the sim is paused: the step bands hold their pose like the crowd. */
   private playing = true
+  private liftRigMap = new Map<string, LiftRig>()
+  private liftRigCount = -1
+  private liftRigFirst: LiftRig | undefined
+  private liftRigLast: LiftRig | undefined
+  private lastLiftPose = new WeakMap<LiftRig, { z: number; door: number; side: number }>()
+
+  private rigByKey(key: string): LiftRig | undefined {
+    const len = this.liftRigs.length
+    const first = this.liftRigs[0]
+    const last = this.liftRigs[len - 1]
+    if (len !== this.liftRigCount || first !== this.liftRigFirst || last !== this.liftRigLast) {
+      this.liftRigMap.clear()
+      for (let i = 0; i < len; i++) {
+        const rig = this.liftRigs[i]
+        if (!this.liftRigMap.has(rig.key)) this.liftRigMap.set(rig.key, rig)
+      }
+      this.liftRigCount = len
+      this.liftRigFirst = first
+      this.liftRigLast = last
+    }
+    return this.liftRigMap.get(key)
+  }
 
   /**
    * One pose per elevator car, stride 7: plan x, plan y, lower cell z, upper
@@ -65,7 +87,7 @@ export class LiftSystem extends SceneSystem {
     for (let i = 0; i < n; i++) {
       const o = i * STRIDE
       const key = `${buffer[o] | 0},${buffer[o + 1] | 0},${buffer[o + 2] | 0}`
-      const rig = this.liftRigs.find((r) => r.key === key)
+      const rig = this.rigByKey(key)
       if (!rig) continue
       if (!rig.have) {
         rig.baseFrom = buffer[o + 4]
@@ -85,8 +107,15 @@ export class LiftSystem extends SceneSystem {
     for (const rig of this.liftRigs) {
       if (!rig.have) continue
       const z = rig.baseFrom + (rig.baseTo - rig.baseFrom) * alpha
-      rig.cabin.position.z = z - rig.originZ
       const door = rig.doorFrom + (rig.doorTo - rig.doorFrom) * alpha
+      const prev = this.lastLiftPose.get(rig)
+      if (prev && prev.z === z && prev.door === door && prev.side === rig.side) continue
+      if (prev) {
+        prev.z = z; prev.door = door; prev.side = rig.side
+      } else {
+        this.lastLiftPose.set(rig, { z, door, side: rig.side })
+      }
+      rig.cabin.position.z = z - rig.originZ
       // The cabin carries a door on each face; only the face the stop serves
       // slides open, so a through-floor opens onto the landing it was called to.
       setDoorsSides(rig.group, rig.side & 2 ? door : 0, rig.side & 1 ? door : 0)
@@ -109,8 +138,10 @@ export class LiftSystem extends SceneSystem {
    * their pose, like the crowd and the station clocks.
    */
   updateEscalators(simDt: number): void {
-    if (!this.playing) return
-    for (const roll of this.escalatorRolls) rollEscalator(roll, simDt)
+    const stepDt = this.playing ? simDt : 0
+    for (const roll of this.escalatorRolls) {
+      rollEscalator(roll, stepDt)
+    }
   }
 
   /** Freeze the step bands while paused; resume rolling on play. */

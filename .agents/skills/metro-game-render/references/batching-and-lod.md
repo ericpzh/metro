@@ -91,11 +91,17 @@ trains, crowds, and previews:
 * **Per-module batching** (`batchStaticModule.ts`): Collapses same-material opaque
   static siblings inside `STATIC_TYPES` while preserving module roots, nested groups,
   transparent meshes, tagged/shared/mutable meshes, and animated rigs.
-* **Cross-module `EquipmentBatches`** (`equipmentBatches.ts`):
+* **Cross-module `EquipmentBatches`** (`equipmentBatches.ts`, `materialCanonical.ts`):
   * Spatial bucket size: `16 m` (High), `64 m` (Low), `256 m` (dense Low).
   * Excludes moving/mutable subtrees: `signalAspect`, `doors`, `clockRig` pivots,
     `wing`, `liftCabin`, `activityWater`, cycling `adScreen` windows, and `explodedRamp`
     roots.
+  * Value-canonicalizes equivalent untextured static materials (`canonicalUntexturedMaterialKey`,
+    resolving each rebuilt bucket's material from its live surviving sources—single owner
+    uses its own or live atlas material, multi-owner buckets use a batch-owned canonical
+    material with synchronized clipping planes in `SectionSystem.applyClip` and disposal on
+    `clear()`; normal-blended non-wireframe transparent buckets opt in because they route
+    through per-surface depth-sorted draws).
   * Chooses the cheapest draw per bucket: `StaticInstances` (trees), `InstancedMesh`
     (identical positive-determinant geometries without atlas regions, matching High and
     Low), `sortedEquipmentGeometry` (single indexed depth-sorted draw for dense Low
@@ -164,7 +170,11 @@ trains, crowds, and previews:
   `setStandalonePresentation` disables `EquipmentBatches` and enables tray-keyed
   `teleportBetweenStoreys`. `ExplodedLayout` physically clips triangles once at 5 m
   planes (`clipFloorGeometry`), splits near-side walls by voxel ownership
-  (`splitFrontWalls`), and translates tray `Group`s only. `ExplodedRamps` clones
+  (`splitFrontWalls`), consolidates cross-stage **opaque** untextured materials,
+  opaque `PanelAtlas` faces, and identical-content opaque `InstancedMesh`es (preserving
+  independent draw boundaries for transparent surfaces), initializes deferred wall meshes
+  from `wallsVisible[owner]`, flushes deferred equipment in 6 ms steps
+  (`flushPendingStep`), and translates tray `Group`s only. `ExplodedRamps` clones
   multi-storey ramps across trays while sharing animated instance buffers/LODs and
   restoring `userData.base` on disposal. `ExplodedConnections` reuses dynamic buffers
   for dashed guides (excluded from picking).

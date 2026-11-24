@@ -142,37 +142,86 @@ function wrapMod(v: number, m: number): number {
   return ((v % m) + m) % m
 }
 
-// Scratch, reused across escalators and frames (rollEscalator runs every frame).
-const _rot = new THREE.Matrix4()
-const _m = new THREE.Matrix4()
-const _p = new THREE.Vector3()
-const _scale = new THREE.Vector3()
+const appliedPartPhase = new WeakMap<THREE.InstancedMesh, number>()
 
-/** Advance a step band by `simDt` simulated seconds and repose every step. */
+function isObjectTreeVisible(obj: THREE.Object3D): boolean {
+  for (let cur: THREE.Object3D | null = obj; cur; cur = cur.parent) {
+    if (!cur.visible) return false
+  }
+  return true
+}
+
+function isPartDrawable(mesh: THREE.InstancedMesh): boolean {
+  if (!isObjectTreeVisible(mesh) || !mesh.layers.isEnabled(0)) return false
+  const g = mesh.geometry
+  return (g.index ? g.index.count : g.getAttribute('position')?.count ?? 0) > 0
+}
+
+/** Advance a step band by `simDt` simulated seconds and repose drawable stale parts. */
 export function rollEscalator(roll: EscalatorRoll, simDt: number): void {
-  roll.phase = wrapMod(roll.phase + roll.dir * ESCALATOR_SPEED * simDt, roll.runLen)
-  _rot.makeRotationZ(roll.yaw)
+  if (simDt !== 0) {
+    roll.phase = wrapMod(roll.phase + roll.dir * ESCALATOR_SPEED * simDt, roll.runLen)
+  }
+  const phase = roll.phase
+  const drawParts: THREE.InstancedMesh[] = []
+  for (const part of roll.parts) {
+    if (isPartDrawable(part) && appliedPartPhase.get(part) !== phase) drawParts.push(part)
+  }
+  const drawRisers = isPartDrawable(roll.risers) && appliedPartPhase.get(roll.risers) !== phase
+  if (drawParts.length === 0 && !drawRisers) return
+  const cos = Math.cos(roll.yaw)
+  const sin = Math.sin(roll.yaw)
   const horizontalPerM = Math.hypot(roll.climb.x, roll.climb.y)
+  const cx = roll.climb.x, cy = roll.climb.y, cz = roll.climb.z
+  const minAlong = -roll.flat + roll.pitch / 2
+  const maxAlong = roll.inclineLen + roll.flat - roll.pitch / 2
+  const invStepRise = 1 / roll.stepRise
+  const riserArr = drawRisers ? (roll.risers.instanceMatrix.array as Float32Array) : null
   for (let i = 0; i < roll.count; i++) {
     const u = wrapMod(i * roll.pitch + roll.phase, roll.runLen)
     const along = u - roll.flat
-    const height = escalatorStepHeight(along, roll.inclineLen, roll.climb.z, horizontalPerM)
-    _p.set(roll.climb.x * along, roll.climb.y * along, height + 0.015)
-    _m.makeTranslation(_p.x, _p.y, _p.z).multiply(_rot)
+    const height = escalatorStepHeight(along, roll.inclineLen, cz, horizontalPerM)
+    const px = cx * along, py = cy * along, pz = height + 0.015
     // The chain returns beneath the fixed combs. Wrap only while covered, so
     // no full-height step pops from the upper landing back onto the lower one.
-    const covered = along < -roll.flat + roll.pitch / 2 || along > roll.inclineLen + roll.flat - roll.pitch / 2
-    if (covered) _m.scale(_scale.set(0, 0, 0))
-    for (const part of roll.parts) part.setMatrixAt(i, _m)
-    const nextHeight = escalatorStepHeight(along + roll.pitch, roll.inclineLen, roll.climb.z, horizontalPerM)
-    const riserHeight = nextHeight - height
-    _m.makeTranslation(_p.x, _p.y, _p.z).multiply(_rot)
-    if (covered || riserHeight < 1e-6) _m.scale(_scale.set(0, 0, 0))
-    else _m.scale(_scale.set(1, 1, riserHeight / roll.stepRise))
-    roll.risers.setMatrixAt(i, _m)
+    const covered = along < minAlong || along > maxAlong
+    const off = i * 16
+    for (let k = 0; k < drawParts.length; k++) {
+      const arr = drawParts[k].instanceMatrix.array as Float32Array
+      if (covered) {
+        arr[off] = 0; arr[off + 1] = 0; arr[off + 2] = 0; arr[off + 3] = 0
+        arr[off + 4] = 0; arr[off + 5] = 0; arr[off + 6] = 0; arr[off + 7] = 0
+        arr[off + 8] = 0; arr[off + 9] = 0; arr[off + 10] = 0; arr[off + 11] = 0
+      } else {
+        arr[off] = cos; arr[off + 1] = sin; arr[off + 2] = 0; arr[off + 3] = 0
+        arr[off + 4] = -sin; arr[off + 5] = cos; arr[off + 6] = 0; arr[off + 7] = 0
+        arr[off + 8] = 0; arr[off + 9] = 0; arr[off + 10] = 1; arr[off + 11] = 0
+      }
+      arr[off + 12] = px; arr[off + 13] = py; arr[off + 14] = pz; arr[off + 15] = 1
+    }
+    if (riserArr) {
+      const nextHeight = escalatorStepHeight(along + roll.pitch, roll.inclineLen, cz, horizontalPerM)
+      const riserHeight = nextHeight - height
+      if (covered || riserHeight < 1e-6) {
+        riserArr[off] = 0; riserArr[off + 1] = 0; riserArr[off + 2] = 0; riserArr[off + 3] = 0
+        riserArr[off + 4] = 0; riserArr[off + 5] = 0; riserArr[off + 6] = 0; riserArr[off + 7] = 0
+        riserArr[off + 8] = 0; riserArr[off + 9] = 0; riserArr[off + 10] = 0; riserArr[off + 11] = 0
+      } else {
+        riserArr[off] = cos; riserArr[off + 1] = sin; riserArr[off + 2] = 0; riserArr[off + 3] = 0
+        riserArr[off + 4] = -sin; riserArr[off + 5] = cos; riserArr[off + 6] = 0; riserArr[off + 7] = 0
+        riserArr[off + 8] = 0; riserArr[off + 9] = 0; riserArr[off + 10] = riserHeight * invStepRise; riserArr[off + 11] = 0
+      }
+      riserArr[off + 12] = px; riserArr[off + 13] = py; riserArr[off + 14] = pz; riserArr[off + 15] = 1
+    }
   }
-  for (const part of roll.parts) part.instanceMatrix.needsUpdate = true
-  roll.risers.instanceMatrix.needsUpdate = true
+  for (let k = 0; k < drawParts.length; k++) {
+    drawParts[k].instanceMatrix.needsUpdate = true
+    appliedPartPhase.set(drawParts[k], phase)
+  }
+  if (drawRisers) {
+    roll.risers.instanceMatrix.needsUpdate = true
+    appliedPartPhase.set(roll.risers, phase)
+  }
 }
 
 /**

@@ -214,6 +214,7 @@ Categorized index of every `*.test.mjs` file in `game/test/`, shared helpers, an
 | `floor-surface.test.mjs` | Flat floor plane merging and square rim meshing |
 | `static-rendering.test.mjs` [P] | Outdoor instancing, transparent order, 3-level trees |
 | `render-performance.test.mjs` [P] | Static batching bounds/picks, single cap AO, paint reuse |
+| `threejs-tianhe-perf.test.mjs` | Canonical untextured keys, exploded deferred instancing, budgeted TV repaints & O(1) visibility, escalator phase resync, stamped sim replay |
 | `render-regressions.test.mjs` | Label fit, thick-pillar collars, obsidian pixels, rough |
 | `performance-policy.test.mjs` [P] | Placement caches, fail-closed policies, RAF, culling |
 | `equipment-retention.test.mjs` [P] | Remote retention, dependencies, contact shadows, hovers |
