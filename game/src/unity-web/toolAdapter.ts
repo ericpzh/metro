@@ -78,6 +78,7 @@ export interface ToolAdapterState {
   paintMode: Setting
   paintBaseMode: Setting
   paintFinish: Setting
+  currentBoards?: { readonly front: readonly unknown[]; readonly back: readonly unknown[] } | null
 }
 
 /** The `settings` object a `tool.set` carries. Keys are the host's own vocabulary. */
@@ -137,6 +138,14 @@ export function settingsFor(state: ToolAdapterState): ToolSettings {
     paintMode: state.paintMode,
     paintBaseMode: state.paintBaseMode,
     paintFinish: state.paintFinish,
+    ...(state.currentBoards
+      ? {
+          signBoards: JSON.stringify({
+            front: Array.isArray(state.currentBoards.front) ? state.currentBoards.front : [],
+            back: Array.isArray(state.currentBoards.back) ? state.currentBoards.back : [],
+          }),
+        }
+      : {}),
   }
 }
 

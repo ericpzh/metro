@@ -75,6 +75,15 @@ and per-model triangle counts, see
   - Placement previews pin `renderer.forceMeshLod = 0` so ghosts stay full detail,
     and `Tinted` uses `StationGlass.Create` straight-alpha URP Lit materials so
     player builds preserve transparency.
+  - Sign previews (`TryBuildSignGhost`) build through `StationSignView.Build`
+    with `StationCeilingMounts.ForIndex` (`hangCeilingLocal`) and
+    `StationSignViews.Placement` so ceiling, hanger, wall, and booth ghosts
+    match final snapped heights and board widths; face slots render via a
+    single-sided unlit `Metro/Station Highlight` template (`renderQueue = Transparent + 5`)
+    with `StationSignView.SetFaceTint`, bind to `StationSignSignage.Cache`
+    (preserving subscriptions across hover moves via `DetachSignBindings` /
+    `ReleaseSignBindings`), and read composed/picked `signBoards` forwarded by
+    `toolAdapter.ts` (`StationSelectionPreviewTests`).
   - Room tool previews (`ShowZone` after `editHost.EnsureBound(host)`) render
     translucent 3D booths via `BoothModuleViews.TryBuild` +
     `StationMaterials.CreateGhost` (`#168cff` valid / `#ff3030` refused) plus

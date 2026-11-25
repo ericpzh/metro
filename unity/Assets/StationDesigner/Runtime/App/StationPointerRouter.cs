@@ -1503,7 +1503,29 @@ namespace Metro.App {
                 int walkWidth = StationToolSelection.SettingInt("escalatorWidth", 0);
                 if (walkWidth > 0) request.Width = walkWidth;
             }
+            if (carried == null &&
+                (string.Equals(toolType, "sign", StringComparison.Ordinal) ||
+                 string.Equals(toolType, "sign-ceiling", StringComparison.Ordinal) ||
+                 string.Equals(toolType, "sign-wall", StringComparison.Ordinal))) {
+                ApplySignBoardsSetting(request, StationToolSelection.Setting("signBoards"));
+            }
             return request;
+        }
+
+        static void ApplySignBoardsSetting(StationPlacementRequest request, string boardsJson) {
+            if (request == null || string.IsNullOrEmpty(boardsJson)) return;
+            try {
+                var obj = JObject.Parse(boardsJson);
+                var front = obj["front"] as JArray;
+                var back = obj["back"] as JArray;
+                bool hasFront = front != null && front.Count > 0;
+                bool hasBack = back != null && back.Count > 0;
+                if (!hasFront && !hasBack) return;
+                if (front != null) request.SignFrontJson = front.ToString(Newtonsoft.Json.Formatting.None);
+                if (back != null) request.SignBackJson = back.ToString(Newtonsoft.Json.Formatting.None);
+            } catch (Newtonsoft.Json.JsonException) {
+                // Ignore malformed session settings; `TryCreate` falls back to default boards.
+            }
         }
 
         /// <summary>

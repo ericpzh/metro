@@ -199,3 +199,29 @@ test('the shell tool mapping names only the tools this host shares', () => {
   assert.equal(shellToolFor('floor'), null, 'the legacy alias is normalized at the host boundary')
   assert.equal(shellToolFor('gate'), null)
 })
+
+test('composed sign boards ride tool.set and trigger a replan when edited', () => {
+  const initialBoards = {
+    front: [{ id: 'c1', kind: 'text', text: 'A出口', x: 0.5, y: 0.2, scale: 1, side: 'both' }],
+    back: [],
+  }
+  const updatedBoards = {
+    front: [{ id: 'c1', kind: 'text', text: 'A出口', x: 0.5, y: 0.2, scale: 1, side: 'both' }],
+    back: [{ id: 'c2', kind: 'text', text: 'B出口', x: 0.5, y: 0.2, scale: 1, side: 'both' }],
+  }
+  const { adapter, sent, set, notify } = setup(toolState({
+    tool: 'module',
+    moduleType: 'sign-ceiling',
+    currentBoards: initialBoards,
+  }))
+  try {
+    assert.equal(sent.length, 1)
+    assert.equal(sent[0].settings.signBoards, JSON.stringify(initialBoards))
+    set({ currentBoards: updatedBoards })
+    notify()
+    assert.equal(sent.length, 2, 'editing currentBoards pushes the new boards to Unity for preview & placement')
+    assert.equal(sent[1].settings.signBoards, JSON.stringify(updatedBoards))
+  } finally {
+    adapter.dispose()
+  }
+})

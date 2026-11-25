@@ -1003,6 +1003,19 @@ namespace Metro.App {
         public StationSignFaceSlot Back => back;
         public string ModuleId => Request.ModuleId;
         public StationSignMount Mount => Request.Mount;
+        /// <summary>
+        /// Optional colour/alpha wash applied to face slots (used by placement ghosts so
+        /// printed boards stay readable while clearly reading as translucent previews).
+        /// Null for placed signs.
+        /// </summary>
+        public Color? FaceTint { get; private set; }
+
+        /// <summary>Tint every mounted face slot (and future textures applied to it).</summary>
+        public void SetFaceTint(Color tint) {
+            FaceTint = tint;
+            ApplyFaceTintToSlot(front);
+            ApplyFaceTintToSlot(back);
+        }
 
         /// <summary>The face slots that carry a plate, in front/back order.</summary>
         public StationSignFaceSlot[] Slots {
@@ -1228,12 +1241,35 @@ namespace Metro.App {
             slot.AppliedTexture = texture;
             slot.AppliedFingerprint = fingerprint ?? "";
             StationSignMaterials.ApplyTexture(slot.Material, texture);
+            if (FaceTint.HasValue) {
+                ApplyFaceTintToSlot(slot);
+                return;
+            }
             if (texture != null || slot.Material == null) return;
             // Not painted yet: the plate shows the piece's own dark lightbox rather than
             // flashing a white sheet while the browser paints it.
             var dark = new Color(0.07f, 0.08f, 0.09f, 1f);
             if (slot.Material.HasProperty("_BaseColor")) slot.Material.SetColor("_BaseColor", dark);
             if (slot.Material.HasProperty("_Color")) slot.Material.color = dark;
+        }
+
+        void ApplyFaceTintToSlot(StationSignFaceSlot slot) {
+            if (slot == null || slot.Material == null || !FaceTint.HasValue) return;
+            var tint = FaceTint.Value;
+            Color applied;
+            if (slot.AppliedTexture != null) {
+                applied = tint;
+            } else {
+                var dark = new Color(0.07f, 0.08f, 0.09f, 1f);
+                applied = Color.Lerp(dark, new Color(tint.r, tint.g, tint.b, 1f), 0.35f);
+                applied.a = tint.a;
+            }
+            if (slot.Material.HasProperty("_BaseColor")) slot.Material.SetColor("_BaseColor", applied);
+            if (slot.Material.HasProperty("_Color")) slot.Material.color = applied;
+            if (slot.Material.HasProperty("baseColorFactor")) slot.Material.SetColor("baseColorFactor", applied);
+            if (slot.AppliedTexture != null && slot.Material.HasProperty("_EmissionColor")) {
+                slot.Material.SetColor("_EmissionColor", new Color(applied.r, applied.g, applied.b, 1f));
+            }
         }
 
         /// <summary>The painter request for one mounted face; null when the face mounts nothing.</summary>

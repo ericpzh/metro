@@ -260,6 +260,10 @@ namespace Metro.Build {
         /// the run cell it centres on.
         /// </summary>
         public StationPoint? ModulePoint;
+        /// <summary>Optional composed front board JSON array for a fresh 指示牌 (`currentBoards.front`).</summary>
+        public string SignFrontJson = "";
+        /// <summary>Optional composed back board JSON array for a fresh 指示牌 (`currentBoards.back`).</summary>
+        public string SignBackJson = "";
     }
 
     /// <summary>One immutable answer: the candidate, its support, its collisions and a stable reason code.</summary>
@@ -886,8 +890,14 @@ namespace Metro.Build {
                     string mount = family.Variant.Length == 0 ? "ceiling" : family.Variant;
                     candidate.Set("mount", mount);
                     var firstLine = StationRailPlanner.ResolveLine(index, request.LineId);
-                    candidate.SetJson("front", StationSignLayouts.Default(firstLine));
-                    candidate.SetJson("back", "[]");
+                    bool hasFront = !string.IsNullOrEmpty(request.SignFrontJson) &&
+                        request.SignFrontJson.TrimStart().StartsWith("[", StringComparison.Ordinal);
+                    bool hasBack = !string.IsNullOrEmpty(request.SignBackJson) &&
+                        request.SignBackJson.TrimStart().StartsWith("[", StringComparison.Ordinal);
+                    candidate.SetJson("front", hasFront ? request.SignFrontJson : StationSignLayouts.Default(firstLine));
+                    candidate.SetJson("back", string.Equals(mount, "wall", StringComparison.Ordinal) || !hasBack
+                        ? "[]"
+                        : request.SignBackJson);
                     break;
                 }
                 case "hanger":

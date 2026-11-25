@@ -40,6 +40,8 @@ namespace Metro.App {
         public static readonly Color SelectionColour = new Color(0x55 / 255f, 0xb6 / 255f, 1f, 1f);
 
         readonly List<GameObject> owned = new List<GameObject>();
+        readonly List<StationSignView> previewSigns = new List<StationSignView>();
+        readonly List<StationSignViewBinding> signBindings = new List<StationSignViewBinding>();
         /// <summary>The cell tool's own ghost objects, cleared independently of a module ghost.</summary>
         readonly List<GameObject> cellOwned = new List<GameObject>();
         readonly List<Restorable> hidden = new List<Restorable>();
@@ -66,6 +68,8 @@ namespace Metro.App {
         Material badMaterial;
         Material okLineMaterial;
         Material badLineMaterial;
+        Material signOkFaceTemplate;
+        Material signBadFaceTemplate;
         Material selectMaterial;
         Material eraseMaterial;
         Material cellOkMaterial;
@@ -128,12 +132,17 @@ namespace Metro.App {
 
         /// <summary>Draw the candidate, or just the selection when there is none.</summary>
         public void Show(StationPlacementPlan plan) {
-            ClearGhost();
-            ClearCells();
-            if (!bound || plan?.Candidate == null || IsUiHidden()) return;
-            var colour = plan.Ok ? new Color(0.09f, 0.55f, 1f, 0.55f) : new Color(1f, 0.27f, 0.2f, 0.55f);
-            if (!TryBuildPrefabGhost(plan.Candidate, colour)) BuildBoxGhost(plan.Candidate, colour);
-            StationEditSession.Ghost = Summary("module");
+            var previousBindings = DetachSignBindings();
+            try {
+                ClearGhostObjects();
+                ClearCells();
+                if (!bound || plan?.Candidate == null || IsUiHidden()) return;
+                var colour = plan.Ok ? new Color(0.09f, 0.55f, 1f, 0.55f) : new Color(1f, 0.27f, 0.2f, 0.55f);
+                if (!TryBuildPrefabGhost(plan.Candidate, colour)) BuildBoxGhost(plan.Candidate, colour);
+                StationEditSession.Ghost = Summary("module");
+            } finally {
+                ReleaseSignBindings(previousBindings);
+            }
         }
 
         /// <summary>
@@ -143,36 +152,62 @@ namespace Metro.App {
         /// cell layer is cleared, so one gesture draws one thing.
         /// </summary>
         public void ShowModules(IReadOnlyList<StationPlacementPlan> accepted, IReadOnlyList<StationPlacementPlan> refused = null) {
-            ClearGhost();
-            ClearCells();
-            if (!bound || IsUiHidden()) return;
-            var ok = new Color(0.09f, 0.55f, 1f, 0.55f);
-            var bad = new Color(1f, 0.27f, 0.2f, 0.55f);
-            if (accepted != null) {
-                foreach (var plan in accepted) {
-                    if (plan?.Candidate == null) continue;
-                    if (!TryBuildPrefabGhost(plan.Candidate, ok)) BuildBoxGhost(plan.Candidate, ok);
-                }
-            }
-            if (refused != null) {
-                foreach (var plan in refused) {
-                    if (plan?.Candidate == null) continue;
-                    if (!TryBuildPrefabGhost(plan.Candidate, bad)) BuildBoxGhost(plan.Candidate, bad);
-                    // The pieces in the way are boxed beside it, so a refusal names its blocker.
-                    foreach (var id in plan.ColliderIds) {
-                        if (!TryBlockerBounds(id, out var blocker)) continue;
-                        BuildLineBox(blocker, RefusalOutlineMaterial(), owned);
+            var previousBindings = DetachSignBindings();
+            try {
+                ClearGhostObjects();
+                ClearCells();
+                if (!bound || IsUiHidden()) return;
+                var ok = new Color(0.09f, 0.55f, 1f, 0.55f);
+                var bad = new Color(1f, 0.27f, 0.2f, 0.55f);
+                if (accepted != null) {
+                    foreach (var plan in accepted) {
+                        if (plan?.Candidate == null) continue;
+                        if (!TryBuildPrefabGhost(plan.Candidate, ok)) BuildBoxGhost(plan.Candidate, ok);
                     }
                 }
+                if (refused != null) {
+                    foreach (var plan in refused) {
+                        if (plan?.Candidate == null) continue;
+                        if (!TryBuildPrefabGhost(plan.Candidate, bad)) BuildBoxGhost(plan.Candidate, bad);
+                        // The pieces in the way are boxed beside it, so a refusal names its blocker.
+                        foreach (var id in plan.ColliderIds) {
+                            if (!TryBlockerBounds(id, out var blocker)) continue;
+                            BuildLineBox(blocker, RefusalOutlineMaterial(), owned);
+                        }
+                    }
+                }
+                StationEditSession.Ghost = Summary("modules");
+            } finally {
+                ReleaseSignBindings(previousBindings);
             }
-            StationEditSession.Ghost = Summary("modules");
         }
 
         /// <summary>Drop the ghost; the carried piece (if any) stays hidden.</summary>
         public void ClearGhost() {
+            ReleaseSignBindings(DetachSignBindings());
+            ClearGhostObjects();
+        }
+
+        void ClearGhostObjects() {
+            previewSigns.Clear();
             foreach (var go in owned) Destroy(go);
             owned.Clear();
             StationEditSession.Ghost = null;
+        }
+
+        List<StationSignViewBinding> DetachSignBindings() {
+            if (signBindings.Count == 0) return null;
+            var detached = new List<StationSignViewBinding>(signBindings);
+            signBindings.Clear();
+            return detached;
+        }
+
+        static void ReleaseSignBindings(List<StationSignViewBinding> bindings) {
+            if (bindings == null) return;
+            for (int i = 0; i < bindings.Count; i++) {
+                try { bindings[i]?.Dispose(); } catch (Exception) { }
+            }
+            bindings.Clear();
         }
 
         /// <summary>
@@ -672,6 +707,12 @@ namespace Metro.App {
             ApplyClip(cellRingMaterial, visibility.SectionClipping, plane);
             ApplyClip(zoneMaterial, visibility.SectionClipping, plane);
             ApplyClip(eraseMaterial, visibility.SectionClipping, plane);
+            for (int i = 0; i < previewSigns.Count; i++) {
+                var signView = previewSigns[i];
+                if (signView == null) continue;
+                if (signView.Front != null) ApplyClip(signView.Front.Material, visibility.SectionClipping, plane);
+                if (signView.Back != null) ApplyClip(signView.Back.Material, visibility.SectionClipping, plane);
+            }
         }
         static void ApplyClip(Material material, bool clip, Vector4 plane) {
             if (material == null || !material.HasProperty("_SectionPlane")) return;
@@ -790,6 +831,8 @@ namespace Metro.App {
             if (badMaterial != null) Destroy(badMaterial);
             if (okLineMaterial != null) Destroy(okLineMaterial);
             if (badLineMaterial != null) Destroy(badLineMaterial);
+            if (signOkFaceTemplate != null) Destroy(signOkFaceTemplate);
+            if (signBadFaceTemplate != null) Destroy(signBadFaceTemplate);
             if (selectMaterial != null) Destroy(selectMaterial);
             if (eraseMaterial != null) Destroy(eraseMaterial);
             if (cellOkMaterial != null) Destroy(cellOkMaterial);
@@ -817,9 +860,13 @@ namespace Metro.App {
         }
 
         bool TryBuildPrefabGhost(StationEditDraft draft, Color colour) {
+            if (index == null) return false;
+            if (string.Equals(draft.Type, "sign", StringComparison.Ordinal)) {
+                return TryBuildSignGhost(draft, colour);
+            }
             var host = UnityEngine.Object.FindAnyObjectByType<StationGameHost>();
             var world = host != null ? host.Coordinator?.World : null;
-            if (world?.Catalogue == null || index == null) return false;
+            if (world?.Catalogue == null) return false;
             // Plan 22 §2: a 玻璃板's housing is a rotated **edge strip**, not the promoted panel's
             // centre pivot, so the generic prefab ghost stood 0.45 m off the plane the curtain (and
             // the door fitted into it) is drawn on. The clearance box is that strip, for a
@@ -857,6 +904,96 @@ namespace Metro.App {
             }
             owned.Add(go);
             return true;
+        }
+
+        /// <summary>
+        /// Build a 指示牌 preview through <see cref="StationSignView"/> so the ghost sits at the
+        /// exact ceiling/hanger/wall/booth height and width <see cref="StationSignRenderer"/> will
+        /// commit to, and prints its real front/back boards via <see cref="StationSignTextureCache"/>.
+        /// </summary>
+        bool TryBuildSignGhost(StationEditDraft draft, Color colour) {
+            var record = StationModulePlacement.ToRecord(draft);
+            var mountKind = StationSignMounts.Of(record.Config.Text("mount"));
+            bool hung = StationSignMounts.Hung(mountKind);
+            float? hangCeilingLocal = null;
+            if (hung) {
+                int storeyHeight = index.Document != null && index.Document.StoreyHeight > 0
+                    ? index.Document.StoreyHeight
+                    : (int)StationFootprints.StoreyHeight;
+                var ceilingMounts = StationCeilingMounts.ForIndex(index);
+                double fallback = StationCeilingMounts.FallbackFor(record.Facts, storeyHeight);
+                hangCeilingLocal = (float)ceilingMounts.Resolve(record.Facts, fallback).Local;
+            }
+            var lines = StationSignViews.Lines(index.Document);
+            var request = StationSignViews.RequestFor(record, lines, StationSignSignage.Locale, hangCeilingLocal);
+            bool ok = colour.r < 0.5f;
+            var body = Tinted(ok, colour);
+            var faceTemplate = SignFaceTemplate(ok);
+            var materials = StationSignMaterials.Create(body, body, body, faceTemplate);
+            var view = StationSignView.Build(request, materials, default, transform);
+            if (view == null) return false;
+            if (!view.Supported || (view.BoardCount == 0 && !hung)) {
+                Destroy(view.gameObject);
+                return false;
+            }
+            view.gameObject.name = "ghost " + draft.Id + " sign";
+            view.transform.SetPositionAndRotation(
+                StationSignViews.Placement(record),
+                ModulePlacement.Rotation(record.Rotation));
+            var baseTint = ok
+                ? new Color(0x16 / 255f, 0x8c / 255f, 1f, 1f)
+                : new Color(1f, 0x30 / 255f, 0x30 / 255f, 1f);
+            var faceTint = Color.Lerp(Color.white, baseTint, ok ? 0.45f : 0.55f);
+            faceTint.a = 0.78f;
+            view.SetFaceTint(faceTint);
+            foreach (var renderer in view.GetComponentsInChildren<Renderer>(true)) {
+                if (renderer == null) continue;
+                renderer.forceMeshLod = 0;
+                renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                renderer.receiveShadows = false;
+            }
+            var cache = StationSignSignage.Cache;
+            if (cache != null) {
+                var binding = cache.BindView(view);
+                if (binding != null) {
+                    signBindings.Add(binding);
+                    bool needsPaint = false;
+                    foreach (var face in binding.Faces) {
+                        if (face != null && !face.HasTexture) { needsPaint = true; break; }
+                    }
+                    if (needsPaint) cache.Pump();
+                }
+            }
+            previewSigns.Add(view);
+            owned.Add(view.gameObject);
+            return true;
+        }
+
+        /// <summary>
+        /// Unlit, single-sided, straight-alpha face template for sign ghosts: keeps front/back
+        /// readable and orientation-honest (`Cull Back`), and queues above the ghost lightbox.
+        /// </summary>
+        Material SignFaceTemplate(bool ok) {
+            if (ok && signOkFaceTemplate != null) return signOkFaceTemplate;
+            if (!ok && signBadFaceTemplate != null) return signBadFaceTemplate;
+            var shader = Shader.Find("Metro/Station Highlight")
+                ?? Shader.Find("Universal Render Pipeline/Unlit")
+                ?? Shader.Find("Unlit/Texture")
+                ?? Shader.Find("Universal Render Pipeline/Lit");
+            var material = new Material(shader) { name = ok ? "edit ghost sign face" : "edit refusal sign face" };
+            if (material.HasProperty("_BaseColor")) material.SetColor("_BaseColor", Color.white);
+            if (material.HasProperty("_Color")) material.SetColor("_Color", Color.white);
+            if (material.HasProperty("_Surface")) material.SetFloat("_Surface", 1f);
+            if (material.HasProperty("_Blend")) material.SetFloat("_Blend", 0f);
+            if (material.HasProperty("_SrcBlend")) material.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
+            if (material.HasProperty("_DstBlend")) material.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+            if (material.HasProperty("_ZWrite")) material.SetFloat("_ZWrite", 0f);
+            if (material.HasProperty("_Cull")) material.SetFloat("_Cull", (float)UnityEngine.Rendering.CullMode.Back);
+            material.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            material.SetOverrideTag("RenderType", "Transparent");
+            material.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent + 5;
+            if (ok) signOkFaceTemplate = material; else signBadFaceTemplate = material;
+            return material;
         }
 
         /// <summary>The unresolved-candidate stand-in: the clearance body the verdict read.</summary>

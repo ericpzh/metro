@@ -28,6 +28,7 @@ import { noticeKey, noticeText, type BuildOutcome } from './editNotices.ts'
 import { UnityExplodedView } from './UnityExplodedView.tsx'
 import { UnityBenchmarkRoute } from './UnityBenchmarkRoute.tsx'
 import { paletteIdForModule } from '../app/tools/PickTool.ts'
+import { signBoardsOf } from '../sim/sign.ts'
 import { createSignFacePort } from './signFaceProvider.ts'
 import { createPsdHeaderPort } from './psdHeaderProvider.ts'
 import { createExitFacePort } from './exitFaceProvider.ts'
@@ -719,6 +720,9 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
         }
         if (picked.type === 'psd-end' && picked.cfg.variant !== 'cover' && picked.cfg.psd) {
           useStore.setState({ psdEndHeight: picked.cfg.psd })
+        }
+        if (picked.type === 'sign') {
+          tools.adoptSignBoards(signBoardsOf(picked.cfg, tools.station))
         }
         tools.setTool('module')
       }
