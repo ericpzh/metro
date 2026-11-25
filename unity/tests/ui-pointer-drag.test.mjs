@@ -232,6 +232,7 @@ test('all sliders, curve grips, depth rail, scrollbars and Unity CDP forwarding 
     'game/src/app/windows/time/TimePanel.tsx',
     'game/src/app/windows/topbar/SettingsMenu.tsx',
     'game/src/app/windows/topbar/MusicSetting.tsx',
+    'game/src/app/windows/topbar/UiScaleSetting.tsx',
   ]) {
     const src = read(rel)
     assert.match(src, /<Slider\b/, `${rel} must use shared Slider`)

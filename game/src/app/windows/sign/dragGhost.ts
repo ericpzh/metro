@@ -7,6 +7,7 @@ import type { SignComponent } from '../../../sim/sign.ts'
 import type { LineDef } from '../../../sim/types.ts'
 import { drawTileMark } from './tileArt.tsx'
 import { DRAG_ART_PX } from './tokens.ts'
+import { getUiScale } from '../../uiScale.ts'
 
 /**
  * The floating mark the pointer carries: a small canvas of the real mark, drawn by
@@ -32,5 +33,6 @@ export function makeDragGhost(comp: SignComponent, lines: readonly LineDef[]): H
 }
 
 export function moveDragGhost(el: HTMLElement, x: number, y: number): void {
-  el.style.transform = `translate3d(${x}px, ${y}px, 0)`
+  const scale = getUiScale()
+  el.style.transform = `translate3d(${x / scale}px, ${y / scale}px, 0)`
 }

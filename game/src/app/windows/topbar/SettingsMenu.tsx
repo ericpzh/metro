@@ -1,4 +1,5 @@
 import {MusicSetting} from './MusicSetting.tsx'
+import { UiScaleSetting } from './UiScaleSetting.tsx'
 import { Slider } from '../../Slider.tsx'
 import { useEffect, useId, useRef, useState, useSyncExternalStore } from 'react'
 import {getAudioVolumes, subscribeAudioVolumes, setAudioVolume} from '../../audioSettings.ts'
@@ -251,6 +252,7 @@ export function SettingsMenu(): React.ReactElement {
           </a>
         )}
       </div>
+      <UiScaleSetting />
       <div className="settingsAudioGrid">
       <label className="settingsAudio"><span>{t('master_volume')}<output>{Math.round(volumes.master*100)}%</output></span><Slider min={0} max={100} step="1" value={Math.round(volumes.master*100)} aria-label={t('master_volume')} onChange={event=>setAudioVolume('master',Number(event.target.value)/100)}/></label>
       <label className="settingsAudio"><span>{t('sound_effects')}<output>{Math.round(volumes.effects*100)}%</output></span><Slider min={0} max={100} step="1" value={Math.round(volumes.effects*100)} aria-label={t('sound_effects')} onChange={event=>setAudioVolume('effects',Number(event.target.value)/100)}/></label>

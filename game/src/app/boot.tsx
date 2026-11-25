@@ -12,6 +12,7 @@ import { demoStationForPath, gamePathFor } from './demoRoute.ts'
 import { startGlobalStats } from './globalStats.ts'
 import { BenchmarkRoute } from './benchmark/BenchmarkRoute.tsx'
 import { initUiTheme } from './uiTheme.ts'
+import { initUiScale } from './uiScale.ts'
 import { openingLevel } from './openingLevel.ts'
 import { forgetDocumentCaches } from '../sim/documentCaches.ts'
 
@@ -39,7 +40,10 @@ declare global {
 }
 
 export function renderGame(root: Root): void {
-  if (!isLab && !isBenchmark) initUiTheme()
+  if (!isLab && !isBenchmark) {
+    initUiTheme()
+    initUiScale()
+  }
   // A demo link names its document (/game/zoo, /game/en/tanwei): it opens that
   // station whether or not this browser holds an autosave. The link is a start,
   // not a location — the URL becomes the plain game path, so a reload restores

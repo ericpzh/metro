@@ -294,6 +294,7 @@ Categorized index of every `*.test.mjs` file in `game/test/`, shared helpers, an
 | `i18n.test.mjs` | ZH/EN parity, interpolation, `/game` + `/game/en` routes |
 | `game-loading.test.mjs` | Early loading shell visibility, dismissal, error text |
 | `ui-theme.test.mjs` | Three UI themes: default fallback, apply, reload persist |
+| `ui-scale.test.mjs` | Resolution-based `75%–150%` UI scale defaults, live drag, persistence, reset & 3-theme wiring |
 | `tutorial.test.mjs` | Empty paused startup, progress/opt-out, benchmark bypass |
 | `new-station-confirmation.test.mjs` | Shared `ReplaceStationDialog` save-first confirmation for New (`Ctrl+N`), Example stations, and Open save (`Ctrl+L`) across Web & Unity |
 | `topbar-playback.test.mjs` | Top-bar play/pause resuming like Space alongside speeds |

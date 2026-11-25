@@ -6,6 +6,7 @@ import { setLanguage, useLanguage } from '../../i18n.ts'
 import { useStore } from '../../store.ts'
 import { gameMusic } from '../../gameMusic.ts'
 import { isTypingTarget } from '../../Viewport.tsx'
+import { getUiScale, subscribeUiScale } from '../../uiScale.ts'
 import { readTutorialPreference, TUTORIAL_STEPS, tutorialAutoDisabled, writeTutorialPreference } from './steps.ts'
 import './tutorial.css'
 
@@ -25,6 +26,7 @@ function initialPreference() {
 
 export function Tutorial({ reveal }: { reveal: () => void }): React.ReactElement | null {
   const language = useLanguage()
+  const uiScale = useSyncExternalStore(subscribeUiScale, getUiScale)
   const [preference, setPreference] = useState(initialPreference)
   const [suppressed, setSuppressed] = useState(isBenchmarkActive)
   const [open, setOpen] = useState(() => !preference.hidden && !isBenchmarkActive())
@@ -145,7 +147,8 @@ export function Tutorial({ reveal }: { reveal: () => void }): React.ReactElement
         return { x, y, width: Math.max(0, Math.min(width - 6, rect.right + 5, scroller?.right ?? width) - x), height: Math.max(0, Math.min(height - 6, rect.bottom + 5, scroller?.bottom ?? height) - y) }
       }).filter((rect) => rect.width > 0 && rect.height > 0)
       setBoxes(rects)
-      const cw = card.current?.offsetWidth ?? 352, ch = card.current?.offsetHeight ?? 290
+      const cardRect = card.current?.getBoundingClientRect()
+      const cw = cardRect?.width || 352 * uiScale, ch = cardRect?.height || 290 * uiScale
       const clampX = (x: number): number => Math.max(12, Math.min(width - cw - 12, x))
       const clampY = (y: number): number => Math.max(12, Math.min(height - ch - 12, y))
       const centerX = (width - cw) / 2, centerY = (height - ch) / 2
@@ -162,7 +165,7 @@ export function Tutorial({ reveal }: { reveal: () => void }): React.ReactElement
         Math.max(0, Math.min(p.left + cw, rect.x + rect.width) - Math.max(p.left, rect.x)) *
         Math.max(0, Math.min(p.top + ch, rect.y + rect.height) - Math.max(p.top, rect.y)), 0)
       candidates.sort((a, b) => overlap(a) - overlap(b))
-      setPosition(candidates[0])
+      setPosition({ left: candidates[0].left / uiScale, top: candidates[0].top / uiScale })
     }
     const schedule = (): void => { cancelAnimationFrame(frame); frame = requestAnimationFrame(measure) }
     const onFolderClick = (event: MouseEvent): void => {
@@ -202,7 +205,7 @@ export function Tutorial({ reveal }: { reveal: () => void }): React.ReactElement
       document.removeEventListener('transitionend', schedule, true)
       document.removeEventListener('click', onFolderClick)
     }
-  }, [visible, step, language, reveal, tutorialLineId, showBuildArea])
+  }, [visible, step, language, reveal, tutorialLineId, showBuildArea, uiScale])
 
   if (!visible) return null
   const last = preference.step === TUTORIAL_STEPS.length - 1

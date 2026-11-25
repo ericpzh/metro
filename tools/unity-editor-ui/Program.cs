@@ -904,14 +904,9 @@ internal sealed class OffscreenWebViewHost : NativeWindow, IDisposable {
     }
 
     public static double ComputeRasterScale(int w, int h) {
-        if (h >= 1350) {
-            double s = Math.Round((h / 960.0) * 20.0) / 20.0;
-            return Math.Clamp(s, 1.0, 2.5);
-        }
-        if (h < 780) {
-            double s = Math.Round((h / 780.0) * 20.0) / 20.0;
-            return Math.Clamp(s, 0.65, 1.0);
-        }
+        // The shared React UI owns resolution-based default scaling and the 25%–150%
+        // UI scale slider via CSS `--ui-scale`, so keep WebView2 rasterization at 1:1
+        // with Unity's swapchain pixels to avoid double-scaling.
         return 1.0;
     }
 
@@ -1727,7 +1722,7 @@ internal sealed class OffscreenWebViewHost : NativeWindow, IDisposable {
       #unity-loading-container, #unity-footer { display: none !important; }
       #game-loading { position: fixed; inset: 0; z-index: 20000; display: grid; place-items: center; padding: 24px; background: #06111d; color: #d6e7f7; font: 14px system-ui, sans-serif; }
       #game-loading[hidden] { display: none; }
-      #game-loading .loading-card { width: min(390px, 100%); padding: 28px; border: 1px solid #315776; background: #0b1b2c; box-shadow: 0 20px 70px #0005; }
+      #game-loading .loading-card { width: min(390px, 100%); padding: 28px; border: 1px solid #315776; background: #0b1b2c; box-shadow: 0 20px 70px #0005; zoom: var(--ui-scale, 1); }
       #game-loading .loading-brand { color: #8fc4ee; font-size: 11px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; }
       #game-loading h1 { margin: 20px 0 8px; font-size: 25px; line-height: 1.2; }
       #game-loading p { margin: 0; line-height: 1.6; color: #9ab5cb; }
@@ -1767,12 +1762,18 @@ internal sealed class OffscreenWebViewHost : NativeWindow, IDisposable {
           const loading = document.getElementById('game-loading');
           if (loading) loading.hidden = true;
         }
-        let theme, language;
+        let theme, language, savedScale;
         const route = path.split('/').includes('en') || document.documentElement.lang === 'en' ? 'en' : 'zh-CN';
         try {
           theme = localStorage.getItem('metro-game.ui-theme');
           if (!isBenchmark) language = localStorage.getItem('metro-game.language.' + route);
+          savedScale = localStorage.getItem('metro-game.ui-scale');
         } catch {}
+        const w = (typeof innerWidth === 'number' && innerWidth) || 1920, h = (typeof innerHeight === 'number' && innerHeight) || 1080;
+        const autoScale = w >= 3200 && h >= 1800 ? 1.5 : w >= 2400 && h >= 1300 ? 1.25 : w >= 1760 && h >= 900 ? 1 : w >= 1500 && h >= 800 ? 0.9 : w >= 1340 && h >= 740 ? 0.85 : 0.75;
+        const parsedScale = savedScale && savedScale !== 'auto' ? Number(savedScale) : NaN;
+        const uiScale = Number.isFinite(parsedScale) && parsedScale > 0 ? Math.max(0.75, Math.min(1.5, Math.round(parsedScale * 100) / 100)) : autoScale;
+        document.documentElement.style?.setProperty?.('--ui-scale', String(uiScale));
         document.documentElement.dataset.uiTheme = theme === 'studio' || theme === 'site' ? theme : 'blueprint';
         const resolvedLanguage = language === 'en' || language === 'zh-CN' ? language : route;
         document.documentElement.lang = resolvedLanguage;

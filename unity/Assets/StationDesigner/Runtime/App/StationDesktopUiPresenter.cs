@@ -380,15 +380,13 @@ namespace Metro.App {
         }
 
         static float ComputeStartupCardScale(int w, int h) {
-            if (h >= 1350) {
-                double s = Math.Round((h / 960.0) * 20.0) / 20.0;
-                return (float)Math.Clamp(s, 1.0, 2.5);
-            }
-            if (h < 780) {
-                double s = Math.Round((h / 780.0) * 20.0) / 20.0;
-                return (float)Math.Clamp(s, 0.65, 1.0);
-            }
-            return 1f;
+            if (w <= 0 || h <= 0) return 1f;
+            if (w >= 3200 && h >= 1800) return 1.5f;
+            if (w >= 2400 && h >= 1300) return 1.25f;
+            if (w >= 1760 && h >= 900) return 1f;
+            if (w >= 1500 && h >= 800) return 0.9f;
+            if (w >= 1340 && h >= 740) return 0.85f;
+            return 0.75f;
         }
 
         void BuildStartupLoadingCard(Transform parent) {

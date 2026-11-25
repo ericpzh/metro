@@ -1,6 +1,6 @@
 .tutorialOverlay { position: fixed; inset: 0; z-index: 10000; isolation: isolate; pointer-events: none; }
 .tutorialShade { position: absolute; inset: 0; pointer-events: none; }
-.tutorialCard { position: absolute; pointer-events: auto; box-sizing: border-box; width: min(352px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); overflow-y: auto; padding: 22px; color: #edf4f2; background: #18282e; border: 1px solid #5b867f; border-radius: 14px; box-shadow: 0 16px 64px #0008; font-size: 14px; }
+.tutorialCard { position: absolute; pointer-events: auto; box-sizing: border-box; zoom: var(--ui-scale, 1); width: min(352px, calc(100vw / var(--ui-scale, 1) - 24px / var(--ui-scale, 1))); max-height: calc(100dvh / var(--ui-scale, 1) - 24px / var(--ui-scale, 1)); overflow-y: auto; padding: 22px; color: #edf4f2; background: #18282e; border: 1px solid #5b867f; border-radius: 14px; box-shadow: 0 16px 64px #0008; font-size: 14px; }
 .tutorialEyebrow { display: flex; justify-content: space-between; gap: 12px; color: #acd3ca; font-size: 12px; letter-spacing: .04em; }
 .tutorialFirstControls { display: flex; align-items: center; gap: 6px; margin-top: 14px; }
 .tutorialLanguage { display: flex; gap: 6px; }

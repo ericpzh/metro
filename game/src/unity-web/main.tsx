@@ -17,6 +17,7 @@ import { msg } from '../sim/i18n.ts'
 import { measurePosition, measureText, wantsMeasure, type CellsPayload } from './pointerMeasure.ts'
 import { showGameLoading } from '../app/gameLoading.ts'
 import { getUiTheme, initUiTheme, subscribeUiTheme } from '../app/uiTheme.ts'
+import { initUiScale } from '../app/uiScale.ts'
 import { demoStationForPath, gamePathFor } from '../app/demoRoute.ts'
 import type { StationHost } from '../app/windows/StationHost.tsx'
 import { openingLevel } from '../app/openingLevel.ts'
@@ -305,7 +306,10 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
   const desktopOverlay = Boolean((window as unknown as { __metroDesktopOverlay?: boolean }).__metroDesktopOverlay) ||
     document.documentElement.classList.contains('metro-overlay')
   initLanguage()
-  if (!isBenchmark || desktopOverlay) initUiTheme()
+  if (!isBenchmark || desktopOverlay) {
+    initUiTheme()
+    initUiScale()
+  }
   const unmountAudio = isBenchmark && !desktopOverlay ? () => {} : mountUnityAudio()
   // C# answers through one WebGL bridge call that dispatches this event with the
   // reply JSON; the transport stays outside the reducer so it can be tested.

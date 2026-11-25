@@ -4,6 +4,7 @@ import { drawMetroMark } from '../../../render/cityBranding.ts'
 import { t } from '../../../sim/i18n.ts'
 import { useLanguage } from '../../i18n.ts'
 import { useStore } from '../../store.ts'
+import { getUiScale } from '../../uiScale.ts'
 
 function CityIcon({ city, size = 80 }: { city: CityStyle; size?: number }): React.ReactElement {
   const ref = useRef<HTMLCanvasElement>(null)
@@ -25,12 +26,13 @@ export function CityStyleSelect(): React.ReactElement {
   const [open, setOpen] = useState(false)
   const show = (): void => {
     if (!menu.current || !button.current) return
+    const scale = getUiScale()
     const rect = button.current.getBoundingClientRect()
-    menu.current.style.top = `${rect.bottom + 8}px`
-    menu.current.style.maxHeight = `${Math.max(0, window.innerHeight - rect.bottom - 20)}px`
+    menu.current.style.top = `${(rect.bottom + 8) / scale}px`
+    menu.current.style.maxHeight = `${Math.max(0, window.innerHeight - rect.bottom - 20) / scale}px`
     menu.current.showPopover()
     const width = menu.current.getBoundingClientRect().width
-    menu.current.style.left = `${Math.max(12, Math.min(rect.left, window.innerWidth - width - 12))}px`
+    menu.current.style.left = `${Math.max(12, Math.min(rect.left, window.innerWidth - width - 12)) / scale}px`
     menu.current.querySelector<HTMLButtonElement>('[aria-pressed="true"]')?.focus()
   }
   return <>

@@ -145,7 +145,8 @@ producing one stylesheet shared by the player and benchmark route.
   via `GraphicsCaptureItem.CreateFromVisual` + `Direct3D11CaptureFramePool.CreateFreeThreaded`.
 - **Shared memory (`MUI2`, `0x4D554932`) & startup backdrop:** Premultiplied DComp pixels
   are unpremultiplied to straight sRGB BGRA32 into a lock-free double-buffered
-  `MemoryMappedFile` (max `3840 × 2160`, auto `rasterScale` `0.65–2.5`). Capture waits for
+  `MemoryMappedFile` (max `3840 × 2160`, `rasterScale = 1.0` so the shared React UI's
+  `--ui-scale` owns `75%–150%` resolution-aware scaling without double-scaling). Capture waits for
   `navigationStarted` and refuses to publish an all-transparent initial frame (`sequence == 0 && !hasVisiblePixel`).
   `StationDesktopUiPresenter` launches WebView2 eagerly in `Awake()` (`TryBindAndStartWorker`)
   and shows a native themed `StartupBackdrop` loading card (colors/copy synced via

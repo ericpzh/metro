@@ -179,19 +179,21 @@ export function findScrollbarHit(target: EventTarget | null, clientX: number, cl
   while (node) {
     const style = window.getComputedStyle(node)
     const rect = node.getBoundingClientRect()
-    const borderRight = parseFloat(style.borderRightWidth) || 0
-    const borderBottom = parseFloat(style.borderBottomWidth) || 0
+    const scaleX = node.offsetWidth > 0 ? rect.width / node.offsetWidth : 1
+    const scaleY = node.offsetHeight > 0 ? rect.height / node.offsetHeight : 1
+    const borderRight = (parseFloat(style.borderRightWidth) || 0) * scaleX
+    const borderBottom = (parseFloat(style.borderBottomWidth) || 0) * scaleY
 
     if ((style.overflowY === 'auto' || style.overflowY === 'scroll') && node.scrollHeight > node.clientHeight) {
-      const sbWidth = node.offsetWidth - node.clientLeft - borderRight - node.clientWidth
-      const gutterLeft = rect.left + node.clientLeft + node.clientWidth
+      const sbWidth = (node.offsetWidth - node.clientLeft - (parseFloat(style.borderRightWidth) || 0) - node.clientWidth) * scaleX
+      const gutterLeft = rect.left + (node.clientLeft + node.clientWidth) * scaleX
       const gutterRight = rect.right - borderRight
-      const trackOrigin = rect.top + node.clientTop
+      const trackOrigin = rect.top + node.clientTop * scaleY
       const trackBottom = rect.bottom - borderBottom
       if (sbWidth >= 4 && clientX >= gutterLeft && clientX <= gutterRight && clientY >= trackOrigin && clientY <= trackBottom) {
-        const trackSize = Math.max(1, node.clientHeight)
+        const trackSize = Math.max(1, node.clientHeight * scaleY)
         const maxScroll = Math.max(1, node.scrollHeight - node.clientHeight)
-        const thumbSize = Math.min(trackSize, Math.max(20, (node.clientHeight / node.scrollHeight) * trackSize))
+        const thumbSize = Math.min(trackSize, Math.max(20 * scaleY, (node.clientHeight / node.scrollHeight) * trackSize))
         const thumbSpan = Math.max(1, trackSize - thumbSize)
         const thumbStart = (node.scrollTop / maxScroll) * thumbSpan
         const localY = clientY - trackOrigin
@@ -211,15 +213,15 @@ export function findScrollbarHit(target: EventTarget | null, clientX: number, cl
     }
 
     if ((style.overflowX === 'auto' || style.overflowX === 'scroll') && node.scrollWidth > node.clientWidth) {
-      const sbHeight = node.offsetHeight - node.clientTop - borderBottom - node.clientHeight
-      const gutterTop = rect.top + node.clientTop + node.clientHeight
+      const sbHeight = (node.offsetHeight - node.clientTop - (parseFloat(style.borderBottomWidth) || 0) - node.clientHeight) * scaleY
+      const gutterTop = rect.top + (node.clientTop + node.clientHeight) * scaleY
       const gutterBottom = rect.bottom - borderBottom
-      const trackOrigin = rect.left + node.clientLeft
+      const trackOrigin = rect.left + node.clientLeft * scaleX
       const trackRight = rect.right - borderRight
       if (sbHeight >= 4 && clientY >= gutterTop && clientY <= gutterBottom && clientX >= trackOrigin && clientX <= trackRight) {
-        const trackSize = Math.max(1, node.clientWidth)
+        const trackSize = Math.max(1, node.clientWidth * scaleX)
         const maxScroll = Math.max(1, node.scrollWidth - node.clientWidth)
-        const thumbSize = Math.min(trackSize, Math.max(20, (node.clientWidth / node.scrollWidth) * trackSize))
+        const thumbSize = Math.min(trackSize, Math.max(20 * scaleX, (node.clientWidth / node.scrollWidth) * trackSize))
         const thumbSpan = Math.max(1, trackSize - thumbSize)
         const thumbStart = (node.scrollLeft / maxScroll) * thumbSpan
         const localX = clientX - trackOrigin

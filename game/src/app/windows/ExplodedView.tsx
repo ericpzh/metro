@@ -2,6 +2,7 @@ import { gameAudio } from '../gameAudio.ts'
 import { showGameLoading } from '../gameLoading.ts'
 import { getAudioVolumes, subscribeAudioVolumes } from '../audioSettings.ts'
 import { getUiTheme, subscribeUiTheme, themeVoidColor } from '../uiTheme.ts'
+import { getUiScale } from '../uiScale.ts'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { toData } from '../../build/model.ts'
 import { explodedView, explodedPoses, explodedLiftPoses } from '../../render/explodedView.ts'
@@ -114,14 +115,16 @@ function PreparedViewer({ snapshot }: { snapshot: Snapshot }): React.ReactElemen
       const panel = floorPanel.current
       const view = canvas.current
       if (!panel || !view) return
+      const scale = getUiScale()
+      const panelRect = panel.getBoundingClientRect()
       const clamped = clampExplodedFloorPanelPosition(
         [point[0], view.offsetTop + point[1]],
-        panel.offsetWidth,
-        panel.offsetHeight,
+        panelRect.width || panel.offsetWidth * scale,
+        panelRect.height || panel.offsetHeight * scale,
         { left: 0, top: view.offsetTop, width: view.clientWidth, height: view.clientHeight },
       )
-      panel.style.left = `${clamped.left}px`
-      panel.style.top = `${clamped.top}px`
+      panel.style.left = `${clamped.left / scale}px`
+      panel.style.top = `${clamped.top / scale}px`
     }
     const point = scene.getExplodedFloorAnchor()
     if (point) scene.onExplodedFloorAnchor(point)

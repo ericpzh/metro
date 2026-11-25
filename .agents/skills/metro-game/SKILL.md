@@ -153,10 +153,14 @@ sim/    ->  sim/ only                (zero external packages, DOM, three, or rea
     Open Save (`TopBar` / `FileButtons` / `Ctrl+L`) — open the shared
     `ReplaceStationDialog` save-first confirmation modal before replacing the
     current station (across both Three.js and Unity builds).
-  - `SettingsMenu.tsx` houses the benchmark action in its heading, 4 audio sliders,
-    4 setting tiles (graphics quality / Unity model detail, FSR 1.0 upscaling, edge
-    scrolling, anonymous stats sharing), and 4 action tiles (restart, report issue to
-    `/stats[/en]/report`, language toggle, UI theme cycling `blueprint`/`site`/`studio`).
+  - `SettingsMenu.tsx` houses the benchmark action in its heading, the continuous
+    `75%–150%` UI scale slider (`UiScaleSetting.tsx` + `uiScale.ts`, resolution-based
+    auto defaults with one-click reset, live `--ui-scale` zoom on UI chrome only while
+    keeping 3D canvases 1:1 and counter-scaling `.settingsDropdown` during drag),
+    4 audio sliders, 4 setting tiles (graphics quality / Unity model detail, FSR 1.0
+    upscaling, edge scrolling, anonymous stats sharing), and 4 action tiles (restart,
+    report issue to `/stats[/en]/report`, language toggle, UI theme cycling
+    `blueprint`/`site`/`studio`).
 - **Bilingual i18n (`sim/i18n.ts`, `sim/i18n/messages.ts`, `app/i18n.ts`,
   `app/languageRoute.ts`):**
   - All built-in UI, notice, and decal strings live in `sim/i18n/messages.ts`

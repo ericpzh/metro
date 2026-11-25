@@ -3,6 +3,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSyncExtern
 import { showGameLoading } from '../app/gameLoading.ts'
 import { useStore } from '../app/store.ts'
 import { getUiTheme, subscribeUiTheme } from '../app/uiTheme.ts'
+import { getUiScale } from '../app/uiScale.ts'
 import {
   ExplodedViewShell,
   clampExplodedFloorPanelPosition,
@@ -133,14 +134,16 @@ function UnityExplodedModal({
     const toolbarBottom = modal.querySelector('.explodedToolbar')?.getBoundingClientRect().height ?? 56
     const footerHeight = modal.querySelector('.explodedLevels')?.getBoundingClientRect().height ?? 44
     const usableHeight = Math.max(80, height - toolbarBottom - footerHeight)
+    const scale = getUiScale()
+    const panelRect = panel.getBoundingClientRect()
     const clamped = clampExplodedFloorPanelPosition(
       [anchor[0] * width, anchor[1] * height],
-      panel.offsetWidth || 180,
-      panel.offsetHeight || 76,
+      panelRect.width || (panel.offsetWidth || 180) * scale,
+      panelRect.height || (panel.offsetHeight || 76) * scale,
       { left: 0, top: toolbarBottom, width, height: usableHeight },
     )
-    panel.style.left = `${clamped.left}px`
-    panel.style.top = `${clamped.top}px`
+    panel.style.left = `${clamped.left / scale}px`
+    panel.style.top = `${clamped.top / scale}px`
   }, [canvas, currentSessionState?.panelAnchor, selectedIndex])
 
   // Modal lifecycle: showModal, reparent #unity-canvas in/out, bind input, and send exploded.open / close

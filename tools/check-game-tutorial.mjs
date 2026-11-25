@@ -220,7 +220,7 @@ try {
         }
         if (practice.tool === 'delete') {
           assert.deepEqual(await evaluate(`[...document.querySelectorAll('.tutorialKeyChord')].map(e=>[...e.querySelectorAll('kbd')].map(k=>k.textContent))`), [['B'], ['Ctrl', 'Z'], ['Ctrl', 'Shift', 'Z']])
-          assert.ok(await evaluate(`(()=>{const r=[...document.querySelectorAll('.tutorialKeyChord')].map(e=>e.getBoundingClientRect());return r.slice(1).every((e,i)=>e.y>r[i].y||e.x-r[i].right>=19)})()`))
+          assert.ok(await evaluate(`(()=>{const s=parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--ui-scale'))||1,r=[...document.querySelectorAll('.tutorialKeyChord')].map(e=>e.getBoundingClientRect());return r.slice(1).every((e,i)=>e.y>r[i].y||(e.x-r[i].right)/s>=19)})()`))
         }
       }
       if (index === 12) {

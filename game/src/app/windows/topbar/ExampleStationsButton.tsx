@@ -6,6 +6,7 @@ import { openExampleWithLoading } from '../../gameLoading.ts'
 import { useStore } from '../../store.ts'
 import { useStationHost } from '../StationHost.tsx'
 import { ReplaceStationDialog } from './ReplaceStationDialog.tsx'
+import { getUiScale } from '../../uiScale.ts'
 
 type ExampleStation = (typeof EXAMPLE_STATIONS)[number]
 
@@ -22,11 +23,12 @@ export function ExampleStationsButton(): React.ReactElement {
     const button = buttonRef.current
     const menu = menuRef.current
     if (!button || !menu) return
+    const scale = getUiScale()
     const anchor = button.getBoundingClientRect()
-    const width = Math.min(720, window.innerWidth - 24)
-    menu.style.left = `${Math.max(12, Math.min(anchor.left, window.innerWidth - width - 12))}px`
-    menu.style.top = `${anchor.bottom + 8}px`
-    menu.style.maxHeight = `${Math.max(0, window.innerHeight - anchor.bottom - 20)}px`
+    const width = Math.min(720 * scale, window.innerWidth - 24)
+    menu.style.left = `${Math.max(12, Math.min(anchor.left, window.innerWidth - width - 12)) / scale}px`
+    menu.style.top = `${(anchor.bottom + 8) / scale}px`
+    menu.style.maxHeight = `${Math.max(0, window.innerHeight - anchor.bottom - 20) / scale}px`
     menu.showPopover()
     menu.querySelector<HTMLButtonElement>('.exampleStationCard')?.focus()
   }
