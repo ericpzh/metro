@@ -725,7 +725,7 @@ namespace Metro.App.Views {
     /// drive visibility (`enabled`) and Base/Ghost/Clear/Section materials unchanged.
     /// </summary>
     public sealed class StationInstancedSurfaceBatch : MonoBehaviour {
-        const int MaxInstancesPerDraw = 1023;
+        internal const int MaxInstancesPerDraw = 1023;
 
         public Mesh SharedMesh;
         public int SubmeshIndex;
@@ -742,6 +742,7 @@ namespace Metro.App.Views {
         [NonSerialized] internal Material LastCheckedMaterial;
         [NonSerialized] internal Mesh LastCheckedMesh;
         [NonSerialized] internal bool CachedUseMeshLods;
+        [NonSerialized] internal float CachedInstanceSize = -1f;
         [NonSerialized] StationVisibilityTarget cachedVisibilityTarget;
 
         void Awake() {
@@ -754,6 +755,9 @@ namespace Metro.App.Views {
             CachedTransform = transform;
             LastCheckedMesh = SharedMesh;
             CachedUseMeshLods = SharedMesh != null && SharedMesh.lodCount > 1;
+            CachedInstanceSize = (SharedMesh != null && Matrices != null && Matrices.Length > 0)
+                ? StationPrefabMeshTemplate.TransformBounds(SharedMesh.bounds, Matrices[0]).size.magnitude
+                : -1f;
             LastCheckedMaterial = null;
             if (ProxyRenderer != null) {
                 var mat = ProxyRenderer.sharedMaterial;
@@ -967,8 +971,67 @@ namespace Metro.App.Views {
     public sealed class StationInstancedSurfaceDrawer : MonoBehaviour {
         public const float FrustumCullMargin = 0.25f;
 
+        readonly struct DrawBucketKey : IEquatable<DrawBucketKey> {
+            public readonly Mesh Mesh;
+            public readonly Material Material;
+            public readonly int SubmeshIndex;
+            public readonly int Layer;
+            public readonly UnityEngine.Rendering.ShadowCastingMode ShadowMode;
+            public readonly int ForceMeshLod;
+            public readonly bool UseMeshLods;
+            public readonly int Hash;
+
+            public DrawBucketKey(Mesh mesh, int submeshIndex, Material material, int layer,
+                UnityEngine.Rendering.ShadowCastingMode shadowMode, int forceMeshLod, bool useMeshLods) {
+                Mesh = mesh;
+                SubmeshIndex = submeshIndex;
+                Material = material;
+                Layer = layer;
+                ShadowMode = shadowMode;
+                ForceMeshLod = forceMeshLod;
+                UseMeshLods = useMeshLods;
+                unchecked {
+                    int h = System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(mesh);
+                    h = (h * 397) ^ System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(material);
+                    h = (h * 397) ^ (submeshIndex << 16) ^ (layer << 8) ^ ((int)shadowMode << 4) ^ (forceMeshLod + 2) ^ (useMeshLods ? 1 : 0);
+                    Hash = h;
+                }
+            }
+
+            public bool Equals(DrawBucketKey other) =>
+                ReferenceEquals(Mesh, other.Mesh) &&
+                ReferenceEquals(Material, other.Material) &&
+                SubmeshIndex == other.SubmeshIndex &&
+                Layer == other.Layer &&
+                ShadowMode == other.ShadowMode &&
+                ForceMeshLod == other.ForceMeshLod &&
+                UseMeshLods == other.UseMeshLods;
+
+            public override bool Equals(object obj) => obj is DrawBucketKey other && Equals(other);
+            public override int GetHashCode() => Hash;
+        }
+
+        sealed class DrawBucket {
+            public DrawBucketKey Key;
+            public readonly List<Matrix4x4[]> Slices = new List<Matrix4x4[]>(8);
+            public Bounds WorldBounds;
+            public bool HasBounds;
+            public int TotalInstances;
+
+            public void Reset(in DrawBucketKey key) {
+                Key = key;
+                Slices.Clear();
+                HasBounds = false;
+                TotalInstances = 0;
+            }
+        }
+
         readonly List<StationInstancedSurfaceBatch> batches = new List<StationInstancedSurfaceBatch>();
         readonly Plane[] frustumPlanes = new Plane[6];
+        readonly Dictionary<DrawBucketKey, DrawBucket> coalesceMap = new Dictionary<DrawBucketKey, DrawBucket>(256);
+        readonly List<DrawBucket> activeBuckets = new List<DrawBucket>(256);
+        readonly List<DrawBucket> bucketPool = new List<DrawBucket>(256);
+        Matrix4x4[] coalesceScratch;
         MaterialPropertyBlock propertyBlock;
         Vector3 lodCameraPosition;
         float lodFrustumHeight;
@@ -983,6 +1046,7 @@ namespace Metro.App.Views {
 
         public int BatchCount => batches.Count;
         public int LastSubmittedBatches { get; private set; }
+        public int LastSubmittedDrawCalls { get; private set; }
         public int LastFrustumCulledBatches { get; private set; }
 
         public static StationInstancedSurfaceDrawer EnsureFor(Transform worldRoot) {
@@ -1034,7 +1098,9 @@ namespace Metro.App.Views {
 
         public void SubmitNow(Camera cameraOverride = null) {
             if (cameraOverride == null && PauseDuringExplodedView && StationExplodedView.IsStandaloneActive) return;
+            long instT0 = StationBenchmarkRecorder.IsBreakdownProfiling ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
             LastSubmittedBatches = 0;
+            LastSubmittedDrawCalls = 0;
             LastFrustumCulledBatches = 0;
             int batchCount = batches.Count;
             if (batchCount == 0) return;
@@ -1051,9 +1117,16 @@ namespace Metro.App.Views {
                 hasFrustumPlanes = false;
             }
 
+            bool suppressStandaloneShadows = false;
 #if !UNITY_WEBGL
-            bool suppressStandaloneShadows = Application.isPlaying && !Application.isEditor;
+            suppressStandaloneShadows = Application.isPlaying && !Application.isEditor;
 #endif
+            bool receiveShadows = !suppressStandaloneShadows;
+
+            coalesceMap.Clear();
+            activeBuckets.Clear();
+            int poolCursor = 0;
+
             for (int i = 0; i < batchCount; i++) {
                 var batch = batches[i];
                 if (batch == null) continue;
@@ -1099,41 +1172,145 @@ namespace Metro.App.Views {
                     block = propertyBlock;
                 }
                 int layer = go.layer;
-                var renderParams = default(RenderParams);
-                var shadowMode = batch.ShadowCasting;
-#if !UNITY_WEBGL
-                if (suppressStandaloneShadows)
-                    shadowMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-#endif
+                var shadowMode = suppressStandaloneShadows
+                    ? UnityEngine.Rendering.ShadowCastingMode.Off
+                    : batch.ShadowCasting;
+                int tier = 0;
                 if (useMeshLods) {
-                    int tier = activeCamera != null
+                    tier = activeCamera != null
                         ? SelectMeshLod(mesh, batch, bounds, offset)
                         : (batch.ResolveVisibilityTarget() is { OtherLevelLod: true }
                             ? StationGraphicsSettings.OtherLevelTier(mesh.lodCount)
                             : 0);
+                }
+
+                var slices = batch.FollowTransformOffset ? batch.ResolveDrawSlices() : rawSlices;
+
+                // Coalesce spatial chunks that share identical GPU draw state (and carry no
+                // per-renderer MaterialPropertyBlock) into packed <=1023-instance draw calls.
+                if (block == null) {
+                    var key = new DrawBucketKey(mesh, batch.SubmeshIndex, mat, layer, shadowMode, useMeshLods ? tier : -1, useMeshLods);
+                    if (!coalesceMap.TryGetValue(key, out var bucket)) {
+                        if (poolCursor < bucketPool.Count) {
+                            bucket = bucketPool[poolCursor++];
+                        } else {
+                            bucket = new DrawBucket();
+                            bucketPool.Add(bucket);
+                            poolCursor++;
+                        }
+                        bucket.Reset(in key);
+                        coalesceMap[key] = bucket;
+                        activeBuckets.Add(bucket);
+                    }
+                    bool addedAny = false;
+                    for (int s = 0; s < slices.Length; s++) {
+                        var slice = slices[s];
+                        if (slice == null || slice.Length == 0) continue;
+                        bucket.Slices.Add(slice);
+                        bucket.TotalInstances += slice.Length;
+                        addedAny = true;
+                    }
+                    if (addedAny) {
+                        if (!bucket.HasBounds) {
+                            bucket.WorldBounds = bounds;
+                            bucket.HasBounds = true;
+                        } else {
+                            bucket.WorldBounds.Encapsulate(bounds);
+                        }
+                        LastSubmittedBatches++;
+                    }
+                    continue;
+                }
+
+                var renderParams = default(RenderParams);
+                if (useMeshLods) {
                     renderParams = new RenderParams(mat) {
                         layer = layer,
                         matProps = block,
                         shadowCastingMode = shadowMode,
-                        receiveShadows = true,
+                        receiveShadows = receiveShadows,
                         worldBounds = bounds,
                         forceMeshLod = tier,
                     };
                 }
-                var slices = batch.FollowTransformOffset ? batch.ResolveDrawSlices() : rawSlices;
                 bool submittedAny = false;
                 for (int s = 0; s < slices.Length; s++) {
                     var slice = slices[s];
                     if (slice == null || slice.Length == 0) continue;
                     submittedAny = true;
+                    LastSubmittedDrawCalls++;
                     if (useMeshLods)
                         Graphics.RenderMeshInstanced(renderParams, mesh, batch.SubmeshIndex, slice, slice.Length);
                     else
                         Graphics.DrawMeshInstanced(mesh, batch.SubmeshIndex, mat, slice, slice.Length, block,
-                            shadowMode, true, layer);
+                            shadowMode, receiveShadows, layer);
                 }
                 if (submittedAny) LastSubmittedBatches++;
             }
+
+            // Flush coalesced buckets with zero per-frame allocation.
+            const int maxPerDraw = StationInstancedSurfaceBatch.MaxInstancesPerDraw;
+            for (int b = 0; b < activeBuckets.Count; b++) {
+                var bucket = activeBuckets[b];
+                int sliceCount = bucket.Slices.Count;
+                if (sliceCount == 0) continue;
+                var key = bucket.Key;
+                var rp = default(RenderParams);
+                if (key.UseMeshLods) {
+                    rp = new RenderParams(key.Material) {
+                        layer = key.Layer,
+                        matProps = null,
+                        shadowCastingMode = key.ShadowMode,
+                        receiveShadows = receiveShadows,
+                        worldBounds = bucket.WorldBounds,
+                        forceMeshLod = key.ForceMeshLod,
+                    };
+                }
+                if (sliceCount == 1) {
+                    var only = bucket.Slices[0];
+                    LastSubmittedDrawCalls++;
+                    if (key.UseMeshLods)
+                        Graphics.RenderMeshInstanced(rp, key.Mesh, key.SubmeshIndex, only, only.Length);
+                    else
+                        Graphics.DrawMeshInstanced(key.Mesh, key.SubmeshIndex, key.Material, only, only.Length, null,
+                            key.ShadowMode, receiveShadows, key.Layer);
+                    continue;
+                }
+                coalesceScratch ??= new Matrix4x4[maxPerDraw];
+                int packed = 0;
+                for (int s = 0; s < sliceCount; s++) {
+                    var src = bucket.Slices[s];
+                    int srcOffset = 0;
+                    int remaining = src.Length;
+                    while (remaining > 0) {
+                        int space = maxPerDraw - packed;
+                        int copy = remaining < space ? remaining : space;
+                        Array.Copy(src, srcOffset, coalesceScratch, packed, copy);
+                        packed += copy;
+                        srcOffset += copy;
+                        remaining -= copy;
+                        if (packed == maxPerDraw) {
+                            LastSubmittedDrawCalls++;
+                            if (key.UseMeshLods)
+                                Graphics.RenderMeshInstanced(rp, key.Mesh, key.SubmeshIndex, coalesceScratch, packed);
+                            else
+                                Graphics.DrawMeshInstanced(key.Mesh, key.SubmeshIndex, key.Material, coalesceScratch, packed, null,
+                                    key.ShadowMode, receiveShadows, key.Layer);
+                            packed = 0;
+                        }
+                    }
+                }
+                if (packed > 0) {
+                    LastSubmittedDrawCalls++;
+                    if (key.UseMeshLods)
+                        Graphics.RenderMeshInstanced(rp, key.Mesh, key.SubmeshIndex, coalesceScratch, packed);
+                    else
+                        Graphics.DrawMeshInstanced(key.Mesh, key.SubmeshIndex, key.Material, coalesceScratch, packed, null,
+                            key.ShadowMode, receiveShadows, key.Layer);
+                }
+            }
+
+            if (instT0 != 0) StationBenchmarkRecorder.RecordInstancedTicks(System.Diagnostics.Stopwatch.GetTimestamp() - instT0, LastSubmittedDrawCalls);
         }
 
         public void SampleLodView(Camera camera) {
@@ -1145,7 +1322,10 @@ namespace Metro.App.Views {
             float bias = StationGraphicsSettings.ModelLodBias;
             int minimum = StationGraphicsSettings.MinimumModelLod;
             int otherLevelMinimum = StationGraphicsSettings.OtherLevelModelLod;
-            if (position.Equals(lodCameraPosition) && height == lodFrustumHeight &&
+            bool posSame = Application.isPlaying
+                ? (position - lodCameraPosition).sqrMagnitude < 0.01f
+                : position.Equals(lodCameraPosition);
+            if (posSame && height == lodFrustumHeight &&
                 near == lodNearClip && bias == lodProfileBias && minimum == lodProfileMinimum &&
                 otherLevelMinimum == lodProfileOtherLevelMinimum && orthographic == lodOrthographic) return;
             lodCameraPosition = position;
@@ -1166,7 +1346,11 @@ namespace Metro.App.Views {
                 batch.LastLodOtherLevel == otherLevel &&
                 offset.Equals(batch.LastLodOffset))
                 return batch.LastMeshLod;
-            float size = StationPrefabMeshTemplate.TransformBounds(mesh.bounds, batch.Matrices[0]).size.magnitude;
+            float size = batch.CachedInstanceSize;
+            if (size < 0f) {
+                size = StationPrefabMeshTemplate.TransformBounds(mesh.bounds, batch.Matrices[0]).size.magnitude;
+                batch.CachedInstanceSize = size;
+            }
             float viewHeight = lodOrthographic ? lodFrustumHeight : lodFrustumHeight *
                 Mathf.Max(lodNearClip, Mathf.Sqrt(worldBounds.SqrDistance(lodCameraPosition)));
             int previous = batch.LastLodOtherLevel == otherLevel ? batch.LastMeshLod : -1;

@@ -818,6 +818,27 @@ namespace Metro.View {
             }
         }
 
+        /// <summary>
+        /// Zero-allocation fast path for callers (such as passenger LOD swaps) that already hold
+        /// the immutable authored <paramref name="materials"/> array and do not mutate base textures
+        /// in place. Avoids the native <c>renderer.sharedMaterials</c> copy and <c>SyncDerived</c>.
+        /// </summary>
+        public void SetBaseMaterials(Renderer renderer, Material[] materials, bool applyToRenderer = true) {
+            if (!renderer) return;
+            Collect();
+            for (int i = 0; i < renderers.Length; i++) {
+                if (!ReferenceEquals(renderers[i], renderer)) continue;
+                baseMaterials[i] = materials;
+                InvalidateRendererDerived(i);
+                if (!applyToRenderer || lastMode == StationDrawMode.Hidden || !Eligible(renderer) ||
+                    lastPalette == null || materials == null || materials.Length == 0)
+                    return;
+                EnsurePaletteCache(lastPalette);
+                ApplyRendererMaterials(i, renderer, materials, lastMode, lastPalette);
+                return;
+            }
+        }
+
         void InvalidateRendererDerived(int i) {
             if (ghostMaterials != null && i < ghostMaterials.Length) ghostMaterials[i] = null;
             if (clearMaterials != null && i < clearMaterials.Length) clearMaterials[i] = null;

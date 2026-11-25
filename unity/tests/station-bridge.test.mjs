@@ -112,6 +112,37 @@ test('a camera ack carries the applied camera and view into the snapshot state',
   assert.equal(rejected.state.camera.back[2], 0, 'a refusal does not move the camera')
 })
 
+test('a minimal no-op camera ack keeps snapshot reference identity and does not notify subscribers', () => {
+  const base = { ...empty, ready: true, revision: 2, state: { level: -5 } }
+  const next = reduce(base, {
+    sessionId: 's-1', kind: 'ack', revision: 2,
+    payload: { revision: 2 },
+  })
+  assert.equal(next, base, 'an unchanged empty ack returns the exact same snapshot reference')
+
+  let notifications = 0
+  const unsub = stationBridge.subscribe(() => { notifications++ })
+  try {
+    stationBridge.register({ SendMessage: () => {} })
+    const session = stationBridge.getSnapshot().sessionId
+    stationBridge.receive(JSON.stringify({
+      schemaVersion: SCHEMA_VERSION, kind: 'commit', id: 'c-init', sessionId: session, revision: 2,
+      payload: { document: '{"format":"metro-save"}', sourceId: 'tianhe', sourceHash: 'h2' },
+    }))
+    notifications = 0
+    const before = stationBridge.getSnapshot()
+    stationBridge.receive(JSON.stringify({
+      schemaVersion: SCHEMA_VERSION, kind: 'ack', id: 'c-orbit-1', sessionId: session, revision: 2,
+      accepted: true, payload: { revision: 2 },
+    }))
+    assert.equal(stationBridge.getSnapshot(), before, 'live bridge snapshot stays identical on minimal ack')
+    assert.equal(notifications, 0, 'subscribers are not woken on minimal camera acks')
+  } finally {
+    unsub()
+    stationBridge.unregister()
+  }
+})
+
 test('the frame-cadence camera pose channel is fenced by session and skips the reducer', () => {
   const poses = []
   const stop = stationBridge.onCameraPose((camera, sequence) => poses.push({ camera, sequence }))

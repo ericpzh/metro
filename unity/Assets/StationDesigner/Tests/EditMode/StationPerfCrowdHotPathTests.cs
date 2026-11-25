@@ -607,6 +607,228 @@ namespace Metro.EditModeTests {
             Assert.IsFalse(actor.Target.GradeOwned, "adding an exit head-house flips 0 m footprint from grade-owned to non-grade");
         }
 
+        [Test]
+        public void PausedFrustumReEntryWithUnchangedPoseSkipsRedundantAnimationSample() {
+            var read = BuildSimpleStation(floorZ: 0);
+            var visibility = new StationVisibilityRegistry(outfitMaterial.shader);
+            disposables.Add(visibility);
+            var world = new StationWorldView(root.transform, "PausedReEntryWorld", Array.Empty<IStationViewRenderer>());
+            disposables.Add(world);
+            world.Build(read.Document, read.Index);
+            world.Activate();
+            world.BindVisibility(visibility);
+            visibility.State.ActiveLevel = 0;
+            visibility.State.ShowLevels = true;
+            visibility.Apply();
+
+            var camGo = new GameObject("PausedReEntryCam");
+            camGo.transform.SetParent(root.transform, false);
+            var cam = camGo.AddComponent<Camera>();
+            cam.enabled = false;
+            cam.orthographic = false;
+            cam.fieldOfView = 45f;
+            cam.aspect = 16f / 9f;
+            cam.nearClipPlane = 0.5f;
+            cam.farClipPlane = 150f;
+            cam.transform.SetPositionAndRotation(new Vector3(0f, 2f, -2f), Quaternion.identity);
+
+            var crowd = PassengerCrowdView.Build(root.transform, catalogue);
+            crowd.BindWorld(world);
+            crowd.FrustumCameraOverride = cam;
+
+            var pose = MakePose(701, x: 0.0, y: 10.0, z: 1.0, walkDistance: 2.5);
+            crowd.Render(new[] { pose }, simTimeSeconds: 1.0);
+            Assert.AreEqual(1, crowd.SampledThisFrame, "first spawn samples immediately");
+
+            // Swing camera away so actor is frustum-culled while simulation is paused (unchanged pose).
+            cam.transform.SetPositionAndRotation(new Vector3(0f, 2f, -2f), Quaternion.Euler(0f, 180f, 0f));
+            crowd.Render(new[] { pose }, simTimeSeconds: 1.0);
+            Assert.AreEqual(1, crowd.FrustumCulledThisFrame);
+            Assert.AreEqual(0, crowd.SampledThisFrame);
+
+            // Swing camera back onto the paused actor: rig already holds the exact sampled pose -> 0 resamples.
+            cam.transform.SetPositionAndRotation(new Vector3(0f, 2f, -2f), Quaternion.identity);
+            crowd.Render(new[] { pose }, simTimeSeconds: 1.0);
+            Assert.AreEqual(0, crowd.FrustumCulledThisFrame);
+            Assert.AreEqual(0, crowd.SampledThisFrame, "paused re-entry with unchanged clip & time must not re-run SampleAnimation");
+            Assert.AreEqual(1, crowd.SkippedUnchangedAnimationThisFrame);
+        }
+
+        [Test]
+        public void MassFrustumReEntryRespectsAnimationAndLodBudgetsWithoutStampede() {
+            var settings = CreateGraphicsSettings(out var origProfile, out var origUpscaling);
+            try {
+                SetGraphicsProfile(settings, "high");
+                var read = BuildSimpleStation(floorZ: 0);
+                var visibility = new StationVisibilityRegistry(outfitMaterial.shader);
+                disposables.Add(visibility);
+                var world = new StationWorldView(root.transform, "BudgetWorld", Array.Empty<IStationViewRenderer>());
+                disposables.Add(world);
+                world.Build(read.Document, read.Index);
+                world.Activate();
+                world.BindVisibility(visibility);
+                visibility.State.ActiveLevel = 0;
+                visibility.State.ShowLevels = true;
+                visibility.Apply();
+
+                var camGo = new GameObject("BudgetCam");
+                camGo.transform.SetParent(root.transform, false);
+                var cam = camGo.AddComponent<Camera>();
+                cam.enabled = false;
+                cam.orthographic = false;
+                cam.fieldOfView = 45f;
+                cam.aspect = 16f / 9f;
+                cam.nearClipPlane = 0.5f;
+                cam.farClipPlane = 200f;
+                cam.transform.SetPositionAndRotation(new Vector3(0f, 2f, -2f), Quaternion.identity);
+
+                var crowd = PassengerCrowdView.Build(root.transform, catalogue);
+                crowd.BindWorld(world);
+                crowd.FrustumCameraOverride = cam;
+                crowd.AnimationSampleBudgetOverride = 96;
+                crowd.LodSwapBudgetOverride = 48;
+
+                const int count = 200;
+                var initialPoses = new PassengerPose[count];
+                for (int i = 0; i < count; i++) {
+                    double x = -3.0 + (i % 20) * 0.3;
+                    double y = 4.0 + (i / 20) * 0.3;
+                    initialPoses[i] = MakePose(1000 + i, x, y, 1.0, walkDistance: 1.0);
+                }
+
+                // Frame 0: initial spawn — every unsampled actor samples immediately so zero T-poses appear.
+                crowd.Render(initialPoses, simTimeSeconds: 1.0);
+                Assert.AreEqual(count, crowd.SampledThisFrame, "initial spawn samples every new actor");
+
+                // Frame 1: turn camera 180 deg away so all 200 actors leave frustum.
+                cam.transform.SetPositionAndRotation(new Vector3(0f, 2f, -2f), Quaternion.Euler(0f, 180f, 0f));
+                crowd.Render(initialPoses, simTimeSeconds: 1.5);
+                Assert.AreEqual(count, crowd.FrustumCulledThisFrame);
+
+                // Frame 2: snap camera back at far distance (~90 m -> LOD2) while all 200 actors advanced walkDistance.
+                // Both animation resamples and LOD mesh swaps must stay capped by their per-frame budgets!
+                cam.transform.SetPositionAndRotation(new Vector3(0f, 2f, -85f), Quaternion.identity);
+                var movedPoses = new PassengerPose[count];
+                for (int i = 0; i < count; i++) {
+                    var p = initialPoses[i];
+                    p.WalkDistance = 4.25;
+                    movedPoses[i] = p;
+                }
+                crowd.Render(movedPoses, simTimeSeconds: 3.0);
+                Assert.AreEqual(0, crowd.FrustumCulledThisFrame, "all 200 actors are visible again");
+                Assert.LessOrEqual(crowd.SampledThisFrame, 96, "mass re-entry must obey animation sample budget");
+                Assert.Greater(crowd.SampledThisFrame, 0, "budgeted re-entry still makes immediate progress");
+                Assert.LessOrEqual(crowd.LodSwapsThisFrame, 48, "mass re-entry must obey LOD mesh swap budget");
+                Assert.Greater(crowd.LodSwapsThisFrame, 0, "budgeted LOD swaps still make immediate progress");
+
+                // Subsequent frames converge all 200 actors to simplifiedMesh (LOD2) cleanly.
+                for (int f = 0; f < 6; f++) {
+                    crowd.Render(movedPoses, simTimeSeconds: 3.0);
+                }
+                int atLod2 = 0;
+                for (int i = 0; i < count; i++) {
+                    Assert.IsTrue(crowd.TryGetActor(1000 + i, out var actor));
+                    Assert.IsFalse(actor.Skin.forceRenderingOff);
+                    if (ReferenceEquals(actor.Skin.sharedMesh, simplifiedMesh)) atLod2++;
+                }
+                Assert.AreEqual(count, atLod2, "all 200 actors converge to LOD2 over a few frames");
+            } finally {
+                var restore = new JObject { ["profile"] = origProfile, ["upscaling"] = origUpscaling };
+                settings.TryHandle(new StationCommand { Type = "graphics.set", Payload = restore }, restore, out _, out _);
+            }
+        }
+
+        [Test]
+        public void NewSpawnBudgetAndInstancedCoalescingAndStreamingCrowdJsonHoldContracts() {
+            // 1. Cold prefab instantiation budget caps spawns per frame and converges cleanly.
+            var read = BuildSimpleStation(floorZ: 0);
+            var crowd = PassengerCrowdView.Build(root.transform, catalogue);
+            crowd.NewSpawnBudgetOverride = 12;
+            var poses = new PassengerPose[30];
+            for (int i = 0; i < poses.Length; i++) {
+                poses[i] = MakePose(2000 + i, i * 0.4, 2.0, 1.0, walkDistance: 1.0);
+            }
+            crowd.Render(poses, simTimeSeconds: 1.0);
+            Assert.AreEqual(12, crowd.Spawned, "frame 1 caps cold prefab instantiations to budget");
+            crowd.Render(poses, simTimeSeconds: 1.1);
+            Assert.AreEqual(24, crowd.Spawned, "frame 2 instantiates next slice");
+            crowd.Render(poses, simTimeSeconds: 1.2);
+            Assert.AreEqual(30, crowd.Spawned, "frame 3 completes full crowd without drops");
+
+            // 2. StationInstancedSurfaceDrawer coalesces matching spatial chunks into fewer GPU draw calls.
+            var drawerRoot = new GameObject("CoalesceDrawer");
+            drawerRoot.transform.SetParent(root.transform, false);
+            var drawerCamGo = new GameObject("CoalesceCam");
+            drawerCamGo.transform.SetParent(root.transform, false);
+            var drawerCam = drawerCamGo.AddComponent<Camera>();
+            drawerCam.enabled = false;
+            drawerCam.orthographic = false;
+            drawerCam.fieldOfView = 60f;
+            drawerCam.aspect = 16f / 9f;
+            drawerCam.nearClipPlane = 0.5f;
+            drawerCam.farClipPlane = 200f;
+            drawerCam.transform.SetPositionAndRotation(new Vector3(10f, 5f, -30f), Quaternion.identity);
+            var drawer = StationInstancedSurfaceDrawer.EnsureFor(drawerRoot.transform);
+            var instMat = new Material(outfitMaterial) { enableInstancing = true };
+            try {
+                for (int c = 0; c < 6; c++) {
+                    var chunkGo = new GameObject("chunk-" + c);
+                    chunkGo.transform.SetParent(drawerRoot.transform, false);
+                    var mr = chunkGo.AddComponent<MeshRenderer>();
+                    mr.sharedMaterial = instMat;
+                    var batch = chunkGo.AddComponent<StationInstancedSurfaceBatch>();
+                    var instances = new List<CombineInstance> {
+                        new CombineInstance { mesh = fullMesh, transform = Matrix4x4.Translate(new Vector3(c * 4f, 0f, 0f)) },
+                        new CombineInstance { mesh = fullMesh, transform = Matrix4x4.Translate(new Vector3(c * 4f + 1f, 0f, 0f)) },
+                    };
+                    batch.Configure(fullMesh, 0, mr, new Bounds(new Vector3(c * 4f, 0.5f, 0f), Vector3.one * 2f),
+                        instances, 2, new List<int> { 0, 1 });
+                    drawer.Add(batch);
+                }
+                drawer.SubmitNow(cameraOverride: drawerCam);
+                Assert.AreEqual(6, drawer.LastSubmittedBatches, "all 6 spatial chunks were submitted");
+                Assert.AreEqual(1, drawer.LastSubmittedDrawCalls, "6 identical chunks coalesce into 1 instanced GPU draw call");
+            } finally {
+                UnityEngine.Object.DestroyImmediate(instMat);
+            }
+
+            // 3. Streaming crowd JSON matches JObject Build() field-for-field.
+            var published = new StationPublishedSimFrame {
+                HasServices = true,
+                PublishedPassengerLimit = 32,
+                QueuedTotal = 3,
+                GateQueueTotal = 2,
+                BoardedOnboard = 5,
+                Spawned = 10,
+                Boarded = 6,
+                Alighted = 4,
+                Exited = 2,
+                Stuck = 0,
+                Motion = new StationMotionFrame {
+                    Passengers = new[] {
+                        new StationPassengerFrame {
+                            SimId = 42, X = 1.5, Y = 2.5, Z = -4.0, Heading = 0.5,
+                            Activity = StationPassengerActivity.Walk, ActivitySeconds = 1.2,
+                            WalkDistance = 3.4, WalkPhase = 0.25, WalkWeight = 1.0,
+                            State = StationPassengerState.Walking, ServerId = "", Visible = true,
+                        },
+                    },
+                    Gates = new[] {
+                        new StationGateFrame {
+                            Id = "g-1", Server = 12, Queue = 1, Served = 7, Rate = 0.5,
+                            Batch = 1, Cycle = 2, State = StationGateState.Idle, Mode = 0,
+                            Lane = 0, Open = 1.0,
+                        },
+                    },
+                },
+            };
+            var expectedObj = StationCrowdStateContributor.Build(published);
+            var actualJson = StationCrowdStateContributor.BuildJson(published);
+            var actualObj = JObject.Parse(actualJson);
+            Assert.IsTrue(JToken.DeepEquals(expectedObj, actualObj),
+                "streaming BuildJson must match JObject Build() identically.\nExpected: " + expectedObj + "\nActual: " + actualObj);
+        }
+
         static void AssertPoseBitIdentical(PassengerPose expected, PassengerPose actual, string context) {
             Assert.AreEqual(expected.SimId, actual.SimId, context + " SimId");
             Assert.AreEqual(expected.Visible, actual.Visible, context + " Visible");

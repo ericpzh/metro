@@ -481,6 +481,7 @@ namespace Metro.App.Views {
             transform.localPosition = Vector3.zero;
             transform.localRotation = Quaternion.identity;
             transform.localScale = Vector3.one;
+            transform.hasChanged = false;
             var filter = child.AddComponent<MeshFilter>();
             var renderer = child.AddComponent<MeshRenderer>();
             renderer.shadowCastingMode = ShadowCastingMode.Off;
@@ -525,6 +526,7 @@ namespace Metro.App.Views {
             transform.localPosition = Vector3.zero;
             transform.localRotation = Quaternion.identity;
             transform.localScale = Vector3.one;
+            transform.hasChanged = false;
             var filter = child.AddComponent<MeshFilter>();
             var renderer = child.AddComponent<MeshRenderer>();
             renderer.shadowCastingMode = ShadowCastingMode.Off;
@@ -916,24 +918,32 @@ namespace Metro.App.Views {
             hit = default;
             if (worldRay.direction.sqrMagnitude <= 1e-12f) return false;
             var ray = new Ray(worldRay.origin, worldRay.direction);
+            var docOrigin = new Vector3(ray.origin.x, ray.origin.z, ray.origin.y);
+            var docDir = new Vector3(ray.direction.x, ray.direction.z, ray.direction.y);
+            bool rootIdentity = root == null || (
+                root.position == Vector3.zero &&
+                root.rotation == Quaternion.identity &&
+                root.lossyScale == Vector3.one);
             var best = float.PositiveInfinity;
             var minDistance = filter.MinDistance;
             var maxDistance = filter.MaxDistance;
             var cullingMask = filter.CullingMask;
             var visibility = filter.Visibility;
             var found = false;
-            foreach (var group in groups) {
+            for (int g = 0; g < groups.Count; g++) {
+                var group = groups[g];
+                var data = group.Data;
+                var groupTransform = group.Transform;
+                bool identity = groupTransform == null || (rootIdentity && !groupTransform.hasChanged) || (
+                    groupTransform.position == Vector3.zero &&
+                    groupTransform.rotation == Quaternion.identity &&
+                    groupTransform.lossyScale == Vector3.one);
+                float upperLimit = best < maxDistance ? best : maxDistance;
+                if (identity && !RayHitsDocumentBounds(docOrigin, docDir, data.Bounds, minDistance, upperLimit)) continue;
                 if (group.GameObject == null || !group.GameObject.activeInHierarchy) continue;
                 if (group.Renderer == null || !group.Renderer.enabled) continue;
                 if (group.Filter == null || group.Filter.sharedMesh == null) continue;
                 if ((cullingMask & (1 << group.GameObject.layer)) == 0) continue;
-                var data = group.Data;
-                var groupTransform = group.Transform;
-                bool identity = groupTransform == null || (
-                    groupTransform.position == Vector3.zero &&
-                    groupTransform.rotation == Quaternion.identity &&
-                    groupTransform.lossyScale == Vector3.one);
-                if (identity && !RayHitsBounds(ray, data.Bounds, Mathf.Min(best, maxDistance))) continue;
                 var cull = MaterialCullMode(group.Renderer.sharedMaterial);
                 var indices = group.WorldIndices;
                 var vertices = group.WorldVertices;
@@ -1004,14 +1014,27 @@ namespace Metro.App.Views {
             return CullMode.Back;
         }
 
-        static bool RayHitsBounds(Ray ray, Bounds bounds, float limit) {
-            // A ray that misses the document-axis bounds cannot hit the group; the
-            // swap is monotone, so testing the document bounds in their own axes with
-            // a swapped ray is exact.
-            var origin = new Vector3(ray.origin.x, ray.origin.z, ray.origin.y);
-            var direction = new Vector3(ray.direction.x, ray.direction.z, ray.direction.y);
-            var documentRay = new Ray(origin, direction);
-            return new Bounds(bounds.center, bounds.size).IntersectRay(documentRay, out var enter) && enter <= limit;
+        static bool RayHitsDocumentBounds(in Vector3 origin, in Vector3 direction, in Bounds bounds, float minDistance, float limit) {
+            var min = bounds.min;
+            var max = bounds.max;
+            float tmin = 0f;
+            float tmax = limit;
+            const float pad = 1e-4f;
+            if (!Slab(origin.x, direction.x, min.x - pad, max.x + pad, ref tmin, ref tmax)) return false;
+            if (!Slab(origin.y, direction.y, min.y - pad, max.y + pad, ref tmin, ref tmax)) return false;
+            if (!Slab(origin.z, direction.z, min.z - pad, max.z + pad, ref tmin, ref tmax)) return false;
+            return tmax >= minDistance && tmin <= limit;
+        }
+
+        static bool Slab(float origin, float direction, float lo, float hi, ref float tmin, ref float tmax) {
+            if (Mathf.Abs(direction) < 1e-7f) return origin >= lo && origin <= hi;
+            float inv = 1f / direction;
+            float t1 = (lo - origin) * inv;
+            float t2 = (hi - origin) * inv;
+            if (t1 > t2) { float s = t1; t1 = t2; t2 = s; }
+            if (t1 > tmin) tmin = t1;
+            if (t2 < tmax) tmax = t2;
+            return tmin <= tmax;
         }
 
         static bool RayTriangle(Ray ray, Vector3 a, Vector3 b, Vector3 c, CullMode cull,

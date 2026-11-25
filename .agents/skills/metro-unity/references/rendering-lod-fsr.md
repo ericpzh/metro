@@ -63,7 +63,12 @@ and per-model triangle counts, see
   `StationScenePicker.PickRay` against camera-visible triangles (enforcing active
   `GameObject`, `Renderer.enabled`, camera mask, `ClipInterval`, submesh cull
   mode, negative-scale winding flip, per-triangle `IsPointKept`, and per-tile
-  `StationBatchSpan`s on combined batches). `NeedsWorkPlane` permits active-storey
+  `StationBatchSpan`s on combined batches). `StationScenePicker` indexes records
+  with a 2-level `RecordGroup` + `16 m × 16 m` XY spatial grid (Amanatides–Woo
+  2D DDA traversal), precomputed visibility/role/AABB float slabs, and cached
+  `SnapRamps`; non-batch PlayMode station loads pre-warm `StationScenePicker.WarmUp`,
+  `StationCellTool.WarmUp`, and `StationEditHost.EnsureBound` so the first hover
+  stays spike-free. `NeedsWorkPlane` permits active-storey
   plane fallback on adds and primary `zone`/facility room gestures (never secondary
   erase or delete); `StationZoneTool` also resolves winning booth hits onto their
   footprint, reads `facilityRot` live during held drags, cancels on `zoneBrush`
@@ -261,7 +266,10 @@ and per-model triangle counts, see
     `StationModuleGroups`, `OpeningModuleViews`):** `StationPrefabMeshTemplate`
     combines readable same-material child meshes across Unity 6 multi-LOD tiers
     (`lodCount > 1`); `StationInstancedSurfaceDrawer` frustum-culls batches
-    (`0.25 m` margin) and caches `enableInstancing`/`lodCount`;
+    (`0.25 m` margin), caches `enableInstancing`/`lodCount`/`CachedInstanceSize`,
+    applies a `0.1 m` camera LOD deadzone, and coalesces same-key visible chunk
+    instances in `SubmitNow()` (cutting Tianhe instanced draw calls from ~1,504
+    to ~425/frame while preserving per-chunk culling/LODs and `LastSubmittedBatches`);
     `StationEquipmentModuleRenderer` uses `EquipBatchThreshold = 3` (preserving
     2-bin `StationHighlightRetentionTests` individual views), `EquipChunkSize = 64`
     (preserving `StationPassengerAndBatchParityTests`), and compacts remaining
@@ -273,11 +281,21 @@ and per-model triangle counts, see
     culling before Transform/LOD/tone/clip work and suppresses offscreen meshes
     via `Skin.forceRenderingOff = true` — **never** `Skin.enabled = false`, which
     would trip `StationVisibilityTarget`'s permanent retirement check on floor
-    switches. `GetSharedTonedMaterials` must not re-apply Ghost/Clear opacity when
+    switches — without setting `AnimationDirty` on frustum/storey cull. Bounds
+    camera-swing spikes via per-frame steady animation (`MaxSteadyAnimationSamplesPerFrame = 96`,
+    24 reserved for near/clip-change + round-robin), LOD swap (`MaxLodMeshSwapsPerFrame = 48`),
+    cold prefab spawn (`MaxNewSpawnsPerFrame = 24`), and initial-sample
+    (`MaxInitialSamplesPerFrame = 128`, keeping deferred unsampled actors hidden
+    1 frame so no T-poses appear) budgets, disables desktop `skinnedMotionVectors`
+    and `receiveShadows`, uses `SkinQuality.Bone2` on distant non-followed LOD1/2
+    actors, and updates base materials via zero-alloc `StationVisibilityTarget.SetBaseMaterials`.
+    `GetSharedTonedMaterials` must not re-apply Ghost/Clear opacity when
     `sourceMats` already came from `StationVisibilityTarget`'s `GhostOf`/`ClearOf`
     materials. Tick pose alignment rotates reusable lists with O(N) two-pointer
     merging (zero per-tick dictionary copies) (`StationPerfCrowdHotPathTests`).
   - **Desktop pipeline guardrails:** Keep `GraphicsJobMode.Native` **off** on
     Win64 D3D12 (causes >500 ms sync stalls with `RenderMeshInstanced`/`Texture2D.Apply`),
-    and note `glTF-pbrMetallicRoughness.shadergraph` ships with
-    `m_DOTSInstancing: false` (so URP GPU Resident Drawer skips glTFast meshes).
+    keep `QualitySettings.maxQueuedFrames` at Unity's default (setting `1`
+    serializes Main + Render + GPU and halves FPS), keep D3D12 over `-force-d3d11`
+    (2.7× slower static submission), and note `glTF-pbrMetallicRoughness.shadergraph`
+    ships with `m_DOTSInstancing: false` (so URP GPU Resident Drawer skips glTFast meshes).

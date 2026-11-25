@@ -199,6 +199,7 @@ namespace Metro.App {
         int preBenchmarkRevision = -1;
         double nextAutosaveAt;
         long lastUploadedSequence;
+        int lastUploadFrame = -1;
         int presentedFrames;
         int lastSentWidth;
         int lastSentHeight;
@@ -1000,11 +1001,16 @@ namespace Metro.App {
 
         void UploadLatestSharedFrame() {
             if (shmAccessor == null || surfaceImage == null) return;
+            // Never upload two full-screen BGRA textures in the same Unity frame.
+            int frameNow = Time.frameCount;
+            if (presentedFrames > 0 && lastUploadFrame == frameNow) return;
             int magic = shmAccessor.ReadInt32(0);
             if (magic != ShmMagic) return;
 
             long seq = shmAccessor.ReadInt64(8);
             if (seq <= 0 || seq == lastUploadedSequence) return;
+
+            long t0 = StationBenchmarkRecorder.IsBreakdownProfiling ? Stopwatch.GetTimestamp() : 0;
 
             int slot = shmAccessor.ReadInt32(4);
             if (slot != 0 && slot != 1) return;
@@ -1038,11 +1044,13 @@ namespace Metro.App {
             surfaceTexture.Apply(false, false);
 
             lastUploadedSequence = seq;
+            lastUploadFrame = frameNow;
             presentedFrames++;
             if (presentedFrames == 1 && autosaveInstallAfterPresentFrame < 0) {
                 autosaveInstallAfterPresentFrame = Time.frameCount + 1;
             }
             RefreshCanvasVisibility();
+            if (t0 != 0) StationBenchmarkRecorder.RecordUiUploadTicks(Stopwatch.GetTimestamp() - t0, uploaded: true);
         }
 
         void SyncViewportSize() {
@@ -1427,12 +1435,21 @@ namespace Metro.App {
 
         // ------------------------------------------------------------------ bridge IPC
 
+        readonly StringBuilder bridgeWrapBuilder = new StringBuilder(4096);
+
         void OnHostReplyPublished(string json) {
             if (string.IsNullOrEmpty(json)) return;
-            EnqueueToWorker(new JObject {
-                ["kind"] = "bridge",
-                ["json"] = json,
-            }.ToString(Formatting.None));
+            bridgeWrapBuilder.Clear();
+            using (var sw = new StringWriter(bridgeWrapBuilder, System.Globalization.CultureInfo.InvariantCulture))
+            using (var writer = new JsonTextWriter(sw) { Formatting = Formatting.None }) {
+                writer.WriteStartObject();
+                writer.WritePropertyName("kind");
+                writer.WriteValue("bridge");
+                writer.WritePropertyName("json");
+                writer.WriteValue(json);
+                writer.WriteEndObject();
+            }
+            EnqueueToWorker(bridgeWrapBuilder.ToString());
         }
 
         void DrainIncomingQueues() {
@@ -1453,8 +1470,11 @@ namespace Metro.App {
                 if (autosaveInstallInFlight) return;
             }
             int safety = 0;
+            int executed = 0;
+            long cmdT0 = StationBenchmarkRecorder.IsBreakdownProfiling ? Stopwatch.GetTimestamp() : 0;
             while (safety++ < 64 && incomingCommands.TryDequeue(out string cmdJson)) {
                 if (string.IsNullOrEmpty(cmdJson)) continue;
+                executed++;
                 try {
                     NoteUiThemeCommand(cmdJson);
                     bool wasInBenchmark = StationBenchmarkRecorder.InBenchmarkUi;
@@ -1476,6 +1496,7 @@ namespace Metro.App {
                     UnityEngine.Debug.LogException(ex);
                 }
             }
+            if (cmdT0 != 0 && executed > 0) StationBenchmarkRecorder.RecordCommandTicks(Stopwatch.GetTimestamp() - cmdT0, executed);
         }
 
         void NoteUiThemeCommand(string cmdJson) {

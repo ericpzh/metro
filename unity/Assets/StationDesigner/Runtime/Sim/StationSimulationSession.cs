@@ -762,6 +762,21 @@ namespace Metro.Sim {
         double cachedSnapshotSimTime = double.NaN;
         StationSessionDocument cachedSnapshotDoc;
         StationMotionFrame cachedSnapshot;
+        StationSessionDocument cachedDoorMetaDoc;
+        DoorEdgeMeta[] cachedDoorMeta = Array.Empty<DoorEdgeMeta>();
+
+        readonly struct DoorEdgeMeta {
+            public readonly string PlatformId;
+            public readonly string LineId;
+            public readonly string TrackId;
+            public readonly bool HasServiceTracks;
+            public DoorEdgeMeta(string platformId, string lineId, string trackId, bool hasServiceTracks) {
+                PlatformId = platformId;
+                LineId = lineId;
+                TrackId = trackId;
+                HasServiceTracks = hasServiceTracks;
+            }
+        }
         /// <summary>The bounded crowd/gate/boarding slice (plan 11 C3).</summary>
         readonly StationServiceRuntime services;
         readonly StationWalkGraphOptions walkOptions;
@@ -1758,28 +1773,41 @@ namespace Metro.Sim {
 
         StationDoorFrame[] DoorFrames() {
             if (document == null) return Array.Empty<StationDoorFrame>();
-            var edges = document.ModulesOfType("platform-edge");
-            if (edges.Count == 0) return Array.Empty<StationDoorFrame>();
-            var frames = new StationDoorFrame[edges.Count];
-            for (int i = 0; i < edges.Count; i++) {
-                var edge = edges[i];
-                StationLineFact lineFact = default;
-                bool haveLine = false;
-                for (int l = 0; l < document.Lines.Count; l++) {
-                    if (string.Equals(document.Lines[l].Id, edge.LineId, StringComparison.Ordinal)) {
-                        lineFact = document.Lines[l];
-                        haveLine = true;
-                        break;
+            if (!ReferenceEquals(cachedDoorMetaDoc, document)) {
+                cachedDoorMetaDoc = document;
+                var edges = document.ModulesOfType("platform-edge");
+                if (edges.Count == 0) {
+                    cachedDoorMeta = Array.Empty<DoorEdgeMeta>();
+                } else {
+                    var meta = new DoorEdgeMeta[edges.Count];
+                    for (int i = 0; i < edges.Count; i++) {
+                        var edge = edges[i];
+                        StationLineFact lineFact = default;
+                        bool haveLine = false;
+                        for (int l = 0; l < document.Lines.Count; l++) {
+                            if (string.Equals(document.Lines[l].Id, edge.LineId, StringComparison.Ordinal)) {
+                                lineFact = document.Lines[l];
+                                haveLine = true;
+                                break;
+                            }
+                        }
+                        string resolvedTrackId = StationServiceDoors.OwnerTrackForEdge(document, edge, lineFact, haveLine);
+                        bool hasServiceTracks = StationServiceDoors.ServiceTracks(document, edge.LineId ?? "").Count > 0;
+                        meta[i] = new DoorEdgeMeta(edge.Id, edge.LineId, resolvedTrackId, hasServiceTracks);
                     }
+                    cachedDoorMeta = meta;
                 }
-                string resolvedTrackId = StationServiceDoors.OwnerTrackForEdge(document, edge, lineFact, haveLine);
-                bool hasServiceTracks = StationServiceDoors.ServiceTracks(document, edge.LineId ?? "").Count > 0;
-                var active = !hasServiceTracks || !string.IsNullOrEmpty(resolvedTrackId)
-                    ? ActiveTrain(edge.LineId, resolvedTrackId)
+            }
+            if (cachedDoorMeta.Length == 0) return Array.Empty<StationDoorFrame>();
+            var frames = new StationDoorFrame[cachedDoorMeta.Length];
+            for (int i = 0; i < cachedDoorMeta.Length; i++) {
+                var m = cachedDoorMeta[i];
+                var active = !m.HasServiceTracks || !string.IsNullOrEmpty(m.TrackId)
+                    ? ActiveTrain(m.LineId, m.TrackId)
                     : null;
                 double fraction = active.HasValue ? DoorFractionOf(active.Value.Phase, active.Value.T) : 0;
                 frames[i] = new StationDoorFrame {
-                    PlatformId = edge.Id, LineId = edge.LineId, TrackId = resolvedTrackId,
+                    PlatformId = m.PlatformId, LineId = m.LineId, TrackId = m.TrackId,
                     DoorFraction = fraction, TrainPhase = active?.Phase ?? TrainPhase.None,
                 };
             }

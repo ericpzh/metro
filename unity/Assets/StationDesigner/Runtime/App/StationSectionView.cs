@@ -68,10 +68,12 @@ namespace Metro.App {
         /// <summary>One state write from the command applier; cheap unless the size moved.</summary>
         public void Apply(StationSectionPlane next, bool cutting, bool showSurface, Bounds bounds) {
             EnsureBuilt();
+            bool wasHiddenIdle = !clipping && !cutting && group != null && !group.activeSelf;
             section = next;
             clipping = cutting;
             surfaceVisible = showSurface;
             if (bounds.size.sqrMagnitude > 1e-6f) stationBounds = bounds;
+            if (wasHiddenIdle) return;
             Refresh();
         }
 
@@ -700,6 +702,81 @@ namespace Metro.App {
                 code = "parse-failed:" + error;
                 return false;
             }
+            return ExecuteParsed(command, out code);
+        }
+
+        /// <summary>
+        /// Zero-reparse fast path for already-decoded continuous camera commands (`camera.orbit`,
+        /// `camera.pan`, `camera.zoom`), avoiding <see cref="StationJsonReader"/> allocations on
+        /// every mouse move while preserving exact validation parity.
+        /// </summary>
+        public bool ExecuteCommand(StationCommand command, out string code) {
+            if (Commands == null) { code = "no-station"; return false; }
+            if (command != null && command.Payload != null) {
+                switch (command.Type) {
+                    case "camera.orbit": {
+                        if (!TryReadFiniteFloat(command.Payload["dx"], out float dx) ||
+                            !TryReadFiniteFloat(command.Payload["dy"], out float dy)) {
+                            code = "parse-failed:bad-orbit";
+                            return false;
+                        }
+                        float scale = 0f;
+                        if (TryReadFiniteFloat(command.Payload["scale"], out float parsedScale) && parsedScale > 0f) {
+                            scale = parsedScale;
+                        }
+                        if (Visibility.State.FollowPassenger >= 0) {
+                            eyeYaw -= dx * .003f;
+                            eyePitch = Mathf.Clamp(eyePitch - dy * .003f, -1.56f, 1.56f);
+                            code = null;
+                            return true;
+                        }
+                        Commands.Camera.OrbitByPixels(dx, dy, scale > 0f ? scale : StationCameraMath.OrbitRadiansPerPixel);
+                        Commands.ApplyCamera();
+                        code = null;
+                        return true;
+                    }
+                    case "camera.pan": {
+                        if (!TryReadFiniteFloat(command.Payload["dx"], out float dx) ||
+                            !TryReadFiniteFloat(command.Payload["dy"], out float dy)) {
+                            code = "parse-failed:bad-pan";
+                            return false;
+                        }
+                        Commands.Camera.PanByPixels(dx, dy, Commands.ViewportHeight);
+                        Commands.ApplyCamera();
+                        code = null;
+                        return true;
+                    }
+                    case "camera.zoom": {
+                        if (TryReadFiniteFloat(command.Payload["delta"], out float delta)) {
+                            Commands.Camera.ZoomByWheel(delta);
+                            Commands.ApplyCamera();
+                            code = null;
+                            return true;
+                        }
+                        if (TryReadFiniteFloat(command.Payload["factor"], out float factor) && factor > 0f) {
+                            Commands.Camera.ZoomBy(factor);
+                            Commands.ApplyCamera();
+                            code = null;
+                            return true;
+                        }
+                        code = "parse-failed:bad-zoom";
+                        return false;
+                    }
+                }
+            }
+            return Execute(command != null ? command.Raw : "", out code);
+        }
+
+        static bool TryReadFiniteFloat(JToken token, out float value) {
+            value = 0f;
+            if (token == null || (token.Type != JTokenType.Float && token.Type != JTokenType.Integer)) return false;
+            float parsed = (float)(double)token;
+            if (float.IsNaN(parsed) || float.IsInfinity(parsed)) return false;
+            value = parsed;
+            return true;
+        }
+
+        bool ExecuteParsed(StationViewCommand command, out string code) {
             if (Visibility.State.FollowPassenger >= 0 && command.Type == StationViewCommandType.Orbit) {
                 eyeYaw -= command.Dx * .003f;
                 eyePitch = Mathf.Clamp(eyePitch - command.Dy * .003f, -1.56f, 1.56f);
@@ -714,14 +791,21 @@ namespace Metro.App {
                 RefreshSection();
             }
             Commands.ApplyCamera();
-            SyncSky();
-            MarkDirty();
+            bool isContinuousCamera =
+                command.Type == StationViewCommandType.Orbit ||
+                command.Type == StationViewCommandType.Pan ||
+                command.Type == StationViewCommandType.Zoom;
+            if (!isContinuousCamera) {
+                SyncSky();
+                MarkDirty();
+            }
             code = null;
             return true;
         }
 
         public void Tick(float deltaSeconds) {
             if (!configured || Commands == null) return;
+            long rigT0 = StationBenchmarkRecorder.IsBreakdownProfiling ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
             var exploded = StationViewFeature.ActiveExploded;
             bool explodedOwnsCamera = exploded != null && exploded.IsOpen;
             if (!explodedOwnsCamera) {
@@ -754,17 +838,96 @@ namespace Metro.App {
                 overlays.SetView(Commands.Zones, Commands.Density, Commands.Camera.ActiveLevel);
                 overlays.Tick(deltaSeconds);
             }
-            if (!dirty) return;
-            dirty = false;
-            RefreshSection();
+            if (dirty) {
+                dirty = false;
+                RefreshSection();
+            }
+            if (rigT0 != 0) StationBenchmarkRecorder.RecordViewRigTicks(System.Diagnostics.Stopwatch.GetTimestamp() - rigT0);
         }
 
         public string SnapshotJson() => Commands?.SnapshotJson() ?? "{\"camera\":null,\"view\":null}";
 
         /// <summary>The snapshot as JSON objects, for the host's `camera`/`view` contributors.</summary>
         public JObject SnapshotObject() {
-            try { return JObject.Parse(SnapshotJson()); } catch (Exception) { return new JObject(); }
+            if (Commands == null) return new JObject();
+            return new JObject {
+                ["camera"] = BuildCameraPayload(),
+                ["view"] = BuildViewPayload(),
+                ["capabilities"] = BuildCapabilitiesPayload(),
+            };
         }
+
+        /// <summary>Direct `camera` JObject without StringBuilder → JObject.Parse round-trip.</summary>
+        public JObject BuildCameraPayload(bool includeSequence = false) {
+            if (Commands == null) return null;
+            var snapshot = Commands.Camera.Snapshot(Commands.ViewCamera);
+            var obj = new JObject {
+                ["position"] = VectorArrayJson(snapshot.Position),
+                ["target"] = VectorArrayJson(snapshot.Target),
+                ["right"] = VectorArrayJson(snapshot.Right),
+                ["up"] = VectorArrayJson(snapshot.Up),
+                ["back"] = VectorArrayJson(snapshot.Back),
+                ["fov"] = CleanFloat(snapshot.Fov),
+                ["ortho"] = snapshot.IsOrthographic,
+                ["level"] = snapshot.ActiveLevel,
+                ["orthoSize"] = CleanFloat(snapshot.OrthoSize),
+                ["distance"] = CleanFloat(snapshot.Distance),
+            };
+            if (includeSequence) obj["sequence"] = CameraPoseSequence;
+            return obj;
+        }
+
+        /// <summary>Direct `view` JObject without StringBuilder → JObject.Parse round-trip.</summary>
+        public JObject BuildViewPayload() {
+            if (Commands == null) return null;
+            var state = Commands.Visibility.State;
+            var sec = Commands.Section;
+            return new JObject {
+                ["level"] = state.ActiveLevel,
+                ["showLevels"] = state.ShowLevels,
+                ["ceiling"] = state.AutoCeiling,
+                ["walls"] = state.HideWalls,
+                ["ground"] = state.HideGround,
+                ["roof"] = state.HideRoof,
+                ["hideUi"] = state.HideUi,
+                ["levelRail"] = Commands.LevelRail,
+                ["cutaway"] = state.Cutaway,
+                ["exploded"] = state.Exploded,
+                ["density"] = state.Density,
+                ["zones"] = state.Zones,
+                ["section"] = new JObject {
+                    ["anchor"] = VectorArrayJson(sec.Anchor),
+                    ["azimuth"] = CleanFloat(sec.Azimuth),
+                    ["offset"] = CleanFloat(sec.Offset),
+                },
+                ["sectionSurface"] = Commands.SectionSurfaceVisible,
+                ["followPassenger"] = state.FollowPassenger,
+                ["theme"] = Commands.Theme ?? "blueprint",
+            };
+        }
+
+        /// <summary>Direct `capabilities` JObject matching <see cref="StationViewCapabilities.AppendJson"/>.</summary>
+        public JObject BuildCapabilitiesPayload() {
+            if (Commands == null) return new JObject();
+            Commands.Capabilities.SectionShaderPlane = Commands.Visibility.SectionShaderSupported;
+            Commands.Capabilities.ExplodedDrag = Commands.ExplodedHandler != null;
+            var c = Commands.Capabilities;
+            return new JObject {
+                ["sectionBoundsCull"] = c.SectionBoundsCull,
+                ["sectionShaderPlane"] = c.SectionShaderPlane,
+                ["densityOverlay"] = c.DensityOverlay,
+                ["zoneOverlay"] = c.ZoneOverlay,
+                ["passengerFollow"] = c.PassengerFollow,
+                ["explodedOffsets"] = c.ExplodedOffsets,
+                ["explodedDrag"] = c.ExplodedDrag,
+                ["levelRailGeometry"] = c.LevelRailGeometry,
+            };
+        }
+
+        static float CleanFloat(float v) => float.IsNaN(v) || float.IsInfinity(v) ? 0f : v;
+
+        static JArray VectorArrayJson(Vector3 value) =>
+            new JArray(CleanFloat(value.x), CleanFloat(value.y), CleanFloat(value.z));
 
         int eyePassenger = -1;
         float eyeYaw, eyePitch, orbitNear;
@@ -864,14 +1027,17 @@ namespace Metro.App {
         /// really uses; the pose is skipped when nothing moved, so an idle station sends
         /// nothing and a held pan cannot flood the bridge with identical updates.
         /// </summary>
+        internal Action<StationCameraSnapshot, long> FastCameraPosePublished;
+
         void PublishCameraPose() {
-            if (CameraPosePublished == null || Commands == null || Commands.ViewCamera == null) return;
+            if ((CameraPosePublished == null && FastCameraPosePublished == null) || Commands == null || Commands.ViewCamera == null) return;
             var pose = Commands.Camera.Snapshot(Commands.ViewCamera);
             if (hasPublishedPose && SamePose(pose, lastPublishedPose)) return;
             lastPublishedPose = pose;
             hasPublishedPose = true;
             CameraPoseSequence++;
-            CameraPosePublished(PoseJson(pose, CameraPoseSequence), CameraPoseSequence);
+            FastCameraPosePublished?.Invoke(pose, CameraPoseSequence);
+            CameraPosePublished?.Invoke(PoseJson(pose, CameraPoseSequence), CameraPoseSequence);
         }
 
         static bool SamePose(in StationCameraSnapshot a, in StationCameraSnapshot b) =>
@@ -980,7 +1146,8 @@ namespace Metro.App {
             // Plan 29 §5: the rendered pose travels to the shell on every frame that moves the
             // camera, so the ViewCube follows at camera cadence rather than the state interval.
             rig.CameraPosePublished -= stationHost.PublishCameraPose;
-            rig.CameraPosePublished += stationHost.PublishCameraPose;
+            rig.FastCameraPosePublished -= stationHost.PublishCameraPoseFast;
+            rig.FastCameraPosePublished += stationHost.PublishCameraPoseFast;
             if (stationHost.Coordinator != null) {
                 stationHost.Coordinator.Committed += OnCommitted;
                 stationHost.Coordinator.WorldRestored += OnWorldRestored;
@@ -1380,11 +1547,9 @@ namespace Metro.App {
         public string Key => "camera";
         public JObject BuildPayload(StationDocument document, StationIndex index) {
             if (rig == null || !rig.Configured) return null;
-            var camera = rig.SnapshotObject()["camera"] as JObject;
             // The state camera is the same pose the per-frame channel publishes; its sequence
             // lets the shell keep whichever arrived last (plan 29 §5).
-            if (camera != null) camera["sequence"] = rig.CameraPoseSequence;
-            return camera;
+            return rig.BuildCameraPayload(includeSequence: true);
         }
     }
 
@@ -1396,6 +1561,34 @@ namespace Metro.App {
     /// never built".
     /// </summary>
     public sealed class StationRenderStateContributor : IStationStateContributor {
+        Light[] cachedDirectionalLights;
+        int cachedLightsEpoch = int.MinValue;
+        double cachedLightsAt = -100.0;
+
+        Light[] ResolveDirectionalLights() {
+            int epoch = StationGameHost.Active != null ? StationGameHost.Active.StationEpoch : -1;
+            double now = Time.unscaledTimeAsDouble;
+            if (cachedDirectionalLights != null && cachedLightsEpoch == epoch && (now - cachedLightsAt) < 5.0) {
+                bool valid = true;
+                for (int i = 0; i < cachedDirectionalLights.Length; i++) {
+                    if (cachedDirectionalLights[i] == null || !cachedDirectionalLights[i].gameObject.activeInHierarchy) {
+                        valid = false;
+                        break;
+                    }
+                }
+                if (valid) return cachedDirectionalLights;
+            }
+            var found = UnityEngine.Object.FindObjectsByType<Light>(FindObjectsInactive.Exclude);
+            var directional = new List<Light>(found.Length);
+            for (int i = 0; i < found.Length; i++) {
+                if (found[i] != null && found[i].type == LightType.Directional) directional.Add(found[i]);
+            }
+            cachedDirectionalLights = directional.ToArray();
+            cachedLightsEpoch = epoch;
+            cachedLightsAt = now;
+            return cachedDirectionalLights;
+        }
+
         public string Key => "render";
         public JObject BuildPayload(StationDocument document, StationIndex index) {
             var payload = new JObject();
@@ -1453,8 +1646,10 @@ namespace Metro.App {
                     ["shaderSupported"] = StationSkySystem.FindShader() != null,
                 };
             var lights = new JArray();
-            foreach (var light in UnityEngine.Object.FindObjectsByType<Light>(FindObjectsInactive.Exclude)) {
-                if (light.type != LightType.Directional) continue;
+            var directionalLights = ResolveDirectionalLights();
+            for (int i = 0; i < directionalLights.Length; i++) {
+                var light = directionalLights[i];
+                if (light == null || light.type != LightType.Directional) continue;
                 lights.Add(new JObject {
                     ["name"] = light.name,
                     ["intensity"] = light.intensity,
@@ -1473,12 +1668,9 @@ namespace Metro.App {
         public string Key => "view";
         public JObject BuildPayload(StationDocument document, StationIndex index) {
             if (rig == null || !rig.Configured) return null;
-            var snapshot = rig.SnapshotObject();
-            var view = snapshot["view"] as JObject;
+            var view = rig.BuildViewPayload();
             if (view == null) return null;
-            if (snapshot["capabilities"] is JObject viewCaps) {
-                view["capabilities"] = viewCaps;
-            }
+            view["capabilities"] = rig.BuildCapabilitiesPayload();
             // 20 §6: the drag's own readout rides the published view state, so the shell mirrors
             // the committed offset instead of inventing one and a verifier can see the frozen axis.
             var handle = StationSectionDrag.Snapshot(null);
@@ -1542,7 +1734,7 @@ namespace Metro.App {
                 rejectReason = "No committed station camera is installed.";
                 return false;
             }
-            if (!rig.Execute(command != null ? command.Raw : "", out string code)) {
+            if (!rig.ExecuteCommand(command, out string code)) {
                 rejectCode = string.IsNullOrEmpty(code) ? "camera-failed" : code;
                 rejectReason = "The camera command was refused.";
                 return false;
@@ -1553,9 +1745,22 @@ namespace Metro.App {
             // coalesced pointer move re-plans anyway and a pick per delta would flood the frame
             // (plan 27 §2: "camera/view/storey changes").
             if (command != null && RefreshesHover(command.Type)) StationPointerRouter.RefreshHover(host);
+            // Continuous orbit/pan/zoom deliver the authoritative rendered pose on the
+            // per-frame `kind: "camera"` channel (`StationViewRig.Tick` -> `PublishCameraPose`);
+            // omitting `camera`/`view` from the ack prevents waking every React `useSyncExternalStore`
+            // subscriber 60x/s during a camera swing while discrete camera commands keep full acks.
+            if (command != null && IsContinuousCameraCommand(command.Type)) {
+                if (payload != null && host != null) payload["revision"] = host.CurrentRevision;
+                return true;
+            }
             StationViewResponses.Fill(rig, host, payload);
             return true;
         }
+
+        static bool IsContinuousCameraCommand(string type) =>
+            string.Equals(type, "camera.orbit", StringComparison.Ordinal) ||
+            string.Equals(type, "camera.pan", StringComparison.Ordinal) ||
+            string.Equals(type, "camera.zoom", StringComparison.Ordinal);
 
         static bool RefreshesHover(string type) =>
             string.Equals(type, "camera.snap", StringComparison.Ordinal) ||
@@ -1631,23 +1836,19 @@ namespace Metro.App {
     static class StationViewResponses {
         public static void Fill(StationViewRig rig, StationGameHost host, JObject payload) {
             if (payload == null || rig == null) return;
-            var state = rig.SnapshotObject();
-            payload["camera"] = state["camera"] ?? JValue.CreateNull();
-            // The ack's camera is the pose this very command applied: tag it with the rig's
-            // sequence so the shell can accept it ahead of the next frame's pose and ignore an
-            // older state reply that arrives late (plan 29 §5).
-            if (payload["camera"] is JObject camera) camera["sequence"] = rig.CameraPoseSequence;
-            payload["view"] = state["view"] ?? JValue.CreateNull();
+            var camera = rig.BuildCameraPayload(includeSequence: true);
+            payload["camera"] = camera != null ? (JToken)camera : JValue.CreateNull();
+            var view = rig.BuildViewPayload();
+            var caps = rig.BuildCapabilitiesPayload();
+            payload["view"] = view != null ? (JToken)view : JValue.CreateNull();
             // 20 §6: the drag's own readout rides the view state, so the shell can mirror the
             // committed offset without inventing one, and a verifier can see the frozen axis.
-            if (payload["view"] is JObject view) {
-                if (state["capabilities"] is JObject viewCaps) {
-                    view["capabilities"] = viewCaps.DeepClone();
-                }
-                view["sectionHandle"] = StationSectionDrag.Snapshot(view["sectionHandle"]?["part"]?.ToString());
+            if (view != null) {
+                view["capabilities"] = rig.BuildCapabilitiesPayload();
+                view["sectionHandle"] = StationSectionDrag.Snapshot(null);
                 view["sectionOffset"] = rig.SectionOffset;
             }
-            payload["capabilities"] = state["capabilities"] ?? new JObject();
+            payload["capabilities"] = caps ?? new JObject();
             payload["level"] = rig.Commands != null ? rig.Commands.Camera.ActiveLevel : 0;
             if (host != null) payload["revision"] = host.CurrentRevision;
         }

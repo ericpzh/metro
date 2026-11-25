@@ -1,8 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
+using System.Text;
 using Metro.App;
 using Metro.Sim;
 using Metro.View;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using UnityEngine;
 
@@ -146,6 +150,106 @@ namespace Metro.App.Views {
                 published.Alighted,
                 published.Exited,
                 published.Stuck);
+        }
+
+        /// <summary>
+        /// Zero-JObject streaming JSON writer matching <see cref="Build(StationPublishedSimFrame)"/>
+        /// field-for-field so 10 Hz state publishes avoid thousands of temporary JObject/JArray allocations.
+        /// </summary>
+        public static string BuildJson(StationPublishedSimFrame published, StringBuilder scratch = null) {
+            if (published == null || !published.HasServices) return null;
+            var frames = published.Motion.Passengers ?? Array.Empty<StationPassengerFrame>();
+            var gates = published.Motion.Gates ?? Array.Empty<StationGateFrame>();
+            int limit = published.PublishedPassengerLimit;
+            var catalogue = PassengerCatalogueAnchor.Resolve();
+            int publishedCount = limit <= 0 ? frames.Length : Math.Min(frames.Length, limit);
+            var crowdRenderer = PassengerCrowdRenderer.Current;
+            int boundModels = crowdRenderer != null ? crowdRenderer.Spawned : 0;
+            int visibleActors = crowdRenderer != null ? crowdRenderer.VisibleActors : 0;
+            int poseSamples = crowdRenderer != null ? crowdRenderer.LastPoseSamples : 0;
+            int presented = crowdRenderer != null ? crowdRenderer.LastPresentedPoses : 0;
+
+            var sb = scratch ?? new StringBuilder(8192);
+            sb.Clear();
+            int eligible = 0;
+            using (var sw = new StringWriter(sb, CultureInfo.InvariantCulture))
+            using (var w = new JsonTextWriter(sw) { Formatting = Formatting.None }) {
+                w.WriteStartObject();
+                w.WritePropertyName("passengersTotal"); w.WriteValue(frames.Length);
+                w.WritePropertyName("published"); w.WriteValue(publishedCount);
+                w.WritePropertyName("queued"); w.WriteValue(published.QueuedTotal);
+                w.WritePropertyName("gateQueue"); w.WriteValue(published.GateQueueTotal);
+                w.WritePropertyName("boarding"); w.WriteValue(published.BoardedOnboard);
+                w.WritePropertyName("spawned"); w.WriteValue(published.Spawned);
+                w.WritePropertyName("boarded"); w.WriteValue(published.Boarded);
+                w.WritePropertyName("alighted"); w.WriteValue(published.Alighted);
+                w.WritePropertyName("exited"); w.WriteValue(published.Exited);
+                w.WritePropertyName("stuck"); w.WriteValue(published.Stuck);
+                w.WritePropertyName("catalogue");
+                w.WriteStartObject();
+                w.WritePropertyName("bound"); w.WriteValue(catalogue != null);
+                w.WritePropertyName("count"); w.WriteValue(catalogue != null ? catalogue.Count : 0);
+                w.WritePropertyName("rights"); w.WriteValue(catalogue != null ? catalogue.rights ?? "" : "");
+                w.WriteEndObject();
+                w.WritePropertyName("passengers");
+                w.WriteStartArray();
+                for (int i = 0; i < publishedCount; i++) {
+                    var frame = frames[i];
+                    var look = catalogue != null ? PassengerAppearance.Look(catalogue, frame.SimId) : default;
+                    if (catalogue != null && catalogue.TryGetForSimId(frame.SimId, out _)) eligible++;
+                    w.WriteStartObject();
+                    w.WritePropertyName("id"); w.WriteValue(frame.SimId);
+                    w.WritePropertyName("x"); w.WriteValue(frame.X);
+                    w.WritePropertyName("y"); w.WriteValue(frame.Y);
+                    w.WritePropertyName("z"); w.WriteValue(frame.Z);
+                    w.WritePropertyName("heading"); w.WriteValue(frame.Heading);
+                    w.WritePropertyName("activity"); w.WriteValue(StationServiceText.ActivityText(frame.Activity));
+                    w.WritePropertyName("activitySeconds"); w.WriteValue(frame.ActivitySeconds);
+                    w.WritePropertyName("walkDistance"); w.WriteValue(frame.WalkDistance);
+                    w.WritePropertyName("walkPhase"); w.WriteValue(frame.WalkPhase);
+                    w.WritePropertyName("walkWeight"); w.WriteValue(frame.WalkWeight);
+                    w.WritePropertyName("state"); w.WriteValue(StationServiceText.PassengerStateText(frame.State));
+                    w.WritePropertyName("server"); w.WriteValue(frame.ServerId ?? "");
+                    w.WritePropertyName("visible"); w.WriteValue(frame.Visible);
+                    w.WritePropertyName("recipe"); w.WriteValue(look.Recipe ?? "");
+                    w.WritePropertyName("child"); w.WriteValue(look.IsChild);
+                    w.WriteEndObject();
+                }
+                w.WriteEndArray();
+                w.WritePropertyName("models");
+                w.WriteStartObject();
+                w.WritePropertyName("samples"); w.WriteValue(poseSamples);
+                w.WritePropertyName("published"); w.WriteValue(presented);
+                w.WritePropertyName("eligible"); w.WriteValue(eligible);
+                w.WritePropertyName("bound"); w.WriteValue(boundModels);
+                w.WritePropertyName("visible"); w.WriteValue(visibleActors);
+                w.WritePropertyName("reason");
+                w.WriteValue(catalogue == null
+                    ? "passenger-catalogue-missing"
+                    : eligible == 0 ? "no-eligible-recipe" : "");
+                w.WriteEndObject();
+                w.WritePropertyName("gates");
+                w.WriteStartArray();
+                for (int i = 0; i < gates.Length; i++) {
+                    var gate = gates[i];
+                    w.WriteStartObject();
+                    w.WritePropertyName("id"); w.WriteValue(gate.Id);
+                    w.WritePropertyName("server"); w.WriteValue(gate.Server);
+                    w.WritePropertyName("queue"); w.WriteValue(gate.Queue);
+                    w.WritePropertyName("served"); w.WriteValue(gate.Served);
+                    w.WritePropertyName("rate"); w.WriteValue(gate.Rate);
+                    w.WritePropertyName("batch"); w.WriteValue(gate.Batch);
+                    w.WritePropertyName("cycle"); w.WriteValue(gate.Cycle);
+                    w.WritePropertyName("state"); w.WriteValue(StationServiceText.GateStateText(gate.State));
+                    w.WritePropertyName("mode"); w.WriteValue(StationServiceText.GateModeText(gate.Mode));
+                    w.WritePropertyName("lane"); w.WriteValue(gate.Lane);
+                    w.WritePropertyName("open"); w.WriteValue(gate.Open);
+                    w.WriteEndObject();
+                }
+                w.WriteEndArray();
+                w.WriteEndObject();
+            }
+            return sb.ToString();
         }
 
         /// <summary>The bounded crowd payload for one session, or null when there is none.</summary>

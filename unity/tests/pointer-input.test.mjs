@@ -482,3 +482,55 @@ test('the camera refuses the second press of a left/right chord, whatever the bu
     }
   }
 })
+
+test('middle-drag orbit and unclaimed right-drag pan suppress tool pointer.move hover picks', () => {
+  const canvas = new FakeCanvas()
+  const toolCommands = []
+  const cameraCommands = []
+  const frames = installFrames()
+  let rightClaimed = false
+  const detachTool = attachCanvasToolPointer(canvas, { send: command => toolCommands.push(command) }, {
+    claimsRight: () => rightClaimed,
+  })
+  const detachCamera = attachCanvasCameraGestures(canvas, { send: command => cameraCommands.push(command) }, {
+    claimsRight: () => rightClaimed,
+  })
+  try {
+    // 1. Middle-drag orbit: no pointer.move should reach Unity while middle button is held.
+    canvas.dispatch('pointermove', pointerEvent({ button: -1, buttons: 0, clientX: 90, clientY: 90 }))
+    // Even a pending hover rAF scheduled right before middle-down is cancelled.
+    canvas.dispatch('pointerdown', pointerEvent({ button: 1, buttons: 4, clientX: 100, clientY: 100 }))
+    canvas.dispatch('pointermove', pointerEvent({ button: -1, buttons: 4, clientX: 160, clientY: 120 }))
+    canvas.dispatch('pointermove', pointerEvent({ button: -1, buttons: 4, clientX: 220, clientY: 140 }))
+    frames.flush()
+    assert.equal(toolCommands.length, 0, 'middle-drag orbit emits zero pointer.move picks')
+    assert.equal(cameraCommands.filter(c => c.type === 'camera.orbit').length, 2)
+    canvas.dispatch('pointerup', pointerEvent({ button: 1, buttons: 0, clientX: 220, clientY: 140 }))
+
+    // 2. Unclaimed right-drag pan: also emits zero pointer.move picks.
+    canvas.dispatch('pointerdown', pointerEvent({ button: 2, buttons: 2, clientX: 200, clientY: 200 }))
+    canvas.dispatch('pointermove', pointerEvent({ button: -1, buttons: 2, clientX: 240, clientY: 210 }))
+    frames.flush()
+    assert.equal(toolCommands.length, 0, 'unclaimed right-drag pan emits zero pointer.move picks')
+    assert.equal(cameraCommands.filter(c => c.type === 'camera.pan').length, 1)
+    canvas.dispatch('pointerup', pointerEvent({ button: 2, buttons: 0, clientX: 240, clientY: 210 }))
+
+    // 3. Hover resumes normally after camera drag finishes.
+    canvas.dispatch('pointermove', pointerEvent({ button: -1, buttons: 0, clientX: 250, clientY: 220 }))
+    frames.flush()
+    assert.deepEqual(types(toolCommands), ['pointer.move'], 'hover resumes after release')
+
+    // 4. Claimed right-drag erase keeps emitting pointer.move.
+    toolCommands.length = 0
+    rightClaimed = true
+    canvas.dispatch('pointerdown', pointerEvent({ button: 2, buttons: 2, clientX: 260, clientY: 220 }))
+    canvas.dispatch('pointermove', pointerEvent({ button: -1, buttons: 2, clientX: 280, clientY: 220 }))
+    frames.flush()
+    assert.deepEqual(types(toolCommands), ['pointer.down', 'pointer.move'], 'claimed right-erase keeps drag moves')
+    canvas.dispatch('pointerup', pointerEvent({ button: 2, buttons: 0, clientX: 280, clientY: 220 }))
+  } finally {
+    frames.restore()
+    detachCamera()
+    detachTool()
+  }
+})

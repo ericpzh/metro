@@ -3562,8 +3562,10 @@ namespace Metro.App.Views {
         void LateUpdate() {
             if (!Application.isPlaying) return;
             if (PauseDuringExplodedView && StationExplodedView.IsStandaloneActive) return;
+            long escT0 = StationBenchmarkRecorder.IsBreakdownProfiling ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
             var cam = StationViewFeature.Active?.viewCamera ?? Camera.main;
             Submit(cam, submitToGpu: true);
+            if (escT0 != 0) StationBenchmarkRecorder.RecordEscalatorTicks(System.Diagnostics.Stopwatch.GetTimestamp() - escT0);
         }
 
         /// <summary>Build the per-material draw buckets without submitting GPU draw calls (for deterministic tests).</summary>

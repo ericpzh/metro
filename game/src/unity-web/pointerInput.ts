@@ -71,7 +71,11 @@ const TOUCH_TAP_PX = 8
 /** `MouseEvent.buttons` bit for the primary button. */
 const LEFT_BIT = BUTTON_BIT.left
 /** `MouseEvent.buttons` bit for the secondary button. */
-const RIGHT_BIT = BUTTON_BIT.right/**
+const RIGHT_BIT = BUTTON_BIT.right
+/** `MouseEvent.buttons` bit for the middle button (camera orbit). */
+const MIDDLE_BIT = BUTTON_BIT.middle
+
+/**
  * Attach the tool pointer stream to the Unity canvas. Returns the detach function.
  *
  * A move is coalesced to one send per animation frame (the latest position wins), so a
@@ -235,7 +239,11 @@ export function attachCanvasToolPointer(
       try { canvas.setPointerCapture(event.pointerId) } catch { /* inside-canvas tap still works */ }
       return
     }
-    if (event.button === DOM_BUTTON.middle) return
+    if (event.button === DOM_BUTTON.middle) {
+      pending = null
+      if (frame) { cancelAnimationFrame(frame); frame = 0 }
+      return
+    }
     if (!isBuildButton(event.button)) return
     if (blocked()) return
     if (isMouseLike(event)) {
@@ -298,6 +306,20 @@ export function attachCanvasToolPointer(
       // The owning button went up without a `pointerup` (capture loss, OS gesture): a
       // release nobody made must never commit the gesture, so the press is cancelled.
       if ((event.buttons & ownerBit) === 0) { cancelChord(); return }
+    }
+    // Suppress tool hover picks during active camera gestures (middle-drag orbit and
+    // unclaimed right-drag pan): the camera adapter owns those drags and sending
+    // `pointer.move` on every frame would trigger full scene raycasts mid-swing.
+    if (isMouseLike(event) && !toolPressed) {
+      const cameraOrbitHeld = (event.buttons & MIDDLE_BIT) !== 0
+      const cameraPanHeld =
+        (downButton === DOM_BUTTON.right && !toolOwnsRight) ||
+        (downButton === -1 && (event.buttons & RIGHT_BIT) !== 0 && !claimsRight())
+      if (cameraOrbitHeld || cameraPanHeld) {
+        pending = null
+        if (frame) { cancelAnimationFrame(frame); frame = 0 }
+        return
+      }
     }
     schedule(event)
   }

@@ -660,13 +660,17 @@ export function reduce(current: StationSnapshot, reply: Reply): StationSnapshot 
   if (kind === 'ack' || kind === 'reject') {
     const nextRev = revision > current.revision ? revision : current.revision
     const code = reply.code ?? (kind === 'ack' ? 'ok' : 'rejected')
-    const next: StationSnapshot = { ...current, revision: nextRev }
     // The camera and view a camera/view command just applied ride its ack, so the shell no
     // longer has to wait for the next 100 ms state interval to hear the result (plan 29 §5).
     const camera = payload.camera
     const view = payload.view
     const edit = payload.edit
-    if (kind === 'ack' && (camera !== undefined || view !== undefined || edit !== undefined)) {
+    const hasStateUpdate = kind === 'ack' && (camera !== undefined || view !== undefined || edit !== undefined)
+    if (kind === 'ack' && !hasStateUpdate && nextRev === current.revision) {
+      return current
+    }
+    const next: StationSnapshot = { ...current, revision: nextRev }
+    if (hasStateUpdate) {
       const state: Record<string, unknown> = { ...current.state }
       if (camera !== undefined) state.camera = camera
       if (view !== undefined) state.view = view

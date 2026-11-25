@@ -121,8 +121,15 @@ npm run build:unity:msix -- [--version 1.0.0.0] [--dev-sign]
   `snapshot.revision`) for `stats.history`, `graphics.get`/`graphics.set`,
   `benchmark.*`, `station.save`, and `edit.cancel`; `reduce()` folds `payload.edit`
   immediately on `kind === "ack"` so Move/Select/Eyedropper UI adoption does not
-  wait for the next 10 Hz `state` heartbeat. High-frequency `kind: "camera"` poses
-  and `kind: "audio"` cues/ambience bypass the snapshot reducer entirely.
+  wait for the next 10 Hz `state` heartbeat, and returns `current` unchanged for
+  empty revision-unchanged `ack` frames (so continuous `camera.orbit`/`pan`/`zoom`
+  fast-path minimal `{ revision }` acks never wake React subscribers).
+  `pointerInput.ts` suppresses `pointer.move` during middle-drag orbit and
+  unclaimed right-drag pan (cancelling queued hover rAF on middle-down),
+  `StationDesktopUiPresenter` caps `UploadLatestSharedFrame()` to once per
+  `Time.frameCount` with zero-`JObject` reply streaming, and high-frequency
+  `kind: "camera"` poses and `kind: "audio"` cues/ambience bypass the snapshot
+  reducer entirely.
 - **One React tree & one overlay canvas:** `mountUnityUI` tears down any prior `activeShell`
   before mounting; `StationDesktopUiPresenter` owns the single `StationDesktopUiCanvas`
   (`DestroyOtherCanvases`, `OverlayCanvasCount()`).

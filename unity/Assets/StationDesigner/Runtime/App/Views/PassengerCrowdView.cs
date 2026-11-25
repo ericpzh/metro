@@ -590,8 +590,14 @@ namespace Metro.App.Views {
         readonly Dictionary<(Material[] baseArray, int toneBucket, StationDrawMode mode), Material[]> tonedArrayCache =
             new Dictionary<(Material[], int, StationDrawMode), Material[]>();
         const int MaxSteadyAnimationSamplesPerFrame = 96;
+        const int MaxInitialAnimationSamplesPerFrame = 128;
+        const int MaxLodMeshSwapsPerFrame = 48;
+        const int MaxNewSpawnsPerFrame = 24;
         static int globalSamplesFrame = -1;
         static int globalSteadySamplesBudgetLeft;
+        static int globalLodSwapsBudgetLeft;
+        static int globalNewSpawnsBudgetLeft;
+        static int animationRoundRobinOffset;
         readonly List<Matrix4x4> contactShadowMatrices = new List<Matrix4x4>();
         Matrix4x4[] contactShadowSlice;
         Material contactShadowMaterial;
@@ -605,6 +611,21 @@ namespace Metro.App.Views {
         /// Null in production (uses the active view/exploded camera while playing).
         /// </summary>
         public Camera FrustumCameraOverride { get; set; }
+        /// <summary>
+        /// Optional per-frame animation sample budget override for deterministic EditMode tests.
+        /// Null uses <see cref="MaxSteadyAnimationSamplesPerFrame"/> in PlayMode and unlimited in EditMode.
+        /// </summary>
+        public int? AnimationSampleBudgetOverride { get; set; }
+        /// <summary>
+        /// Optional per-frame LOD mesh swap budget override for deterministic EditMode tests.
+        /// Null uses <see cref="MaxLodMeshSwapsPerFrame"/> in PlayMode and unlimited in EditMode.
+        /// </summary>
+        public int? LodSwapBudgetOverride { get; set; }
+        /// <summary>
+        /// Optional per-frame cold prefab instantiation budget override for deterministic tests.
+        /// Null uses <see cref="MaxNewSpawnsPerFrame"/> in PlayMode and unlimited in EditMode.
+        /// </summary>
+        public int? NewSpawnBudgetOverride { get; set; }
         PassengerCatalogue catalogue;
         StationWorldView world;
         PassengerSupportResolver supportResolver;
@@ -615,6 +636,7 @@ namespace Metro.App.Views {
         public int VisibleActors { get; private set; }
         public int PosedThisFrame { get; private set; }
         public int SampledThisFrame { get; private set; }
+        public int LodSwapsThisFrame { get; private set; }
         public int SkippedHiddenAnimationThisFrame { get; private set; }
         public int SkippedUnchangedAnimationThisFrame { get; private set; }
         public int FrustumCulledThisFrame { get; private set; }
@@ -714,6 +736,7 @@ namespace Metro.App.Views {
             if (checkGone) seen.Clear();
             PosedThisFrame = 0;
             SampledThisFrame = 0;
+            LodSwapsThisFrame = 0;
             SkippedHiddenAnimationThisFrame = 0;
             SkippedUnchangedAnimationThisFrame = 0;
             FrustumCulledThisFrame = 0;
@@ -724,15 +747,17 @@ namespace Metro.App.Views {
                 ? overrideCam
                 : (StationExplodedView.IsStandaloneActive
                     ? StationViewFeature.ActiveExploded?.ViewerCamera : cam);
-            bool hasCam = Application.isPlaying && cam != null;
-            Vector3 camPos = hasCam ? cam.transform.position : Vector3.zero;
+            bool hasCam = (Application.isPlaying || overrideCam != null) && lodCamera != null;
+            Vector3 camPos = hasCam ? lodCamera.transform.position : Vector3.zero;
             var lodParams = new LodCameraParams(lodCamera);
             bool hasFrustum = (Application.isPlaying || overrideCam != null) && lodCamera != null;
             if (hasFrustum) PrepareFrustumPlanes(lodCamera);
             int frameNow = Time.frameCount;
-            if (globalSamplesFrame != frameNow) {
+            if (!Application.isPlaying || AnimationSampleBudgetOverride.HasValue || LodSwapBudgetOverride.HasValue || NewSpawnBudgetOverride.HasValue || globalSamplesFrame != frameNow) {
                 globalSamplesFrame = frameNow;
-                globalSteadySamplesBudgetLeft = Application.isPlaying ? MaxSteadyAnimationSamplesPerFrame : int.MaxValue;
+                globalSteadySamplesBudgetLeft = AnimationSampleBudgetOverride ?? (Application.isPlaying ? MaxSteadyAnimationSamplesPerFrame : int.MaxValue);
+                globalLodSwapsBudgetLeft = LodSwapBudgetOverride ?? (Application.isPlaying ? MaxLodMeshSwapsPerFrame : int.MaxValue);
+                globalNewSpawnsBudgetLeft = NewSpawnBudgetOverride ?? (Application.isPlaying ? MaxNewSpawnsPerFrame : int.MaxValue);
             }
             var vis = world != null ? world.Visibility : null;
             int followId = rig?.Visibility != null ? rig.Visibility.State.FollowPassenger : 0;
@@ -749,9 +774,16 @@ namespace Metro.App.Views {
             contactShadowMatrices.Clear();
             int visibleCount = 0;
             if (poses != null) {
+                int poseCount = poses.Count;
+                int startOffset = (Application.isPlaying && poseCount > 0) ? (animationRoundRobinOffset % poseCount) : 0;
+                if (Application.isPlaying && poseCount > 0) {
+                    animationRoundRobinOffset = (animationRoundRobinOffset + MaxSteadyAnimationSamplesPerFrame) % poseCount;
+                }
                 posing = true;
                 try {
-                    for (int i = 0; i < poses.Count; i++) {
+                    for (int n = 0; n < poseCount; n++) {
+                        int i = startOffset + n;
+                        if (i >= poseCount) i -= poseCount;
                         var pose = poses[i];
                         if (!pose.Visible) { Hide(pose.SimId); continue; }
                         var actor = GetOrSpawn(pose);
@@ -762,9 +794,10 @@ namespace Metro.App.Views {
                                 if (world == null || actor.Target == null || actor.Target.LastMode != StationDrawMode.Hidden) {
                                     visibleCount++;
                                 }
-                            } else if (world == null || actor.Target == null || (actor.Target.LastMode != StationDrawMode.Hidden && actor.Skin != null && actor.Skin.enabled)) {
+                            } else if (world == null || actor.Target == null || actor.Target.LastMode != StationDrawMode.Hidden) {
                                 visibleCount++;
-                                if (actor.SimId != shadowFollowId &&
+                                if (!actor.ForceRenderingOff &&
+                                    actor.SimId != shadowFollowId &&
                                     !(hideGround && actor.LastGradeOwned) &&
                                     (vis == null || StationVisibilityRules.ContactShadowVisible(actor.LastBand, activeLevel, everyStorey, grid))) {
                                     var pos = actor.LastPosition;
@@ -894,6 +927,7 @@ namespace Metro.App.Views {
                 pooled.HasCachedLook = true;
                 pooled.CachedLookDetail = pose.Detail;
                 pooled.ScaleApplied = false;
+                pooled.Sampled = false;
                 pooled.AnimationDirty = true;
                 pooled.FrustumCulled = false;
                 pooled.HasPendingTransform = false;
@@ -926,6 +960,12 @@ namespace Metro.App.Views {
                 return pooled;
             }
 
+            if (globalNewSpawnsBudgetLeft <= 0) {
+                // Defer excess cold prefab instantiations by 1 frame during train-alighting bursts.
+                return null;
+            }
+            if (globalNewSpawnsBudgetLeft < int.MaxValue) globalNewSpawnsBudgetLeft--;
+
             var root = Instantiate(entry.prefab, transform);
             root.name = "passenger " + pose.SimId + " " + entry.recipe;
             var animation = root.GetComponentInChildren<Animation>(true);
@@ -945,7 +985,11 @@ namespace Metro.App.Views {
             // frustum culling offscreen actors without clipping or bone-skinning behind the camera.
             animation.enabled = false;
             skin.updateWhenOffscreen = false;
+            skin.skinnedMotionVectors = false;
             skin.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+#if !UNITY_WEBGL
+            if (Application.isPlaying && !Application.isEditor) skin.receiveShadows = false;
+#endif
             skin.localBounds = new Bounds(new Vector3(0f, 0.9f, 0f), new Vector3(1.4f, 2.2f, 1.4f));
             var originals = skin.sharedMaterials != null ? (Material[])skin.sharedMaterials.Clone() : Array.Empty<Material>();
 
@@ -997,16 +1041,23 @@ namespace Metro.App.Views {
                 ? (float.IsNaN(actor.LastPosition.x) ? actor.Position : actor.LastPosition)
                 : default;
             float viewScale = lod.ViewScale;
-            if (actor.HasLodCache &&
-                actor.LastOtherLevelLod == otherLevel &&
-                actor.LastLodDetail == detail &&
-                actor.LastLodFollowed == followed &&
-                actor.LastLodProfile == lod.Profile &&
-                Mathf.Abs(actor.LastLodViewScale - viewScale) < 1e-5f &&
-                (!needsDistance ||
-                    ((actorPos - actor.LastLodActorPos).sqrMagnitude < 1e-4f &&
-                     (lod.Position - actor.LastLodCamPos).sqrMagnitude < 1e-4f))) {
-                return;
+            bool policyChanged = !actor.HasLodCache ||
+                actor.LastOtherLevelLod != otherLevel ||
+                actor.LastLodDetail != detail ||
+                actor.LastLodFollowed != followed ||
+                actor.LastLodProfile != lod.Profile ||
+                Mathf.Abs(actor.LastLodViewScale - viewScale) >= 1e-5f;
+            if (!policyChanged) {
+                if (!needsDistance) return;
+                float camMoveSq = (lod.Position - actor.LastLodCamPos).sqrMagnitude;
+                float actorMoveSq = (actorPos - actor.LastLodActorPos).sqrMagnitude;
+                if (Application.isPlaying) {
+                    float distSq = (actorPos - lod.Position).sqrMagnitude;
+                    float camDeadzoneSq = distSq < 100f ? 0.04f : 0.25f;
+                    if (actorMoveSq < 0.04f && camMoveSq < camDeadzoneSq) return;
+                } else if (actorMoveSq < 1e-4f && camMoveSq < 1e-4f) {
+                    return;
+                }
             }
             var reduced = actor.CachedReducedMesh;
             var simplified = actor.CachedSimplifiedMesh;
@@ -1026,6 +1077,28 @@ namespace Metro.App.Views {
             }
             var chosen = desired == 2 ? simplified ?? reduced : desired == 1 ? reduced : null;
             var mesh = chosen?.mesh ?? actor.FullMesh;
+            if (ReferenceEquals(actor.AppliedMesh, mesh)) {
+                actor.MeshTier = desired;
+                actor.LastOtherLevelLod = otherLevel;
+                actor.HasLodCache = true;
+                actor.LastLodCamPos = lod.Position;
+                actor.LastLodActorPos = actorPos;
+                actor.LastLodViewScale = viewScale;
+                actor.LastLodDetail = detail;
+                actor.LastLodFollowed = followed;
+                actor.LastLodProfile = lod.Profile;
+                return;
+            }
+            // During fast camera swings/zooms in PlayMode, spread distance-driven LOD swaps
+            // across frames so hundreds of actors never stall one frame swapping SkinnedMeshRenderers.
+            // Policy changes (profile/detail/storey/first-spawn) and followed actors swap immediately.
+            bool immediateSwap = followed || actor.AppliedMesh == null || policyChanged;
+            if (!immediateSwap && globalLodSwapsBudgetLeft <= 0) {
+                return;
+            }
+            if (!immediateSwap && globalLodSwapsBudgetLeft < int.MaxValue) globalLodSwapsBudgetLeft--;
+            LodSwapsThisFrame++;
+
             actor.MeshTier = desired;
             actor.LastOtherLevelLod = otherLevel;
             actor.HasLodCache = true;
@@ -1035,15 +1108,28 @@ namespace Metro.App.Views {
             actor.LastLodDetail = detail;
             actor.LastLodFollowed = followed;
             actor.LastLodProfile = lod.Profile;
-            if (ReferenceEquals(actor.AppliedMesh, mesh)) return;
+
             ClearToneBlock(actor);
             actor.LastToneMode = (StationDrawMode)(-1);
             actor.OriginalMaterials = chosen?.materials ?? actor.FullMaterials;
             actor.Skin.sharedMesh = mesh;
             actor.AppliedMesh = mesh;
-            actor.Skin.sharedMaterials = actor.OriginalMaterials;
-            actor.Target?.Recapture(actor.Skin);
-            SyncActorTone(actor, actor.Target != null ? actor.Target.LastMode : StationDrawMode.Base);
+            var desiredQuality = (!followed && desired >= 1) ? SkinQuality.Bone2 : SkinQuality.Auto;
+            if (actor.Skin.quality != desiredQuality) actor.Skin.quality = desiredQuality;
+            var currentMode = actor.Target != null ? actor.Target.LastMode : StationDrawMode.Base;
+            bool syncToneWillWriteMaterials =
+                actor.Target != null &&
+                currentMode == StationDrawMode.Base &&
+                !actor.Target.SectionShaderActive &&
+                Math.Abs(actor.Look.Tone - 1.0) >= 1e-9 &&
+                actor.OriginalMaterials != null &&
+                actor.OriginalMaterials.Length > 0;
+            if (actor.Target != null) {
+                actor.Target.SetBaseMaterials(actor.Skin, actor.OriginalMaterials, applyToRenderer: !syncToneWillWriteMaterials);
+            } else {
+                actor.Skin.sharedMaterials = actor.OriginalMaterials;
+            }
+            SyncActorTone(actor, currentMode);
         }
 
         static AnimationClip ResolveClip(PassengerCrowdActor actor, string clipName, out float clipLength) {
@@ -1173,7 +1259,6 @@ namespace Metro.App.Views {
                 actor.PendingPosition = worldPos;
                 actor.PendingHeading = pose.Heading;
                 actor.HasPendingTransform = true;
-                actor.AnimationDirty = true;
                 SkippedHiddenAnimationThisFrame++;
                 PosedThisFrame++;
                 if (!actor.Registered) {
@@ -1195,7 +1280,6 @@ namespace Metro.App.Views {
                         actor.ForceRenderingOff = true;
                     }
                 }
-                actor.AnimationDirty = true;
                 SkippedHiddenAnimationThisFrame++;
                 FrustumCulledThisFrame++;
                 PosedThisFrame++;
@@ -1213,7 +1297,9 @@ namespace Metro.App.Views {
             actor.PendingPosition = worldPos;
             actor.PendingHeading = pose.Heading;
 
-            bool posDirty = float.IsNaN(actor.LastPosition.x) || (worldPos - actor.LastPosition).sqrMagnitude > 1e-8f;
+            float distSq = hasCam ? (worldPos - camPos).sqrMagnitude : 0f;
+            float posThresholdSq = (Application.isPlaying && hasCam && !isFollowed && distSq > 400f) ? 1e-4f : 1e-8f;
+            bool posDirty = float.IsNaN(actor.LastPosition.x) || (worldPos - actor.LastPosition).sqrMagnitude > posThresholdSq;
             bool rotDirty = double.IsNaN(actor.LastHeading) || Math.Abs(pose.Heading - actor.LastHeading) > 1e-5;
             if (posDirty && rotDirty) {
                 actor.RootTransform.SetPositionAndRotation(worldPos, PassengerAppearance.Rotation(pose.Heading));
@@ -1234,7 +1320,7 @@ namespace Metro.App.Views {
                 actor.Root.SetActive(true);
                 actor.RootActive = true;
             }
-            if (actor.ForceRenderingOff != isFollowed && actor.Skin != null) {
+            if (actor.ForceRenderingOff != isFollowed && actor.Skin != null && (actor.Sampled || isFollowed)) {
                 actor.Skin.forceRenderingOff = isFollowed;
                 actor.ForceRenderingOff = isFollowed;
             }
@@ -1244,6 +1330,35 @@ namespace Metro.App.Views {
             bool currentSectionShader = actor.Target != null && actor.Target.SectionShaderActive;
             if (actor.LastToneMode != currentMode || actor.LastToneSectionShader != currentSectionShader) {
                 SyncActorTone(actor, currentMode);
+            }
+
+            // Fast path: once this frame's animation sample budget is exhausted, skip clip/gait
+            // math for already-sampled non-followed actors (the rig retains its last valid pose).
+            if (actor.Sampled && !actor.AnimationDirty && !isFollowed && globalSteadySamplesBudgetLeft <= 0) {
+                SkippedUnchangedAnimationThisFrame++;
+                PosedThisFrame++;
+                if (!actor.Registered) {
+                    actor.Registered = true;
+                    spawned?.Invoke(actor, pose);
+                }
+                return;
+            }
+
+            // During large train-alighting bursts in PlayMode, cap initial unsampled bursts per frame
+            // and keep deferred unsampled actors hidden for 1 frame so zero T-poses ever render.
+            if (!actor.Sampled && !isFollowed && Application.isPlaying && !AnimationSampleBudgetOverride.HasValue &&
+                SampledThisFrame >= MaxInitialAnimationSamplesPerFrame) {
+                if (!actor.ForceRenderingOff && actor.Skin != null) {
+                    actor.Skin.forceRenderingOff = true;
+                    actor.ForceRenderingOff = true;
+                }
+                SkippedUnchangedAnimationThisFrame++;
+                PosedThisFrame++;
+                if (!actor.Registered) {
+                    actor.Registered = true;
+                    spawned?.Invoke(actor, pose);
+                }
+                return;
             }
 
             double activityTime = pose.ActivitySeconds;
@@ -1283,20 +1398,31 @@ namespace Metro.App.Views {
                 (ReferenceEquals(actor.ClipName, clipName) || string.Equals(actor.ClipName, clipName, StringComparison.Ordinal));
             float minDelta = 1e-4f;
             if (sameClip && hasCam && !isFollowed) {
-                float distSq = (worldPos - camPos).sqrMagnitude;
                 if (distSq > 65f * 65f) minDelta = 0.125f;
                 else if (distSq > 32f * 32f) minDelta = 0.066f;
                 else if (Application.isPlaying) minDelta = 0.033f;
             }
-            bool mustSample = !sameClip || isFollowed;
-            bool deltaExceeded = Mathf.Abs(actor.ClipTime - time) >= minDelta;
-            if (mustSample || (deltaExceeded && globalSteadySamplesBudgetLeft > 0)) {
-                if (!mustSample) globalSteadySamplesBudgetLeft--;
+            // Never-sampled actors and the followed passenger always sample immediately so no
+            // passenger renders in T-pose. Already-sampled actors re-entering the frustum or
+            // transitioning clips share the bounded per-frame budget so fast camera sweeps
+            // cannot trigger hundreds of synchronous SampleAnimation calls on one frame.
+            bool mustSample = !actor.Sampled || isFollowed;
+            bool wantsSample = !sameClip || Mathf.Abs(actor.ClipTime - time) >= minDelta;
+            bool nearOrClipChange = !sameClip || !hasCam || distSq <= 35f * 35f;
+            bool budgetAllows = nearOrClipChange
+                ? globalSteadySamplesBudgetLeft > 0
+                : globalSteadySamplesBudgetLeft > 24;
+            if (mustSample || (wantsSample && budgetAllows)) {
+                if (!mustSample && globalSteadySamplesBudgetLeft < int.MaxValue) globalSteadySamplesBudgetLeft--;
                 chosen.SampleAnimation(actor.Rig, Mathf.Min(time, Mathf.Max(0f, actor.LastClipLength - 0.00001f)));
                 actor.ClipName = clipName;
                 actor.ClipTime = time;
                 actor.Sampled = true;
                 actor.AnimationDirty = false;
+                if (actor.ForceRenderingOff != isFollowed && actor.Skin != null) {
+                    actor.Skin.forceRenderingOff = isFollowed;
+                    actor.ForceRenderingOff = isFollowed;
+                }
                 SampledThisFrame++;
             } else {
                 SkippedUnchangedAnimationThisFrame++;
@@ -1823,6 +1949,7 @@ namespace Metro.App.Views {
         /// and discontinuous train transfers use the current frame.
         /// </summary>
         public void Tick(StationDocument document, StationIndex index, StationFrameClock clock) {
+            long crowdT0 = StationBenchmarkRecorder.IsBreakdownProfiling ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
             var state = newest;
             var view = state?.View;
             if (state != null && document != null && !ReferenceEquals(state.CachedDocument, document)) {
@@ -1996,6 +2123,14 @@ namespace Metro.App.Views {
             UpdateSelectedRoute(state, sessionFeed, clock.Tick);
             state.LastPoseSamples = currentPoses.Count;
             state.LastPresentedPoses = view.PosedThisFrame;
+            if (crowdT0 != 0) {
+                StationBenchmarkRecorder.RecordCrowdTicks(
+                    System.Diagnostics.Stopwatch.GetTimestamp() - crowdT0,
+                    view.SampledThisFrame,
+                    view.LodSwapsThisFrame,
+                    view.VisibleActors,
+                    view.FrustumCulledThisFrame);
+            }
         }
 
         void RebuildAlignedPriors(List<PassengerPose> currentPoses, bool currentSorted) {

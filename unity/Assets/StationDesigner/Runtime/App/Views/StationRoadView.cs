@@ -1395,6 +1395,25 @@ namespace Metro.App.Views {
             state.SampledTime = simTimeSeconds;
         }
 
+        /// <summary>Cheap change fingerprint for raw-JSON state caching on StationGameHost.</summary>
+        internal (object stateRef, object recordsRef, double sampledTime, int visible, int sampled, int drawn, int segments, int simCars) StateFingerprint() {
+            var state = newest;
+            if (state == null) return (null, null, double.NaN, 0, 0, 0, 0, 0);
+            int totalSimCars = 0;
+            for (int i = 0; i < state.Components.Count; i++) {
+                if (state.Components[i].Traffic != null) totalSimCars += state.Components[i].Traffic.Cars.Count;
+            }
+            return (
+                state,
+                state.Records,
+                state.SampledTime,
+                state.Vehicles != null ? state.Vehicles.VisibleVehicles : 0,
+                state.Vehicles != null ? state.Vehicles.SampledVehicles : 0,
+                state.View != null ? state.View.Roads : 0,
+                state.View != null ? state.View.Segments : 0,
+                totalSimCars);
+        }
+
         /// <summary>
         /// The cheap `payload.roads` summary: committed road records with their saved
         /// endpoints, drawn geometry counts, ambient vehicle counts by kind and the

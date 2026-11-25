@@ -1680,5 +1680,98 @@ namespace Metro.Tests {
                 UnityEngine.Object.DestroyImmediate(probeRoot);
             }
         }
+
+        [Test]
+        public void SpatialGridPickerHandlesObliqueGridBoundaryRaysAndSnapRamps() {
+            // Span multiple 16 m spatial-grid cells in both negative and positive XY so DDA traversal
+            // exercises cell transitions, diagonal/oblique rays, and PickSnapRampInBounds cache.
+            var cells = new JArray();
+            AddSolidSlab(cells, -20, -20, 24, 24, 0, "floor.concrete");
+            var modules = new JArray {
+                new JObject { ["id"] = "bench-neg", ["type"] = "bench", ["x"] = -18, ["y"] = -17, ["z"] = 0, ["rot"] = 0,
+                    ["cfg"] = new JObject { ["variant"] = "steel-1" } },
+                new JObject { ["id"] = "bench-boundary", ["type"] = "bench", ["x"] = 16, ["y"] = 16, ["z"] = 0, ["rot"] = 0,
+                    ["cfg"] = new JObject { ["variant"] = "steel-1" } },
+                new JObject {
+                    ["id"] = "stair-a", ["type"] = "stair", ["x"] = 0, ["y"] = -8, ["z"] = -5, ["rot"] = 0,
+                    ["w"] = 2, ["d"] = 8,
+                    ["from"] = new JObject { ["x"] = 0, ["y"] = -8, ["z"] = -5 },
+                    ["to"] = new JObject { ["x"] = 0, ["y"] = 0, ["z"] = 0 },
+                    ["cfg"] = new JObject { ["style"] = "straight" },
+                },
+            };
+
+            GameObject probeRoot = null;
+            StationWorldView probeWorld = null;
+            var registry = new StationVisibilityRegistry();
+            try {
+                StationScenePicker.Reset();
+                probeWorld = BuildProbeWorld(EnvelopeJson(cells, modules, name: "spatial-grid-probe"),
+                    "spatial-grid-probe", out probeRoot,
+                    new StationCellRenderer(),
+                    new StationEquipmentModuleRenderer());
+                var stairHolder = new GameObject("stair-a-holder");
+                stairHolder.transform.SetParent(probeRoot.transform, false);
+                var stairBox = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                UnityEngine.Object.DestroyImmediate(stairBox.GetComponent<Collider>());
+                stairBox.transform.SetParent(stairHolder.transform, false);
+                stairBox.transform.position = StationCoordinates.Point(new Vector3(1f, -4f, -2f));
+                stairBox.transform.localScale = new Vector3(2f, 4f, 6f);
+                probeWorld.RegisterModule("modules", "stair-a", stairHolder, "run",
+                    new StationBox(0, -8, -5, 2, 0, 1), -5, 0);
+                StationScenePicker.Reset();
+
+                registry.State.ActiveLevel = 0;
+                registry.State.ShowLevels = true;
+                registry.State.HideGround = false;
+                StationViewFeature.RegisterWorld(registry, probeWorld);
+
+                // 1. Diagonal oblique ray starting outside the grid and crossing multiple 16 m cells to bench-neg (-18, -17).
+                StationSceneHit negHit = null;
+                foreach (var ox in new[] { 0.5f, 0.35f, 0.65f }) {
+                    foreach (var oy in new[] { 0.5f, 0.35f, 0.65f }) {
+                        var target = new Vector3(-18f + ox, -17f + oy, 1.35f);
+                        var origin = target + new Vector3(-30f, -25f, 22f);
+                        var ray = DocRay(origin, target - origin);
+                        var h = StationScenePicker.PickRay(probeWorld, ray, 0, registry);
+                        if (h.HasModule && h.Module.Id == "bench-neg") { negHit = h; break; }
+                    }
+                    if (negHit != null) break;
+                }
+                Assert.IsNotNull(negHit, "oblique multi-cell ray must traverse spatial grid and hit bench-neg");
+                Assert.IsTrue(negHit.ModuleExact);
+
+                // 2. Ray grazing the 16 m cell boundary at (16, 16).
+                StationSceneHit bndHit = null;
+                foreach (var ox in new[] { 0.5f, 0.35f, 0.65f }) {
+                    foreach (var oy in new[] { 0.5f, 0.35f, 0.65f }) {
+                        var target = new Vector3(16f + ox, 16f + oy, 1.35f);
+                        var origin = target + new Vector3(24f, 18f, 20f);
+                        var ray = DocRay(origin, target - origin);
+                        var h = StationScenePicker.PickRay(probeWorld, ray, 0, registry);
+                        if (h.HasModule && h.Module.Id == "bench-boundary") { bndHit = h; break; }
+                    }
+                    if (bndHit != null) break;
+                }
+                Assert.IsNotNull(bndHit, "boundary-straddling oblique ray must hit bench-boundary");
+                Assert.IsTrue(bndHit.ModuleExact);
+
+                // 3. Snap-ramp cache still resolves stair-a when active storey reveals it.
+                registry.State.ActiveLevel = -5;
+                registry.State.HideGround = true;
+                registry.Apply();
+                var rampOrigin = new Vector3(1.0f, -4.0f, 15.0f);
+                var rampRay = DocRay(rampOrigin, new Vector3(0f, 0f, -1f));
+                var rampHit = StationScenePicker.PickSnapRampInBounds(
+                    probeWorld, rampRay, StationPickContext.Default(registry), null);
+                Assert.IsNotNull(rampHit, "PickSnapRampInBounds must still locate stair-a via cached snap-ramp list");
+                Assert.AreEqual("stair-a", rampHit.Id);
+            } finally {
+                StationScenePicker.Reset();
+                registry.Dispose();
+                probeWorld?.Dispose();
+                if (probeRoot != null) UnityEngine.Object.DestroyImmediate(probeRoot);
+            }
+        }
     }
 }

@@ -214,6 +214,11 @@ namespace Metro.App {
             worldRevision = int.MinValue;
         }
 
+        /// <summary>Pre-build the cell edit world on station open so the first hover never hitches.</summary>
+        public static void WarmUp(StationGameHost host) {
+            if (host != null && host.Index != null) World(host);
+        }
+
         // ------------------------------------------------------------------- press
 
         /// <summary>

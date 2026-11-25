@@ -197,7 +197,9 @@ namespace Metro.App {
             if (coordinator == null) return;
             if (pendingRenderTrace != null && (tracedCamera == null || !tracedCamera.isActiveAndEnabled))
                 FinishRenderTrace("no-render-camera");
+            long simT0 = StationBenchmarkRecorder.IsBreakdownProfiling ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
             coordinator.Tick(Time.deltaTime);
+            if (simT0 != 0) StationBenchmarkRecorder.RecordSimTickTicks(System.Diagnostics.Stopwatch.GetTimestamp() - simT0);
             if (IsLoaded) TickFrameSinks();
             // A commit under a still pointer re-aims once, on this frame (plan 29 §3): the
             // release that caused it already paid its own scene pick, and a second pick inside
@@ -412,6 +414,7 @@ namespace Metro.App {
         /// <summary>Send one coalesced state snapshot now (no document).</summary>
         public void PublishStateNow() {
             if (!IsLoaded) return;
+            long pubT0 = StationBenchmarkRecorder.IsBreakdownProfiling ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
             var statePayload = new JObject();
             MergeState(statePayload, useRawJsonCache: true);
             var reply = new JObject {
@@ -425,6 +428,7 @@ namespace Metro.App {
                 ["payload"] = statePayload,
             };
             Publish(reply.ToString(Formatting.None));
+            if (pubT0 != 0) StationBenchmarkRecorder.RecordPublishStateTicks(System.Diagnostics.Stopwatch.GetTimestamp() - pubT0);
         }
 
         /// <summary>
@@ -434,6 +438,9 @@ namespace Metro.App {
         /// 100 ms general state interval. It carries no document, no revision and no view
         /// toggles, and it is dropped until the shell has registered its session.
         /// </summary>
+        readonly StringBuilder cameraPoseJsonBuilder = new StringBuilder(512);
+        readonly StringBuilder crowdJsonBuilder = new StringBuilder(16384);
+
         public void PublishCameraPose(JObject camera, long sequence) {
             if (camera == null || clientSessionId.Length == 0) return;
             var reply = new JObject {
@@ -450,6 +457,50 @@ namespace Metro.App {
                 },
             };
             Publish(reply.ToString(Formatting.None));
+        }
+
+        internal void PublishCameraPoseFast(StationCameraSnapshot pose, long sequence) {
+            if (clientSessionId.Length == 0) return;
+            cameraPoseJsonBuilder.Clear();
+            using (var sw = new StringWriter(cameraPoseJsonBuilder, CultureInfo.InvariantCulture))
+            using (var w = new JsonTextWriter(sw) { Formatting = Formatting.None }) {
+                w.WriteStartObject();
+                w.WritePropertyName("schemaVersion"); w.WriteValue(StationCommandRouter.SchemaVersion);
+                w.WritePropertyName("kind"); w.WriteValue("camera");
+                w.WritePropertyName("id"); w.WriteValue("");
+                w.WritePropertyName("sessionId"); w.WriteValue(clientSessionId);
+                w.WritePropertyName("revision"); w.WriteValue(CurrentRevision);
+                w.WritePropertyName("accepted"); w.WriteValue(true);
+                w.WritePropertyName("code"); w.WriteNull();
+                w.WritePropertyName("payload");
+                w.WriteStartObject();
+                w.WritePropertyName("camera");
+                w.WriteStartObject();
+                w.WritePropertyName("position"); WriteVecObj(w, pose.Position);
+                w.WritePropertyName("target"); WriteVecObj(w, pose.Target);
+                w.WritePropertyName("right"); WriteVecObj(w, pose.Right);
+                w.WritePropertyName("up"); WriteVecObj(w, pose.Up);
+                w.WritePropertyName("back"); WriteVecObj(w, pose.Back);
+                w.WritePropertyName("fov"); w.WriteValue(pose.Fov);
+                w.WritePropertyName("ortho"); w.WriteValue(pose.IsOrthographic);
+                w.WritePropertyName("level"); w.WriteValue(pose.ActiveLevel);
+                w.WritePropertyName("orthoSize"); w.WriteValue(pose.OrthoSize);
+                w.WritePropertyName("distance"); w.WriteValue(pose.Distance);
+                w.WritePropertyName("sequence"); w.WriteValue(sequence);
+                w.WriteEndObject();
+                w.WritePropertyName("sequence"); w.WriteValue(sequence);
+                w.WriteEndObject();
+                w.WriteEndObject();
+            }
+            Publish(cameraPoseJsonBuilder.ToString());
+        }
+
+        static void WriteVecObj(JsonTextWriter w, Vector3 v) {
+            w.WriteStartObject();
+            w.WritePropertyName("x"); w.WriteValue(v.x);
+            w.WritePropertyName("y"); w.WriteValue(v.y);
+            w.WritePropertyName("z"); w.WriteValue(v.z);
+            w.WriteEndObject();
         }
 
         double nextAudioFrame;
@@ -871,6 +922,38 @@ namespace Metro.App {
         string cachedDisplaysDocName = "";
         string cachedDisplaysJson;
 
+        int cachedRenderEpoch = -1;
+        int cachedRenderRev = -1;
+        int cachedRenderCellGroups = -1, cachedRenderCellTris = -1;
+        bool cachedRenderOvZones, cachedRenderOvDensity;
+        int cachedRenderOvZoneCells = -1, cachedRenderOvDensityCells = -1, cachedRenderOvLevel = int.MinValue, cachedRenderOvDraws = -1;
+        bool cachedRenderSkyShown, cachedRenderFog;
+        string cachedRenderSkyTheme = "";
+        float cachedRenderSkyIntensity = float.NaN;
+        string cachedRenderJson;
+
+        object cachedPsdCache;
+        int cachedPsdSlots = -1, cachedPsdServed = -1, cachedPsdTextures = -1, cachedPsdPending = -1, cachedPsdUnported = -1;
+        string cachedPsdJson;
+
+        object cachedExitCache;
+        string cachedExitLocale = "";
+        int cachedExitBound = -1, cachedExitServed = -1, cachedExitTextures = -1, cachedExitPending = -1;
+        string cachedExitJson;
+
+        object cachedRoadsState, cachedRoadsRecords;
+        double cachedRoadsSampledTime = double.NaN;
+        int cachedRoadsVisible = -1, cachedRoadsSampled = -1, cachedRoadsDrawn = -1, cachedRoadsSegments = -1, cachedRoadsSimCars = -1;
+        string cachedRoadsJson;
+
+        object cachedOverlayObj;
+        bool cachedOverlayZones, cachedOverlayDensity;
+        int cachedOverlayZoneCells = -1, cachedOverlayDensityCells = -1, cachedOverlayLevel = int.MinValue, cachedOverlayDraws = -1;
+        string cachedOverlayJson;
+
+        object cachedSignLastCommit;
+        string cachedSignJson;
+
         internal bool CanBuildDeltaCommitPayload() {
             var committedRead = coordinator?.CommittedRead;
             var previousRead = coordinator?.PreviousCommittedRead;
@@ -1031,7 +1114,6 @@ namespace Metro.App {
             StationSimulationSession session,
             StationPublishedSimFrame publishedState) {
             if (string.Equals(key, "crowd", StringComparison.Ordinal)) {
-                if (cachedCrowdJson == null) return false;
                 if (publishedState == null && session == null) return false;
                 var cr = Metro.App.Views.PassengerCrowdRenderer.Current;
                 int sp = cr != null ? cr.Spawned : 0;
@@ -1044,7 +1126,8 @@ namespace Metro.App {
                 long tick = publishedState != null ? publishedState.Tick : session.Tick;
                 long epoch = publishedState != null ? publishedState.Epoch : session.PresentationEpoch;
                 long rev = publishedState != null ? publishedState.SessionRevision : session.SessionRevision;
-                if (ReferenceEquals(cachedCrowdSession, session) &&
+                if (cachedCrowdJson != null &&
+                    ReferenceEquals(cachedCrowdSession, session) &&
                     cachedCrowdGeneration == gen &&
                     cachedCrowdTick == tick &&
                     cachedCrowdEpoch == epoch &&
@@ -1055,6 +1138,25 @@ namespace Metro.App {
                     cachedCrowdSamples == smp && cachedCrowdPresented == prs) {
                     payload[key] = new JRaw(cachedCrowdJson);
                     return true;
+                }
+                if (publishedState != null && publishedState.HasServices) {
+                    var streamed = Metro.App.Views.StationCrowdStateContributor.BuildJson(publishedState, crowdJsonBuilder);
+                    if (streamed != null) {
+                        cachedCrowdSession = session;
+                        cachedCrowdGeneration = gen;
+                        cachedCrowdTick = tick;
+                        cachedCrowdEpoch = epoch;
+                        cachedCrowdSessionRev = rev;
+                        cachedCrowdModules = gateBucket;
+                        cachedCrowdCatalogue = catalogue;
+                        cachedCrowdSpawned = sp;
+                        cachedCrowdVisible = vis;
+                        cachedCrowdSamples = smp;
+                        cachedCrowdPresented = prs;
+                        cachedCrowdJson = streamed;
+                        payload[key] = new JRaw(cachedCrowdJson);
+                        return true;
+                    }
                 }
                 return false;
             }
@@ -1109,6 +1211,121 @@ namespace Metro.App {
                 }
                 return false;
             }
+            if (string.Equals(key, "render", StringComparison.Ordinal)) {
+                if (cachedRenderJson == null) return false;
+                var cells = Metro.App.Views.StationCellRenderer.Current;
+                int cg = cells != null ? cells.Groups : -1;
+                int ct = cells != null ? cells.Triangles : -1;
+                var ov = Metro.App.Views.StationOverlayRenderer.Instance?.Current;
+                bool oz = ov != null && ov.Zones;
+                bool od = ov != null && ov.Density;
+                int ozc = ov != null ? ov.ZoneCells : -1;
+                int odc = ov != null ? ov.DensityCells : -1;
+                int ol = ov != null ? ov.Level : int.MinValue;
+                int odraw = ov != null ? ov.Meshes.Count : -1;
+                var sky = StationViewFeature.Active?.Sky;
+                bool skyShown = sky != null && sky.Shown;
+                string skyTheme = sky != null ? (sky.Theme ?? "") : "";
+                float skyInt = sky != null ? sky.Intensity : float.NaN;
+                if (cachedRenderEpoch == stationEpoch &&
+                    cachedRenderRev == CurrentRevision &&
+                    cachedRenderCellGroups == cg &&
+                    cachedRenderCellTris == ct &&
+                    cachedRenderOvZones == oz &&
+                    cachedRenderOvDensity == od &&
+                    cachedRenderOvZoneCells == ozc &&
+                    cachedRenderOvDensityCells == odc &&
+                    cachedRenderOvLevel == ol &&
+                    cachedRenderOvDraws == odraw &&
+                    cachedRenderSkyShown == skyShown &&
+                    string.Equals(cachedRenderSkyTheme, skyTheme, StringComparison.Ordinal) &&
+                    (float.IsNaN(cachedRenderSkyIntensity) ? float.IsNaN(skyInt) : Mathf.Abs(cachedRenderSkyIntensity - skyInt) < 1e-5f) &&
+                    cachedRenderFog == RenderSettings.fog) {
+                    payload[key] = new JRaw(cachedRenderJson);
+                    return true;
+                }
+                return false;
+            }
+            if (string.Equals(key, "psd", StringComparison.Ordinal)) {
+                if (cachedPsdJson == null) return false;
+                var cache = PsdHeaderArtwork.Cache;
+                int sl = cache != null ? cache.SlotCount : 0;
+                int sv = cache != null ? cache.ServedCount : 0;
+                int tx = cache != null ? cache.TextureCount : 0;
+                int pd = cache != null ? cache.PendingCount : 0;
+                int up = cache != null ? cache.UnportedCount : 0;
+                if (ReferenceEquals(cachedPsdCache, cache) &&
+                    cachedPsdSlots == sl && cachedPsdServed == sv &&
+                    cachedPsdTextures == tx && cachedPsdPending == pd && cachedPsdUnported == up) {
+                    payload[key] = new JRaw(cachedPsdJson);
+                    return true;
+                }
+                return false;
+            }
+            if (string.Equals(key, "exit", StringComparison.Ordinal)) {
+                if (cachedExitJson == null) return false;
+                var cache = StationExitArtwork.Cache;
+                string loc = StationExitArtwork.Locale ?? "";
+                int bd = cache != null ? cache.BoundCount : 0;
+                int sv = cache != null ? cache.ServedCount : 0;
+                int tx = cache != null ? cache.TextureCount : 0;
+                int pd = cache != null ? cache.PendingCount : 0;
+                if (ReferenceEquals(cachedExitCache, cache) &&
+                    string.Equals(cachedExitLocale, loc, StringComparison.Ordinal) &&
+                    cachedExitBound == bd && cachedExitServed == sv &&
+                    cachedExitTextures == tx && cachedExitPending == pd) {
+                    payload[key] = new JRaw(cachedExitJson);
+                    return true;
+                }
+                return false;
+            }
+            if (string.Equals(key, "roads", StringComparison.Ordinal)) {
+                if (cachedRoadsJson == null) return false;
+                var rr = Metro.App.Views.StationRoadRenderer.Current;
+                if (rr == null) return false;
+                var fp = rr.StateFingerprint();
+                if (fp.stateRef == null) return false;
+                bool sameTime = double.IsNaN(cachedRoadsSampledTime)
+                    ? double.IsNaN(fp.sampledTime)
+                    : !double.IsNaN(fp.sampledTime) && Math.Abs(cachedRoadsSampledTime - fp.sampledTime) <= 1e-9;
+                if (ReferenceEquals(cachedRoadsState, fp.stateRef) &&
+                    ReferenceEquals(cachedRoadsRecords, fp.recordsRef) &&
+                    sameTime &&
+                    cachedRoadsVisible == fp.visible && cachedRoadsSampled == fp.sampled &&
+                    cachedRoadsDrawn == fp.drawn && cachedRoadsSegments == fp.segments &&
+                    cachedRoadsSimCars == fp.simCars) {
+                    payload[key] = new JRaw(cachedRoadsJson);
+                    return true;
+                }
+                return false;
+            }
+            if (string.Equals(key, "overlays", StringComparison.Ordinal)) {
+                if (cachedOverlayJson == null) return false;
+                var ov = Metro.App.Views.StationOverlayRenderer.Instance?.Current;
+                bool oz = ov != null && ov.Zones;
+                bool od = ov != null && ov.Density;
+                int ozc = ov != null ? ov.ZoneCells : -1;
+                int odc = ov != null ? ov.DensityCells : -1;
+                int ol = ov != null ? ov.Level : int.MinValue;
+                int odraw = ov != null ? ov.Meshes.Count : -1;
+                if (ReferenceEquals(cachedOverlayObj, ov) &&
+                    cachedOverlayZones == oz && cachedOverlayDensity == od &&
+                    cachedOverlayZoneCells == ozc && cachedOverlayDensityCells == odc &&
+                    cachedOverlayLevel == ol && cachedOverlayDraws == odraw) {
+                    payload[key] = new JRaw(cachedOverlayJson);
+                    return true;
+                }
+                return false;
+            }
+            if (string.Equals(key, "sign", StringComparison.Ordinal)) {
+                var last = StationSignSignage.LastCommit;
+                if (last == null) return true;
+                if (cachedSignJson != null && ReferenceEquals(cachedSignLastCommit, last)) {
+                    payload[key] = new JRaw(cachedSignJson);
+                    return true;
+                }
+                return false;
+            }
             return false;
         }
 
@@ -1118,6 +1335,27 @@ namespace Metro.App {
             StationSimulationSession session,
             StationPublishedSimFrame publishedState) {
             if (value == null) return;
+            if (string.Equals(key, "render", StringComparison.Ordinal)) {
+                var cells = Metro.App.Views.StationCellRenderer.Current;
+                var ov = Metro.App.Views.StationOverlayRenderer.Instance?.Current;
+                var sky = StationViewFeature.Active?.Sky;
+                cachedRenderEpoch = stationEpoch;
+                cachedRenderRev = CurrentRevision;
+                cachedRenderCellGroups = cells != null ? cells.Groups : -1;
+                cachedRenderCellTris = cells != null ? cells.Triangles : -1;
+                cachedRenderOvZones = ov != null && ov.Zones;
+                cachedRenderOvDensity = ov != null && ov.Density;
+                cachedRenderOvZoneCells = ov != null ? ov.ZoneCells : -1;
+                cachedRenderOvDensityCells = ov != null ? ov.DensityCells : -1;
+                cachedRenderOvLevel = ov != null ? ov.Level : int.MinValue;
+                cachedRenderOvDraws = ov != null ? ov.Meshes.Count : -1;
+                cachedRenderSkyShown = sky != null && sky.Shown;
+                cachedRenderSkyTheme = sky != null ? (sky.Theme ?? "") : "";
+                cachedRenderSkyIntensity = sky != null ? sky.Intensity : float.NaN;
+                cachedRenderFog = RenderSettings.fog;
+                cachedRenderJson = value.ToString(Formatting.None);
+                return;
+            }
             if (string.Equals(key, "crowd", StringComparison.Ordinal) && (publishedState != null || session != null)) {
                 var cr = Metro.App.Views.PassengerCrowdRenderer.Current;
                 cachedCrowdSession = session;
@@ -1162,6 +1400,51 @@ namespace Metro.App {
                 cachedDisplaysLines = Document?.Lines;
                 cachedDisplaysDocName = Document?.Name ?? "";
                 cachedDisplaysJson = value.ToString(Formatting.None);
+            } else if (string.Equals(key, "psd", StringComparison.Ordinal)) {
+                var cache = PsdHeaderArtwork.Cache;
+                cachedPsdCache = cache;
+                cachedPsdSlots = cache != null ? cache.SlotCount : 0;
+                cachedPsdServed = cache != null ? cache.ServedCount : 0;
+                cachedPsdTextures = cache != null ? cache.TextureCount : 0;
+                cachedPsdPending = cache != null ? cache.PendingCount : 0;
+                cachedPsdUnported = cache != null ? cache.UnportedCount : 0;
+                cachedPsdJson = value.ToString(Formatting.None);
+            } else if (string.Equals(key, "exit", StringComparison.Ordinal)) {
+                var cache = StationExitArtwork.Cache;
+                cachedExitCache = cache;
+                cachedExitLocale = StationExitArtwork.Locale ?? "";
+                cachedExitBound = cache != null ? cache.BoundCount : 0;
+                cachedExitServed = cache != null ? cache.ServedCount : 0;
+                cachedExitTextures = cache != null ? cache.TextureCount : 0;
+                cachedExitPending = cache != null ? cache.PendingCount : 0;
+                cachedExitJson = value.ToString(Formatting.None);
+            } else if (string.Equals(key, "roads", StringComparison.Ordinal)) {
+                var rr = Metro.App.Views.StationRoadRenderer.Current;
+                if (rr != null) {
+                    var fp = rr.StateFingerprint();
+                    cachedRoadsState = fp.stateRef;
+                    cachedRoadsRecords = fp.recordsRef;
+                    cachedRoadsSampledTime = fp.sampledTime;
+                    cachedRoadsVisible = fp.visible;
+                    cachedRoadsSampled = fp.sampled;
+                    cachedRoadsDrawn = fp.drawn;
+                    cachedRoadsSegments = fp.segments;
+                    cachedRoadsSimCars = fp.simCars;
+                    cachedRoadsJson = value.ToString(Formatting.None);
+                }
+            } else if (string.Equals(key, "overlays", StringComparison.Ordinal)) {
+                var ov = Metro.App.Views.StationOverlayRenderer.Instance?.Current;
+                cachedOverlayObj = ov;
+                cachedOverlayZones = ov != null && ov.Zones;
+                cachedOverlayDensity = ov != null && ov.Density;
+                cachedOverlayZoneCells = ov != null ? ov.ZoneCells : -1;
+                cachedOverlayDensityCells = ov != null ? ov.DensityCells : -1;
+                cachedOverlayLevel = ov != null ? ov.Level : int.MinValue;
+                cachedOverlayDraws = ov != null ? ov.Meshes.Count : -1;
+                cachedOverlayJson = value.ToString(Formatting.None);
+            } else if (string.Equals(key, "sign", StringComparison.Ordinal)) {
+                cachedSignLastCommit = StationSignSignage.LastCommit;
+                cachedSignJson = value.ToString(Formatting.None);
             }
         }
 
@@ -1284,6 +1567,22 @@ namespace Metro.App {
             cachedDisplaysLines = null;
             cachedDisplaysDocName = "";
             cachedDisplaysJson = null;
+            cachedRenderEpoch = -1;
+            cachedRenderRev = -1;
+            cachedRenderJson = null;
+            cachedPsdCache = null;
+            cachedPsdJson = null;
+            cachedExitCache = null;
+            cachedExitLocale = "";
+            cachedExitJson = null;
+            cachedRoadsState = null;
+            cachedRoadsRecords = null;
+            cachedRoadsSampledTime = double.NaN;
+            cachedRoadsJson = null;
+            cachedOverlayObj = null;
+            cachedOverlayJson = null;
+            cachedSignLastCommit = null;
+            cachedSignJson = null;
         }
 
         void OnCommitted(StationCommitInfo info) {
@@ -1304,6 +1603,11 @@ namespace Metro.App {
                 StationEditSession.ClearHistory();
                 activeLevel = info.Document == null ? 0 : info.Document.OpeningLevel;
                 if (frameCameraOnCommit && stationCamera != null && !info.CameraBounds.IsEmpty) FrameCamera(info.CameraBounds);
+                if (Application.isPlaying && !Application.isBatchMode) {
+                    StationScenePicker.WarmUp(coordinator?.World);
+                    StationCellTool.WarmUp(this);
+                    StationEditHost.Ensure().EnsureBound(this);
+                }
             } else if (StationEditSession.HasCarried && !StationEditSession.HasPointer && !StationPointerRouter.CommittingMove) {
                 StationPointerRouter.RevalidateParkedMove(this, StationEditHost.Ensure(), out _, out _);
             }

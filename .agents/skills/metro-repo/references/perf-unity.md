@@ -199,7 +199,49 @@ for measurement rules and [perf-benchmarks.md](perf-benchmarks.md) for commands.
   *(Measured negative experiments to keep off: Win64 D3D12 `GraphicsJobMode.Native` caused severe
   sync stalls — 2.91 FPS / 559.6 ms worst on Tianhe Regular Low in `.preview/perf/perf60-pass2-gfxjobs/`;
   `glTF-pbrMetallicRoughness.shadergraph` ships with `m_DOTSInstancing: false`, so URP GPU Resident
-  Drawer would skip glTFast renderers.)*
+  Drawer would skip glTFast renderers; `QualitySettings.maxQueuedFrames = 1` on Win64 D3D12
+  eliminated the 2-frame render-queue sawtooth (`jit99` `8.4 → 2.7 ms`) but serialized Main + Render
+  + GPU and halved FPS (`paused` `175 → 90 FPS`, `live1x` `95.8 → 57.5 FPS`, `live16x` `58.1 → 34.8 FPS`);
+  `-force-d3d11` was 2.7× slower on Tianhe static draw submission (`7.85 → 21.52 ms` avg).)*
+- **Tianhe Park large-camera-swing frame pacing (`1%` / `0.1%` lows, `.preview/perf/tianhe-camera-swing/run-swing-bench.mjs`)**:
+  Interactive large camera swings (wide 360° orbit, fast whip orbit, wide pan sweep, zoom in/out,
+  mixed orbit+zoom) on Tianhe Park previously suffered severe 80–237 ms spikes due to:
+  1. **Hover picking during camera drags & O(N) picking** (`game/src/unity-web/pointerInput.ts`,
+     `StationScenePicker.cs`, `StationCellView.cs`): middle-drag orbit and unclaimed right-drag pan
+     still emitted `pointer.move` hover picks (~60 Hz) that linearly scanned every module/cell; fixed
+     by suppressing `pointer.move` during camera drags, cancelling queued hover rAF on middle-down,
+     indexing scene picks with a 2-level `RecordGroup` + `16 m × 16 m` XY spatial DDA grid + precomputed
+     AABB/visibility/role slabs, and pre-warming `StationScenePicker`, `StationCellTool`, and
+     `StationEditHost` after station load.
+  2. **Bridge / React / WebView2 churn during continuous drags** (`game/src/unity-web/stationBridge.ts`,
+     `StationSectionView.cs`, `StationGameHost.cs`, `StationDesktopUiPresenter.cs`, `SessionPassengerFeed.cs`,
+     `StationRoadView.cs`): returning `current` unchanged in `reduce()` for empty revision-unchanged acks;
+     zero-reparse fast path for `camera.orbit`/`pan`/`zoom` with minimal `{ revision }` acks; zero-`JObject`
+     camera pose, crowd state (`StationCrowdStateContributor.BuildJson`), and desktop UI reply streaming;
+     raw-JSON contributor caches for `render`, `psd`, `exit`, `roads`, `overlays`, and `sign`; and capping
+     `StationDesktopUiPresenter.UploadLatestSharedFrame()` to once per `Time.frameCount`.
+  3. **Crowd frustum re-entry / LOD / spawn bursts & draw-call fan-out** (`PassengerCrowdView.cs`,
+     `StationModuleGroups.cs`, `StationVisibility.cs`, `StationWorldView.cs`, `StationSimulationSession.cs`):
+     stopped marking culled actors `AnimationDirty`; budgeted frustum re-entry & clip-change animation
+     samples (`MaxSteadyAnimationSamplesPerFrame = 96`, 24 reserved for near/clip-change + round-robin),
+     LOD mesh swaps (`MaxLodMeshSwapsPerFrame = 48`), cold prefab spawns (`MaxNewSpawnsPerFrame = 24`),
+     and initial sample bursts (`MaxInitialSamplesPerFrame = 128`, keeping deferred unsampled actors
+     hidden for 1 frame); disabled desktop `skinnedMotionVectors`/`receiveShadows` and used `SkinQuality.Bone2`
+     on distant LOD1/2 actors; coalesced `StationInstancedSurfaceDrawer.SubmitNow()` across same-key
+     visible chunks (**1,504 → ~425** instanced draw calls/frame, 3.5× reduction); cached `StationFrameSinks`
+     snapshots and `StationSimulationSession.DoorFrames()` `DoorEdgeMeta[]`.
+  - **Measured Unity Desktop standalone results** (`.preview/perf/tianhe-camera-swing/unity-exe-baseline.json`
+    vs `unity-exe-final.json`; RTX 4080 SUPER, i7-14700KF, Win64 Mono D3D12, `1600×900`, `native` FSR,
+    12 s continuous large-camera-swing choreography per case, idle GPU):
+    - `paused-high-showLevels-mouse`: **90.3 → 207.5 FPS** (`1%` **77.9 → 13.8 ms** / 72.3 fps, `0.1%` **164.4 → 18.9 ms** / 52.9 fps, max **237.3 → 29.6 ms**, `jit99` **47.0 → 9.3 ms**, `>33/50 ms` **21/11 → 0/0**)
+    - `paused-high-showLevels-bridge`: **174.0 → 185.5 FPS** (`1%` **13.6 → 13.6 ms**, `0.1%` **14.5 → 14.4 ms**, max **14.7 → 14.7 ms**, `>33/50 ms` **0/0 → 0/0**)
+    - `live1x-high-showLevels-mouse` (`2,344 pax`): **51.8 → 105.3 FPS** (`1%` **77.9 → 22.9 ms** / 43.6 fps, `0.1%` **99.0 → 23.4 ms** / 42.8 fps, max **99.0 → 23.5 ms**, `jit99` **43.8 → 13.9 ms**, `>33/50 ms` **95/30 → 0/0**)
+    - `live1x-high-showLevels-bridge` (`2,602 pax`): **86.3 → 93.4 FPS** (`1%` **26.6 → 22.5 ms**, `0.1%` **29.5 → 23.3 ms**, max **30.4 → 23.6 ms**, `>33/50 ms` **0/0 → 0/0**)
+    - `live1x-high-selectPan-mouse` (`2,781 pax`): **39.7 → 84.0 FPS** (`1%` **103.1 → 21.4 ms** / 46.7 fps, `0.1%` **136.0 → 23.0 ms** / 43.5 fps, max **136.0 → 23.7 ms**, `jit99` **55.3 → 10.8 ms**, `>33/50 ms` **103/32 → 0/0**)
+    - `live1x-high-hideUi-mouse` (`2,962 pax`): **35.8 → 87.9 FPS** (`1%` **158.8 → 21.7 ms** / 46.0 fps, `0.1%` **237.4 → 23.5 ms** / 42.5 fps, max **237.4 → 23.8 ms**, `jit99` **89.8 → 7.9 ms**, `>33/50 ms` **156/59 → 0/0**)
+    - `live1x-low-showLevels-mouse` (`2,900 pax`): **48.8 → 101.7 FPS** (`1%` **90.6 → 18.7 ms** / 53.4 fps, `0.1%` **101.9 → 21.1 ms** / 47.3 fps, max **101.9 → 21.5 ms**, `jit99` **54.2 → 5.9 ms**, `>33/50 ms` **104/36 → 0/0**)
+    - `live16x-high-showLevels-mouse` (`2,875 pax`): **28.1 → 76.8 FPS** (`1%` **156.6 → 29.1 ms** / 34.4 fps, `0.1%` **190.4 → 32.3 ms** / 30.9 fps, max **190.4 → 32.3 ms**, `jit99` **104.9 → 11.8 ms**, `>33/50 ms` **173/93 → 0/0**)
+    - `live16x-high-showLevels-bridge` (`3,942 pax`): **57.0 → 62.8 FPS** (`1%` **40.3 → 30.9 ms** / 32.4 fps, `0.1%` **44.1 → 37.2 ms** / 26.9 fps, max **44.1 → 37.2 ms**, `>33/50 ms` **14/0 → 1/0**)
 - **Measured Unity Desktop standalone results (3-run median across `.preview/perf/perf60-pass1`,
   `perf60-pass1-rep2`, `perf60-pass1-rep3`; RTX 4080 SUPER, i7-14700KF, Win64 Mono D3D12,
   `1600×900`, 16×, `native` FSR, `477–479` ticks / `12` arrivals per 30 s):**

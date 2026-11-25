@@ -101,10 +101,12 @@ and keep `Newtonsoft.Json` out of `Metro.Sim`, `Metro.Build`, and `Metro.View`.
   `StationWorldView.StageLocalWorld`, `StationCellMeshWorkspace` (`16 × 16`
   chunks), `StationWalkGraphWorkspace.StageCellDelta`, and Bridge v2 deltas.
   `StationPointerRouter` routes `StationSectionDrag` first and resolves at most
-  one `StationScenePicker.PickRay` per pointer event. `StationPlacementPreview`
-  keeps hover, selection, and ghosts separate outside document commits and uses
-  `StationHighlight.shader` for retained erase batches. See
-  [references/rendering-lod-fsr.md](references/rendering-lod-fsr.md).
+  one `StationScenePicker.PickRay` per pointer event (accelerated by a 2-level
+  `RecordGroup` + `16 m × 16 m` XY spatial DDA grid and pre-warmed on non-batch
+  station loads alongside `StationCellTool` and `StationEditHost`).
+  `StationPlacementPreview` keeps hover, selection, and ghosts separate outside
+  document commits and uses `StationHighlight.shader` for retained erase
+  batches. See [references/rendering-lod-fsr.md](references/rendering-lod-fsr.md).
 - **Model detail, non-active storey Mesh LODs & desktop batching:**
   `StationGraphicsSettings` owns `high` / `balanced` / `low` (`graphics.get` /
   `graphics.set`). Non-active storeys step down one Unity LOD tier
@@ -116,12 +118,15 @@ and keep `Newtonsoft.Json` out of `Metro.Sim`, `Metro.Build`, and `Metro.View`.
   `VerticalModuleViews` GPU-instances escalator/walkway steps via
   `EscalatorStepInstancedDrawer`, `StationPrefabBatch` combines same-material
   child meshes across multi-LOD tiers (`lodCount > 1`),
-  `StationInstancedSurfaceDrawer` frustum-culls batches (`EquipBatchThreshold = 3`),
+  `StationInstancedSurfaceDrawer` frustum-culls and coalesces same-key visible
+  chunks across draw calls (`EquipBatchThreshold = 3`),
   `OpeningModuleViews` merges static opaque PSD parts / compacts `Gate`/`Door`/`Cubicle`
   subtrees / instances repeated `psd-end:cover` runs, and `PassengerCrowdView`
   frustum-culls early via `Skin.forceRenderingOff` (never `Skin.enabled`, which
   would poison `StationVisibilityTarget` eligibility) with O(N) two-pointer tick
-  alignment (`StationPerf*Tests`).
+  alignment and per-frame animation/LOD/spawn budgets (`96`/`48`/`24`/`128`)
+  (`StationPerf*Tests`). Keep `GraphicsJobMode.Native` off and
+  `QualitySettings.maxQueuedFrames` at default on Win64 D3D12.
 - **Runtime FSR 1.0 upscaling:** `StationFsrUpscaler` supports `native`, `ultra`,
   `quality`, `balanced`, and `performance`. Platforms with
   `SystemInfo.graphicsShaderLevel >= 45` use URP native FSR (`urp-fsr1`); WebGL 2
@@ -131,15 +136,18 @@ and keep `Newtonsoft.Json` out of `Metro.Sim`, `Metro.Build`, and `Metro.View`.
 - **Lock-free state publish, TV repaint budget & Unity audio:**
   `StationSimulationHost` snapshots immutable crowd counters and
   `StationPublishedStatistics` into `StationPublishedSimFrame` so 10 Hz
-  `PublishStateNow()` stays lock-free on the main thread; PlayMode
-  `StationDisplayTvArtwork.StateContributor` defers painting to `Advance()`
-  (`4/frame`, `skipHidden: true`, pooled `StationTvPlatePainter` RTs).
-  `StationCommandRouter` (`StationEditAudioOutcome`) derives edit cues without
-  extra scene picks, and `StationGameHost.PublishAudio` streams bounded
-  camera-relative ambience inputs via `JsonTextWriter` (suppressing duplicate
-  silent frames) on the session-scoped `audio` channel for
-  `game/src/unity-web/unityAudio.ts` using `game/public/audio/`. Hover, cancels,
-  no-ops, and parked trains stay silent.
+  `PublishStateNow()` stays lock-free on the main thread, streaming crowd state
+  (`StationCrowdStateContributor.BuildJson`) and camera poses
+  (`FastCameraPosePublished`) without intermediate `JObject` trees and caching
+  raw JSON for `crowd`, `statistics`, `displays`, `render`, `psd`, `exit`,
+  `roads`, `overlays`, and `sign`; PlayMode `StationDisplayTvArtwork.StateContributor`
+  defers painting to `Advance()` (`4/frame`, `skipHidden: true`, pooled
+  `StationTvPlatePainter` RTs). `StationCommandRouter` (`StationEditAudioOutcome`)
+  derives edit cues without extra scene picks, and `StationGameHost.PublishAudio`
+  streams bounded camera-relative ambience inputs via `JsonTextWriter`
+  (suppressing duplicate silent frames) on the session-scoped `audio` channel
+  for `game/src/unity-web/unityAudio.ts` using `game/public/audio/`. Hover,
+  cancels, no-ops, and parked trains stay silent.
 - **Simulation & vertical circulation parity:** Sparse hierarchical routing
   (`StationSparsePolicy`/`Topology`/`Router`, default `StationRoutingMode.Sparse`)
   mirrors `game/src/sim/sparse*.ts` (`StationSparseRoutingTests`,

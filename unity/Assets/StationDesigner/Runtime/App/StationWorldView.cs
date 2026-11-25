@@ -1035,18 +1035,29 @@ namespace Metro.App {
     /// <summary>Process-wide frame-sink registry.</summary>
     public static class StationFrameSinks {
         static readonly List<IStationFrameSink> Registered = new List<IStationFrameSink>();
+        static IStationFrameSink[] cachedSnapshot = Array.Empty<IStationFrameSink>();
 
         public static void Add(IStationFrameSink sink) {
             if (sink == null) throw new ArgumentNullException(nameof(sink));
-            if (!Registered.Contains(sink)) Registered.Add(sink);
+            if (!Registered.Contains(sink)) {
+                Registered.Add(sink);
+                cachedSnapshot = Registered.ToArray();
+            }
         }
 
-        public static bool Remove(IStationFrameSink sink) => Registered.Remove(sink);
+        public static bool Remove(IStationFrameSink sink) {
+            if (!Registered.Remove(sink)) return false;
+            cachedSnapshot = Registered.Count > 0 ? Registered.ToArray() : Array.Empty<IStationFrameSink>();
+            return true;
+        }
 
-        public static IReadOnlyList<IStationFrameSink> Snapshot() => Registered.ToArray();
+        public static IReadOnlyList<IStationFrameSink> Snapshot() => cachedSnapshot;
 
         /// <summary>Test seam: forget every registration.</summary>
-        public static void Clear() => Registered.Clear();
+        public static void Clear() {
+            Registered.Clear();
+            cachedSnapshot = Array.Empty<IStationFrameSink>();
+        }
     }
 
     /// <summary>

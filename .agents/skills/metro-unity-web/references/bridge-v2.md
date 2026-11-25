@@ -8,13 +8,13 @@ and the Unity bridge/presenter classes in `unity/Assets/StationDesigner/`.
 | File | Responsibility |
 | --- | --- |
 | `main.tsx` | Single-tree shell entry (`mountUnityUI`), registers `StationHost` (including authoritative `undo`/`redo`/`getHistory`/`subscribeHistory`) + `stationHostCommit`, intercepts all 5 artwork streams before `stationBridge.receive`, syncs UI theme (`view.set { key: "theme" }`), runs WebGL autosave, mounts `UnityApp` / `UnityShellRoot` / `UnityExplodedView` / `UnityBenchmarkRoute`, wires `#game-loading`, `.metro-measure-chip`, audio, eye drag, and reject notices. Exposes `window.__metroStationBridge`. |
-| `stationBridge.ts` | Bridge v2 transport (`SCHEMA_VERSION = 2`), FIFO station-load queue (at most one active load), dependent-edit `targetLoadId` + revision/epoch binding, `beforeSend`/`beforeDispatch`/`onCancel` hooks, shell adoption gating (`noteAdopted` / `noteAdoptionFailed`), `sessionId` fencing, pure `reduce()` (tracking `stationEpoch`, `readHostHistory`, and raw delta `*Json`/`*Indices`), `onCommit`, out-of-reducer `onCameraPose` & `onAudio`, correlated `request<TPayload>()` (`BridgeRequestError`, 5 s default timeout), `readCommittedDocument()`, and `resync()`. |
+| `stationBridge.ts` | Bridge v2 transport (`SCHEMA_VERSION = 2`), FIFO station-load queue (at most one active load), dependent-edit `targetLoadId` + revision/epoch binding, `beforeSend`/`beforeDispatch`/`onCancel` hooks, shell adoption gating (`noteAdopted` / `noteAdoptionFailed`), `sessionId` fencing, pure `reduce()` (tracking `stationEpoch`, `readHostHistory`, raw delta `*Json`/`*Indices`, and returning `current` unchanged for empty revision-unchanged `ack` frames), `onCommit`, out-of-reducer `onCameraPose` & `onAudio`, correlated `request<TPayload>()` (`BridgeRequestError`, 5 s default timeout), `readCommittedDocument()`, and `resync()`. |
 | `stationDelta.ts` | O(\|delta\|) in-place application of `StationCommitDelta` (`STATION_DELTA_SCHEMA_VERSION = 1`, including `lines`) via `WeakMap`-cached cell index (`seedStationCellIndex`, `applyStationDelta`) preserving untouched object identities. |
 | `lineSelection.ts` | Authoritative rail-line selection tracker (`createLineSelectionTracker`: `reserveAdd`, `bindAdd`, `trackAdd`, `noteReject`, `syncFence`, `reconcile`) activating newly created host lines on correlated `edit.line.add` commits and falling back cleanly on remove/undo/redo/replacement. |
 | `carriedMoveAdapter.ts` | Memoized carried-move state bridge (`createCarriedMoveAdapter`, `readHostCarriedMove`) exposing host `state.edit.{carried,plan,moveReason}` and localized refusal strings to `InfoCard.tsx` for Confirm/Cancel controls. |
 | `cameraAdapter.ts` | `createStationCameraPort`, `createUnityViewCubeAdapter` (rAF-coalesced `camera.orbit` & sequenced `onCameraPose`), `attachViewStateBridge` (`view.set`), and `attachCanvasCameraGestures` (middle orbit, unclaimed right pan, wheel zoom, build-button chord guard). |
 | `pointerButtons.ts` | Canonical DOM mouse button (`0`/`1`/`2`) to `MouseEvent.buttons` bit (`1`/`4`/`2`) table, `MOVE_BUTTON = -1` sentinel, `holdsButton`, `hasBuildChord`. |
-| `pointerInput.ts` | Canvas tool pointer stream (`pointer.down`, rAF-coalesced `pointer.move`, `pointer.up`, `pointer.rightTap`, `pointer.cancel`, `pointer.leave`), build-button chord cancel, and full-swapchain coordinate normalization under `html.metro-overlay`. |
+| `pointerInput.ts` | Canvas tool pointer stream (`pointer.down`, rAF-coalesced `pointer.move` suppressed during middle-drag orbit and unclaimed right-drag pan with middle-down hover rAF cancellation, `pointer.up`, `pointer.rightTap`, `pointer.cancel`, `pointer.leave`), build-button chord cancel, and full-swapchain coordinate normalization under `html.metro-overlay`. |
 | `pointerMeasure.ts` | Formats and positions the drag-size badge (`.metro-measure-chip`) from `state.edit.cells.measure` (`wantsMeasure`, `measureText`, `measurePosition`). |
 | `keyboardNavigation.ts` | Held `WASD` (`camera.panPlanarHeld`) and `Ctrl+Q/E` (`camera.panHeld`) with `Shift` boost; clears held state on blur, tab hide, dialog block, or unmount. |
 | `toolAdapter.ts` | Bidirectional sync between shared store tool/rail/paint/`currentBoards` (`signBoards`) settings and C# `tool.set` / `state.tool` (`applyingHostTool` echo guard, `rightClaimedByTool`). |
@@ -77,15 +77,19 @@ producing one stylesheet shared by the player and benchmark route.
     `simulationCapabilities`, and all registered `IStationStateContributor` payloads (`camera`,
     `view`, `render`, `exploded`, `edit`, `statistics`, `displays`, `overlays`, `roads`,
     `crowd`, `sign`, `exit`, `psd`, `graphics`), with raw-JSON caching for `crowd`,
-    `statistics`, and `displays`.
+    `statistics`, `displays`, `render`, `psd`, `exit`, `roads`, `overlays`, and `sign`
+    (plus zero-`JObject` streaming for `crowd` via `StationCrowdStateContributor.BuildJson`).
   - `ack`: Carries command result payload; `camera`/`view` acks also merge `payload.camera`,
-    `payload.view`, and `payload.level` directly into `snapshot.state`.
+    `payload.view`, and `payload.level` directly into `snapshot.state`. Continuous
+    `camera.orbit`/`pan`/`zoom` commands take a zero-reparse fast path in `StationSectionView`
+    with minimal `{ revision }` acks that `reduce()` treats as identity no-ops.
   - `reject`: Records `{ id, type, code, reason? }` in `snapshot.rejects` (last 8) without
     changing `revision`. `main.tsx` dismisses `#game-loading` and shows localized notices for
     `station.*` and `sim.*` rejects, shows `payload.reason` for player-driven
     `sign.*`/`road.*`/`face.*`/`tool.*` rejects, and keeps early startup `camera.*`/`view.*`
     rejects silent.
-  - `camera`: Session-fenced per-frame sequenced pose (`{ camera, sequence }`) delivered to
+  - `camera`: Session-fenced per-frame sequenced pose (`{ camera, sequence }`, streamed
+    zero-`JObject` via `StationViewRig.FastCameraPosePublished`) delivered to
     `stationBridge.onCameraPose` outside the snapshot reducer so ViewCube stays at camera
     cadence without waking React subscribers.
   - `audio`: Session-fenced edit cue (`{ cue }`) or ambience frame
@@ -152,10 +156,11 @@ producing one stylesheet shared by the player and benchmark route.
   and shows a native themed `StartupBackdrop` loading card (colors/copy synced via
   `PlayerPrefs` from `view.set` `"theme"` and `exit.locale`, animated sweeping bar; hidden on
   `-benchmark` and smoke runs) over the 3D viewport until the first visible WebView2 frame
-  arrives, then uploads dirty sequences into a
+  arrives, then uploads dirty sequences at most once per `Time.frameCount` into a
   `Texture2D(BGRA32)` via `LoadRawTextureData(IntPtr, int)` on a UV-flipped (`(0, 1, 1, -1)`)
   `RawImage` inside `StationDesktopUiCanvas` (`ScreenSpaceOverlay`, `sortingOrder = 32000`,
-  `pixelPerfect = true`). Avoid native `<select>` popups in overlay UI — Chromium renders them
+  `pixelPerfect = true`), streaming host replies via reusable `JsonTextWriter`/`StringBuilder`.
+  Avoid native `<select>` popups in overlay UI — Chromium renders them
   in a separate OS HWND outside `CoreWebView2CompositionController` capture (use pure-DOM
   controls instead).
 - **Virtual origin, feedback links & overlay CSS:** Intercepts `https://app.metro.local/*`
