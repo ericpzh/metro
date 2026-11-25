@@ -510,5 +510,65 @@ namespace Metro.EditModeTests {
             preview.ClearAll();
             Assert.AreEqual(0, MeasurePreview(preview).MeshCount, "ClearAll must remove all preview meshes");
         }
+
+        [Test]
+        public void LiftPreviewFlattensToSingleMeshAndReusesGhostOnSameCellHover() {
+            var modules = new JArray {
+                new JObject {
+                    ["id"] = "lift-2x2-ref", ["type"] = "lift", ["x"] = 6, ["y"] = 4, ["z"] = 0, ["rot"] = 1,
+                    ["from"] = new JObject { ["x"] = 6, ["y"] = 4, ["z"] = 0 },
+                    ["to"] = new JObject { ["x"] = 6, ["y"] = 4, ["z"] = 5 },
+                    ["cfg"] = new JObject { ["rises"] = new JArray(5), ["style"] = "glass" },
+                },
+            };
+            LoadStation(FloorStationJson(modules: modules), activeLevel: 0);
+            var preview = StationEditHost.Ensure().Preview;
+
+            StationPlacementPlan MakeLiftPlan(int x, int y, int rot, string style, string reason = "") {
+                var d = new StationEditDraft {
+                    Id = "lift-edit", Type = "lift", X = x, Y = y, Z = 0, Rotation = rot,
+                    From = new StationPoint(x, y, 0), To = new StationPoint(x, y, 5),
+                };
+                d.SetJson("rises", "[5]");
+                d.Set("style", style);
+                return new StationPlacementPlan { Candidate = d, Reason = reason };
+            }
+
+            // 1. Lift ghost must flatten all ~16 sub-parts (shaft, shaft-glass, caps, guides, cabin,
+            //    portals, leaves) into ONE single MeshRenderer so URP never has equal-center transparent
+            //    sort ties between shaft/shaft-glass/caps.
+            preview.Show(MakeLiftPlan(6, 4, 1, "glass"));
+            var firstMeasured = MeasurePreview(preview);
+            var committed = MeasureCommittedModule(host.Coordinator.World, "lift-2x2-ref");
+            Assert.IsFalse(firstMeasured.AnyPlainPreviewBox);
+            Assert.AreEqual(1, firstMeasured.MeshCount, "Lift preview must flatten to 1 combined MeshRenderer");
+            Assert.Greater(firstMeasured.Triangles, 200, "Flattened lift mesh must retain full shaft/cabin/door geometry");
+            AssertBoundsMatch(committed, firstMeasured.WorldBounds, 0.05f, "flattened 2x2 lift");
+
+            var firstGo = preview.GetComponentsInChildren<MeshFilter>(false)[0].gameObject;
+
+            // 2. Repeated Show() with an equivalent plan at the same cell (sub-cell mouse movement)
+            //    must reuse the exact same ghost GameObject instead of destroying and rebuilding it.
+            preview.Show(MakeLiftPlan(6, 4, 1, "glass"));
+            var secondGo = preview.GetComponentsInChildren<MeshFilter>(false)[0].gameObject;
+            Assert.AreSame(firstGo, secondGo,
+                "Identical hover plan at the same cell must reuse the existing ghost without rebuilding");
+
+            // 3. Changing rotation, style, position, or refusal status must rebuild immediately.
+            preview.Show(MakeLiftPlan(6, 4, 2, "glass"));
+            var rotatedGo = preview.GetComponentsInChildren<MeshFilter>(false)[0].gameObject;
+            Assert.AreNotSame(firstGo, rotatedGo, "Rotation change must rebuild ghost");
+
+            preview.Show(MakeLiftPlan(6, 4, 2, "steel"));
+            var steelGo = preview.GetComponentsInChildren<MeshFilter>(false)[0].gameObject;
+            Assert.AreNotSame(rotatedGo, steelGo, "Style change must rebuild ghost");
+
+            preview.Show(MakeLiftPlan(6, 4, 2, "steel", reason: "occupied"));
+            var refusedGo = preview.GetComponentsInChildren<MeshFilter>(false)[0].gameObject;
+            Assert.AreNotSame(steelGo, refusedGo, "Refusal state change must rebuild ghost");
+
+            preview.ClearAll();
+            Assert.AreEqual(0, MeasurePreview(preview).MeshCount);
+        }
     }
 }

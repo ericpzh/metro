@@ -130,11 +130,18 @@ and per-model triangle counts, see
     `StationPlacementPreview` builds real 3D model/procedural shapes for
     structures, vertical runs, openings, tracks/bridges, calligraphy, booths,
     signs, and live-composed fences (`TryBuildFencePreview` + adjacent live
-    recomposition) instead of `1×1×1` blue cell cubes; every delete path shares
-    one translucent red surface overlay (`edit remove fill`) + padded red
-    wireframe (`edit cell blocker`) with no stray floor cursor square
-    (`StationFenceAndDragPlacementTests`, `StationPreviewShapeParityTests`,
-    `StationDeletePreviewParityTests`).
+    recomposition) instead of `1×1×1` blue cell cubes; `Show`/`ShowModules`
+    cache the full structural plan key (`BuildShowKey`/`BuildModulesKey`,
+    revision, and bound `StationIndex`) alongside `StationPointerRouter.AimMove`
+    using `EnsureBound` so sub-cell mouse moves reuse the existing ghost without
+    rebuild churn, and `VerticalModuleViews.TryBuildPreview`
+    (`TryFlattenPreviewMesh`, `PreviewPartOrder`) flattens multi-part vertical
+    ghosts (especially lifts) into one combined `UInt32` mesh in deterministic
+    interior-to-exterior order to eliminate URP equal-bounds transparent sort
+    ties; every delete path shares one translucent red surface overlay
+    (`edit remove fill`) + padded red wireframe (`edit cell blocker`) with no
+    stray floor cursor square (`StationFenceAndDragPlacementTests`,
+    `StationPreviewShapeParityTests`, `StationDeletePreviewParityTests`).
 
 ## 3. Unified visibility, cutaway shaders & section dragging
 

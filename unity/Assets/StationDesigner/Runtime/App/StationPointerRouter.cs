@@ -1985,7 +1985,7 @@ namespace Metro.App {
                 RequestFor(world, ray, pickContext, hit, module, StationEditSession.CarriedRotation));
             StationEditSession.Plan = plan;
             StationEditSession.MoveReason = plan.Reason;
-            editHost.Bind(host);
+            editHost.EnsureBound(host);
             editHost.Preview?.Show(plan);
         }
 

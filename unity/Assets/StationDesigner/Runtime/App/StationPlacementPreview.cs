@@ -89,6 +89,9 @@ namespace Metro.App {
         StationMaterials boothBadMaterials;
         StationIndex index;
         bool bound;
+        string lastGhostKey;
+        StationIndex lastGhostIndex;
+        int lastGhostRevision = int.MinValue;
 
         /// <summary>Bind the committed document the ghost resolves against.</summary>
         public void Bind(StationIndex stationIndex) {
@@ -138,11 +141,30 @@ namespace Metro.App {
 
         /// <summary>Draw the candidate, or just the selection when there is none.</summary>
         public void Show(StationPlacementPlan plan) {
+            if (!bound || plan?.Candidate == null || IsUiHidden()) {
+                if (owned.Count > 0 || cellOwned.Count > 0 || lastGhostKey != null) {
+                    var staleBindings = DetachSignBindings();
+                    try {
+                        ClearGhostObjects();
+                        ClearCells();
+                    } finally {
+                        ReleaseSignBindings(staleBindings);
+                    }
+                }
+                return;
+            }
+            int revision = CurrentDocumentRevision();
+            string ghostKey = BuildShowKey(plan);
+            if (owned.Count > 0 && cellOwned.Count == 0 &&
+                ReferenceEquals(index, lastGhostIndex) && revision == lastGhostRevision &&
+                string.Equals(ghostKey, lastGhostKey, StringComparison.Ordinal)) {
+                StationEditSession.Ghost = Summary("module");
+                return;
+            }
             var previousBindings = DetachSignBindings();
             try {
                 ClearGhostObjects();
                 ClearCells();
-                if (!bound || plan?.Candidate == null || IsUiHidden()) return;
                 var colour = plan.Ok ? new Color(0.09f, 0.55f, 1f, 0.55f) : new Color(1f, 0.27f, 0.2f, 0.55f);
                 StationFenceConnections fenceConns = null;
                 if (plan.Ok && IsComposableFenceDraft(plan.Candidate)) {
@@ -157,6 +179,9 @@ namespace Metro.App {
                         BuildLineBox(blocker, RefusalOutlineMaterial(), owned);
                     }
                 }
+                lastGhostKey = ghostKey;
+                lastGhostIndex = index;
+                lastGhostRevision = revision;
                 StationEditSession.Ghost = Summary("module");
             } finally {
                 ReleaseSignBindings(previousBindings);
@@ -299,11 +324,30 @@ namespace Metro.App {
         /// cell layer is cleared, so one gesture draws one thing.
         /// </summary>
         public void ShowModules(IReadOnlyList<StationPlacementPlan> accepted, IReadOnlyList<StationPlacementPlan> refused = null) {
+            if (!bound || IsUiHidden()) {
+                if (owned.Count > 0 || cellOwned.Count > 0 || lastGhostKey != null) {
+                    var staleBindings = DetachSignBindings();
+                    try {
+                        ClearGhostObjects();
+                        ClearCells();
+                    } finally {
+                        ReleaseSignBindings(staleBindings);
+                    }
+                }
+                return;
+            }
+            int revision = CurrentDocumentRevision();
+            string ghostKey = BuildModulesKey(accepted, refused);
+            if (owned.Count > 0 && cellOwned.Count == 0 &&
+                ReferenceEquals(index, lastGhostIndex) && revision == lastGhostRevision &&
+                string.Equals(ghostKey, lastGhostKey, StringComparison.Ordinal)) {
+                StationEditSession.Ghost = Summary("modules");
+                return;
+            }
             var previousBindings = DetachSignBindings();
             try {
                 ClearGhostObjects();
                 ClearCells();
-                if (!bound || IsUiHidden()) return;
                 var ok = new Color(0.09f, 0.55f, 1f, 0.55f);
                 var bad = new Color(1f, 0.27f, 0.2f, 0.55f);
                 if (accepted != null) {
@@ -323,6 +367,11 @@ namespace Metro.App {
                         }
                     }
                 }
+                if (owned.Count > 0) {
+                    lastGhostKey = ghostKey;
+                    lastGhostIndex = index;
+                    lastGhostRevision = revision;
+                }
                 StationEditSession.Ghost = Summary("modules");
             } finally {
                 ReleaseSignBindings(previousBindings);
@@ -336,12 +385,92 @@ namespace Metro.App {
         }
 
         void ClearGhostObjects() {
+            lastGhostKey = null;
+            lastGhostIndex = null;
+            lastGhostRevision = int.MinValue;
             RestorePreviewHidden();
             previewSigns.Clear();
             ClearLayer(owned);
             for (int i = 0; i < previewMeshes.Count; i++) Destroy(previewMeshes[i]);
             previewMeshes.Clear();
             StationEditSession.Ghost = null;
+        }
+
+        static int CurrentDocumentRevision() {
+            var host = StationEditHost.Host != null
+                ? StationEditHost.Host
+                : UnityEngine.Object.FindAnyObjectByType<StationGameHost>();
+            return host != null ? host.CurrentRevision : -1;
+        }
+
+        string BuildShowKey(StationPlacementPlan plan) {
+            var sb = new System.Text.StringBuilder(160);
+            sb.Append("single|").Append(carriedId ?? "").Append('|');
+            AppendPlanKey(sb, plan);
+            return sb.ToString();
+        }
+
+        string BuildModulesKey(IReadOnlyList<StationPlacementPlan> accepted, IReadOnlyList<StationPlacementPlan> refused) {
+            var sb = new System.Text.StringBuilder(256);
+            sb.Append("modules|").Append(carriedId ?? "").Append("|A:");
+            if (accepted != null) {
+                for (int i = 0; i < accepted.Count; i++) {
+                    AppendPlanKey(sb, accepted[i]);
+                    sb.Append(';');
+                }
+            }
+            sb.Append("|R:");
+            if (refused != null) {
+                for (int i = 0; i < refused.Count; i++) {
+                    AppendPlanKey(sb, refused[i]);
+                    sb.Append(';');
+                }
+            }
+            return sb.ToString();
+        }
+
+        static void AppendPlanKey(System.Text.StringBuilder sb, StationPlacementPlan plan) {
+            if (plan?.Candidate == null) { sb.Append("null"); return; }
+            var c = plan.Candidate;
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            sb.Append(plan.Ok ? '1' : '0').Append('|')
+              .Append(plan.Reason ?? "").Append('|')
+              .Append(c.Id ?? "").Append('|')
+              .Append(c.Type ?? "").Append('|')
+              .Append(c.X).Append(',').Append(c.Y).Append(',').Append(c.Z).Append('|')
+              .Append(c.Width).Append('x').Append(c.Depth).Append('x').Append(c.Height).Append('|')
+              .Append(c.PanelHeight.ToString("R", inv)).Append('|')
+              .Append(c.OffsetX.ToString("R", inv)).Append(',').Append(c.OffsetY.ToString("R", inv)).Append('|')
+              .Append(c.Rotation).Append('|')
+              .Append(c.CeilingAnchored ? '1' : '0');
+            if (c.From.HasValue) {
+                var f = c.From.Value;
+                sb.Append("|F:").Append(f.X.ToString("R", inv)).Append(',')
+                  .Append(f.Y.ToString("R", inv)).Append(',').Append(f.Z.ToString("R", inv));
+            }
+            if (c.To.HasValue) {
+                var t = c.To.Value;
+                sb.Append("|T:").Append(t.X.ToString("R", inv)).Append(',')
+                  .Append(t.Y.ToString("R", inv)).Append(',').Append(t.Z.ToString("R", inv));
+            }
+            if (string.Equals(c.Type, "sign", StringComparison.Ordinal)) {
+                sb.Append("|L:").Append(StationSignSignage.Locale ?? "");
+            }
+            if (c.Config != null && c.Config.Count > 0) {
+                var keys = new List<string>(c.Config.Keys);
+                keys.Sort(StringComparer.Ordinal);
+                sb.Append("|C:");
+                for (int i = 0; i < keys.Count; i++) {
+                    string k = keys[i];
+                    sb.Append(k).Append('=').Append(c.Config[k] ?? "").Append(',');
+                }
+            }
+            if (plan.ColliderIds != null && plan.ColliderIds.Count > 0) {
+                sb.Append("|B:");
+                for (int i = 0; i < plan.ColliderIds.Count; i++) {
+                    sb.Append(plan.ColliderIds[i] ?? "").Append(',');
+                }
+            }
         }
 
         void TrackOwnedMeshes(GameObject root, List<GameObject> into = null) {

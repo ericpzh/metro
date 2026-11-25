@@ -746,6 +746,12 @@ namespace Metro.App.Views {
             MaterializeBandStepsForPreview(view, ghostMaterial);
             root = view.Root.gameObject;
             root.name = "ghost " + (string.IsNullOrEmpty(record.Id) ? type : record.Id) + " " + type;
+            if (TryFlattenPreviewMesh(root, type, ghostMaterial, out var combined)) {
+                for (int i = 0; i < view.Meshes.Count; i++) DestroyObject(view.Meshes[i]);
+                view.Meshes.Clear();
+                meshes = new List<Mesh>(1) { combined };
+                return true;
+            }
             foreach (var r in root.GetComponentsInChildren<Renderer>(true)) {
                 if (r == null) continue;
                 r.forceMeshLod = 0;
@@ -758,6 +764,126 @@ namespace Metro.App.Views {
             }
             meshes = new List<Mesh>(view.Meshes);
             view.Meshes.Clear();
+            return true;
+        }
+
+        static int PreviewPartOrder(Transform node) {
+            // Deterministic interior-to-exterior draw order when flattening multi-part vertical
+            // ghosts (especially lifts) into one transparent mesh, eliminating URP equal-bounds
+            // transparent renderer sort ties and draw-order flips.
+            string name = node != null ? (node.name ?? "") : "";
+            string parentName = node != null && node.parent != null ? (node.parent.name ?? "") : "";
+            if (name == "cabin-body") return 10;
+            if (name == "cabin-glass") return 15;
+            if (parentName.StartsWith("cabin-door", StringComparison.Ordinal)) return 20;
+            if (name == "guides") return 30;
+            if (name == "caps") return 40;
+            if (name == "shaft") return 50;
+            if (name == "portals") return 60;
+            if (parentName.StartsWith("landing-doors", StringComparison.Ordinal)) return 70;
+            if (name == "shaft-glass") return 80;
+            if (name == "portal-glass") return 90;
+            if (name.IndexOf("glass", StringComparison.OrdinalIgnoreCase) >= 0) return 85;
+            return 50;
+        }
+
+        static bool TryFlattenPreviewMesh(GameObject root, string type, Material ghostMaterial, out Mesh combined) {
+            combined = null;
+            if (root == null || ghostMaterial == null) return false;
+            var filters = root.GetComponentsInChildren<MeshFilter>(false);
+            var entries = new List<(MeshFilter Filter, Mesh Mesh, int Rank, int Order)>(filters.Length);
+            int totalVerts = 0;
+            int totalIndices = 0;
+            for (int i = 0; i < filters.Length; i++) {
+                var filter = filters[i];
+                if (filter == null || filter.sharedMesh == null || !filter.gameObject.activeInHierarchy) continue;
+                var renderer = filter.GetComponent<MeshRenderer>();
+                if (renderer == null || !renderer.enabled) continue;
+                var mesh = filter.sharedMesh;
+                if (!mesh.isReadable) return false;
+                int triCount = 0;
+                for (int s = 0; s < mesh.subMeshCount; s++) {
+                    if (mesh.GetTopology(s) == MeshTopology.Triangles) triCount += (int)mesh.GetIndexCount(s);
+                }
+                if (triCount == 0) continue;
+                entries.Add((filter, mesh, PreviewPartOrder(filter.transform), i));
+                totalVerts += mesh.vertexCount;
+                totalIndices += triCount;
+            }
+            if (entries.Count == 0 || totalVerts == 0 || totalIndices == 0) return false;
+
+            entries.Sort((a, b) => {
+                int c = a.Rank.CompareTo(b.Rank);
+                return c != 0 ? c : a.Order.CompareTo(b.Order);
+            });
+
+            var rootWorldToLocal = root.transform.worldToLocalMatrix;
+            var vertices = new List<Vector3>(totalVerts);
+            var normals = new List<Vector3>(totalVerts);
+            var triangles = new List<int>(totalIndices);
+            bool allNormalsValid = true;
+
+            for (int e = 0; e < entries.Count; e++) {
+                var entry = entries[e];
+                var mesh = entry.Mesh;
+                var mtx = rootWorldToLocal * entry.Filter.transform.localToWorldMatrix;
+                var normalMtx = mtx.inverse.transpose;
+                bool flipWinding = mtx.determinant < 0f;
+                int baseVertex = vertices.Count;
+
+                var srcVerts = mesh.vertices;
+                var srcNorms = mesh.normals;
+                bool hasNorms = srcNorms != null && srcNorms.Length == srcVerts.Length;
+                if (!hasNorms) allNormalsValid = false;
+
+                for (int v = 0; v < srcVerts.Length; v++) {
+                    vertices.Add(mtx.MultiplyPoint3x4(srcVerts[v]));
+                    if (hasNorms) {
+                        var n = normalMtx.MultiplyVector(srcNorms[v]);
+                        normals.Add(n.sqrMagnitude > 1e-12f ? n.normalized : Vector3.up);
+                    } else {
+                        normals.Add(Vector3.up);
+                    }
+                }
+
+                for (int s = 0; s < mesh.subMeshCount; s++) {
+                    if (mesh.GetTopology(s) != MeshTopology.Triangles) continue;
+                    var srcTris = mesh.GetTriangles(s);
+                    if (!flipWinding) {
+                        for (int t = 0; t < srcTris.Length; t++) triangles.Add(baseVertex + srcTris[t]);
+                    } else {
+                        for (int t = 0; t + 2 < srcTris.Length; t += 3) {
+                            triangles.Add(baseVertex + srcTris[t]);
+                            triangles.Add(baseVertex + srcTris[t + 2]);
+                            triangles.Add(baseVertex + srcTris[t + 1]);
+                        }
+                    }
+                }
+            }
+
+            combined = new Mesh {
+                name = "ghost " + type + " combined",
+                indexFormat = UnityEngine.Rendering.IndexFormat.UInt32,
+            };
+            combined.SetVertices(vertices);
+            if (allNormalsValid) combined.SetNormals(normals);
+            combined.SetTriangles(triangles, 0);
+            if (!allNormalsValid) combined.RecalculateNormals();
+            combined.RecalculateBounds();
+
+            for (int i = root.transform.childCount - 1; i >= 0; i--) {
+                var child = root.transform.GetChild(i);
+                if (child != null) DestroyObject(child.gameObject);
+            }
+            var rootFilter = root.GetComponent<MeshFilter>();
+            if (rootFilter == null) rootFilter = root.AddComponent<MeshFilter>();
+            rootFilter.sharedMesh = combined;
+            var rootRenderer = root.GetComponent<MeshRenderer>();
+            if (rootRenderer == null) rootRenderer = root.AddComponent<MeshRenderer>();
+            rootRenderer.sharedMaterials = new[] { ghostMaterial };
+            rootRenderer.forceMeshLod = 0;
+            rootRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            rootRenderer.receiveShadows = false;
             return true;
         }
 
