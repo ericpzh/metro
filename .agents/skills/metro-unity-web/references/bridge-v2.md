@@ -15,7 +15,7 @@ and the Unity bridge/presenter classes in `unity/Assets/StationDesigner/`.
 | `cameraAdapter.ts` | `createStationCameraPort`, `createUnityViewCubeAdapter` (rAF-coalesced `camera.orbit` & sequenced `onCameraPose`), `attachViewStateBridge` (`view.set`), and `attachCanvasCameraGestures` (middle orbit, unclaimed right pan, wheel zoom, build-button chord guard). |
 | `pointerButtons.ts` | Canonical DOM mouse button (`0`/`1`/`2`) to `MouseEvent.buttons` bit (`1`/`4`/`2`) table, `MOVE_BUTTON = -1` sentinel, `holdsButton`, `hasBuildChord`. |
 | `pointerInput.ts` | Canvas tool pointer stream (`pointer.down`, rAF-coalesced `pointer.move` suppressed during middle-drag orbit and unclaimed right-drag pan with middle-down hover rAF cancellation, `pointer.up`, `pointer.rightTap`, `pointer.cancel`, `pointer.leave`), build-button chord cancel, and full-swapchain coordinate normalization under `html.metro-overlay`. |
-| `viewportCursor.ts` | Web-parity viewport cursor resolver (`customToolCursorFor`, `readSectionHot`, `toolPointerPosition`, `syncViewportCanvasClasses`) toggling `#unity-canvas` `.grab` / `.toolPointer` classes and floating SVG `move`/`delete`/`pick` icons while yielding to Exploded View, eye view, benchmark mode, and section-cut handles (`unity/tests/viewport-cursor.test.mjs`). |
+| `viewportCursor.ts` | Web-parity viewport cursor resolver (`customToolCursorFor`, `readSectionHot`, `toolPointerPosition`, `syncViewportCanvasClasses`) toggling `#unity-canvas` `.selectCursor` (normal OS arrow for Select), `.grab` (from immediate `state.edit.sectionHot` or `view.sectionHandle`), and `.toolPointer` classes plus `--ui-scale`-scaled floating SVG `move`/`delete`/`pick` icons while yielding to Exploded View, eye view, benchmark mode, and section-cut handles (`unity/tests/viewport-cursor.test.mjs`). |
 | `pointerMeasure.ts` | Formats and positions the drag-size badge (`.metro-measure-chip`) from `state.edit.cells.measure` (`wantsMeasure`, `measureText`, `measurePosition`). |
 | `keyboardNavigation.ts` | Held `WASD` (`camera.panPlanarHeld`) and `Ctrl+Q/E` (`camera.panHeld`) with `Shift` boost; clears held state on blur, tab hide, dialog block, or unmount. |
 | `toolAdapter.ts` | Bidirectional sync between shared store tool/rail/paint/`currentBoards` (`signBoards`) settings and C# `tool.set` / `state.tool` (`applyingHostTool` echo guard, `rightClaimedByTool`). |
@@ -31,7 +31,7 @@ and the Unity bridge/presenter classes in `unity/Assets/StationDesigner/`.
 | `trainMarkProvider.ts` | `trainMarkRequest` → city cab emblems, Chongqing line-numbered cab badge, and Nanjing side mark → `train.markChunk` + `train.markReady`. |
 | `webglAutosave.ts` | Lossless raw-JSON WebGL `localStorage` autosave (`metro-game.autosave.v1`): O(1) `noteCommit`, coalesced idle encoding, synchronous `pagehide`/`visibilitychange`/`beforeunload`/5-minute interval flush, raw root/record slicing preserving own `__proto__` and >53-bit integer tokens, final-sequence target-index validation after removals/insertions (`onSequenceBroken` → `station.resync` without overwriting coherent storage), correlated `stationEpoch` clear-before-write replacement, and demo/explicit-open startup precedence (disabled on desktop overlay & `/benchmark`). |
 | `unityAudio.ts` | Mounts shared `gameAudio` & `gameMusic` on `stationBridge.onAudio` for edit cues (`place`, `select`, `pick`, `delete`, `move`, `refused`) and camera-relative crowd/train/traffic ambience frames. |
-| `unity-ui.css` | Full-viewport layout, hides `#unity-loading-container`/`#unity-footer`, layers `.explodedViewer[data-unity-host="true"]`, hides `.app` when `html.metro-overlay body:has(.explodedViewer[open])`, styles `.metro-measure-chip`. |
+| `unity-ui.css` | Full-viewport layout, hides `#unity-loading-container`/`#unity-footer`, layers `.explodedViewer[data-unity-host="true"]`, hides `.app` when `html.metro-overlay body:has(.explodedViewer[open])`, styles `.metro-measure-chip`, sets `.viewport.selectCursor` to `default`, and scales `.movePointer`/`.deletePointer`/`.pickerPointer` by `calc(32px * var(--ui-scale, 1))`. |
 | `bridge.ts` / `zooUi.tsx` | Legacy `ZooPlayable` vertical-slice bridge (`zooBridge`, `metro:zoo-state`) kept for slice verification. |
 
 Key shared seams in `game/src/app/`: `windows/StationHost.tsx` (`StationHost` context
@@ -174,9 +174,12 @@ producing one stylesheet shared by the player and benchmark route.
   `window.__metroDesktopOverlay = true` + `window.metroUnityAudioBase = '/audio/'`.
 - **Loopback TCP IPC & input forwarding:** JSON lines over `127.0.0.1` ephemeral port
   (`connected`, `ready`, `cmd`, `bridge`, `resize`, `mouse`, `key`, `cursor`, `navigate`,
-  `capturePreview`, `previewCaptured`, `log`, `quit`). Offscreen CSS cursor changes
-  stream as `cursor` notifications to `StationDesktopUiPresenter`, which applies crisp
-  32×32 hardware textures via `StationDesktopCursors` (`StationDesktopCursorsTests`).
+  `capturePreview`, `previewCaptured`, `log`, `quit`). Offscreen CSS cursor and `--ui-scale`
+  changes stream as `{ kind: "cursor", cursor, scale }` notifications to
+  `StationDesktopUiPresenter`, which hides the OS cursor (`Cursor.visible = false`) for
+  `none` and applies quantized `24–64 px` (4 px steps from 32 px base) hardware textures and
+  hotspots via `StationDesktopCursors` (`StationDesktopCursorsTests`), resetting on leave,
+  focus loss, smoke suppression, and teardown.
   - Mouse button edges capture InputSystem event coordinates (`OnMouseButtonEvent`) and
     deliver final drag motion before button-up; `mouseMoved` carries the active held button
     (`HeldButtonName` / `ResolveCdpMouseButton`) so Blink preserves native scrollbars, range
