@@ -291,9 +291,11 @@ namespace Metro.EditModeTests {
                 .Select(json => JObject.Parse(json))
                 .Where(message => (string)message["kind"] == "signRequest")
                 .ToArray();
-            Assert.GreaterOrEqual(requests.Length, 2, "each commit's rebuilt world asks for its boards");
+            Assert.GreaterOrEqual(requests.Length, 2, "each commit's rebuilt sign asks for its boards");
             var requestedKeys = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var face in (JArray)requests[requests.Length - 1]["payload"]["faces"]) requestedKeys.Add((string)face["key"]);
+            foreach (var req in requests) {
+                foreach (var face in (JArray)req["payload"]["faces"]) requestedKeys.Add((string)face["key"]);
+            }
             Assert.IsTrue(requestedKeys.Contains((string)last["contentKey"]),
                 "the edited face's new content key is what the painter is asked for next");
         }

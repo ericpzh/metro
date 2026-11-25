@@ -194,6 +194,7 @@ namespace Metro.App.Views {
             public void Commit(StationWorldView world, StationLocalViewCommit commit) {
                 committed = true;
                 if (retiredIds != null && retiredIds.Count > 0) {
+                    owner.OnLocalModulesRetired(world, state, retiredIds);
                     world.RetireRecordsWhere(rec => rec.Role == owner.Role && retiredIds.Contains(rec.ModuleId),
                         commit, retireViewObjects: true);
                     state.Modules.RemoveAll(m => retiredIds.Contains(m.ModuleId));
@@ -227,8 +228,10 @@ namespace Metro.App.Views {
                     }
                 }
 
+                HashSet<string> committedIds = null;
                 if (stagedItems != null && stagedItems.Count > 0) {
                     var roleRoot = world.RoleRoot(owner.Role);
+                    committedIds = new HashSet<string>(StringComparer.Ordinal);
                     for (int i = 0; i < stagedItems.Count; i++) {
                         var item = stagedItems[i];
                         item.Built.View.transform.SetParent(roleRoot, false);
@@ -243,9 +246,13 @@ namespace Metro.App.Views {
                         }
                         world.AddLocalRecord(item.Record, commit);
                         owner.OnLocalModuleCommitted(world, station, state, item.Module, item.Built.View);
+                        if (!string.IsNullOrEmpty(item.Module.Id)) committedIds.Add(item.Module.Id);
                     }
                 }
                 state.Count = state.Modules.Count;
+                if (committedIds != null && committedIds.Count > 0) {
+                    owner.OnLocalCommitFinished(world, state, committedIds);
+                }
             }
 
             public void Dispose() {
@@ -307,8 +314,18 @@ namespace Metro.App.Views {
         protected virtual bool UsesCeilingMountInLocal(ModuleFacts module) =>
             module.CeilingAnchored || StationFootprints.IsCeilingHung(module);
 
+        protected virtual void ExpandLocalDirtyIds(
+            StationLocalDeltaContext context, WorldState state,
+            HashSet<string> removedIds, HashSet<string> dirtyIds) { }
+
+        protected virtual void OnLocalModulesRetired(
+            StationWorldView world, WorldState state, HashSet<string> retiredIds) { }
+
         protected virtual void OnLocalModuleCommitted(
             StationWorldView world, ModuleFacts[] station, WorldState state, ModuleFacts module, GameObject root) { }
+
+        protected virtual void OnLocalCommitFinished(
+            StationWorldView world, WorldState state, HashSet<string> committedIds) { }
 
         public virtual bool TryStageLocalDelta(
             StationLocalDeltaContext context,
@@ -335,7 +352,8 @@ namespace Metro.App.Views {
             WorldState state,
             HashSet<string> excludeIds,
             out IStationLocalRendererStage stage,
-            out string fallbackReason) {
+            out string fallbackReason,
+            bool retireExcludedInState = true) {
             stage = null;
             fallbackReason = null;
 
@@ -357,7 +375,7 @@ namespace Metro.App.Views {
                 var mod = delta.ChangedModules[i];
                 if (mod == null || !Owns(mod.Type)) continue;
                 if (excludeIds != null && excludeIds.Contains(mod.Id)) {
-                    if (state.ById.ContainsKey(mod.Id)) removedIds.Add(mod.Id);
+                    if (retireExcludedInState && state.ById.ContainsKey(mod.Id)) removedIds.Add(mod.Id);
                     continue;
                 }
                 if (!IsLocalPrefabSupported(mod.Type)) {
@@ -367,15 +385,18 @@ namespace Metro.App.Views {
                 dirtyIds.Add(mod.Id);
             }
 
+            ExpandLocalDirtyIds(context, state, removedIds, dirtyIds);
+
             int storeyHeight = Math.Max(1, context.NextDocument.StoreyHeight);
             List<StagedCeilingMove> ceilingMoves = null;
-            if (context.CellsChanged && state.CeilingByColumn.Count > 0) {
+            if (context.CeilingSupportChanged && state.CeilingByColumn.Count > 0) {
                 var mounts = context.GetNextCeilingMounts();
-                foreach (long col in context.TouchedColumns) {
+                foreach (long col in context.TouchedCeilingColumns) {
                     if (!state.CeilingByColumn.TryGetValue(col, out var list)) continue;
                     for (int i = 0; i < list.Count; i++) {
                         var built = list[i];
                         if (built == null || built.View == null) continue;
+                        if (excludeIds != null && excludeIds.Contains(built.ModuleId)) continue;
                         if (removedIds.Contains(built.ModuleId) || dirtyIds.Contains(built.ModuleId)) continue;
                         if (!context.NextIndex.TryGetModule(built.ModuleId, out var modRecord) || modRecord == null) continue;
                         var mount = mounts.Resolve(modRecord.Facts, StationCeilingMounts.FallbackFor(modRecord.Facts, storeyHeight));
@@ -1172,7 +1193,7 @@ namespace Metro.App.Views {
         protected override string Group => StationModuleClaims.Surfaces;
         public override string Role => StationModuleClaims.Surfaces;
 
-        const int ChunkSize = 64;
+        const int ChunkSize = 16;
 
         sealed class SurfaceChunkBucket {
             public readonly List<GameObject> Views = new List<GameObject>();
@@ -1188,6 +1209,11 @@ namespace Metro.App.Views {
             public StationInstancedSurfaceDrawer Drawer;
             public readonly Dictionary<(int CX, int CY), SurfaceChunkBucket> Chunks =
                 new Dictionary<(int CX, int CY), SurfaceChunkBucket>();
+            public readonly Dictionary<(int CX, int CY), HashSet<string>> ChunkModuleIds =
+                new Dictionary<(int CX, int CY), HashSet<string>>();
+            public readonly Dictionary<string, (int CX, int CY)> ModuleToChunk =
+                new Dictionary<string, (int CX, int CY)>(StringComparer.Ordinal);
+            public SurfaceHidden CachedHidden;
             public readonly Dictionary<Material, Material> InstancedMaterials =
                 new Dictionary<Material, Material>();
 
@@ -1204,6 +1230,9 @@ namespace Metro.App.Views {
                     if (kv.Value != null) Destroy(kv.Value);
                 }
                 InstancedMaterials.Clear();
+                ChunkModuleIds.Clear();
+                ModuleToChunk.Clear();
+                CachedHidden = null;
             }
         }
 
@@ -1212,17 +1241,26 @@ namespace Metro.App.Views {
             readonly SurfaceWorldCache cache;
             readonly List<(int CX, int CY)> dirtyChunks;
             readonly Dictionary<(int CX, int CY), SurfaceChunkBucket> stagedChunks;
+            readonly Dictionary<(int CX, int CY), HashSet<string>> stagedChunkModuleIds;
+            readonly HashSet<string> removedModuleIds;
+            readonly SurfaceHidden nextCachedHidden;
             bool committed;
 
             public StagedSurfaceDelta(
                 WorldState state,
                 SurfaceWorldCache cache,
                 List<(int CX, int CY)> dirtyChunks,
-                Dictionary<(int CX, int CY), SurfaceChunkBucket> stagedChunks) {
+                Dictionary<(int CX, int CY), SurfaceChunkBucket> stagedChunks,
+                Dictionary<(int CX, int CY), HashSet<string>> stagedChunkModuleIds,
+                HashSet<string> removedModuleIds,
+                SurfaceHidden nextCachedHidden) {
                 this.state = state;
                 this.cache = cache;
                 this.dirtyChunks = dirtyChunks;
                 this.stagedChunks = stagedChunks;
+                this.stagedChunkModuleIds = stagedChunkModuleIds;
+                this.removedModuleIds = removedModuleIds;
+                this.nextCachedHidden = nextCachedHidden;
             }
 
             public void Commit(StationWorldView world, StationLocalViewCommit commit) {
@@ -1230,8 +1268,24 @@ namespace Metro.App.Views {
                 var retiredViews = new HashSet<GameObject>();
                 var retiredBuiltIds = new HashSet<string>(StringComparer.Ordinal);
 
+                if (removedModuleIds != null) {
+                    foreach (var id in removedModuleIds) {
+                        if (cache.ModuleToChunk.TryGetValue(id, out var oldCk)) {
+                            cache.ModuleToChunk.Remove(id);
+                            if (cache.ChunkModuleIds.TryGetValue(oldCk, out var oldSet)) {
+                                oldSet.Remove(id);
+                                if (oldSet.Count == 0) cache.ChunkModuleIds.Remove(oldCk);
+                            }
+                        }
+                    }
+                }
+
                 for (int i = 0; i < dirtyChunks.Count; i++) {
                     var ck = dirtyChunks[i];
+                    if (cache.ChunkModuleIds.TryGetValue(ck, out var prevIds)) {
+                        foreach (var id in prevIds) cache.ModuleToChunk.Remove(id);
+                        cache.ChunkModuleIds.Remove(ck);
+                    }
                     if (!cache.Chunks.TryGetValue(ck, out var oldBucket)) continue;
                     cache.Chunks.Remove(ck);
                     state.Count = Math.Max(0, state.Count - oldBucket.ModuleCount);
@@ -1268,6 +1322,10 @@ namespace Metro.App.Views {
                 var roleRoot = world.RoleRoot(StationModuleClaims.Surfaces);
                 for (int i = 0; i < dirtyChunks.Count; i++) {
                     var ck = dirtyChunks[i];
+                    if (stagedChunkModuleIds != null && stagedChunkModuleIds.TryGetValue(ck, out var nextIds) && nextIds.Count > 0) {
+                        cache.ChunkModuleIds[ck] = nextIds;
+                        foreach (var id in nextIds) cache.ModuleToChunk[id] = ck;
+                    }
                     if (!stagedChunks.TryGetValue(ck, out var newBucket) || newBucket.Views.Count == 0) continue;
                     cache.Chunks[ck] = newBucket;
                     state.Count += newBucket.ModuleCount;
@@ -1289,6 +1347,7 @@ namespace Metro.App.Views {
                         world.AddLocalRecord(newBucket.Records[r], commit);
                     }
                 }
+                if (nextCachedHidden != null) cache.CachedHidden = nextCachedHidden;
             }
 
             public void Dispose() {
@@ -1431,6 +1490,7 @@ namespace Metro.App.Views {
             var hidden = context.Index != null
                 ? new SurfaceHidden(context.Index, station)
                 : new SurfaceHidden(context.Document, station);
+            surfaceCache.CachedHidden = hidden;
             unportedRampRuns = hidden.UnportedRampRuns;
 
             for (int i = 0; i < station.Length; i++) {
@@ -1438,6 +1498,14 @@ namespace Metro.App.Views {
                 if (!Owns(module.Type)) continue;
                 var chunkX = ChunkCoord(module.X);
                 var chunkY = ChunkCoord(module.Y);
+                if (!string.IsNullOrEmpty(module.Id)) {
+                    var ckPos = (chunkX, chunkY);
+                    surfaceCache.ModuleToChunk[module.Id] = ckPos;
+                    if (!surfaceCache.ChunkModuleIds.TryGetValue(ckPos, out var idSet)) {
+                        surfaceCache.ChunkModuleIds[ckPos] = idSet = new HashSet<string>(StringComparer.Ordinal);
+                    }
+                    idSet.Add(module.Id);
+                }
                 if (hidden.IsHidden(module, out var hiddenReason)) {
                     HiddenTiles++;
                     var placeholder = new GameObject((string.IsNullOrEmpty(module.Id) ? "tile" : module.Id) + " hidden");
@@ -1666,6 +1734,20 @@ namespace Metro.App.Views {
             }
         }
 
+        static void MarkExitFloorChunks(HashSet<(int CX, int CY)> dirtyChunks, StationModuleRecord exitRecord) {
+            if (exitRecord == null) return;
+            var box = StationFootprints.ExitFloorBounds(exitRecord);
+            int cx0 = ChunkCoord((int)Math.Floor(box.X0) - 1);
+            int cx1 = ChunkCoord((int)Math.Ceiling(box.X1));
+            int cy0 = ChunkCoord((int)Math.Floor(box.Y0) - 1);
+            int cy1 = ChunkCoord((int)Math.Ceiling(box.Y1));
+            for (int cy = cy0; cy <= cy1; cy++) {
+                for (int cx = cx0; cx <= cx1; cx++) {
+                    dirtyChunks.Add((cx, cy));
+                }
+            }
+        }
+
         public override bool TryStageLocalDelta(
             StationLocalDeltaContext context,
             out IStationLocalRendererStage stage,
@@ -1680,18 +1762,26 @@ namespace Metro.App.Views {
             }
 
             var dirtyChunks = new HashSet<(int CX, int CY)>();
+            var removedSurfaceIds = new HashSet<string>(StringComparer.Ordinal);
+            var addedOrUpdatedSurfaceByChunk = new Dictionary<(int CX, int CY), List<string>>();
+            bool hiddenDepsChanged = false;
             var delta = context.Delta;
 
             for (int i = 0; i < delta.RemovedModules.Count; i++) {
                 var id = delta.RemovedModules[i];
                 if (!context.PrevIndex.TryGetModule(id, out var oldMod) || oldMod == null) continue;
                 if (oldMod.Type == "exit") {
-                    fallbackReason = "local-module-family:exit";
-                    return false;
+                    hiddenDepsChanged = true;
+                    MarkExitFloorChunks(dirtyChunks, oldMod);
                 }
-                if (Owns(oldMod.Type)) dirtyChunks.Add((ChunkCoord(oldMod.X), ChunkCoord(oldMod.Y)));
+                if (Owns(oldMod.Type)) {
+                    removedSurfaceIds.Add(id);
+                    if (cache.ModuleToChunk.TryGetValue(id, out var oldCk)) dirtyChunks.Add(oldCk);
+                    else dirtyChunks.Add((ChunkCoord(oldMod.X), ChunkCoord(oldMod.Y)));
+                }
                 if (AffectsTactile(oldMod.Type)) MarkTactileNeighbourChunks(dirtyChunks, oldMod);
                 if (IsRampType(oldMod.Type)) {
+                    hiddenDepsChanged = true;
                     var holes = StationRampOpenings.RampOpeningsAtLevel(new[] { oldMod.Facts }, StationPaintSnapshot.GroundZ);
                     foreach (var hole in holes) dirtyChunks.Add((ChunkCoord(hole.X), ChunkCoord(hole.Y)));
                 }
@@ -1700,17 +1790,30 @@ namespace Metro.App.Views {
                 var mod = delta.ChangedModules[i];
                 if (mod == null) continue;
                 if (mod.Type == "exit") {
-                    fallbackReason = "local-module-family:exit";
-                    return false;
+                    hiddenDepsChanged = true;
+                    MarkExitFloorChunks(dirtyChunks, mod);
+                    if (context.PrevIndex.TryGetModule(mod.Id, out var prevExit) && prevExit != null) {
+                        MarkExitFloorChunks(dirtyChunks, prevExit);
+                    }
                 }
                 if (Owns(mod.Type)) {
-                    dirtyChunks.Add((ChunkCoord(mod.X), ChunkCoord(mod.Y)));
-                    if (context.PrevIndex.TryGetModule(mod.Id, out var prevMod) && prevMod != null) {
+                    var nextCk = (ChunkCoord(mod.X), ChunkCoord(mod.Y));
+                    dirtyChunks.Add(nextCk);
+                    if (cache.ModuleToChunk.TryGetValue(mod.Id, out var oldCk)) {
+                        dirtyChunks.Add(oldCk);
+                        removedSurfaceIds.Add(mod.Id);
+                    } else if (context.PrevIndex.TryGetModule(mod.Id, out var prevMod) && prevMod != null) {
                         dirtyChunks.Add((ChunkCoord(prevMod.X), ChunkCoord(prevMod.Y)));
+                        removedSurfaceIds.Add(mod.Id);
                     }
+                    if (!addedOrUpdatedSurfaceByChunk.TryGetValue(nextCk, out var list)) {
+                        addedOrUpdatedSurfaceByChunk[nextCk] = list = new List<string>(2);
+                    }
+                    list.Add(mod.Id);
                 }
                 if (AffectsTactile(mod.Type)) MarkTactileNeighbourChunks(dirtyChunks, mod);
                 if (IsRampType(mod.Type)) {
+                    hiddenDepsChanged = true;
                     var holes = StationRampOpenings.RampOpeningsAtLevel(new[] { mod.Facts }, StationPaintSnapshot.GroundZ);
                     foreach (var hole in holes) dirtyChunks.Add((ChunkCoord(hole.X), ChunkCoord(hole.Y)));
                     if (context.PrevIndex.TryGetModule(mod.Id, out var prevRamp) && prevRamp != null) {
@@ -1750,31 +1853,78 @@ namespace Metro.App.Views {
                 }
             }
 
-            if (dirtyChunks.Count == 0) return true;
+            if (dirtyChunks.Count == 0 && !hiddenDepsChanged) return true;
 
             var catalogue = context.World.Catalogue;
-            if (catalogue == null) {
+            if (dirtyChunks.Count > 0 && catalogue == null) {
                 fallbackReason = "surface-no-catalogue";
                 return false;
             }
 
             var dirtyList = new List<(int CX, int CY)>(dirtyChunks);
             var stagedChunks = new Dictionary<(int CX, int CY), SurfaceChunkBucket>(dirtyList.Count);
-            var station = context.GetNextFactsOfTypes("stair", "escalator", "walkway", "exit");
-            var hidden = new SurfaceHidden(context.NextIndex, station);
+            var stagedChunkModuleIds = new Dictionary<(int CX, int CY), HashSet<string>>(dirtyList.Count);
             var grid = StationLevelGrid.FromDocument(context.NextDocument.LevelBase, context.NextDocument.StoreyHeight);
 
             var candidateTiles = new List<ModuleFacts>();
-            foreach (var surfType in StationModuleClaims.TypesOf(StationModuleClaims.Surfaces)) {
-                var mods = context.NextIndex.ModulesOfType(surfType);
-                for (int i = 0; i < mods.Count; i++) {
-                    var m = mods[i];
-                    if (m != null && dirtyChunks.Contains((ChunkCoord(m.X), ChunkCoord(m.Y)))) {
-                        candidateTiles.Add(m.Facts);
+            bool anyGradeTile = false;
+            bool anyTactileTile = false;
+            for (int i = 0; i < dirtyList.Count; i++) {
+                var ck = dirtyList[i];
+                var nextIds = cache.ChunkModuleIds.TryGetValue(ck, out var existingSet)
+                    ? new HashSet<string>(existingSet, StringComparer.Ordinal)
+                    : new HashSet<string>(StringComparer.Ordinal);
+                foreach (var rid in removedSurfaceIds) nextIds.Remove(rid);
+                if (addedOrUpdatedSurfaceByChunk.TryGetValue(ck, out var addedList)) {
+                    for (int a = 0; a < addedList.Count; a++) nextIds.Add(addedList[a]);
+                }
+                stagedChunkModuleIds[ck] = nextIds;
+                foreach (var id in nextIds) {
+                    if (!context.NextIndex.TryGetModule(id, out var rec) || rec == null) continue;
+                    candidateTiles.Add(rec.Facts);
+                    if (string.Equals(rec.Type, "sidewalk", StringComparison.Ordinal) ||
+                        string.Equals(rec.Type, "lawn", StringComparison.Ordinal)) {
+                        anyGradeTile = true;
+                    } else if (string.Equals(rec.Type, "tactile", StringComparison.Ordinal)) {
+                        anyTactileTile = true;
                     }
                 }
             }
 
+            SurfaceHidden nextCachedHidden = null;
+            SurfaceHidden hidden = null;
+            if (hiddenDepsChanged || cache.CachedHidden == null) {
+                var rampAndExit = context.GetNextFactsOfTypes("stair", "escalator", "walkway", "exit");
+                nextCachedHidden = new SurfaceHidden(context.NextIndex, rampAndExit);
+                hidden = nextCachedHidden;
+            } else if (anyGradeTile) {
+                hidden = cache.CachedHidden.WithIndex(context.NextIndex);
+                nextCachedHidden = hidden;
+            }
+
+            if (dirtyList.Count == 0) {
+                stage = new StagedSurfaceDelta(state, cache, dirtyList, stagedChunks, stagedChunkModuleIds,
+                    removedSurfaceIds, nextCachedHidden);
+                return true;
+            }
+
+            List<ModuleFacts> tactileNeighbors = null;
+            if (anyTactileTile) {
+                var allTactile = context.NextIndex.ModulesOfType("tactile");
+                tactileNeighbors = new List<ModuleFacts>(Math.Min(allTactile.Count, candidateTiles.Count + 64));
+                for (int i = 0; i < allTactile.Count; i++) {
+                    var tm = allTactile[i];
+                    if (tm == null) continue;
+                    int tcx = ChunkCoord(tm.X), tcy = ChunkCoord(tm.Y);
+                    if (dirtyChunks.Contains((tcx, tcy)) ||
+                        dirtyChunks.Contains((tcx - 1, tcy)) || dirtyChunks.Contains((tcx + 1, tcy)) ||
+                        dirtyChunks.Contains((tcx, tcy - 1)) || dirtyChunks.Contains((tcx, tcy + 1))) {
+                        tactileNeighbors.Add(tm.Facts);
+                    }
+                }
+            }
+
+            var prefabPartsCache = new Dictionary<GameObject, (SurfacePart[] Parts, bool Readable)>();
             var buckets = new Dictionary<string, List<CombineInstance>>(StringComparer.Ordinal);
             var bucketChunk = new Dictionary<string, (int CX, int CY)>(StringComparer.Ordinal);
             var bucketMaterial = new Dictionary<string, Material>(StringComparer.Ordinal);
@@ -1797,7 +1947,7 @@ namespace Metro.App.Views {
                     int chunkY = ChunkCoord(module.Y);
                     var cb = EnsureChunkBucket(stagedChunks, chunkX, chunkY);
 
-                    if (hidden.IsHidden(module, out var hiddenReason)) {
+                    if (hidden != null && hidden.IsHidden(module, out var hiddenReason)) {
                         var placeholder = new GameObject((string.IsNullOrEmpty(module.Id) ? "tile" : module.Id) + " hidden");
                         placeholder.transform.SetParent(context.StagingRoot, false);
                         placeholder.transform.SetPositionAndRotation(ModulePlacement.Position(module, (RuntimeCatalogue.Entry)null),
@@ -1814,7 +1964,7 @@ namespace Metro.App.Views {
                         continue;
                     }
 
-                    var visual = ModuleViews.Resolve(module, station, catalogue);
+                    var visual = ModuleViews.Resolve(module, Array.Empty<ModuleFacts>(), catalogue);
                     if (visual.Kind == ModuleViewKind.None) continue;
                     if (!visual.HasModel || !catalogue.TryGet(visual.Key, out var entry) || entry.prefab == null) {
                         if (!visual.HasModel) {
@@ -1826,18 +1976,24 @@ namespace Metro.App.Views {
                         continue;
                     }
 
-                    EnumerateParts(entry.prefab, parts);
-                    bool readable = parts.Count > 0;
-                    for (int p = 0; readable && p < parts.Count; p++) {
-                        if (!parts[p].Mesh.isReadable) readable = false;
+                    if (!prefabPartsCache.TryGetValue(entry.prefab, out var cachedPrefab)) {
+                        EnumerateParts(entry.prefab, parts);
+                        bool readable = parts.Count > 0;
+                        for (int p = 0; readable && p < parts.Count; p++) {
+                            if (!parts[p].Mesh.isReadable) readable = false;
+                        }
+                        cachedPrefab = (parts.ToArray(), readable);
+                        prefabPartsCache[entry.prefab] = cachedPrefab;
                     }
-                    if (!readable) {
+                    if (!cachedPrefab.Readable) {
                         fallback.Add((module, entry, visual.Key));
                         continue;
                     }
+                    parts.Clear();
+                    for (int p = 0; p < cachedPrefab.Parts.Length; p++) parts.Add(cachedPrefab.Parts[p]);
 
                     if (StationTactileArms.Applies(module)) {
-                        var arms = StationTactileArms.Arms(module, station);
+                        var arms = StationTactileArms.Arms(module, tactileNeighbors);
                         bool strip = string.Equals(module.Config.Text("variant"), "warning-strip", StringComparison.Ordinal);
                         var armMaterial = parts[0].Material;
                         for (int a = 0; a < arms.Count; a++) {
@@ -2003,7 +2159,8 @@ namespace Metro.App.Views {
                     });
                 }
 
-                stage = new StagedSurfaceDelta(state, cache, dirtyList, stagedChunks);
+                stage = new StagedSurfaceDelta(state, cache, dirtyList, stagedChunks, stagedChunkModuleIds,
+                    removedSurfaceIds, nextCachedHidden);
                 return true;
             } catch {
                 foreach (var bucket in stagedChunks.Values) {
@@ -2177,6 +2334,19 @@ namespace Metro.App.Views {
             readonly List<StationExitOpenings> exits = new List<StationExitOpenings>();
 
             public int UnportedRampRuns { get; private set; }
+
+            public SurfaceHidden WithIndex(StationIndex nextIndex) {
+                return new SurfaceHidden(nextIndex, voids, rampOpenings, exits, UnportedRampRuns);
+            }
+
+            SurfaceHidden(StationIndex stationIndex, HashSet<long> voids, HashSet<long> rampOpenings,
+                List<StationExitOpenings> exits, int unportedRampRuns) {
+                index = stationIndex;
+                this.voids = voids;
+                this.rampOpenings = rampOpenings;
+                this.exits = exits;
+                UnportedRampRuns = unportedRampRuns;
+            }
 
             public SurfaceHidden(StationIndex stationIndex, ModuleFacts[] station) {
                 index = stationIndex;
@@ -2358,26 +2528,256 @@ namespace Metro.App.Views {
         protected override string Group => StationModuleClaims.Street;
         public override string Role => StationModuleClaims.Street;
 
-        protected override bool IsLocalPrefabSupported(string type) =>
-            type != "track" && type != "exit" && type != "guidepost";
+        protected override bool IsLocalPrefabSupported(string type) => true;
+
+        static bool IsCustomStreet(string type) =>
+            string.Equals(type, "track", StringComparison.Ordinal) ||
+            string.Equals(type, "exit", StringComparison.Ordinal) ||
+            string.Equals(type, "guidepost", StringComparison.Ordinal);
+
+        sealed class StreetWorldCache {
+            public StationWorldView World;
+            public readonly Dictionary<string, List<Mesh>> MeshesByModuleId =
+                new Dictionary<string, List<Mesh>>(StringComparer.Ordinal);
+            public readonly Dictionary<string, List<Material>> MaterialsByModuleId =
+                new Dictionary<string, List<Material>>(StringComparer.Ordinal);
+            public readonly Dictionary<string, Material> SharedTrackMaterials =
+                new Dictionary<string, Material>(StringComparer.Ordinal);
+            public readonly HashSet<string> CatenaryTrackIds =
+                new HashSet<string>(StringComparer.Ordinal);
+
+            public void Clear() {
+                MeshesByModuleId.Clear();
+                MaterialsByModuleId.Clear();
+                SharedTrackMaterials.Clear();
+                CatenaryTrackIds.Clear();
+            }
+        }
+
+        sealed class StagedStreetItem {
+            public ModuleFacts Module;
+            public BuiltModule Built;
+            public StationViewRecord Record;
+            public List<Mesh> Meshes;
+            public List<Material> Materials;
+            public bool NeedsExitArtwork;
+            public string PrefabPath;
+            public bool IsCatenary;
+        }
+
+        sealed class StagedStreetDelta : IStationLocalRendererStage {
+            readonly StationStreetModuleRenderer owner;
+            readonly WorldState state;
+            readonly StreetWorldCache cache;
+            readonly StationLocalDeltaContext context;
+            readonly IStationLocalRendererStage prefabStage;
+            readonly HashSet<string> customRetiredIds;
+            readonly HashSet<string> rebindArtworkIds;
+            readonly List<StagedStreetItem> stagedItems;
+            bool committed;
+
+            public StagedStreetDelta(
+                StationStreetModuleRenderer owner,
+                WorldState state,
+                StreetWorldCache cache,
+                StationLocalDeltaContext context,
+                IStationLocalRendererStage prefabStage,
+                HashSet<string> customRetiredIds,
+                HashSet<string> rebindArtworkIds,
+                List<StagedStreetItem> stagedItems) {
+                this.owner = owner;
+                this.state = state;
+                this.cache = cache;
+                this.context = context;
+                this.prefabStage = prefabStage;
+                this.customRetiredIds = customRetiredIds;
+                this.rebindArtworkIds = rebindArtworkIds;
+                this.stagedItems = stagedItems;
+            }
+
+            public void Commit(StationWorldView world, StationLocalViewCommit commit) {
+                committed = true;
+                prefabStage?.Commit(world, commit);
+
+                HashSet<string> unbindIds = null;
+                if (customRetiredIds != null && customRetiredIds.Count > 0) {
+                    unbindIds = new HashSet<string>(customRetiredIds, StringComparer.Ordinal);
+                }
+                if (rebindArtworkIds != null && rebindArtworkIds.Count > 0) {
+                    if (unbindIds == null) unbindIds = new HashSet<string>(rebindArtworkIds, StringComparer.Ordinal);
+                    else unbindIds.UnionWith(rebindArtworkIds);
+                }
+                if (unbindIds != null && unbindIds.Count > 0 && state.Faces != null) {
+                    StationExitArtwork.Unbind(state.Faces, unbindIds, commit.RetiredMeshes);
+                }
+
+                if (customRetiredIds != null && customRetiredIds.Count > 0) {
+                    world.RetireRecordsWhere(rec => rec.Role == StationModuleClaims.Street && customRetiredIds.Contains(rec.ModuleId),
+                        commit, retireViewObjects: true);
+                    state.Modules.RemoveAll(m => customRetiredIds.Contains(m.ModuleId));
+                    foreach (var id in customRetiredIds) {
+                        state.ById.Remove(id);
+                        cache.CatenaryTrackIds.Remove(id);
+                        if (cache.MeshesByModuleId.TryGetValue(id, out var oldMeshes)) {
+                            cache.MeshesByModuleId.Remove(id);
+                            for (int i = 0; i < oldMeshes.Count; i++) {
+                                var m = oldMeshes[i];
+                                if (m == null) continue;
+                                state.Meshes.Remove(m);
+                                commit.RetiredMeshes.Add(m);
+                            }
+                        }
+                        if (cache.MaterialsByModuleId.TryGetValue(id, out var oldMats)) {
+                            cache.MaterialsByModuleId.Remove(id);
+                            for (int i = 0; i < oldMats.Count; i++) {
+                                var mat = oldMats[i];
+                                if (mat == null) continue;
+                                state.Materials.Remove(mat);
+                                Destroy(mat);
+                            }
+                        }
+                    }
+                }
+
+                bool needExitFacts = rebindArtworkIds != null && rebindArtworkIds.Count > 0;
+                if (!needExitFacts && stagedItems != null) {
+                    for (int i = 0; i < stagedItems.Count; i++) {
+                        if (stagedItems[i].NeedsExitArtwork) { needExitFacts = true; break; }
+                    }
+                }
+                var exitFacts = needExitFacts ? context.GetNextFactsOfTypes("exit") : null;
+                Action<StationExitArtwork.FaceDiagnostic> report =
+                    diag => context.ReportUnresolved(diag.Code, diag.RecordType, diag.RecordId, diag.Message);
+
+                if (stagedItems != null && stagedItems.Count > 0) {
+                    var roleRoot = world.RoleRoot(StationModuleClaims.Street);
+                    for (int i = 0; i < stagedItems.Count; i++) {
+                        var item = stagedItems[i];
+                        item.Built.View.transform.SetParent(roleRoot, false);
+                        state.Modules.Add(item.Built);
+                        if (!string.IsNullOrEmpty(item.Built.ModuleId)) {
+                            state.ById[item.Built.ModuleId] = item.Built;
+                            if (item.IsCatenary) cache.CatenaryTrackIds.Add(item.Built.ModuleId);
+                        }
+                        if (item.Meshes != null && item.Meshes.Count > 0) {
+                            state.Meshes.AddRange(item.Meshes);
+                            if (!string.IsNullOrEmpty(item.Built.ModuleId)) cache.MeshesByModuleId[item.Built.ModuleId] = item.Meshes;
+                        }
+                        if (item.Materials != null && item.Materials.Count > 0) {
+                            state.Materials.AddRange(item.Materials);
+                            if (!string.IsNullOrEmpty(item.Built.ModuleId)) cache.MaterialsByModuleId[item.Built.ModuleId] = item.Materials;
+                        }
+                        world.AddLocalRecord(item.Record, commit);
+                        if (item.NeedsExitArtwork) {
+                            StationExitArtwork.Bind(world.Document, report, () => owner.FacesForWorld(world, state),
+                                item.Built.View, item.Module, exitFacts, item.PrefabPath);
+                        }
+                    }
+                }
+
+                if (rebindArtworkIds != null && rebindArtworkIds.Count > 0) {
+                    var catalogue = world.Catalogue;
+                    var reboundIds = new HashSet<string>(StringComparer.Ordinal);
+                    foreach (var id in rebindArtworkIds) {
+                        if (!state.ById.TryGetValue(id, out var built) || built?.View == null) continue;
+                        if (!context.NextIndex.TryGetModule(id, out var modRec) || modRec?.Facts == null) continue;
+                        string prefabPath = "";
+                        if (catalogue != null && !string.IsNullOrEmpty(built.Key) &&
+                            catalogue.TryGet(built.Key, out var entry) && entry != null) {
+                            prefabPath = entry.prefabPath ?? "";
+                        }
+                        StationExitArtwork.Bind(world.Document, report, () => owner.FacesForWorld(world, state),
+                            built.View, modRec.Facts, exitFacts, prefabPath);
+                        reboundIds.Add(id);
+                    }
+                    if (reboundIds.Count > 0) {
+                        var records = world.Records;
+                        for (int r = 0; r < records.Count; r++) {
+                            var rec = records[r];
+                            if (rec != null && rec.Role == StationModuleClaims.Street &&
+                                !string.IsNullOrEmpty(rec.ModuleId) && reboundIds.Contains(rec.ModuleId)) {
+                                commit.UpdatedRecords.Add(rec);
+                            }
+                        }
+                    }
+                }
+
+                state.Faces?.Cache?.Pump();
+                state.Count = state.Modules.Count;
+            }
+
+            public void Dispose() {
+                if (committed) return;
+                prefabStage?.Dispose();
+                if (stagedItems != null) {
+                    for (int i = 0; i < stagedItems.Count; i++) {
+                        var item = stagedItems[i];
+                        if (item == null) continue;
+                        if (item.Built?.View != null) Destroy(item.Built.View);
+                        if (item.Meshes != null) {
+                            for (int m = 0; m < item.Meshes.Count; m++) {
+                                if (item.Meshes[m] != null) Destroy(item.Meshes[m]);
+                            }
+                        }
+                        if (item.Materials != null) {
+                            for (int m = 0; m < item.Materials.Count; m++) {
+                                if (item.Materials[m] != null) Destroy(item.Materials[m]);
+                            }
+                        }
+                    }
+                    stagedItems.Clear();
+                }
+            }
+        }
+
+        readonly List<StreetWorldCache> streetCaches = new List<StreetWorldCache>();
+
+        StreetWorldCache StreetCacheOf(StationWorldView world) {
+            for (int i = streetCaches.Count - 1; i >= 0; i--) {
+                if (streetCaches[i].World == world) return streetCaches[i];
+            }
+            return null;
+        }
+
+        void PurgeStreetCaches() {
+            for (int i = streetCaches.Count - 1; i >= 0; i--) {
+                if (streetCaches[i].World == null || streetCaches[i].World.IsDisposed) {
+                    streetCaches[i].Clear();
+                    streetCaches.RemoveAt(i);
+                }
+            }
+        }
+
+        public override void Release() {
+            base.Release();
+            PurgeStreetCaches();
+        }
 
         protected override void BuildGroup(StationViewBuildContext context, ModuleFacts[] station, WorldState state) {
+            PurgeStreetCaches();
+            var cache = new StreetWorldCache { World = context.World };
+            streetCaches.Add(cache);
+
             StationCeilingMounts ceilingMounts = null;
             int storeyHeight = Math.Max(1, context.Document.StoreyHeight);
             trackNotes.Clear();
             ExitNotes.Clear();
             WellwayOwners.Clear();
+            List<StationModuleRecord> rampRecords = null;
             for (int i = 0; i < station.Length; i++) {
                 var module = station[i];
                 if (!Owns(module.Type)) continue;
                 if (module.Type == "track") {
-                    BuildTrackRun(context, module, station, state);
+                    BuildTrackRun(context, module, station, state, cache);
                     continue;
                 }
                 // RCA 15 §6.1: an exit head-house's floor is built from the shared opening
                 // description before the generic place, so the street plane stays open over the run
                 // columns the save actually links instead of being masked by the prefab's full pad.
-                if (string.Equals(module.Type, "exit", StringComparison.Ordinal) && BuildExit(context, module, station, state)) continue;
+                if (string.Equals(module.Type, "exit", StringComparison.Ordinal)) {
+                    rampRecords ??= CollectRampRecords(context.Index, context.Document);
+                    if (BuildExit(context, module, station, state, cache, rampRecords)) continue;
+                }
                 // Plan 16 §5.3: a 导向柱 prints its station and exit plates from the committed
                 // document. The promoted pillar is the catalogue's guangzhou export; the plates
                 // are replaced on the placed instance before anything else touches it.
@@ -2403,6 +2803,362 @@ namespace Metro.App.Views {
             // One bounded request for every plate the street bound; replies arrive as
             // `exit.faceChunk` / `exit.faceReady` and the command handler pumps them in.
             state.Faces?.Cache?.Pump();
+        }
+
+        static List<StationModuleRecord> CollectRampRecords(StationIndex index, StationDocument document) {
+            if (index == null) {
+                return document?.Modules != null ? new List<StationModuleRecord>(document.Modules) : new List<StationModuleRecord>();
+            }
+            var stairs = index.ModulesOfType("stair");
+            var esc = index.ModulesOfType("escalator");
+            var walk = index.ModulesOfType("walkway");
+            var list = new List<StationModuleRecord>(stairs.Count + esc.Count + walk.Count);
+            for (int i = 0; i < stairs.Count; i++) list.Add(stairs[i]);
+            for (int i = 0; i < esc.Count; i++) list.Add(esc[i]);
+            for (int i = 0; i < walk.Count; i++) list.Add(walk[i]);
+            return list;
+        }
+
+        static HashSet<string> StructuralChangedLineIds(StationDocument prevDoc, StationDocument nextDoc) {
+            var changed = new HashSet<string>(StringComparer.Ordinal);
+            var prevById = new Dictionary<string, StationLineRecord>(StringComparer.Ordinal);
+            if (prevDoc?.Lines != null) {
+                for (int i = 0; i < prevDoc.Lines.Count; i++) {
+                    var l = prevDoc.Lines[i];
+                    if (l != null && !string.IsNullOrEmpty(l.Id)) prevById[l.Id] = l;
+                }
+            }
+            var nextById = new Dictionary<string, StationLineRecord>(StringComparer.Ordinal);
+            if (nextDoc?.Lines != null) {
+                for (int i = 0; i < nextDoc.Lines.Count; i++) {
+                    var l = nextDoc.Lines[i];
+                    if (l != null && !string.IsNullOrEmpty(l.Id)) nextById[l.Id] = l;
+                }
+            }
+            foreach (var kv in prevById) {
+                if (!nextById.TryGetValue(kv.Key, out var nl)) {
+                    changed.Add(kv.Key);
+                    continue;
+                }
+                var pl = kv.Value;
+                if (!string.Equals(pl.Stock, nl.Stock, StringComparison.Ordinal) ||
+                    !string.Equals(pl.Power, nl.Power, StringComparison.Ordinal) ||
+                    pl.Cars != nl.Cars ||
+                    !string.Equals(pl.Direction, nl.Direction, StringComparison.Ordinal)) {
+                    changed.Add(kv.Key);
+                }
+            }
+            foreach (var kv in nextById) {
+                if (!prevById.ContainsKey(kv.Key)) changed.Add(kv.Key);
+            }
+            return changed;
+        }
+
+        public override bool TryStageLocalDelta(
+            StationLocalDeltaContext context,
+            out IStationLocalRendererStage stage,
+            out string fallbackReason) {
+            stage = null;
+            fallbackReason = null;
+            var state = StateOf(context.World);
+            var cache = StreetCacheOf(context.World);
+            if (state == null || cache == null) {
+                fallbackReason = "no-street-state";
+                return false;
+            }
+
+            var customRemovedIds = new HashSet<string>(StringComparer.Ordinal);
+            var customDirtyIds = new HashSet<string>(StringComparer.Ordinal);
+            var customHandledIds = new HashSet<string>(StringComparer.Ordinal);
+            var rebindArtworkIds = new HashSet<string>(StringComparer.Ordinal);
+            HashSet<int> catenaryChangedLevels = null;
+            List<StationRunPoint> touchedRunTops = null;
+            HashSet<string> changedExitIds = null;
+            var delta = context.Delta;
+
+            void NoteCatenaryLevel(int z) => (catenaryChangedLevels ??= new HashSet<int>()).Add(z);
+
+            void MarkTracksForEdge(StationModuleRecord edge) {
+                if (edge == null || !string.Equals(edge.Type, "platform-edge", StringComparison.Ordinal)) return;
+                var from = edge.Config.Text("from");
+                if (!string.IsNullOrEmpty(from)) {
+                    if (!customRemovedIds.Contains(from) && context.NextIndex.TryGetModule(from, out var tr) &&
+                        tr != null && string.Equals(tr.Type, "track", StringComparison.Ordinal)) {
+                        customDirtyIds.Add(from);
+                        customHandledIds.Add(from);
+                        if (cache.CatenaryTrackIds.Contains(from) ||
+                            string.Equals(StationRailGeometry.PowerOf(context.NextDocument, tr.Facts), "catenary", StringComparison.Ordinal)) {
+                            NoteCatenaryLevel(tr.Z);
+                        }
+                    }
+                    return;
+                }
+                var lineId = edge.Config.Text("line");
+                var tracks = !string.IsNullOrEmpty(lineId)
+                    ? context.NextIndex.TracksOfLine(lineId)
+                    : context.NextIndex.ModulesOfType("track");
+                for (int t = 0; t < tracks.Count; t++) {
+                    var tr = tracks[t];
+                    if (tr == null || customRemovedIds.Contains(tr.Id)) continue;
+                    if (tr.Config.Bool("tunnel") || tr.Config.Bool("bridge")) continue;
+                    customDirtyIds.Add(tr.Id);
+                    customHandledIds.Add(tr.Id);
+                    if (cache.CatenaryTrackIds.Contains(tr.Id) ||
+                        string.Equals(StationRailGeometry.PowerOf(context.NextDocument, tr.Facts), "catenary", StringComparison.Ordinal)) {
+                        NoteCatenaryLevel(tr.Z);
+                    }
+                }
+            }
+
+            for (int i = 0; i < delta.RemovedModules.Count; i++) {
+                var id = delta.RemovedModules[i];
+                if (!context.PrevIndex.TryGetModule(id, out var oldMod) || oldMod == null) continue;
+                if (IsCustomStreet(oldMod.Type)) {
+                    customRemovedIds.Add(id);
+                    customHandledIds.Add(id);
+                    if (string.Equals(oldMod.Type, "track", StringComparison.Ordinal)) {
+                        if (cache.CatenaryTrackIds.Contains(id) ||
+                            string.Equals(StationRailGeometry.PowerOf(context.PrevDocument, oldMod.Facts), "catenary", StringComparison.Ordinal)) {
+                            NoteCatenaryLevel(oldMod.Z);
+                        }
+                    } else if (string.Equals(oldMod.Type, "exit", StringComparison.Ordinal)) {
+                        (changedExitIds ??= new HashSet<string>(StringComparer.Ordinal)).Add(id);
+                    }
+                } else if (string.Equals(oldMod.Type, "platform-edge", StringComparison.Ordinal)) {
+                    MarkTracksForEdge(oldMod);
+                } else if (string.Equals(oldMod.Type, "stair", StringComparison.Ordinal) ||
+                           string.Equals(oldMod.Type, "escalator", StringComparison.Ordinal) ||
+                           string.Equals(oldMod.Type, "walkway", StringComparison.Ordinal)) {
+                    var top = StationRunGeometry.RunTop(oldMod.Facts);
+                    if (top.HasValue) (touchedRunTops ??= new List<StationRunPoint>()).Add(top.Value);
+                }
+            }
+
+            for (int i = 0; i < delta.ChangedModules.Count; i++) {
+                var mod = delta.ChangedModules[i];
+                if (mod == null) continue;
+                context.PrevIndex.TryGetModule(mod.Id, out var prevMod);
+                if (IsCustomStreet(mod.Type)) {
+                    customDirtyIds.Add(mod.Id);
+                    customHandledIds.Add(mod.Id);
+                    if (string.Equals(mod.Type, "track", StringComparison.Ordinal)) {
+                        if (prevMod != null && (cache.CatenaryTrackIds.Contains(mod.Id) ||
+                            string.Equals(StationRailGeometry.PowerOf(context.PrevDocument, prevMod.Facts), "catenary", StringComparison.Ordinal))) {
+                            NoteCatenaryLevel(prevMod.Z);
+                        }
+                        if (string.Equals(StationRailGeometry.PowerOf(context.NextDocument, mod.Facts), "catenary", StringComparison.Ordinal)) {
+                            NoteCatenaryLevel(mod.Z);
+                        }
+                    } else if (string.Equals(mod.Type, "exit", StringComparison.Ordinal)) {
+                        (changedExitIds ??= new HashSet<string>(StringComparer.Ordinal)).Add(mod.Id);
+                    }
+                } else if (string.Equals(mod.Type, "platform-edge", StringComparison.Ordinal)) {
+                    if (prevMod != null) MarkTracksForEdge(prevMod);
+                    MarkTracksForEdge(mod);
+                } else if (string.Equals(mod.Type, "stair", StringComparison.Ordinal) ||
+                           string.Equals(mod.Type, "escalator", StringComparison.Ordinal) ||
+                           string.Equals(mod.Type, "walkway", StringComparison.Ordinal)) {
+                    if (prevMod != null) {
+                        var oldTop = StationRunGeometry.RunTop(prevMod.Facts);
+                        if (oldTop.HasValue) (touchedRunTops ??= new List<StationRunPoint>()).Add(oldTop.Value);
+                    }
+                    var newTop = StationRunGeometry.RunTop(mod.Facts);
+                    if (newTop.HasValue) (touchedRunTops ??= new List<StationRunPoint>()).Add(newTop.Value);
+                }
+            }
+
+            if (context.LineStructureChanged) {
+                var structChangedLines = StructuralChangedLineIds(context.PrevDocument, context.NextDocument);
+                if (structChangedLines.Count > 0) {
+                    var allTracks = context.NextIndex.ModulesOfType("track");
+                    for (int i = 0; i < allTracks.Count; i++) {
+                        var tr = allTracks[i];
+                        if (tr == null || customRemovedIds.Contains(tr.Id)) continue;
+                        if (structChangedLines.Contains(tr.Config.Text("line"))) {
+                            customDirtyIds.Add(tr.Id);
+                            customHandledIds.Add(tr.Id);
+                            if (cache.CatenaryTrackIds.Contains(tr.Id) ||
+                                string.Equals(StationRailGeometry.PowerOf(context.NextDocument, tr.Facts), "catenary", StringComparison.Ordinal)) {
+                                NoteCatenaryLevel(tr.Z);
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (catenaryChangedLevels != null && catenaryChangedLevels.Count > 0) {
+                var allTracks = context.NextIndex.ModulesOfType("track");
+                for (int i = 0; i < allTracks.Count; i++) {
+                    var tr = allTracks[i];
+                    if (tr == null || customRemovedIds.Contains(tr.Id) || customDirtyIds.Contains(tr.Id)) continue;
+                    if (!catenaryChangedLevels.Contains(tr.Z)) continue;
+                    if (!tr.Config.Bool("bridge")) continue;
+                    if (string.Equals(StationRailGeometry.PowerOf(context.NextDocument, tr.Facts), "catenary", StringComparison.Ordinal)) {
+                        customDirtyIds.Add(tr.Id);
+                        customHandledIds.Add(tr.Id);
+                    }
+                }
+            }
+
+            if (context.CellsChanged && context.TouchedColumns.Count > 0) {
+                var allTracks = context.NextIndex.ModulesOfType("track");
+                for (int i = 0; i < allTracks.Count; i++) {
+                    var tr = allTracks[i];
+                    if (tr == null || customRemovedIds.Contains(tr.Id) || customDirtyIds.Contains(tr.Id)) continue;
+                    if (!cache.CatenaryTrackIds.Contains(tr.Id) &&
+                        !string.Equals(StationRailGeometry.PowerOf(context.NextDocument, tr.Facts), "catenary", StringComparison.Ordinal)) {
+                        continue;
+                    }
+                    var cells = StationFootprints.TrackCells(tr);
+                    for (int c = 0; c < cells.Length; c++) {
+                        long col = StationLocalDeltaContext.PackColumn((int)Math.Round(cells[c].X), (int)Math.Round(cells[c].Y));
+                        if (context.TouchedColumns.Contains(col)) {
+                            customDirtyIds.Add(tr.Id);
+                            customHandledIds.Add(tr.Id);
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (touchedRunTops != null && touchedRunTops.Count > 0) {
+                var allExits = context.NextIndex.ModulesOfType("exit");
+                for (int i = 0; i < allExits.Count; i++) {
+                    var ex = allExits[i];
+                    if (ex == null || customRemovedIds.Contains(ex.Id) || customDirtyIds.Contains(ex.Id)) continue;
+                    var style = ex.Config.Text("style");
+                    if (string.Equals(style, "doorway", StringComparison.Ordinal) ||
+                        string.Equals(style, "virtual", StringComparison.Ordinal)) continue;
+                    var box = StationFootprints.ExitFloorBounds(ex);
+                    for (int t = 0; t < touchedRunTops.Count; t++) {
+                        var top = touchedRunTops[t];
+                        if (Math.Abs(top.Z - ex.Z) <= 1e-9 &&
+                            top.X + 1 > box.X0 && top.X < box.X1 &&
+                            top.Y + 1 > box.Y0 && top.Y < box.Y1) {
+                            customDirtyIds.Add(ex.Id);
+                            customHandledIds.Add(ex.Id);
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (changedExitIds != null && changedExitIds.Count > 0) {
+                var allGuideposts = context.NextIndex.ModulesOfType("guidepost");
+                for (int i = 0; i < allGuideposts.Count; i++) {
+                    var gp = allGuideposts[i];
+                    if (gp == null || customRemovedIds.Contains(gp.Id) || customDirtyIds.Contains(gp.Id)) continue;
+                    var exitId = gp.Config.Text("exitId");
+                    if (!string.IsNullOrEmpty(exitId) && changedExitIds.Contains(exitId)) {
+                        rebindArtworkIds.Add(gp.Id);
+                    }
+                }
+            }
+
+            if (context.NameChanged || context.CityChanged || context.VisualChangedLineIds.Count > 0) {
+                var allExits = context.NextIndex.ModulesOfType("exit");
+                for (int i = 0; i < allExits.Count; i++) {
+                    var ex = allExits[i];
+                    if (ex == null || customRemovedIds.Contains(ex.Id) || customDirtyIds.Contains(ex.Id)) continue;
+                    if (context.CityChanged && string.Equals(ex.Config.Text("style"), "doorway", StringComparison.Ordinal)) {
+                        customDirtyIds.Add(ex.Id);
+                        customHandledIds.Add(ex.Id);
+                    } else {
+                        rebindArtworkIds.Add(ex.Id);
+                    }
+                }
+                if (context.NameChanged || context.CityChanged) {
+                    var allGuideposts = context.NextIndex.ModulesOfType("guidepost");
+                    for (int i = 0; i < allGuideposts.Count; i++) {
+                        var gp = allGuideposts[i];
+                        if (gp == null || customRemovedIds.Contains(gp.Id) || customDirtyIds.Contains(gp.Id)) continue;
+                        rebindArtworkIds.Add(gp.Id);
+                    }
+                }
+            }
+
+            rebindArtworkIds.ExceptWith(customRemovedIds);
+            rebindArtworkIds.ExceptWith(customDirtyIds);
+
+            if (!TryStagePrefabGroupDeltaExcluding(context, state, customHandledIds, out var prefabStage, out fallbackReason,
+                    retireExcludedInState: false)) {
+                return false;
+            }
+
+            if (customRemovedIds.Count == 0 && customDirtyIds.Count == 0 && rebindArtworkIds.Count == 0) {
+                stage = prefabStage;
+                return true;
+            }
+
+            var customRetiredIds = new HashSet<string>(customRemovedIds, StringComparer.Ordinal);
+            List<StagedStreetItem> stagedItems = null;
+            ModuleFacts[] trackAndEdgeFacts = null;
+            List<StationModuleRecord> rampRecords = null;
+            var catalogue = context.World.Catalogue;
+
+            try {
+                foreach (var id in customDirtyIds) {
+                    customRetiredIds.Add(id);
+                    if (!context.NextIndex.TryGetModule(id, out var modRecord) || modRecord?.Facts == null) continue;
+                    var module = modRecord.Facts;
+                    if (string.Equals(module.Type, "track", StringComparison.Ordinal)) {
+                        trackAndEdgeFacts ??= context.GetNextFactsOfTypes("track", "platform-edge");
+                        var item = StageTrackRunItem(context.NextDocument, context.NextIndex, context.World.TrainCatalogue,
+                            context.World.Shader, context.StagingRoot, context.World.Root, module, trackAndEdgeFacts,
+                            state, cache);
+                        (stagedItems ??= new List<StagedStreetItem>()).Add(item);
+                    } else if (string.Equals(module.Type, "exit", StringComparison.Ordinal)) {
+                        if (catalogue == null) {
+                            fallbackReason = "no-catalogue:" + Role;
+                            prefabStage?.Dispose();
+                            DestroyUncommittedStreetItems(stagedItems);
+                            return false;
+                        }
+                        rampRecords ??= CollectRampRecords(context.NextIndex, context.NextDocument);
+                        var item = StageExitItem(context.NextDocument, context.NextIndex, catalogue, context.World.Shader,
+                            context.StagingRoot, context.World.Root, modRecord, rampRecords, state, cache,
+                            context.ReportUnresolved);
+                        if (item != null) (stagedItems ??= new List<StagedStreetItem>()).Add(item);
+                    } else if (string.Equals(module.Type, "guidepost", StringComparison.Ordinal)) {
+                        if (catalogue == null) {
+                            fallbackReason = "no-catalogue:" + Role;
+                            prefabStage?.Dispose();
+                            DestroyUncommittedStreetItems(stagedItems);
+                            return false;
+                        }
+                        var item = StageGuidepostItem(context.NextIndex, catalogue, context.StagingRoot, modRecord,
+                            context.ReportUnresolved);
+                        if (item != null) (stagedItems ??= new List<StagedStreetItem>()).Add(item);
+                    }
+                }
+                stage = new StagedStreetDelta(this, state, cache, context, prefabStage,
+                    customRetiredIds, rebindArtworkIds, stagedItems);
+                return true;
+            } catch {
+                prefabStage?.Dispose();
+                DestroyUncommittedStreetItems(stagedItems);
+                throw;
+            }
+        }
+
+        static void DestroyUncommittedStreetItems(List<StagedStreetItem> items) {
+            if (items == null) return;
+            for (int i = 0; i < items.Count; i++) {
+                var item = items[i];
+                if (item == null) continue;
+                if (item.Built?.View != null) Destroy(item.Built.View);
+                if (item.Meshes != null) {
+                    for (int m = 0; m < item.Meshes.Count; m++) {
+                        if (item.Meshes[m] != null) Destroy(item.Meshes[m]);
+                    }
+                }
+                if (item.Materials != null) {
+                    for (int m = 0; m < item.Materials.Count; m++) {
+                        if (item.Materials[m] != null) Destroy(item.Materials[m]);
+                    }
+                }
+            }
+            items.Clear();
         }
 
         /// <summary>
@@ -2438,31 +3194,40 @@ namespace Metro.App.Views {
         /// keeps the prefab's pad and says so: `exit-pad-not-isolated`. A doorway or virtual exit
         /// draws no head-house pad at all and falls through to the generic place.
         /// </summary>
-        bool BuildExit(StationViewBuildContext context, ModuleFacts module, ModuleFacts[] station, WorldState state) {
+        bool BuildExit(StationViewBuildContext context, ModuleFacts module, ModuleFacts[] station, WorldState state,
+            StreetWorldCache cache, List<StationModuleRecord> rampRecords) {
             if (!TryResolve(context, module, station, out var entry, out var key, out var diagnostic)) {
                 if (diagnostic != null) context.ReportUnresolved("module-group", module.Type, module.Id, diagnostic);
                 return true;
             }
             var style = module.Config != null ? module.Config.Text("style") : "";
             var record = ExitRecord(context, module);
-            var openings = record != null ? StationExitOpenings.For(context.Document.Modules, record) : null;
+            var openings = record != null ? StationExitOpenings.For(rampRecords, record) : null;
             GameObject root;
             if (string.Equals(style, "doorway", StringComparison.Ordinal)) {
                 var parent = context.RoleRoot(Role);
                 root = UnityEngine.Object.Instantiate(entry.prefab, parent, false);
+                StationRigidModelLods.Apply(root, entry.prefab.name);
                 root.name = (string.IsNullOrEmpty(module.Id) ? "module" : module.Id) + " " + module.Type;
                 var pivot = Pivot(module, entry);
                 double mountZ = module.Config != null ? module.Config.Number("mountZ", module.Z + 1) : (module.Z + 1);
                 pivot.y += (float)(mountZ - (module.Z + 1));
                 root.transform.SetPositionAndRotation(pivot, ModulePlacement.Rotation(module.Rotation));
-                ApplyDoorwayCityColour(context.Document != null ? context.Document.City : "", root, state);
+                List<Material> doorwayMats = null;
+                ApplyDoorwayCityColour(context.Document != null ? context.Document.City : "", root, ref doorwayMats);
+                if (doorwayMats != null && doorwayMats.Count > 0) {
+                    state.Materials.AddRange(doorwayMats);
+                    if (!string.IsNullOrEmpty(module.Id)) cache.MaterialsByModuleId[module.Id] = doorwayMats;
+                }
                 StationExitArtwork.Bind(context, () => FacesFor(context, state), root, module, station, entry.prefabPath);
                 if (TryDocumentBounds(root.transform, context.Root, out var bounds)) {
                     context.World.RegisterModule(Role, module.Id, root, "", bounds, module.Z, module.Z + 1);
                 } else {
                     context.World.RegisterModule(Role, module.Id, root, "", null, module.Z, module.Z + 1);
                 }
-                state.Modules.Add(new BuiltModule { ModuleId = module.Id, Type = module.Type, View = root, Key = key });
+                var builtDoorway = new BuiltModule { ModuleId = module.Id, Type = module.Type, View = root, Key = key };
+                state.Modules.Add(builtDoorway);
+                if (!string.IsNullOrEmpty(module.Id)) state.ById[module.Id] = builtDoorway;
                 state.Count++;
                 return true;
             }
@@ -2473,7 +3238,117 @@ namespace Metro.App.Views {
             // identity; canopy, frame, glass, railing and posts are left untouched.
             StationExitArtwork.Bind(context, () => FacesFor(context, state), root, module, station, entry.prefabPath);
             if (openings == null || !openings.IsHeadHouse) return true;
-            int retired = 0;
+            var padMesh = BuildHeadHousePadStrips(context.Shader, state, cache, module, openings, root, out int retired);
+            state.Meshes.Add(padMesh);
+            if (!string.IsNullOrEmpty(module.Id)) cache.MeshesByModuleId[module.Id] = new List<Mesh>(1) { padMesh };
+            ExitNotes.Add("exit-floor-composed:" + openings.Pads.Count + "strips:" + openings.Runs.Count +
+                "runs:retired" + retired + ":" + openings.LandingPads.Count + "landing");
+            AuditExitWellway(context, module, openings, root);
+            return true;
+        }
+
+        StagedStreetItem StageExitItem(
+            StationDocument document, StationIndex index, RuntimeCatalogue catalogue, Shader shader,
+            Transform stagingRoot, Transform worldRoot, StationModuleRecord record,
+            List<StationModuleRecord> rampRecords, WorldState state, StreetWorldCache cache,
+            Action<string, string, string, string> reportUnresolved) {
+            var module = record.Facts;
+            var visual = ModuleViews.Resolve(module, Array.Empty<ModuleFacts>(), catalogue);
+            if (visual.Kind == ModuleViewKind.None) return null;
+            if (!visual.HasModel) {
+                reportUnresolved("module-group", module.Type, module.Id,
+                    "unresolved:" + (visual.Detail.Length > 0 ? visual.Detail : "no-view"));
+                return null;
+            }
+            if (!catalogue.TryGet(visual.Key, out var entry) || entry.prefab == null) {
+                reportUnresolved("module-group", module.Type, module.Id, "unresolved:no-prefab:" + visual.Key);
+                return null;
+            }
+            var style = module.Config != null ? module.Config.Text("style") : "";
+            var root = UnityEngine.Object.Instantiate(entry.prefab, stagingRoot, false);
+            StationRigidModelLods.Apply(root, entry.prefab.name);
+            root.name = (string.IsNullOrEmpty(module.Id) ? "module" : module.Id) + " " + module.Type;
+            StationEditTrace.AddInstantiatedPrefab();
+
+            if (string.Equals(style, "doorway", StringComparison.Ordinal)) {
+                var pivot = Pivot(module, entry);
+                double mountZ = module.Config != null ? module.Config.Number("mountZ", module.Z + 1) : (module.Z + 1);
+                pivot.y += (float)(mountZ - (module.Z + 1));
+                root.transform.SetPositionAndRotation(pivot, ModulePlacement.Rotation(module.Rotation));
+                List<Material> doorwayMats = null;
+                ApplyDoorwayCityColour(document != null ? document.City : "", root, ref doorwayMats);
+                bool hasBounds = TryDocumentBounds(root.transform, worldRoot, out var bounds);
+                return new StagedStreetItem {
+                    Module = module,
+                    Built = new BuiltModule { ModuleId = module.Id, Type = module.Type, View = root, Key = visual.Key },
+                    Record = new StationViewRecord {
+                        Role = Role, ModuleId = module.Id, View = root,
+                        Bounds = hasBounds ? bounds : default, HasBounds = hasBounds,
+                        LevelMin = module.Z, LevelMax = module.Z + 1,
+                    },
+                    Materials = doorwayMats,
+                    NeedsExitArtwork = true,
+                    PrefabPath = entry.prefabPath,
+                };
+            }
+
+            root.transform.SetPositionAndRotation(ModulePlacement.Resolve(record, entry, index),
+                ModulePlacement.Rotation(module.Rotation));
+            List<Mesh> exitMeshes = null;
+            var openings = StationExitOpenings.For(rampRecords, record);
+            if (openings != null && openings.IsHeadHouse) {
+                var padMesh = BuildHeadHousePadStrips(shader, state, cache, module, openings, root, out _);
+                exitMeshes = new List<Mesh>(1) { padMesh };
+            }
+            return new StagedStreetItem {
+                Module = module,
+                Built = new BuiltModule { ModuleId = module.Id, Type = module.Type, View = root, Key = visual.Key },
+                Record = new StationViewRecord {
+                    Role = Role, ModuleId = module.Id, View = root,
+                    LevelMin = module.Z, LevelMax = module.Z + 1,
+                },
+                Meshes = exitMeshes,
+                NeedsExitArtwork = true,
+                PrefabPath = entry.prefabPath,
+            };
+        }
+
+        StagedStreetItem StageGuidepostItem(
+            StationIndex index, RuntimeCatalogue catalogue, Transform stagingRoot, StationModuleRecord record,
+            Action<string, string, string, string> reportUnresolved) {
+            var module = record.Facts;
+            var visual = ModuleViews.Resolve(module, Array.Empty<ModuleFacts>(), catalogue);
+            if (visual.Kind == ModuleViewKind.None) return null;
+            if (!visual.HasModel) {
+                reportUnresolved("module-group", module.Type, module.Id,
+                    "unresolved:" + (visual.Detail.Length > 0 ? visual.Detail : "no-view"));
+                return null;
+            }
+            if (!catalogue.TryGet(visual.Key, out var entry) || entry.prefab == null) {
+                reportUnresolved("module-group", module.Type, module.Id, "unresolved:no-prefab:" + visual.Key);
+                return null;
+            }
+            var root = UnityEngine.Object.Instantiate(entry.prefab, stagingRoot, false);
+            StationRigidModelLods.Apply(root, entry.prefab.name);
+            root.name = (string.IsNullOrEmpty(module.Id) ? "module" : module.Id) + " " + module.Type;
+            root.transform.SetPositionAndRotation(ModulePlacement.Resolve(record, entry, index),
+                ModulePlacement.Rotation(module.Rotation));
+            StationEditTrace.AddInstantiatedPrefab();
+            return new StagedStreetItem {
+                Module = module,
+                Built = new BuiltModule { ModuleId = module.Id, Type = module.Type, View = root, Key = visual.Key },
+                Record = new StationViewRecord {
+                    Role = Role, ModuleId = module.Id, View = root,
+                    LevelMin = module.Z, LevelMax = module.Z + 1,
+                },
+                NeedsExitArtwork = true,
+                PrefabPath = entry.prefabPath,
+            };
+        }
+
+        Mesh BuildHeadHousePadStrips(Shader shader, WorldState state, StreetWorldCache cache,
+            ModuleFacts module, StationExitOpenings openings, GameObject root, out int retired) {
+            retired = 0;
             Material concrete = null;
             foreach (var renderer in root.GetComponentsInChildren<MeshRenderer>(true)) {
                 if (!renderer) continue;
@@ -2504,7 +3379,7 @@ namespace Metro.App.Views {
                 // finish the web pad draws (`finishSlab(g, ctx.finish('floor.concrete'), …)`),
                 // with the source's own metre UVs (18 §6). A missing finish library falls back
                 // to the flat concrete palette slot and is named, never silently accepted.
-                concrete = ExitConcreteMaterial(context, state);
+                concrete = ExitConcreteMaterial(shader, state, cache);
             }
             if (retired == 0) {
                 // New pad-free assets carry nothing to retire: that is the contract, not a gap.
@@ -2546,11 +3421,7 @@ namespace Metro.App.Views {
             var stripRenderer = strips.AddComponent<MeshRenderer>();
             stripRenderer.sharedMaterial = concrete;
             stripRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-            state.Meshes.Add(mesh);
-            ExitNotes.Add("exit-floor-composed:" + openings.Pads.Count + "strips:" + openings.Runs.Count +
-                "runs:retired" + retired + ":" + openings.LandingPads.Count + "landing");
-            AuditExitWellway(context, module, openings, root);
-            return true;
+            return mesh;
         }
 
         /// <summary>
@@ -2560,12 +3431,12 @@ namespace Metro.App.Views {
         /// the outgoing station's finishes. A missing library falls back to the flat concrete
         /// palette slot and every head-house says so by name (18 §6).
         /// </summary>
-        Material ExitConcreteMaterial(StationViewBuildContext context, WorldState state) {
-            if (state.Finishes == null) state.Finishes = StationCellRenderer.AcquireLibrary(context.Shader);
+        Material ExitConcreteMaterial(Shader shader, WorldState state, StreetWorldCache cache) {
+            if (state.Finishes == null) state.Finishes = StationCellRenderer.AcquireLibrary(shader);
             var finish = state.Finishes != null ? state.Finishes.For(StationFinishIds.DefaultMaterial) : null;
             if (finish) return finish;
             ExitNotes.Add("exit-concrete-finish-missing:" + StationFinishIds.DefaultMaterial);
-            return TrackMaterial(context, state, "exit concrete", StationMaterials.Platform, .8f, .02f);
+            return TrackMaterial(shader, state, cache, "exit concrete", StationMaterials.Platform, .8f, .02f);
         }
 
         /// <summary>
@@ -2649,13 +3520,16 @@ namespace Metro.App.Views {
         }
 
         /// <summary>This world's street-artwork scope, created on first need.</summary>
-        StationExitArtworkScope FacesFor(StationViewBuildContext context, WorldState state) {
+        StationExitArtworkScope FacesFor(StationViewBuildContext context, WorldState state) =>
+            FacesForWorld(context.World, state);
+
+        StationExitArtworkScope FacesForWorld(StationWorldView world, WorldState state) {
             if (state.Faces != null && state.Faces.gameObject != null) {
-                if (state.Faces.World == null) state.Faces.World = context.World;
+                if (state.Faces.World == null) state.Faces.World = world;
                 return state.Faces;
             }
-            state.Faces = StationExitArtwork.CreateScope(context.RoleRoot(Role));
-            if (state.Faces != null) state.Faces.World = context.World;
+            state.Faces = StationExitArtwork.CreateScope(world.RoleRoot(Role));
+            if (state.Faces != null) state.Faces.World = world;
             return state.Faces;
         }
 
@@ -2663,8 +3537,8 @@ namespace Metro.App.Views {
         /// `DoorwayExitModel`: recolour `doorwayPanel_*` to `cityStyleFor(city).entranceColour`
         /// when the committed station uses a non-Guangzhou city style.
         /// </summary>
-        static void ApplyDoorwayCityColour(string city, GameObject root, WorldState state) {
-            if (!root || state == null) return;
+        static void ApplyDoorwayCityColour(string city, GameObject root, ref List<Material> ownedMaterials) {
+            if (!root) return;
             var hex = DoorwayEntranceHex(city);
             if (string.IsNullOrEmpty(hex) || string.Equals(hex, "#c22f28", StringComparison.OrdinalIgnoreCase)) return;
             if (!ColorUtility.TryParseHtmlString(hex, out var srgb)) return;
@@ -2683,7 +3557,7 @@ namespace Metro.App.Views {
                     }
                     if (clone.HasProperty("_BaseColor")) clone.SetColor("_BaseColor", srgb);
                     if (clone.HasProperty("_Color")) clone.color = srgb;
-                    state.Materials.Add(clone);
+                    (ownedMaterials ??= new List<Material>(2)).Add(clone);
                     materials[i] = clone;
                     changed = true;
                 }
@@ -2704,8 +3578,12 @@ namespace Metro.App.Views {
             }
         }
 
-        /// <summary>The parsed record behind a built module, by id and then by cell.</summary>
+        /// <summary>The parsed record behind a built module, by index first and then by cell.</summary>
         static StationModuleRecord ExitRecord(StationViewBuildContext context, ModuleFacts module) {
+            if (context.Index != null && !string.IsNullOrEmpty(module.Id)) {
+                var indexed = context.Index.GetModule(module.Id);
+                if (indexed != null) return indexed;
+            }
             var modules = context.Document.Modules;
             for (int i = 0; i < modules.Count; i++) {
                 var record = modules[i];
@@ -2727,21 +3605,21 @@ namespace Metro.App.Views {
         /// overhead run, because that is the only case the source asks for it
         /// (`neighboringGantryPosts` reads the gantry a bridge's own barrier must clear).
         /// </summary>
-        static RailBridgeOptions RailBridgeOptionsFor(StationViewBuildContext context, ModuleFacts module,
+        static RailBridgeOptions RailBridgeOptionsFor(StationDocument document, ModuleFacts module,
             ModuleFacts[] station, bool catenary, int thirdRail) {
             if (!module.Config.Bool("bridge")) return null;
             var options = new RailBridgeOptions {
                 Railing = module.Config.Text("bridgeRailing"),
-                VehicleWidth = StockWidthOf(context, module),
+                VehicleWidth = StockWidthOf(document, module),
             };
             if (options.Railing.Length == 0) options.Railing = "railing";
-            if (catenary) options.NeighborPosts = NeighboringGantryPosts(context, module, station, thirdRail);
+            if (catenary) options.NeighborPosts = NeighboringGantryPosts(document, module, station, thirdRail);
             return options;
         }
 
         /// <summary>`STOCK[line.stock].width` for a track's line, in metres.</summary>
-        static float StockWidthOf(StationViewBuildContext context, ModuleFacts module) {
-            var line = LineOf(context.Document, module);
+        static float StockWidthOf(StationDocument document, ModuleFacts module) {
+            var line = LineOf(document, module);
             return line != null ? StationRailGeometry.StockWidth(line.Stock) : 0f;
         }
 
@@ -2750,7 +3628,7 @@ namespace Metro.App.Views {
         /// elevation stand on the same module seam, expressed in this run's local frame, so the
         /// barrier and its concrete shoulder stop at their faces instead of passing through them.
         /// </summary>
-        static IReadOnlyList<Vector2> NeighboringGantryPosts(StationViewBuildContext context, ModuleFacts bridge,
+        static IReadOnlyList<Vector2> NeighboringGantryPosts(StationDocument document, ModuleFacts bridge,
             ModuleFacts[] station, int bridgeSide) {
             var posts = new List<Vector2>();
             float bridgeWidth = Mathf.Max(1f, bridge.Width);
@@ -2761,10 +3639,10 @@ namespace Metro.App.Views {
                 if (other.Z != bridge.Z) continue;
                 if (!other.Config.Bool("bridge") && !other.Config.Bool("tunnel") &&
                     !string.Equals(other.Config.Text("catenaryStyle"), "gantry", StringComparison.Ordinal)) continue;
-                if (!string.Equals(StationRailGeometry.PowerOf(context.Document, other), "catenary", StringComparison.Ordinal))
+                if (!string.Equals(StationRailGeometry.PowerOf(document, other), "catenary", StringComparison.Ordinal))
                     continue;
-                int side = StationRailGeometry.ThirdRailSide(other, station, StationRailGeometry.LineDirectionOf(context.Document, other));
-                float offset = StationRailGeometry.TrackSideFixtureOffset(Mathf.Max(1f, other.Depth), StockWidthOf(context, other));
+                int side = StationRailGeometry.ThirdRailSide(other, station, StationRailGeometry.LineDirectionOf(document, other));
+                float offset = StationRailGeometry.TrackSideFixtureOffset(Mathf.Max(1f, other.Depth), StockWidthOf(document, other));
                 float centreAcross = (Mathf.Max(1f, other.Depth) - 1f) * .5f;
                 float otherWidth = Mathf.Max(1f, other.Width);
                 // Match `TrackGantry.ts:trackGantryLayout`: bridges place posts every 8 m from 0,
@@ -2804,30 +3682,51 @@ namespace Metro.App.Views {
             }
         }
 
-        void BuildTrackRun(StationViewBuildContext context, ModuleFacts module, ModuleFacts[] station, WorldState state) {
+        void BuildTrackRun(StationViewBuildContext context, ModuleFacts module, ModuleFacts[] station, WorldState state,
+            StreetWorldCache cache) {
+            var item = StageTrackRunItem(context.Document, context.Index, context.TrainCatalogue, context.Shader,
+                context.RoleRoot(Role), context.Root, module, station, state, cache, recordNote: true);
+            state.Modules.Add(item.Built);
+            if (!string.IsNullOrEmpty(module.Id)) {
+                state.ById[module.Id] = item.Built;
+                if (item.IsCatenary) cache.CatenaryTrackIds.Add(module.Id);
+            }
+            if (item.Meshes != null && item.Meshes.Count > 0) {
+                state.Meshes.AddRange(item.Meshes);
+                if (!string.IsNullOrEmpty(module.Id)) cache.MeshesByModuleId[module.Id] = item.Meshes;
+            }
+            context.World.RegisterModule(Role, module.Id, item.Built.View, item.Record.Part,
+                item.Record.HasBounds ? item.Record.Bounds : (StationBox?)null,
+                item.Record.LevelMin, item.Record.LevelMax, item.Record.LevelBands);
+            state.Count++;
+        }
+
+        StagedStreetItem StageTrackRunItem(
+            StationDocument document, StationIndex index, TrainCatalogue trainCatalogue, Shader shader,
+            Transform parent, Transform worldRoot, ModuleFacts module, ModuleFacts[] station,
+            WorldState state, StreetWorldCache cache, bool recordNote = false) {
             float width = Mathf.Max(1f, module.Width);
             float depth = Mathf.Max(1f, module.Depth);
-            var stock = StationRailGeometry.StockOf(context.Document, module);
+            var stock = StationRailGeometry.StockOf(document, module);
             float scale = StationRailGeometry.DefaultScale;
             // The promoted formation's own baked scale is the source's station scale; the
             // stock catalogue records it, so the running gear follows the stock drawn on it.
-            var catalogue = context.TrainCatalogue;
-            if (catalogue != null) {
-                var line = LineOf(context.Document, module);
+            if (trainCatalogue != null) {
+                var line = LineOf(document, module);
                 if (line != null) {
-                    var formation = TrainFormations.Select(line.Stock, line.Cars, line.Power, catalogue);
-                    if (catalogue.TryGet(formation, out var entry) && entry != null && entry.bakedScale > 0f)
+                    var formation = TrainFormations.Select(line.Stock, line.Cars, line.Power, trainCatalogue);
+                    if (trainCatalogue.TryGet(formation, out var entry) && entry != null && entry.bakedScale > 0f)
                         scale = entry.bakedScale;
                 }
             }
             int thirdRail = StationRailGeometry.ThirdRailSide(module, station,
-                StationRailGeometry.LineDirectionOf(context.Document, module));
-            bool catenary = string.Equals(StationRailGeometry.PowerOf(context.Document, module), "catenary",
+                StationRailGeometry.LineDirectionOf(document, module));
+            bool catenary = string.Equals(StationRailGeometry.PowerOf(document, module), "catenary",
                 StringComparison.Ordinal);
             // Plan 22 §1: a bridge run draws a raised deck, edge shoulders and the barrier the
             // save names. `BuildTrackRun` used to drop the whole `cfg.bridge*` group, so Tanwei's
             // four 32 × 3 m bridge runs came out as dug trenches with nothing over them.
-            var bridge = RailBridgeOptionsFor(context, module, station, catenary, thirdRail);
+            var bridge = RailBridgeOptionsFor(document, module, station, catenary, thirdRail);
             RailCatenaryOptions catenaryOptions = null;
             if (catenary) {
                 bool tunnel = module.Config.Bool("tunnel");
@@ -2835,76 +3734,93 @@ namespace Metro.App.Views {
                 catenaryOptions = new RailCatenaryOptions {
                     Tunnel = tunnel,
                     Style = catStyle,
-                    VehicleWidth = StockWidthOf(context, module),
-                    CeilingZ = StationRailGeometry.TrackCeilingUndersideLocal(context.Index, module,
+                    VehicleWidth = StockWidthOf(document, module),
+                    CeilingZ = StationRailGeometry.TrackCeilingUndersideLocal(index, module,
                         true, tunnel, bridge != null, catStyle),
                 };
             }
             var run = RailRunGeometry.Build(width, depth, scale, thirdRail, catenary, bridge, catenaryOptions);
             var root = new GameObject((string.IsNullOrEmpty(module.Id) ? "track" : module.Id) + " run");
-            root.transform.SetParent(context.RoleRoot(Role), false);
+            root.transform.SetParent(parent, false);
             // `TrackModel.build` positions its group at the track record's **floor elevation**
             // (`mod.z`), not the cell top. Starting at `z + 1` put the ballast and rails one
             // metre up, at platform height.
             root.transform.SetPositionAndRotation(
                 StationCoordinates.Point(new Vector3(module.X + .5f, module.Y + .5f, module.Z)),
                 ModulePlacement.Rotation(module.Rotation));
-            trackNotes.Add(module.Id + " stock=" + stock + " scale=" + scale.ToString("0.###", CultureInfo.InvariantCulture) +
-                " power=" + (catenary ? "catenary" : "third-rail") + " " + string.Join(" ", run.Notes));
-            var bedMaterial = TrackMaterial(context, state, "track bed", StationMaterials.Platform, .86f, .02f);
-            var steelMaterial = TrackMaterial(context, state, "track rail", StationMaterials.Steel, .7f, .55f);
-            var darkMaterial = TrackMaterial(context, state, "track hardware", StationMaterials.Dark, .5f, .4f);
-            var powerMaterial = TrackMaterial(context, state, "track power", StationMaterials.Warm, .7f, .1f);
-            var insulatorMaterial = TrackMaterial(context, state, "track insulator", StationMaterials.Light, .4f, .02f);
+            if (recordNote) {
+                trackNotes.Add(module.Id + " stock=" + stock + " scale=" + scale.ToString("0.###", CultureInfo.InvariantCulture) +
+                    " power=" + (catenary ? "catenary" : "third-rail") + " " + string.Join(" ", run.Notes));
+            }
+            var bedMaterial = TrackMaterial(shader, state, cache, "track bed", StationMaterials.Platform, .86f, .02f);
+            var steelMaterial = TrackMaterial(shader, state, cache, "track rail", StationMaterials.Steel, .7f, .55f);
+            var darkMaterial = TrackMaterial(shader, state, cache, "track hardware", StationMaterials.Dark, .5f, .4f);
+            var powerMaterial = TrackMaterial(shader, state, cache, "track power", StationMaterials.Warm, .7f, .1f);
+            var insulatorMaterial = TrackMaterial(shader, state, cache, "track insulator", StationMaterials.Light, .4f, .02f);
             // The deck and barrier materials exist only on a bridge run, so a ground station does
             // not mint two unused materials per track.
             var deckMaterial = bridge != null
-                ? TrackMaterial(context, state, "track deck", StationMaterials.Platform, .86f, .02f) : null;
+                ? TrackMaterial(shader, state, cache, "track deck", StationMaterials.Platform, .86f, .02f) : null;
             var panelMaterial = bridge != null
-                ? TrackMaterial(context, state, "track barrier panel", StationMaterials.Light, .55f, .04f) : null;
+                ? TrackMaterial(shader, state, cache, "track barrier panel", StationMaterials.Light, .55f, .04f) : null;
             var copperMaterial = catenary
-                ? TrackMaterialColor(context, state, "track contact wire", new Color(.68f, .42f, .24f, 1f), .55f, .65f) : null;
-            AddTrackPart(root.transform, run.Bed, bedMaterial, state, "track-bed");
-            AddTrackPart(root.transform, run.Deck, deckMaterial, state, "track-deck");
-            AddTrackPart(root.transform, run.Steel, steelMaterial, state, "track-rail");
-            AddTrackPart(root.transform, run.Dark, darkMaterial, state, "track-hardware");
-            AddTrackPart(root.transform, run.Power, powerMaterial, state, "track-power");
-            AddTrackPart(root.transform, run.Insulator, insulatorMaterial, state, "track-insulator");
-            AddTrackPart(root.transform, run.Panel, panelMaterial, state, "track-barrier-panel");
-            AddTrackPart(root.transform, run.Copper, copperMaterial, state, "track-contact-wire");
-            var grid = StationLevelGrid.FromDocument(context.Document.LevelBase, context.Document.StoreyHeight);
+                ? TrackMaterialColor(shader, state, cache, "track contact wire", new Color(.68f, .42f, .24f, 1f), .55f, .65f) : null;
+            var trackMeshes = new List<Mesh>(8);
+            AddTrackPart(root.transform, run.Bed, bedMaterial, trackMeshes, "track-bed");
+            AddTrackPart(root.transform, run.Deck, deckMaterial, trackMeshes, "track-deck");
+            AddTrackPart(root.transform, run.Steel, steelMaterial, trackMeshes, "track-rail");
+            AddTrackPart(root.transform, run.Dark, darkMaterial, trackMeshes, "track-hardware");
+            AddTrackPart(root.transform, run.Power, powerMaterial, trackMeshes, "track-power");
+            AddTrackPart(root.transform, run.Insulator, insulatorMaterial, trackMeshes, "track-insulator");
+            AddTrackPart(root.transform, run.Panel, panelMaterial, trackMeshes, "track-barrier-panel");
+            AddTrackPart(root.transform, run.Copper, copperMaterial, trackMeshes, "track-contact-wire");
+            var grid = StationLevelGrid.FromDocument(document.LevelBase, document.StoreyHeight);
             var bands = StationModuleLevels.Of(module, grid);
             int levelMin = bands.Length > 0 ? bands[0] : module.Z;
             int levelMax = bands.Length > 0 ? bands[bands.Length - 1] : levelMin;
-            if (TryDocumentBounds(root.transform, context.Root, out var bounds)) {
-                context.World.RegisterModule(Role, module.Id, root, "track-run", bounds, levelMin, levelMax, bands);
-            } else {
-                context.World.RegisterModule(Role, module.Id, root, "track-run", BoxOf(module), levelMin, levelMax, bands);
-            }
-            state.Count++;
+            bool hasBounds = TryDocumentBounds(root.transform, worldRoot, out var bounds);
+            return new StagedStreetItem {
+                Module = module,
+                Built = new BuiltModule { ModuleId = module.Id, Type = module.Type, View = root, Key = "generated:track" },
+                Record = new StationViewRecord {
+                    Role = Role, ModuleId = module.Id, Part = "track-run", View = root,
+                    Bounds = hasBounds ? bounds : BoxOf(module), HasBounds = true,
+                    LevelMin = levelMin, LevelMax = levelMax, LevelBands = bands,
+                },
+                Meshes = trackMeshes,
+                IsCatenary = catenary,
+            };
         }
 
         /// <summary>Per-track composition notes (`trackNotes`), one per saved track run.</summary>
         public List<string> TrackNotes => trackNotes;
         readonly List<string> trackNotes = new List<string>();
 
-        Material TrackMaterial(StationViewBuildContext context, WorldState state, string name, int colour,
+        Material TrackMaterial(Shader worldShader, WorldState state, StreetWorldCache cache, string name, int colour,
             float smoothness, float metallic) =>
-            TrackMaterialColor(context, state, name, StationMaterials.Colours[colour], smoothness, metallic);
+            TrackMaterialColor(worldShader, state, cache, name, StationMaterials.Colours[colour], smoothness, metallic);
 
-        Material TrackMaterialColor(StationViewBuildContext context, WorldState state, string name, Color value,
+        Material TrackMaterialColor(Shader worldShader, WorldState state, StreetWorldCache cache, string name, Color value,
             float smoothness, float metallic) {
-            var shader = context.Shader != null ? context.Shader : Shader.Find("Universal Render Pipeline/Lit");
+            string matKey = name + "|" +
+                value.r.ToString("0.###", CultureInfo.InvariantCulture) + "," +
+                value.g.ToString("0.###", CultureInfo.InvariantCulture) + "," +
+                value.b.ToString("0.###", CultureInfo.InvariantCulture) + "|" +
+                smoothness.ToString("0.###", CultureInfo.InvariantCulture) + "|" +
+                metallic.ToString("0.###", CultureInfo.InvariantCulture);
+            if (cache != null && cache.SharedTrackMaterials.TryGetValue(matKey, out var cached) && cached) return cached;
+            var shader = worldShader != null ? worldShader : Shader.Find("Universal Render Pipeline/Lit");
             var material = new Material(shader) { name = name };
             if (material.HasProperty("_BaseColor")) material.SetColor("_BaseColor", value.linear);
             else material.color = value;
             if (material.HasProperty("_Smoothness")) material.SetFloat("_Smoothness", smoothness);
             if (material.HasProperty("_Metallic")) material.SetFloat("_Metallic", metallic);
             state.Materials.Add(material);
+            if (cache != null) cache.SharedTrackMaterials[matKey] = material;
             return material;
         }
 
-        static void AddTrackPart(Transform root, RailMeshBin bin, Material material, WorldState state, string name) {
+        static void AddTrackPart(Transform root, RailMeshBin bin, Material material, List<Mesh> ownedMeshes, string name) {
             if (bin.VertexCount == 0) return;
             var mesh = bin.ToMesh(name);
             var part = new GameObject(name, typeof(MeshFilter), typeof(MeshRenderer));
@@ -2913,7 +3829,7 @@ namespace Metro.App.Views {
             var renderer = part.GetComponent<MeshRenderer>();
             renderer.sharedMaterial = material;
             renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-            state.Meshes.Add(mesh);
+            ownedMeshes.Add(mesh);
         }
 
         static StationLineRecord LineOf(StationDocument document, ModuleFacts module) {
@@ -2975,13 +3891,19 @@ namespace Metro.App.Views {
             public StationInstancedSurfaceDrawer Drawer;
             public readonly Dictionary<EquipChunkKey, StationInstancedPrefabChunk> Chunks =
                 new Dictionary<EquipChunkKey, StationInstancedPrefabChunk>();
+            public readonly Dictionary<EquipChunkKey, (StationPrefabMeshTemplate Template, Dictionary<string, StationStaticPrefabItem> Items)> ChunkItems =
+                new Dictionary<EquipChunkKey, (StationPrefabMeshTemplate, Dictionary<string, StationStaticPrefabItem>)>();
             public readonly Dictionary<string, EquipChunkKey> ModuleToChunk =
                 new Dictionary<string, EquipChunkKey>(StringComparer.Ordinal);
             public readonly Dictionary<long, List<string>> BatchedCeilingByColumn =
                 new Dictionary<long, List<string>>();
+            public readonly Dictionary<string, long> BatchedCeilingColById =
+                new Dictionary<string, long>(StringComparer.Ordinal);
             public readonly HashSet<(int Band, string ViewKey)> BatchedGroups =
                 new HashSet<(int Band, string ViewKey)>();
             public readonly HashSet<string> BatchedTypes = new HashSet<string>(StringComparer.Ordinal);
+            public readonly Dictionary<string, List<Mesh>> ProceduralMeshesById =
+                new Dictionary<string, List<Mesh>>(StringComparer.Ordinal);
 
             public void Dispose() {
                 foreach (var chunk in Chunks.Values) {
@@ -2994,13 +3916,22 @@ namespace Metro.App.Views {
                     chunk.ProxyMeshes.Clear();
                 }
                 Chunks.Clear();
+                ChunkItems.Clear();
                 ModuleToChunk.Clear();
                 BatchedCeilingByColumn.Clear();
+                BatchedCeilingColById.Clear();
                 BatchedGroups.Clear();
                 BatchedTypes.Clear();
+                ProceduralMeshesById.Clear();
                 Templates?.Dispose();
                 Templates = null;
             }
+        }
+
+        sealed class StagedProceduralItem {
+            public BuiltModule Built;
+            public StationViewRecord Record;
+            public List<Mesh> Meshes;
         }
 
         sealed class StagedEquipmentDelta : IStationLocalRendererStage {
@@ -3009,8 +3940,12 @@ namespace Metro.App.Views {
             readonly IStationLocalRendererStage individualStage;
             readonly List<EquipChunkKey> dirtyChunks;
             readonly Dictionary<EquipChunkKey, StationInstancedPrefabChunk> stagedChunks;
+            readonly Dictionary<EquipChunkKey, (StationPrefabMeshTemplate Template, Dictionary<string, StationStaticPrefabItem> Items)> stagedChunkItems;
             readonly List<(string Id, long Col)> newCeilingLinks;
             readonly HashSet<string> removedOrMovedIds;
+            readonly HashSet<string> retiredUnbatchedForBatchIds;
+            readonly HashSet<string> proceduralRetiredIds;
+            readonly List<StagedProceduralItem> stagedProcedural;
             bool committed;
 
             public StagedEquipmentDelta(
@@ -3019,24 +3954,87 @@ namespace Metro.App.Views {
                 IStationLocalRendererStage individualStage,
                 List<EquipChunkKey> dirtyChunks,
                 Dictionary<EquipChunkKey, StationInstancedPrefabChunk> stagedChunks,
+                Dictionary<EquipChunkKey, (StationPrefabMeshTemplate Template, Dictionary<string, StationStaticPrefabItem> Items)> stagedChunkItems,
                 List<(string Id, long Col)> newCeilingLinks,
-                HashSet<string> removedOrMovedIds) {
+                HashSet<string> removedOrMovedIds,
+                HashSet<string> retiredUnbatchedForBatchIds,
+                HashSet<string> proceduralRetiredIds,
+                List<StagedProceduralItem> stagedProcedural) {
                 this.state = state;
                 this.cache = cache;
                 this.individualStage = individualStage;
                 this.dirtyChunks = dirtyChunks;
                 this.stagedChunks = stagedChunks;
+                this.stagedChunkItems = stagedChunkItems;
                 this.newCeilingLinks = newCeilingLinks;
                 this.removedOrMovedIds = removedOrMovedIds;
+                this.retiredUnbatchedForBatchIds = retiredUnbatchedForBatchIds;
+                this.proceduralRetiredIds = proceduralRetiredIds;
+                this.stagedProcedural = stagedProcedural;
             }
 
             public void Commit(StationWorldView world, StationLocalViewCommit commit) {
                 committed = true;
                 individualStage?.Commit(world, commit);
 
-                if (removedOrMovedIds != null && removedOrMovedIds.Count > 0 && cache.BatchedCeilingByColumn.Count > 0) {
-                    foreach (var pair in cache.BatchedCeilingByColumn) {
-                        pair.Value.RemoveAll(id => removedOrMovedIds.Contains(id));
+                if (retiredUnbatchedForBatchIds != null && retiredUnbatchedForBatchIds.Count > 0) {
+                    world.RetireRecordsWhere(rec => rec.Role == StationModuleClaims.Equipment && retiredUnbatchedForBatchIds.Contains(rec.ModuleId),
+                        commit, retireViewObjects: true);
+                    state.Modules.RemoveAll(m => retiredUnbatchedForBatchIds.Contains(m.ModuleId));
+                    foreach (var id in retiredUnbatchedForBatchIds) state.ById.Remove(id);
+                    foreach (var pair in state.CeilingByColumn) {
+                        pair.Value.RemoveAll(m => retiredUnbatchedForBatchIds.Contains(m.ModuleId));
+                    }
+                }
+
+                if (proceduralRetiredIds != null && proceduralRetiredIds.Count > 0) {
+                    foreach (var id in proceduralRetiredIds) {
+                        if (state.ById.TryGetValue(id, out var oldBuilt) && oldBuilt?.View != null &&
+                            oldBuilt.View.TryGetComponent<AssemblyOwner>(out var oldOwner)) {
+                            oldOwner.DetachMeshes(commit.RetiredMeshes);
+                        }
+                    }
+                    world.RetireRecordsWhere(rec => rec.Role == StationModuleClaims.Equipment && proceduralRetiredIds.Contains(rec.ModuleId),
+                        commit, retireViewObjects: true);
+                    state.Modules.RemoveAll(m => proceduralRetiredIds.Contains(m.ModuleId));
+                    foreach (var id in proceduralRetiredIds) {
+                        state.ById.Remove(id);
+                        if (cache.ProceduralMeshesById.TryGetValue(id, out var oldMeshes)) {
+                            cache.ProceduralMeshesById.Remove(id);
+                            for (int i = 0; i < oldMeshes.Count; i++) {
+                                var m = oldMeshes[i];
+                                if (m == null) continue;
+                                state.Meshes.Remove(m);
+                                commit.RetiredMeshes.Add(m);
+                            }
+                        }
+                    }
+                }
+
+                if (stagedProcedural != null && stagedProcedural.Count > 0) {
+                    var roleRoot = world.RoleRoot(StationModuleClaims.Equipment);
+                    for (int i = 0; i < stagedProcedural.Count; i++) {
+                        var item = stagedProcedural[i];
+                        item.Built.View.transform.SetParent(roleRoot, false);
+                        state.Modules.Add(item.Built);
+                        if (!string.IsNullOrEmpty(item.Built.ModuleId)) state.ById[item.Built.ModuleId] = item.Built;
+                        if (item.Meshes != null && item.Meshes.Count > 0) {
+                            state.Meshes.AddRange(item.Meshes);
+                            if (!string.IsNullOrEmpty(item.Built.ModuleId)) cache.ProceduralMeshesById[item.Built.ModuleId] = item.Meshes;
+                        }
+                        world.AddLocalRecord(item.Record, commit);
+                    }
+                }
+
+                if (removedOrMovedIds != null && removedOrMovedIds.Count > 0 && cache.BatchedCeilingColById.Count > 0) {
+                    foreach (var id in removedOrMovedIds) {
+                        if (cache.BatchedCeilingColById.TryGetValue(id, out var col)) {
+                            cache.BatchedCeilingColById.Remove(id);
+                            if (cache.BatchedCeilingByColumn.TryGetValue(col, out var list)) {
+                                list.Remove(id);
+                                if (list.Count == 0) cache.BatchedCeilingByColumn.Remove(col);
+                            }
+                        }
                     }
                 }
 
@@ -3049,6 +4047,7 @@ namespace Metro.App.Views {
                             oldChunk.RetireFrom(world, cache.Drawer, commit);
                             cache.Chunks.Remove(ck);
                         }
+                        cache.ChunkItems.Remove(ck);
                         if (stagedChunks != null && stagedChunks.TryGetValue(ck, out var newChunk) && newChunk.Views.Count > 0) {
                             for (int v = 0; v < newChunk.Views.Count; v++) {
                                 newChunk.Views[v].transform.SetParent(roleRoot, false);
@@ -3061,6 +4060,9 @@ namespace Metro.App.Views {
                             }
                             foreach (var id in newChunk.ModuleIds) cache.ModuleToChunk[id] = ck;
                             cache.Chunks[ck] = newChunk;
+                            if (stagedChunkItems != null && stagedChunkItems.TryGetValue(ck, out var itemsEntry)) {
+                                cache.ChunkItems[ck] = itemsEntry;
+                            }
                         }
                     }
                 }
@@ -3072,6 +4074,7 @@ namespace Metro.App.Views {
                             cache.BatchedCeilingByColumn[col] = list = new List<string>(2);
                         }
                         if (!list.Contains(id)) list.Add(id);
+                        cache.BatchedCeilingColById[id] = col;
                     }
                 }
 
@@ -3085,7 +4088,26 @@ namespace Metro.App.Views {
                     foreach (var chunk in stagedChunks.Values) chunk?.DestroyUncommitted();
                     stagedChunks.Clear();
                 }
+                DestroyUncommittedProcedural(stagedProcedural);
             }
+        }
+
+        static void DestroyUncommittedProcedural(List<StagedProceduralItem> items) {
+            if (items == null) return;
+            for (int i = 0; i < items.Count; i++) {
+                var item = items[i];
+                if (item == null) continue;
+                if (item.Built?.View != null) {
+                    if (item.Built.View.TryGetComponent<AssemblyOwner>(out var owner)) owner.DetachMeshes(null);
+                    Destroy(item.Built.View);
+                }
+                if (item.Meshes != null) {
+                    for (int m = 0; m < item.Meshes.Count; m++) {
+                        if (item.Meshes[m] != null) Destroy(item.Meshes[m]);
+                    }
+                }
+            }
+            items.Clear();
         }
 
         readonly List<EquipmentBatchCache> batchCaches = new List<EquipmentBatchCache>();
@@ -3111,8 +4133,11 @@ namespace Metro.App.Views {
             PurgeBatchCaches();
         }
 
-        protected override bool IsLocalPrefabSupported(string type) =>
-            type != "glass" && type != "booth";
+        static bool IsBatchableEquipment(string type) =>
+            !string.Equals(type, "glass", StringComparison.Ordinal) &&
+            !string.Equals(type, "booth", StringComparison.Ordinal);
+
+        protected override bool IsLocalPrefabSupported(string type) => true;
 
         bool TryResolveStaticEquipmentPose(
             StationIndex index,
@@ -3133,7 +4158,7 @@ namespace Metro.App.Views {
             rot = Quaternion.identity;
             band = 0;
             ceilingHung = false;
-            if (module == null || !IsLocalPrefabSupported(module.Type)) return false;
+            if (module == null || !IsBatchableEquipment(module.Type)) return false;
             var visual = ModuleViews.Resolve(module, Array.Empty<ModuleFacts>(), catalogue);
             if (!visual.HasModel) return false;
             if (!catalogue.TryGet(visual.Key, out entry) || entry.prefab == null) return false;
@@ -3172,7 +4197,6 @@ namespace Metro.App.Views {
             var batchCache = new EquipmentBatchCache { World = context.World };
             batchCaches.Add(batchCache);
 
-            StationMaterials palette = null;
             StationCeilingMounts ceilingMounts = null;
             int storeyHeight = Math.Max(1, context.Document.StoreyHeight);
             var grid = StationLevelGrid.FromDocument(context.Document.LevelBase, storeyHeight);
@@ -3187,16 +4211,12 @@ namespace Metro.App.Views {
                 var module = station[i];
                 if (!Owns(module.Type)) continue;
                 if (module.Type == "glass") {
-                    if (BuildWallGlass(context, module, station, state)) continue;
+                    if (BuildWallGlass(context, module, station, state, batchCache)) continue;
                 }
                 if (module.Type == "booth") {
-                    if (palette == null && context.Shader != null) {
-                        palette = new StationMaterials(context.Shader);
-                        for (int slot = 0; slot < StationMaterials.Colours.Length; slot++) state.Materials.Add(palette[slot]);
-                    }
-                    if (BuildBooth(context, module, station, state, palette)) continue;
+                    if (BuildBooth(context, module, station, state, batchCache)) continue;
                 }
-                if (canInstance && IsLocalPrefabSupported(module.Type)) {
+                if (canInstance && IsBatchableEquipment(module.Type)) {
                     if ((module.CeilingAnchored || StationFootprints.IsCeilingHung(module)) && ceilingMounts == null) {
                         ceilingMounts = context.Index != null
                             ? StationCeilingMounts.ForIndex(context.Index)
@@ -3246,6 +4266,7 @@ namespace Metro.App.Views {
                             batchCache.BatchedCeilingByColumn[col] = list = new List<string>(2);
                         }
                         list.Add(c.Module.Id);
+                        batchCache.BatchedCeilingColById[c.Module.Id] = col;
                     }
                 }
                 foreach (var kv in chunkItems) {
@@ -3262,6 +4283,11 @@ namespace Metro.App.Views {
                         new[] { ck.Band });
                     chunk.RegisterInto(context.World, batchCache.Drawer);
                     batchCache.Chunks[ck] = chunk;
+                    var map = new Dictionary<string, StationStaticPrefabItem>(kv.Value.Items.Count, StringComparer.Ordinal);
+                    for (int j = 0; j < kv.Value.Items.Count; j++) {
+                        map[kv.Value.Items[j].ModuleId] = kv.Value.Items[j];
+                    }
+                    batchCache.ChunkItems[ck] = (kv.Value.Template, map);
                     foreach (var id in chunk.ModuleIds) batchCache.ModuleToChunk[id] = ck;
                 }
                 state.Count += batchedCount;
@@ -3311,14 +4337,11 @@ namespace Metro.App.Views {
             out IStationLocalRendererStage stage,
             out string fallbackReason) {
             var state = StateOf(context.World);
-            if (state == null) {
+            var batchCache = BatchCacheOf(context.World);
+            if (state == null || batchCache == null) {
                 stage = null;
                 fallbackReason = "no-group-state:" + Role;
                 return false;
-            }
-            var batchCache = BatchCacheOf(context.World);
-            if (batchCache == null || batchCache.BatchedGroups.Count == 0) {
-                return TryStagePrefabGroupDelta(context, state, out stage, out fallbackReason);
             }
 
             stage = null;
@@ -3328,21 +4351,54 @@ namespace Metro.App.Views {
             var grid = StationLevelGrid.FromDocument(context.NextDocument.LevelBase, context.NextDocument.StoreyHeight);
             int storeyHeight = Math.Max(1, context.NextDocument.StoreyHeight);
             var catalogue = context.World.Catalogue;
+            bool hasBatchedGroups = batchCache.BatchedGroups.Count > 0;
 
             var dirtyChunkSet = new HashSet<EquipChunkKey>();
             var removedOrMovedIds = new HashSet<string>(StringComparer.Ordinal);
             var newCeilingLinks = new List<(string Id, long Col)>();
             bool hasUnbatchedChange = false;
             var batchedAffectedIds = new HashSet<string>(StringComparer.Ordinal);
+            HashSet<string> retiredUnbatchedForBatchIds = null;
+            var proceduralRemovedIds = new HashSet<string>(StringComparer.Ordinal);
+            var proceduralDirtyIds = new HashSet<string>(StringComparer.Ordinal);
+            HashSet<(int Z, int X, int Y)> touchedGlassCells = null;
+            var updatedItemsByChunk = new Dictionary<EquipChunkKey, (StationPrefabMeshTemplate Template, List<StationStaticPrefabItem> Items)>();
+
+            void AddUpdatedBatchedItem(EquipChunkKey ck, StationPrefabMeshTemplate template, StationStaticPrefabItem item) {
+                if (!updatedItemsByChunk.TryGetValue(ck, out var list)) {
+                    list = (template, new List<StationStaticPrefabItem>(2));
+                    updatedItemsByChunk[ck] = list;
+                }
+                list.Items.Add(item);
+            }
+
+            void RecordGlassCells(StationModuleRecord rec, int width) {
+                if (rec?.Facts == null) return;
+                var cells = GlassCells(rec.Facts, width);
+                touchedGlassCells ??= new HashSet<(int Z, int X, int Y)>();
+                for (int c = 0; c < cells.Count; c++) {
+                    touchedGlassCells.Add((rec.Z, (int)Math.Round(cells[c].X), (int)Math.Round(cells[c].Y)));
+                }
+            }
 
             for (int i = 0; i < delta.RemovedModules.Count; i++) {
                 var id = delta.RemovedModules[i];
-                if (!context.PrevIndex.TryGetModule(id, out var oldMod) || oldMod == null || !Owns(oldMod.Type)) continue;
-                if (!IsLocalPrefabSupported(oldMod.Type)) {
-                    fallbackReason = "local-module-family:" + oldMod.Type;
-                    return false;
+                if (!context.PrevIndex.TryGetModule(id, out var oldMod) || oldMod == null) continue;
+                if (string.Equals(oldMod.Type, "door", StringComparison.Ordinal)) {
+                    RecordGlassCells(oldMod, Mathf.Max(1, oldMod.Width));
+                    continue;
                 }
-                if (batchCache.ModuleToChunk.TryGetValue(id, out var oldCk)) {
+                if (!Owns(oldMod.Type)) continue;
+                if (!IsBatchableEquipment(oldMod.Type)) {
+                    proceduralRemovedIds.Add(id);
+                    batchedAffectedIds.Add(id);
+                    if (string.Equals(oldMod.Type, "glass", StringComparison.Ordinal) &&
+                        StationFootprints.GlassStandsOnFloor(oldMod.Config)) {
+                        RecordGlassCells(oldMod, GlassRun(oldMod));
+                    }
+                    continue;
+                }
+                if (hasBatchedGroups && batchCache.ModuleToChunk.TryGetValue(id, out var oldCk)) {
                     dirtyChunkSet.Add(oldCk);
                     removedOrMovedIds.Add(id);
                     batchedAffectedIds.Add(id);
@@ -3354,115 +4410,206 @@ namespace Metro.App.Views {
             StationCeilingMounts nextMounts = null;
             for (int i = 0; i < delta.ChangedModules.Count; i++) {
                 var mod = delta.ChangedModules[i];
-                if (mod == null || !Owns(mod.Type)) continue;
-                if (!IsLocalPrefabSupported(mod.Type)) {
-                    fallbackReason = "local-module-family:" + mod.Type;
-                    return false;
+                if (mod == null) continue;
+                context.PrevIndex.TryGetModule(mod.Id, out var prevMod);
+                if (string.Equals(mod.Type, "door", StringComparison.Ordinal)) {
+                    if (prevMod != null && string.Equals(prevMod.Type, "door", StringComparison.Ordinal)) {
+                        RecordGlassCells(prevMod, Mathf.Max(1, prevMod.Width));
+                    }
+                    RecordGlassCells(mod, Mathf.Max(1, mod.Width));
+                    continue;
                 }
-                bool wasBatched = batchCache.ModuleToChunk.TryGetValue(mod.Id, out var oldCk);
+                if (!Owns(mod.Type)) continue;
+                if (!IsBatchableEquipment(mod.Type)) {
+                    proceduralDirtyIds.Add(mod.Id);
+                    batchedAffectedIds.Add(mod.Id);
+                    if (string.Equals(mod.Type, "glass", StringComparison.Ordinal)) {
+                        if (prevMod != null && string.Equals(prevMod.Type, "glass", StringComparison.Ordinal) &&
+                            StationFootprints.GlassStandsOnFloor(prevMod.Config)) {
+                            RecordGlassCells(prevMod, GlassRun(prevMod));
+                        }
+                        if (StationFootprints.GlassStandsOnFloor(mod.Config)) {
+                            RecordGlassCells(mod, GlassRun(mod));
+                        }
+                    }
+                    continue;
+                }
+                EquipChunkKey oldCk = default;
+                bool wasBatched = hasBatchedGroups && batchCache.ModuleToChunk.TryGetValue(mod.Id, out oldCk);
                 if (wasBatched) {
                     dirtyChunkSet.Add(oldCk);
                     removedOrMovedIds.Add(mod.Id);
                 }
-                if (catalogue != null) {
+                if (hasBatchedGroups && catalogue != null) {
                     if ((mod.Facts.CeilingAnchored || StationFootprints.IsCeilingHung(mod.Facts)) && nextMounts == null) {
                         nextMounts = context.GetNextCeilingMounts();
                     }
                     if (TryResolveStaticEquipmentPose(context.NextIndex, grid, nextMounts, storeyHeight, catalogue,
-                            mod.Facts, out var entry, out var key, out _, out _, out int band, out bool ceilingHung) &&
+                            mod.Facts, out var entry, out var key, out var pos, out var rot, out int band, out bool ceilingHung) &&
                         batchCache.BatchedGroups.Contains((band, key)) &&
-                        batchCache.Templates.TryGetTemplate(entry.prefab, out _)) {
-                        dirtyChunkSet.Add(new EquipChunkKey(band, EquipChunkCoord(mod.X), EquipChunkCoord(mod.Y), key));
+                        batchCache.Templates.TryGetTemplate(entry.prefab, out var template)) {
+                        var ck = new EquipChunkKey(band, EquipChunkCoord(mod.X), EquipChunkCoord(mod.Y), key);
+                        dirtyChunkSet.Add(ck);
                         batchCache.BatchedTypes.Add(mod.Type);
                         batchedAffectedIds.Add(mod.Id);
+                        var worldMatrix = Matrix4x4.TRS(pos, rot, template.PrefabLocalScale);
+                        if (!template.TryDocumentBounds(worldMatrix, out var docBox)) docBox = BoxOf(mod.Facts);
+                        AddUpdatedBatchedItem(ck, template, new StationStaticPrefabItem(mod.Id, worldMatrix, docBox));
                         if (ceilingHung) {
                             newCeilingLinks.Add((mod.Id, StationLocalDeltaContext.PackColumn(mod.X, mod.Y)));
                         }
-                        if (!wasBatched && state.ById.ContainsKey(mod.Id)) hasUnbatchedChange = true;
+                        if (!wasBatched && state.ById.ContainsKey(mod.Id)) {
+                            (retiredUnbatchedForBatchIds ??= new HashSet<string>(StringComparer.Ordinal)).Add(mod.Id);
+                        }
                         continue;
                     }
                 }
                 hasUnbatchedChange = true;
             }
 
-            if (context.CellsChanged && batchCache.BatchedCeilingByColumn.Count > 0) {
-                foreach (long col in context.TouchedColumns) {
-                    if (!batchCache.BatchedCeilingByColumn.TryGetValue(col, out var ids)) continue;
-                    for (int i = 0; i < ids.Count; i++) {
-                        if (batchCache.ModuleToChunk.TryGetValue(ids[i], out var ck)) dirtyChunkSet.Add(ck);
+            if (touchedGlassCells != null && touchedGlassCells.Count > 0) {
+                var allGlass = context.NextIndex.ModulesOfType("glass");
+                for (int i = 0; i < allGlass.Count; i++) {
+                    var g = allGlass[i];
+                    if (g == null || proceduralRemovedIds.Contains(g.Id) || proceduralDirtyIds.Contains(g.Id)) continue;
+                    if (!StationFootprints.GlassStandsOnFloor(g.Config)) continue;
+                    var cells = GlassCells(g.Facts, GlassRun(g));
+                    for (int c = 0; c < cells.Count; c++) {
+                        if (touchedGlassCells.Contains((g.Z, (int)Math.Round(cells[c].X), (int)Math.Round(cells[c].Y)))) {
+                            proceduralDirtyIds.Add(g.Id);
+                            batchedAffectedIds.Add(g.Id);
+                            break;
+                        }
                     }
                 }
             }
 
-            if (dirtyChunkSet.Count == 0) {
+            if (hasBatchedGroups && context.CeilingSupportChanged && batchCache.BatchedCeilingByColumn.Count > 0 && catalogue != null) {
+                foreach (long col in context.TouchedCeilingColumns) {
+                    if (!batchCache.BatchedCeilingByColumn.TryGetValue(col, out var ids)) continue;
+                    for (int i = 0; i < ids.Count; i++) {
+                        var cid = ids[i];
+                        if (batchedAffectedIds.Contains(cid)) continue;
+                        if (!batchCache.ModuleToChunk.TryGetValue(cid, out var oldCk)) continue;
+                        if (!context.NextIndex.TryGetModule(cid, out var rec) || rec == null) continue;
+                        if (nextMounts == null) nextMounts = context.GetNextCeilingMounts();
+                        if (!TryResolveStaticEquipmentPose(context.NextIndex, grid, nextMounts, storeyHeight, catalogue,
+                                rec.Facts, out var entry, out var key, out var pos, out var rot, out int band, out _)) {
+                            continue;
+                        }
+                        if (!batchCache.Templates.TryGetTemplate(entry.prefab, out var template)) continue;
+                        var nextCk = new EquipChunkKey(band, EquipChunkCoord(rec.X), EquipChunkCoord(rec.Y), key);
+                        var worldMatrix = Matrix4x4.TRS(pos, rot, template.PrefabLocalScale);
+                        if (nextCk.Equals(oldCk) &&
+                            batchCache.ChunkItems.TryGetValue(oldCk, out var oldMap) &&
+                            oldMap.Items.TryGetValue(cid, out var prevItem) &&
+                            prevItem.WorldMatrix == worldMatrix) {
+                            continue;
+                        }
+                        dirtyChunkSet.Add(oldCk);
+                        dirtyChunkSet.Add(nextCk);
+                        removedOrMovedIds.Add(cid);
+                        batchedAffectedIds.Add(cid);
+                        if (!template.TryDocumentBounds(worldMatrix, out var docBox)) docBox = BoxOf(rec.Facts);
+                        AddUpdatedBatchedItem(nextCk, template, new StationStaticPrefabItem(cid, worldMatrix, docBox));
+                        newCeilingLinks.Add((cid, col));
+                    }
+                }
+            }
+
+            if (dirtyChunkSet.Count == 0 && proceduralRemovedIds.Count == 0 && proceduralDirtyIds.Count == 0) {
                 return TryStagePrefabGroupDelta(context, state, out stage, out fallbackReason);
             }
 
-            if (catalogue == null) {
+            if (dirtyChunkSet.Count > 0 && catalogue == null) {
                 fallbackReason = "no-catalogue:" + Role;
                 return false;
             }
 
-            // Stage any non-batched equipment deltas (if an edit touched both batched and unbatched items)
+            // Stage any non-batched equipment deltas (if an edit touched both batched/procedural and unbatched items)
             // using a filtered path only when needed.
             IStationLocalRendererStage individualStage = null;
-            if (hasUnbatchedChange || (context.CellsChanged && state.CeilingByColumn.Count > 0)) {
-                if (!TryStagePrefabGroupDeltaExcluding(context, state, batchedAffectedIds, out individualStage, out fallbackReason)) {
+            if (hasUnbatchedChange || (context.CeilingSupportChanged && state.CeilingByColumn.Count > 0)) {
+                if (!TryStagePrefabGroupDeltaExcluding(context, state, batchedAffectedIds, out individualStage,
+                        out fallbackReason, retireExcludedInState: false)) {
                     return false;
                 }
             }
 
-            var dirtyChunkList = new List<EquipChunkKey>(dirtyChunkSet);
-            var stagedChunks = new Dictionary<EquipChunkKey, StationInstancedPrefabChunk>();
+            var proceduralRetiredIds = proceduralRemovedIds.Count > 0 || proceduralDirtyIds.Count > 0
+                ? new HashSet<string>(proceduralRemovedIds, StringComparer.Ordinal)
+                : null;
+            List<StagedProceduralItem> stagedProcedural = null;
+            var dirtyChunkList = dirtyChunkSet.Count > 0 ? new List<EquipChunkKey>(dirtyChunkSet) : null;
+            var stagedChunks = dirtyChunkList != null ? new Dictionary<EquipChunkKey, StationInstancedPrefabChunk>(dirtyChunkList.Count) : null;
+            var stagedChunkItems = dirtyChunkList != null
+                ? new Dictionary<EquipChunkKey, (StationPrefabMeshTemplate Template, Dictionary<string, StationStaticPrefabItem> Items)>(dirtyChunkList.Count)
+                : null;
             try {
-                var itemsByChunk = new Dictionary<EquipChunkKey, (StationPrefabMeshTemplate Template, List<StationStaticPrefabItem> Items)>();
-                var typeArr = new string[batchCache.BatchedTypes.Count];
-                batchCache.BatchedTypes.CopyTo(typeArr);
-                var nextEquip = context.GetNextFactsOfTypes(typeArr);
-                for (int i = 0; i < nextEquip.Length; i++) {
-                    var m = nextEquip[i];
-                    if (m == null) continue;
-                    int roughBand = StationModuleLevels.Band(grid, m.Z);
-                    int cx = EquipChunkCoord(m.X), cy = EquipChunkCoord(m.Y);
-                    if ((m.CeilingAnchored || StationFootprints.IsCeilingHung(m)) && nextMounts == null) {
-                        nextMounts = context.GetNextCeilingMounts();
+                if (proceduralDirtyIds.Count > 0) {
+                    foreach (var id in proceduralDirtyIds) {
+                        proceduralRetiredIds.Add(id);
+                        if (!context.NextIndex.TryGetModule(id, out var modRec) || modRec?.Facts == null) continue;
+                        StagedProceduralItem builtItem = null;
+                        if (string.Equals(modRec.Type, "glass", StringComparison.Ordinal)) {
+                            builtItem = BuildWallGlassCore(context.NextDocument, context.NextIndex, context.World.Shader,
+                                context.StagingRoot, context.World.Root, modRec, state, context.ReportUnresolved,
+                                recordNote: false);
+                        } else if (string.Equals(modRec.Type, "booth", StringComparison.Ordinal)) {
+                            builtItem = BuildBoothCore(context.NextDocument, context.NextIndex, context.World.Shader,
+                                catalogue, context.StagingRoot, context.World.Root, modRec.Facts, state,
+                                context.ReportUnresolved);
+                        }
+                        if (builtItem != null) (stagedProcedural ??= new List<StagedProceduralItem>()).Add(builtItem);
                     }
-                    if (!TryResolveStaticEquipmentPose(context.NextIndex, grid, nextMounts, storeyHeight, catalogue,
-                            m, out var entry, out var key, out var pos, out var rot, out int band, out _)) {
-                        continue;
-                    }
-                    var ck = new EquipChunkKey(band, cx, cy, key);
-                    if (!dirtyChunkSet.Contains(ck)) continue;
-                    if (!batchCache.Templates.TryGetTemplate(entry.prefab, out var template)) continue;
-                    var worldMatrix = Matrix4x4.TRS(pos, rot, template.PrefabLocalScale);
-                    if (!template.TryDocumentBounds(worldMatrix, out var docBox)) docBox = BoxOf(m);
-                    if (!itemsByChunk.TryGetValue(ck, out var list)) {
-                        list = (template, new List<StationStaticPrefabItem>());
-                        itemsByChunk[ck] = list;
-                    }
-                    list.Items.Add(new StationStaticPrefabItem(m.Id, worldMatrix, docBox));
                 }
-                for (int i = 0; i < dirtyChunkList.Count; i++) {
-                    var ck = dirtyChunkList[i];
-                    if (!itemsByChunk.TryGetValue(ck, out var builtItems) || builtItems.Items.Count == 0) continue;
-                    stagedChunks[ck] = StationInstancedPrefabChunk.Build(
-                        Role,
-                        ck.Label(),
-                        builtItems.Template,
-                        batchCache.Templates,
-                        context.StagingRoot,
-                        builtItems.Items,
-                        ck.Band,
-                        ck.Band,
-                        new[] { ck.Band });
+
+                if (dirtyChunkList != null) {
+                    for (int i = 0; i < dirtyChunkList.Count; i++) {
+                        var ck = dirtyChunkList[i];
+                        StationPrefabMeshTemplate template = null;
+                        Dictionary<string, StationStaticPrefabItem> nextMap;
+                        if (batchCache.ChunkItems.TryGetValue(ck, out var existingEntry)) {
+                            template = existingEntry.Template;
+                            nextMap = new Dictionary<string, StationStaticPrefabItem>(existingEntry.Items, StringComparer.Ordinal);
+                        } else {
+                            nextMap = new Dictionary<string, StationStaticPrefabItem>(StringComparer.Ordinal);
+                        }
+                        foreach (var rid in removedOrMovedIds) nextMap.Remove(rid);
+                        if (updatedItemsByChunk.TryGetValue(ck, out var added)) {
+                            template ??= added.Template;
+                            for (int j = 0; j < added.Items.Count; j++) {
+                                var item = added.Items[j];
+                                nextMap[item.ModuleId] = item;
+                            }
+                        }
+                        if (nextMap.Count == 0 || template == null) continue;
+                        var itemList = new List<StationStaticPrefabItem>(nextMap.Count);
+                        foreach (var kv in nextMap) itemList.Add(kv.Value);
+                        stagedChunks[ck] = StationInstancedPrefabChunk.Build(
+                            Role,
+                            ck.Label(),
+                            template,
+                            batchCache.Templates,
+                            context.StagingRoot,
+                            itemList,
+                            ck.Band,
+                            ck.Band,
+                            new[] { ck.Band });
+                        stagedChunkItems[ck] = (template, nextMap);
+                    }
                 }
 
                 stage = new StagedEquipmentDelta(state, batchCache, individualStage, dirtyChunkList, stagedChunks,
-                    newCeilingLinks, removedOrMovedIds);
+                    stagedChunkItems, newCeilingLinks, removedOrMovedIds, retiredUnbatchedForBatchIds,
+                    proceduralRetiredIds, stagedProcedural);
                 return true;
             } catch {
                 individualStage?.Dispose();
-                foreach (var chunk in stagedChunks.Values) chunk?.DestroyUncommitted();
+                if (stagedChunks != null) {
+                    foreach (var chunk in stagedChunks.Values) chunk?.DestroyUncommitted();
+                }
+                DestroyUncommittedProcedural(stagedProcedural);
                 throw;
             }
         }
@@ -3506,47 +4653,88 @@ namespace Metro.App.Views {
         /// named caveat.
         /// </summary>
         bool BuildBooth(StationViewBuildContext context, ModuleFacts module, ModuleFacts[] station, WorldState state,
-            StationMaterials palette) {
-            var grid = StationLevelGrid.FromDocument(context.Document.LevelBase, context.Document.StoreyHeight);
+            EquipmentBatchCache batchCache) {
+            var item = BuildBoothCore(context.Document, context.Index, context.Shader, context.Catalogue,
+                context.RoleRoot(Role), context.Root, module, state, context.ReportUnresolved);
+            if (item == null) return true;
+            state.Modules.Add(item.Built);
+            if (!string.IsNullOrEmpty(module.Id)) state.ById[module.Id] = item.Built;
+            if (item.Meshes != null && item.Meshes.Count > 0) {
+                state.Meshes.AddRange(item.Meshes);
+                if (!string.IsNullOrEmpty(module.Id)) batchCache.ProceduralMeshesById[module.Id] = item.Meshes;
+            }
+            state.Count++;
+            context.World.RegisterModule(Role, item.Record.ModuleId, item.Record.View, item.Record.Part,
+                item.Record.HasBounds ? item.Record.Bounds : (StationBox?)null,
+                item.Record.LevelMin, item.Record.LevelMax, item.Record.LevelBands);
+            return true;
+        }
+
+        StagedProceduralItem BuildBoothCore(
+            StationDocument document, StationIndex index, Shader shader, RuntimeCatalogue catalogue,
+            Transform parent, Transform worldRoot, ModuleFacts module, WorldState state,
+            Action<string, string, string, string> reportUnresolved) {
+            var grid = StationLevelGrid.FromDocument(document.LevelBase, document.StoreyHeight);
             int band = StationModuleLevels.Band(grid, module.Z);
+            var palette = shader != null ? Palette(shader, state) : null;
             if (palette != null) {
                 GameObject generated = null;
                 string note = "";
                 try {
-                    BoothModuleViews.TryBuild(module, context.RoleRoot(Role), palette, out generated, out note);
+                    BoothModuleViews.TryBuild(module, parent, palette, out generated, out note);
                 } catch (Exception error) {
                     generated = null;
                     note = error.GetType().Name + ": " + error.Message;
                 }
                 if (generated != null) {
-                    state.Modules.Add(new BuiltModule {
-                        ModuleId = module.Id, Type = module.Type, View = generated, Key = "generated:booth",
-                    });
-                    state.Count++;
+                    var boothMeshes = new List<Mesh>(6);
+                    if (generated.TryGetComponent<AssemblyOwner>(out var owner)) {
+                        owner.DetachMeshes(boothMeshes);
+                    }
                     if (!string.IsNullOrEmpty(note)) {
-                        context.ReportUnresolved("booth-caveat", module.Type, module.Id, note);
+                        reportUnresolved("booth-caveat", module.Type, module.Id, note);
                     }
-                    if (TryDocumentBounds(generated.transform, context.Root, out var bounds)) {
-                        context.World.RegisterModule(Role, module.Id, generated, "booth", bounds, band, band, new[] { band });
-                    } else {
-                        context.World.RegisterModule(Role, module.Id, generated, "booth", BoxOf(module), band, band, new[] { band });
-                    }
-                    return true;
+                    bool hasBounds = TryDocumentBounds(generated.transform, worldRoot, out var bounds);
+                    return new StagedProceduralItem {
+                        Built = new BuiltModule { ModuleId = module.Id, Type = module.Type, View = generated, Key = "generated:booth" },
+                        Record = new StationViewRecord {
+                            Role = Role, ModuleId = module.Id, Part = "booth", View = generated,
+                            Bounds = hasBounds ? bounds : BoxOf(module), HasBounds = true,
+                            LevelMin = band, LevelMax = band, LevelBands = new[] { band },
+                        },
+                        Meshes = boothMeshes,
+                    };
                 }
-                context.ReportUnresolved("booth-build-failed", module.Type, module.Id,
+                reportUnresolved("booth-build-failed", module.Type, module.Id,
                     "the dimensioned booth could not be built" + (string.IsNullOrEmpty(note) ? "." : ": " + note));
             }
             // No shader or a failed assembly: the promoted prefab is the only remaining
             // geometry, and it is reported because its dimensions are not the saved ones.
-            if (!TryResolve(context, module, station, out var entry, out var key, out var diagnostic)) {
-                if (diagnostic != null) context.ReportUnresolved("module-group", module.Type, module.Id, diagnostic);
-                return true;
+            if (catalogue == null) return null;
+            var visual = ModuleViews.Resolve(module, Array.Empty<ModuleFacts>(), catalogue);
+            if (visual.Kind == ModuleViewKind.None) return null;
+            if (!visual.HasModel || !catalogue.TryGet(visual.Key, out var entry) || entry.prefab == null) {
+                reportUnresolved("module-group", module.Type, module.Id,
+                    !visual.HasModel ? "unresolved:" + (visual.Detail.Length > 0 ? visual.Detail : "no-view")
+                                     : "unresolved:no-prefab:" + visual.Key);
+                return null;
             }
             int width = Mathf.Max(1, module.Width), depth = Mathf.Max(1, module.Depth);
-            context.ReportUnresolved("booth-prefab-fallback", module.Type, module.Id,
+            reportUnresolved("booth-prefab-fallback", module.Type, module.Id,
                 "the canonical booth prefab stands in for the saved " + width + "×" + depth + " m booth.");
-            Place(context, module, entry, key, state);
-            return true;
+            var go = UnityEngine.Object.Instantiate(entry.prefab, parent, false);
+            StationRigidModelLods.Apply(go, entry.prefab.name);
+            go.name = (string.IsNullOrEmpty(module.Id) ? "module" : module.Id) + " " + module.Type;
+            go.transform.SetPositionAndRotation(ModulePlacement.Resolve(index != null ? index.GetModule(module.Id) : null, entry, index),
+                ModulePlacement.Rotation(module.Rotation));
+            StationEditTrace.AddInstantiatedPrefab();
+            return new StagedProceduralItem {
+                Built = new BuiltModule { ModuleId = module.Id, Type = module.Type, View = go, Key = visual.Key },
+                Record = new StationViewRecord {
+                    Role = Role, ModuleId = module.Id, View = go,
+                    LevelMin = module.Z, LevelMax = module.Z + 1,
+                },
+            };
         }
 
         /// <summary>
@@ -3564,9 +4752,33 @@ namespace Metro.App.Views {
         /// opening. Storey membership is the envelope midpoint band, and the record carries the
         /// measured rendered bounds instead of the raw record Z.
         /// </summary>
-        bool BuildWallGlass(StationViewBuildContext context, ModuleFacts module, ModuleFacts[] station, WorldState state) {
-            var materials = Palette(context, state);
-            var record = RecordOf(context, module);
+        bool BuildWallGlass(StationViewBuildContext context, ModuleFacts module, ModuleFacts[] station, WorldState state,
+            EquipmentBatchCache batchCache) {
+            var record = context.Index != null && !string.IsNullOrEmpty(module.Id)
+                ? context.Index.GetModule(module.Id)
+                : RecordOf(context.Document, module);
+            var item = BuildWallGlassCore(context.Document, context.Index, context.Shader, context.RoleRoot(Role),
+                context.Root, record, state, context.ReportUnresolved, recordNote: true, fallbackModule: module);
+            state.Modules.Add(item.Built);
+            if (!string.IsNullOrEmpty(module.Id)) state.ById[module.Id] = item.Built;
+            if (item.Meshes != null && item.Meshes.Count > 0) {
+                state.Meshes.AddRange(item.Meshes);
+                if (!string.IsNullOrEmpty(module.Id)) batchCache.ProceduralMeshesById[module.Id] = item.Meshes;
+            }
+            state.Count++;
+            context.World.RegisterModule(Role, item.Record.ModuleId, item.Record.View, item.Record.Part,
+                item.Record.HasBounds ? item.Record.Bounds : (StationBox?)null,
+                item.Record.LevelMin, item.Record.LevelMax, item.Record.LevelBands);
+            return true;
+        }
+
+        StagedProceduralItem BuildWallGlassCore(
+            StationDocument document, StationIndex index, Shader shader,
+            Transform parent, Transform worldRoot, StationModuleRecord record, WorldState state,
+            Action<string, string, string, string> reportUnresolved, bool recordNote,
+            ModuleFacts fallbackModule = null) {
+            var module = record?.Facts ?? fallbackModule;
+            var materials = Palette(shader, state);
             var spec = StationFootprints.GlassSpec(module.Config);
             int run = module.Width > 0 ? module.Width : spec.W;
             bool floorStanding = StationFootprints.GlassStandsOnFloor(module.Config);
@@ -3575,7 +4787,7 @@ namespace Metro.App.Views {
             StationFootprints.RotateLocal(module.Rotation, (run - 1) * .5, floorStanding ? GlassEdgeIn : 0,
                 out var centreX, out var centreY);
             var root = new GameObject((string.IsNullOrEmpty(module.Id) ? "glass" : module.Id) + " glass");
-            root.transform.SetParent(context.RoleRoot(Role), false);
+            root.transform.SetParent(parent, false);
             root.transform.SetPositionAndRotation(
                 StationCoordinates.Point(new Vector3(module.X + .5f + (float)centreX, module.Y + .5f + (float)centreY, module.Z + 1f)),
                 ModulePlacement.Rotation(module.Rotation));
@@ -3592,14 +4804,15 @@ namespace Metro.App.Views {
             const float rail = GlassRail, post = GlassPost, depth = GlassDepth, pane = GlassPane;
 
             var joined = new HashSet<string>(StringComparer.Ordinal);
-            if (floorStanding) {
+            if (floorStanding && record != null) {
                 // A same-tile crossing trims the end post that would project into the other
                 // panel's frame (`curtainCornerJoin`), so two curtains read as one corner.
-                for (int i = 0; i < station.Length; i++) {
-                    var other = station[i];
+                var glassList = index != null ? index.ModulesOfType("glass") : document.Modules;
+                for (int i = 0; i < glassList.Count; i++) {
+                    var other = glassList[i];
                     if (other == null || !string.Equals(other.Type, "glass", StringComparison.Ordinal)) continue;
                     if (string.Equals(other.Id, module.Id, StringComparison.Ordinal)) continue;
-                    foreach (var end in GlassCornerJoin(record, RecordOf(context, other))) joined.Add(end);
+                    foreach (var end in GlassCornerJoin(record, other)) joined.Add(end);
                 }
             }
             float left = -span + (joined.Contains("start") ? post : 0f);
@@ -3613,16 +4826,16 @@ namespace Metro.App.Views {
             var covered = new HashSet<int>();
             var runCells = GlassCells(module, run);
             float cut = 0f;
-            if (floorStanding) {
-                for (int i = 0; i < station.Length; i++) {
-                    var other = station[i];
-                    if (other == null || !string.Equals(other.Type, "door", StringComparison.Ordinal)) continue;
-                    var otherRecord = RecordOf(context, other);
+            if (floorStanding && record != null) {
+                var doorList = index != null ? index.ModulesOfType("door") : document.Modules;
+                for (int i = 0; i < doorList.Count; i++) {
+                    var otherRecord = doorList[i];
+                    if (otherRecord?.Facts == null || !string.Equals(otherRecord.Type, "door", StringComparison.Ordinal)) continue;
                     if (!GlassDoorShare(record, otherRecord)) continue;
                     cut = Mathf.Max(cut, (float)StationFootprints.DoorHeight(otherRecord));
-                    foreach (var cell in GlassCells(other, Mathf.Max(1, other.Width))) {
-                        int index = runCells.FindIndex(candidate => candidate.X == cell.X && candidate.Y == cell.Y);
-                        if (index >= 0) covered.Add(index);
+                    foreach (var cell in GlassCells(otherRecord.Facts, Mathf.Max(1, otherRecord.Width))) {
+                        int cellIdx = runCells.FindIndex(candidate => candidate.X == cell.X && candidate.Y == cell.Y);
+                        if (cellIdx >= 0) covered.Add(cellIdx);
                     }
                 }
             }
@@ -3670,27 +4883,42 @@ namespace Metro.App.Views {
                     Mathf.Max(.05f, h - rail * 2f));
             }
 
-            posts.Emit(root.transform, state.Meshes, "glass-posts", Mat(materials, StationMaterials.Steel));
-            frame.Emit(root.transform, state.Meshes, "glass-frame", Mat(materials, StationMaterials.Dark));
-            panes.Emit(root.transform, state.Meshes, "glass-pane", Mat(materials, StationMaterials.Glass));
+            var glassMeshes = new List<Mesh>(3);
+            posts.Emit(root.transform, glassMeshes, "glass-posts", Mat(materials, StationMaterials.Steel));
+            frame.Emit(root.transform, glassMeshes, "glass-frame", Mat(materials, StationMaterials.Dark));
+            panes.Emit(root.transform, glassMeshes, "glass-pane", Mat(materials, StationMaterials.Glass));
 
-            state.Modules.Add(new BuiltModule { ModuleId = module.Id, Type = module.Type, View = root, Key = "generated:glass" });
-            state.Count++;
-            var grid = StationLevelGrid.FromDocument(context.Document.LevelBase, context.Document.StoreyHeight);
-            if (!TryDocumentBounds(root.transform, context.Root, out var bounds)) {
+            var built = new BuiltModule { ModuleId = module.Id, Type = module.Type, View = root, Key = "generated:glass" };
+            var grid = StationLevelGrid.FromDocument(document.LevelBase, document.StoreyHeight);
+            if (!TryDocumentBounds(root.transform, worldRoot, out var bounds)) {
                 int fallbackBand = StationModuleLevels.Band(grid, module.Z + 1 + h * .5);
-                context.World.RegisterModule(Role, module.Id, root, "wall-glass", null, fallbackBand, fallbackBand,
-                    new[] { fallbackBand });
-                context.ReportUnresolved("glass-bounds-missing", module.Type, module.Id,
+                reportUnresolved("glass-bounds-missing", module.Type, module.Id,
                     "the generated curtain has no readable mesh bounds; membership uses the authored envelope.");
-                return true;
+                return new StagedProceduralItem {
+                    Built = built,
+                    Record = new StationViewRecord {
+                        Role = Role, ModuleId = module.Id, Part = "wall-glass", View = root,
+                        HasBounds = false, LevelMin = fallbackBand, LevelMax = fallbackBand,
+                        LevelBands = new[] { fallbackBand },
+                    },
+                    Meshes = glassMeshes,
+                };
             }
             int band = StationModuleLevels.Band(grid, (bounds.Z0 + bounds.Z1) * .5);
-            context.World.RegisterModule(Role, module.Id, root, "wall-glass", bounds, band, band, new[] { band });
-            glassNotes.Add(module.Id + " run=" + run + " height=" + h.ToString("0.##", CultureInfo.InvariantCulture) +
-                " mount=" + (floorStanding ? "floor-edge" : "wall") + " doors=" + covered.Count +
-                " joined=" + joined.Count);
-            return true;
+            if (recordNote) {
+                glassNotes.Add(module.Id + " run=" + run + " height=" + h.ToString("0.##", CultureInfo.InvariantCulture) +
+                    " mount=" + (floorStanding ? "floor-edge" : "wall") + " doors=" + covered.Count +
+                    " joined=" + joined.Count);
+            }
+            return new StagedProceduralItem {
+                Built = built,
+                Record = new StationViewRecord {
+                    Role = Role, ModuleId = module.Id, Part = "wall-glass", View = root,
+                    Bounds = bounds, HasBounds = true, LevelMin = band, LevelMax = band,
+                    LevelBands = new[] { band },
+                },
+                Meshes = glassMeshes,
+            };
         }
 
         /* ---------------------------------------------------------- curtain kit */
@@ -3806,9 +5034,10 @@ namespace Metro.App.Views {
             return true;
         }
 
-        /// <summary>The parsed record behind a built module, by id and then by cell.</summary>
-        static StationModuleRecord RecordOf(StationViewBuildContext context, ModuleFacts module) {
-            var modules = context.Document.Modules;
+        /// <summary>The parsed record behind a built module, by id and then by cell (fallback when no index is bound).</summary>
+        static StationModuleRecord RecordOf(StationDocument document, ModuleFacts module) {
+            if (document == null || module == null) return null;
+            var modules = document.Modules;
             for (int i = 0; i < modules.Count; i++) {
                 var record = modules[i];
                 if (record?.Facts == null) continue;
@@ -3825,9 +5054,9 @@ namespace Metro.App.Views {
         }
 
         /// <summary>This world's palette, minted once and owned by the world.</summary>
-        static StationMaterials Palette(StationViewBuildContext context, WorldState state) {
+        static StationMaterials Palette(Shader worldShader, WorldState state) {
             if (state.Palette != null) return state.Palette;
-            var shader = context.Shader != null ? context.Shader : Shader.Find("Universal Render Pipeline/Lit");
+            var shader = worldShader != null ? worldShader : Shader.Find("Universal Render Pipeline/Lit");
             if (!shader) return null;
             state.Palette = new StationMaterials(shader);
             for (int slot = 0; slot < StationMaterials.Colours.Length; slot++) state.Materials.Add(state.Palette[slot]);
@@ -3858,8 +5087,71 @@ namespace Metro.App.Views {
         protected override string Group => StationModuleClaims.Displays;
         public override string Role => StationModuleClaims.Displays;
 
-        protected override bool IsLocalPrefabSupported(string type) =>
-            type != "tv" && type != "calligraphy" && type != "linemap";
+        HashSet<string> lastLocalCommittedIds;
+
+        protected override bool IsLocalPrefabSupported(string type) => true;
+
+        protected override void ExpandLocalDirtyIds(
+            StationLocalDeltaContext context, WorldState state,
+            HashSet<string> removedIds, HashSet<string> dirtyIds) {
+            HashSet<(int X, int Y, int Z)> tvCells = null;
+            void RecordTvCell(StationModuleRecord rec) {
+                if (rec == null || !string.Equals(rec.Type, "tv", StringComparison.Ordinal)) return;
+                (tvCells ??= new HashSet<(int X, int Y, int Z)>()).Add((rec.X, rec.Y, rec.Z));
+            }
+            foreach (var id in removedIds) {
+                if (context.PrevIndex != null && context.PrevIndex.TryGetModule(id, out var oldMod)) RecordTvCell(oldMod);
+            }
+            foreach (var id in dirtyIds) {
+                if (context.PrevIndex != null && context.PrevIndex.TryGetModule(id, out var oldMod)) RecordTvCell(oldMod);
+                if (context.NextIndex != null && context.NextIndex.TryGetModule(id, out var nextMod)) RecordTvCell(nextMod);
+            }
+            if (tvCells == null || tvCells.Count == 0) return;
+            if (context.PrevIndex != null) {
+                var prevTvs = context.PrevIndex.ModulesOfType("tv");
+                for (int i = 0; i < prevTvs.Count; i++) {
+                    var m = prevTvs[i];
+                    if (m == null || removedIds.Contains(m.Id)) continue;
+                    if (tvCells.Contains((m.X, m.Y, m.Z)) && context.NextIndex.TryGetModule(m.Id, out _)) {
+                        dirtyIds.Add(m.Id);
+                    }
+                }
+            }
+            if (context.NextIndex != null) {
+                var nextTvs = context.NextIndex.ModulesOfType("tv");
+                for (int i = 0; i < nextTvs.Count; i++) {
+                    var m = nextTvs[i];
+                    if (m == null || removedIds.Contains(m.Id)) continue;
+                    if (tvCells.Contains((m.X, m.Y, m.Z))) {
+                        dirtyIds.Add(m.Id);
+                    }
+                }
+            }
+        }
+
+        protected override void OnLocalModulesRetired(
+            StationWorldView world, WorldState state, HashSet<string> retiredIds) {
+            if (state == null || retiredIds == null || retiredIds.Count == 0) return;
+            if (state.Displays != null) {
+                StationDisplayTvArtwork.Unbind(state.Displays, retiredIds);
+                StationLineMapArtwork.Unbind(state.Displays, retiredIds);
+                StationClockArtwork.Unbind(state.Displays, retiredIds);
+                foreach (var id in retiredIds) {
+                    if (state.ById.TryGetValue(id, out var built) && built?.View != null) {
+                        StationDisplayArtwork.RemoveSurfacesUnder(state.Displays, built.View);
+                    }
+                }
+            }
+            if (state.Calligraphy != null) {
+                StationCalligraphyArtwork.Unbind(state.Calligraphy, retiredIds);
+            }
+        }
+
+        protected override void OnLocalCommitFinished(
+            StationWorldView world, WorldState state, HashSet<string> committedIds) {
+            lastLocalCommittedIds = committedIds;
+            if (state?.Calligraphy != null) state.Calligraphy.Cache?.Pump();
+        }
 
         sealed class DisplayMetadataRefreshStage : IStationLocalRendererStage {
             readonly StationDisplayModuleRenderer owner;
@@ -3876,27 +5168,42 @@ namespace Metro.App.Views {
             }
 
             public void Commit(StationWorldView world, StationLocalViewCommit commit) {
+                owner.lastLocalCommittedIds = null;
                 inner?.Commit(world, commit);
-                var station = context.GetNextStationFacts();
+                var alreadyBound = owner.lastLocalCommittedIds;
+                owner.lastLocalCommittedIds = null;
+
                 bool needCalligraphy = context.NameChanged || context.CityChanged;
                 bool needLinemap = context.CityChanged;
                 bool needTv = context.NameChanged || context.CityChanged || context.VisualChangedLineIds.Count > 0;
                 bool boundCalligraphy = false;
-                for (int i = 0; i < station.Length; i++) {
-                    var module = station[i];
-                    if (module == null || !state.ById.TryGetValue(module.Id, out var built) || built?.View == null) continue;
-                    if (needCalligraphy && module.Type == "calligraphy") {
+
+                if (needCalligraphy) {
+                    var list = context.NextIndex.ModulesOfType("calligraphy");
+                    for (int i = 0; i < list.Count; i++) {
+                        var rec = list[i];
+                        if (rec?.Facts == null) continue;
+                        if (alreadyBound != null && alreadyBound.Contains(rec.Id)) continue;
+                        if (!state.ById.TryGetValue(rec.Id, out var built) || built?.View == null) continue;
                         var scope = owner.CalligraphyArtworkForWorld(world, state);
-                        StationCalligraphyArtwork.Bind(context.NextDocument, scope, built.View, module, world.Font, world);
+                        StationCalligraphyArtwork.Bind(context.NextDocument, scope, built.View, rec.Facts, world.Font, world);
                         boundCalligraphy = true;
-                    } else if (needLinemap && module.Type == "linemap") {
-                        var scope = owner.DisplayArtworkForWorld(world, state);
-                        StationLineMapArtwork.Bind(scope, context.NextDocument, built.View, module, world);
-                    } else if (needTv && module.Type == "tv") {
-                        var scope = owner.DisplayArtworkForWorld(world, state);
-                        StationDisplayTvArtwork.Bind(scope, world, context.NextDocument, InitialMotionFrame(), true,
-                            built.View, module, station, Time.realtimeSinceStartupAsDouble);
                     }
+                }
+                if (needLinemap) {
+                    var list = context.NextIndex.ModulesOfType("linemap");
+                    for (int i = 0; i < list.Count; i++) {
+                        var rec = list[i];
+                        if (rec?.Facts == null) continue;
+                        if (alreadyBound != null && alreadyBound.Contains(rec.Id)) continue;
+                        if (!state.ById.TryGetValue(rec.Id, out var built) || built?.View == null) continue;
+                        var scope = owner.DisplayArtworkForWorld(world, state);
+                        StationLineMapArtwork.Bind(scope, context.NextDocument, built.View, rec.Facts, world);
+                    }
+                }
+                if (needTv && state.Displays != null) {
+                    StationDisplayTvArtwork.InvalidatePlates(state.Displays, alreadyBound);
+                    StationDisplayTvArtwork.RefreshPlates(state.Displays, world, context.NextDocument, InitialMotionFrame(), true);
                 }
                 if (boundCalligraphy && state.Calligraphy != null) state.Calligraphy.Cache?.Pump();
             }
@@ -3941,6 +5248,7 @@ namespace Metro.App.Views {
         protected override void OnLocalModuleCommitted(
             StationWorldView world, ModuleFacts[] station, WorldState state, ModuleFacts module, GameObject root) {
             if (root == null || world == null || module == null) return;
+            Active = this;
             switch (module.Type) {
                 case "billboard": {
                     var scope = DisplayArtworkForWorld(world, state);
@@ -3950,6 +5258,23 @@ namespace Metro.App.Views {
                 case "clock": {
                     var scope = DisplayArtworkForWorld(world, state);
                     StationClockArtwork.Bind(scope, root, module, ClockFrame(), world);
+                    break;
+                }
+                case "tv": {
+                    var scope = DisplayArtworkForWorld(world, state);
+                    StationDisplayTvArtwork.Bind(scope, world, world.Document, InitialMotionFrame(), true,
+                        root, module, station, Time.realtimeSinceStartupAsDouble);
+                    StationDisplayTvArtwork.RegisterContributor();
+                    break;
+                }
+                case "calligraphy": {
+                    var scope = CalligraphyArtworkForWorld(world, state);
+                    StationCalligraphyArtwork.Bind(world.Document, scope, root, module, world.Font, world);
+                    break;
+                }
+                case "linemap": {
+                    var scope = DisplayArtworkForWorld(world, state);
+                    StationLineMapArtwork.Bind(scope, world.Document, root, module, world);
                     break;
                 }
             }

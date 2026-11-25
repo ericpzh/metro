@@ -44,13 +44,16 @@ namespace Metro.Build {
                 }
             }
             // A column another pillar already carries needs no pier.
-            var supported = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var module in index.Document.Modules) {
-                if (module == null || module.Type != "pillar") continue;
-                if (!PillarSupportsBridge(module, bridge)) continue;
-                supported.Add(module.X + "," + module.Y);
+            var supported = new HashSet<(int X, int Y)>();
+            var existingPillars = index.ModulesOfType("pillar");
+            for (int p = 0; p < existingPillars.Count; p++) {
+                var module = existingPillars[p];
+                if (module == null || !PillarSupportsBridge(module, bridge)) continue;
+                supported.Add((module.X, module.Y));
             }
             double maxBase = bridge.Z - DeckDepth - 2;
+            int zTop = Math.Min((int)Math.Floor(maxBase), index.Bounds.MaxZ);
+            int zMin = index.Bounds.MinZ;
             int depth = Math.Max(1, bridge.Depth);
             for (int i = 4; i + 4 <= bridge.Width; i += Bay) {
                 string id = PillarId(bridge.Id, i);
@@ -58,12 +61,16 @@ namespace Metro.Build {
                 StationFootprints.RotateLocal(bridge.Rotation, i, Math.Floor(depth / 2.0), out var dx, out var dy);
                 int x = bridge.X + (int)Math.Round(dx);
                 int y = bridge.Y + (int)Math.Round(dy);
-                if (supported.Contains(x + "," + y)) continue;
+                if (supported.Contains((x, y))) continue;
                 double best = double.NegativeInfinity;
-                foreach (var cell in index.Document.Cells) {
-                    if (cell == null || !cell.IsSolid || cell.X != x || cell.Y != y) continue;
-                    if (cell.Z > maxBase) continue;
-                    if (cell.Z > best) best = cell.Z;
+                if (!index.Bounds.IsEmpty) {
+                    for (int z = zTop; z >= zMin; z--) {
+                        var cell = index.GetCell(x, y, z);
+                        if (cell != null && cell.IsSolid) {
+                            best = z;
+                            break;
+                        }
+                    }
                 }
                 double ground = Math.Round(StationFootprints.GroundZ);
                 if (ground <= maxBase && ground > best && !StationFootprints.IsGroundHole(index, x, y)) best = ground;

@@ -2027,6 +2027,7 @@ namespace Metro.App {
             return found == null ? null : new StationGameHostEditHost(found);
         }
 
+        internal StationGameHost GameHost => host;
         public Metro.Build.StationDocument Document => host.Document;
         public int CurrentRevision => host.CurrentRevision;
         public string CurrentSourceId => host.CurrentSourceId;
@@ -2065,24 +2066,39 @@ namespace Metro.App {
             reason = null;
             if (host == null) { code = "no-session"; reason = "No station host is available."; return false; }
             if (host.Document == null) { code = "no-session"; reason = "No station is committed."; return false; }
-            var saved = host.SaveDocument();
-            Newtonsoft.Json.Linq.JObject envelope;
-            try { envelope = Newtonsoft.Json.Linq.JObject.Parse(saved ?? ""); }
-            catch (Exception error) { code = "parse-failed"; reason = "Could not read the committed save: " + error.Message; return false; }
-            var modules = (envelope["static"] as Newtonsoft.Json.Linq.JObject)?["modules"] as Newtonsoft.Json.Linq.JArray;
-            if (modules == null) { code = "parse-failed"; reason = "The committed save has no static.modules array."; return false; }
+
+            var gameHost = (host as StationGameHostEditHost)?.GameHost;
+            var committedRead = gameHost?.Coordinator?.CommittedRead;
+            Newtonsoft.Json.Linq.JObject envelope = null;
             Newtonsoft.Json.Linq.JObject module = null;
-            foreach (var token in modules) {
-                if (token is Newtonsoft.Json.Linq.JObject candidate && string.Equals((string)candidate["id"], request.SignId, StringComparison.Ordinal)) {
-                    module = candidate;
-                    break;
+            Metro.Build.StationModuleRecord record = null;
+
+            if (committedRead?.Index != null) {
+                if (!committedRead.Index.TryGetModule(request.SignId, out record) || record == null) {
+                    code = "unknown-sign";
+                    reason = "No sign record '" + request.SignId + "' is committed.";
+                    return false;
                 }
+                try { module = Newtonsoft.Json.Linq.JObject.Parse(record.RawJson); }
+                catch (Exception error) { code = "parse-failed"; reason = "Could not read the committed sign: " + error.Message; return false; }
+            } else {
+                var saved = host.SaveDocument();
+                try { envelope = Newtonsoft.Json.Linq.JObject.Parse(saved ?? ""); }
+                catch (Exception error) { code = "parse-failed"; reason = "Could not read the committed save: " + error.Message; return false; }
+                var modules = (envelope["static"] as Newtonsoft.Json.Linq.JObject)?["modules"] as Newtonsoft.Json.Linq.JArray;
+                if (modules == null) { code = "parse-failed"; reason = "The committed save has no static.modules array."; return false; }
+                foreach (var token in modules) {
+                    if (token is Newtonsoft.Json.Linq.JObject candidate && string.Equals((string)candidate["id"], request.SignId, StringComparison.Ordinal)) {
+                        module = candidate;
+                        break;
+                    }
+                }
+                if (module == null) { code = "unknown-sign"; reason = "No sign record '" + request.SignId + "' is committed."; return false; }
+                record = FindRecord(host.Document, request.SignId);
             }
-            if (module == null) { code = "unknown-sign"; reason = "No sign record '" + request.SignId + "' is committed."; return false; }
             var cfg = module["cfg"] as Newtonsoft.Json.Linq.JObject;
             if (cfg == null) { code = "parse-failed"; reason = "Sign '" + request.SignId + "' has no cfg object."; return false; }
 
-            var record = FindRecord(host.Document, request.SignId);
             var lines = StationSignFaceKeys.Lines(host.Document);
             var defaultLine = StationSignFaceKeys.DefaultLine(lines);
             var mount = StationSignMounts.Of(cfg["mount"] != null ? (string)cfg["mount"] : "");
@@ -2137,10 +2153,45 @@ namespace Metro.App {
                 return true;
             }
 
-            // Apply the changed faces to a parsed copy of the committed save. Only the
-            // fields the editor owns are replaced; nothing else in the record moves.
-            foreach (var write in changed) cfg[StationSignVocabulary.Face(write.Face)] = FaceJson(write.Components);
-            var result = host.ApplyDocumentEdit(envelope.ToString(Newtonsoft.Json.Formatting.None), host.CurrentSourceId);
+            // Apply the changed faces via bounded local in-place patch when running under a
+            // live StationGameHost, falling back to full-envelope install otherwise.
+            Metro.App.StationLoadResult result = null;
+            if (gameHost != null && committedRead != null) {
+                var localRead = Metro.Persistence.StationLocalEdit.TryApplyModuleInPlace(
+                    committedRead,
+                    request.SignId,
+                    modJson => {
+                        var modCfg = modJson["cfg"] as Newtonsoft.Json.Linq.JObject;
+                        if (modCfg == null) return "parse-failed";
+                        foreach (var write in changed) modCfg[StationSignVocabulary.Face(write.Face)] = FaceJson(write.Components);
+                        return null;
+                    },
+                    host.CurrentSourceId,
+                    out _);
+                if (localRead != null) {
+                    result = gameHost.ApplyLocalHistory(localRead);
+                }
+            }
+            if (result == null) {
+                if (envelope == null) {
+                    var saved = host.SaveDocument();
+                    try { envelope = Newtonsoft.Json.Linq.JObject.Parse(saved ?? ""); }
+                    catch (Exception error) { code = "parse-failed"; reason = "Could not read the committed save: " + error.Message; return false; }
+                    var modules = (envelope["static"] as Newtonsoft.Json.Linq.JObject)?["modules"] as Newtonsoft.Json.Linq.JArray;
+                    if (modules == null) { code = "parse-failed"; reason = "The committed save has no static.modules array."; return false; }
+                    module = null;
+                    foreach (var token in modules) {
+                        if (token is Newtonsoft.Json.Linq.JObject candidate && string.Equals((string)candidate["id"], request.SignId, StringComparison.Ordinal)) {
+                            module = candidate;
+                            break;
+                        }
+                    }
+                    cfg = module?["cfg"] as Newtonsoft.Json.Linq.JObject;
+                    if (cfg == null) { code = "parse-failed"; reason = "Sign '" + request.SignId + "' has no cfg object."; return false; }
+                }
+                foreach (var write in changed) cfg[StationSignVocabulary.Face(write.Face)] = FaceJson(write.Components);
+                result = host.ApplyDocumentEdit(envelope.ToString(Newtonsoft.Json.Formatting.None), host.CurrentSourceId);
+            }
             if (result == null) { code = "no-session"; reason = "The host returned no result."; return false; }
             if (!result.Accepted) {
                 code = result.Rejection != null && !string.IsNullOrEmpty(result.Rejection.Code) ? result.Rejection.Code : "rejected";
@@ -2489,6 +2540,14 @@ namespace Metro.App {
                     var (record, view, hangLocal) = staged[i];
                     view.transform.SetParent(roleRoot, false);
                     view.transform.SetPositionAndRotation(StationSignViews.Placement(record), ModulePlacement.Rotation(record.Rotation));
+#if !UNITY_WEBGL
+                    if (Application.isPlaying && !Application.isEditor) {
+                        var signRenderers = view.GetComponentsInChildren<Renderer>(true);
+                        for (int r = 0; r < signRenderers.Length; r++) {
+                            if (signRenderers[r] != null) signRenderers[r].shadowCastingMode = ShadowCastingMode.Off;
+                        }
+                    }
+#endif
                     var bounds = PanelBounds(view, world.Root);
                     world.AddLocalRecord(new StationViewRecord {
                         Role = RoleName,
@@ -2703,9 +2762,9 @@ namespace Metro.App {
                 ? context.NextDocument.StoreyHeight
                 : (int)Metro.Build.StationFootprints.StoreyHeight;
 
-            if (context.CellsChanged && worldScope.HungByColumn.Count > 0) {
+            if (context.CeilingSupportChanged && worldScope.HungByColumn.Count > 0) {
                 var mounts = context.GetNextCeilingMounts();
-                foreach (long col in context.TouchedColumns) {
+                foreach (long col in context.TouchedCeilingColumns) {
                     if (!worldScope.HungByColumn.TryGetValue(col, out var ids)) continue;
                     foreach (var id in ids) {
                         if (removedIds.Contains(id) || dirtyIds.Contains(id)) continue;

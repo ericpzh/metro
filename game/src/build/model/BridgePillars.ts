@@ -1,10 +1,53 @@
 // Bridge-owned supports (§5.4): one thick centre pier per complete eight-metre bay.
+import { registerDocumentCache } from '../../sim/documentCaches.ts'
 import { groundHoleReader, GROUND_Z } from '../../sim/ground.ts'
 import { equipmentReason } from '../../sim/placement.ts'
 import { BRIDGE_DECK_DEPTH, pillarSupportsBridge } from '../../sim/structures.ts'
 import { rotateLocal, type TrackModule } from '../../sim/track.ts'
 import type { Cell, Module } from '../../sim/types.ts'
 import type { StationState } from './State.ts'
+
+const bridgePresenceCache = new WeakMap<readonly Module[], boolean>()
+let lastBridgePresence: { modules: readonly Module[]; len: number; has: boolean } | null = null
+
+const isBridgeOrOwnedPillar = (m: Module): boolean =>
+  (m.type === 'track' && m.cfg.bridge === true) || (m.type === 'pillar' && !!m.cfg.bridgeId)
+
+export function hasBridgeOrBridgePillar(modules: readonly Module[]): boolean {
+  const cached = bridgePresenceCache.get(modules)
+  if (cached !== undefined) return cached
+  if (lastBridgePresence && !lastBridgePresence.has && modules.length >= lastBridgePresence.len &&
+    modules.length - lastBridgePresence.len <= 64) {
+    const prev = lastBridgePresence.modules
+    let samePrefix = true
+    for (let i = 0; i < lastBridgePresence.len; i++) {
+      if (modules[i] !== prev[i]) { samePrefix = false; break }
+    }
+    if (samePrefix) {
+      let has = false
+      for (let i = lastBridgePresence.len; i < modules.length; i++) {
+        if (isBridgeOrOwnedPillar(modules[i])) { has = true; break }
+      }
+      bridgePresenceCache.set(modules, has)
+      lastBridgePresence = { modules, len: modules.length, has }
+      return has
+    }
+  }
+  let has = false
+  for (let i = 0; i < modules.length; i++) {
+    if (isBridgeOrOwnedPillar(modules[i])) { has = true; break }
+  }
+  bridgePresenceCache.set(modules, has)
+  lastBridgePresence = { modules, len: modules.length, has }
+  return has
+}
+
+registerDocumentCache((_cells, modules, _liveCells, liveModules) => {
+  if (modules !== liveModules) {
+    bridgePresenceCache.delete(modules)
+    if (lastBridgePresence?.modules === modules) lastBridgePresence = null
+  }
+})
 
 export function bridgePillarCandidates(cells: readonly Cell[], modules: readonly Module[], bridge: TrackModule): Array<Extract<Module, { type: 'pillar' }>> {
   if (!bridge.cfg.bridge) return []
@@ -50,6 +93,7 @@ export function bridgePillarCandidates(cells: readonly Cell[], modules: readonly
 
 /** Backfill bridges and remove owned supports outside the current spacing. */
 export function syncBridgePillars(state: StationState): StationState {
+  if (!hasBridgeOrBridgePillar(state.modules)) return state
   const bridges = state.modules.filter((m): m is TrackModule => m.type === 'track' && m.cfg.bridge === true)
   const supportIds = new Set<string>()
   for (const bridge of bridges) {

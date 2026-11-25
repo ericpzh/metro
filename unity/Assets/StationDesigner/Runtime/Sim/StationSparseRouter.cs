@@ -382,16 +382,30 @@ namespace Metro.Sim {
         public StationSparseTopologyDiff OnCommit(
             StationWalkGraph newGraph,
             int seed,
-            IReadOnlyList<StationSparseLiftLink> liftLinks) {
+            IReadOnlyList<StationSparseLiftLink> liftLinks,
+            StationWalkGraphDelta delta = null) {
             var prev = Topology;
-            var next = StationSparseTopology.Build(newGraph, seed, liftLinks, prev, out var diff);
+            StationSparseTopology next;
+            StationSparseTopologyDiff diff;
+            if (prev != null && prev.Seed == seed && delta != null &&
+                prev.TryUpdateIncremental(newGraph, liftLinks, delta, out diff)) {
+                next = prev;
+            } else {
+                next = StationSparseTopology.Build(newGraph, seed, liftLinks, prev, out diff);
+            }
             Topology = next;
             Occupancy.Resize(newGraph.NodeCount);
 
-            Claims.Remap(newGraph.NodeCount, oldNode => {
-                if ((uint)oldNode >= (uint)prev.NodeTileKey.Length) return -1;
-                return next.TileKeyToNode.TryGetValue(prev.NodeTileKey[oldNode], out int mapped) ? mapped : -1;
-            });
+            if (delta != null && delta.OldToNewNode != null) {
+                int oldLimit = Math.Min(delta.OldNodeCount, delta.OldToNewNode.Length);
+                var oldToNew = delta.OldToNewNode;
+                Claims.Remap(newGraph.NodeCount, oldNode => (uint)oldNode < (uint)oldLimit ? oldToNew[oldNode] : -1);
+            } else {
+                Claims.Remap(newGraph.NodeCount, oldNode => {
+                    if (prev == null || (uint)oldNode >= (uint)prev.NodeCount) return -1;
+                    return next.TileKeyToNode.TryGetValue(prev.NodeTileKey[oldNode], out int mapped) ? mapped : -1;
+                });
+            }
 
             if (diff.RoutingNeutral) {
                 statsFieldsPreserved += fieldCache.Count;
@@ -452,7 +466,7 @@ namespace Metro.Sim {
         }
 
         public StationSparseWalkerState CreateWalker(int goalNode, int prevLegGen = 0) {
-            long goalKey = (uint)goalNode < (uint)Topology.NodeTileKey.Length ? Topology.NodeTileKey[goalNode] : -1;
+            long goalKey = (uint)goalNode < (uint)Topology.NodeCount ? Topology.NodeTileKey[goalNode] : -1;
             return new StationSparseWalkerState {
                 SessionId = SessionId,
                 LegGen = prevLegGen + 1,
@@ -562,13 +576,14 @@ namespace Metro.Sim {
         int CountTwoHopCrowd(int center) {
             crowdScratch.Clear();
             crowdScratch.Add(center);
-            var pStart = Topology.PlainAdjStart;
             var pTo = Topology.PlainAdjTo;
-            for (int e = pStart[center]; e < pStart[center + 1]; e++) {
-                int n1 = pTo[e];
+            var cAdj = pTo[center];
+            for (int e = 0; e < cAdj.Length; e++) {
+                int n1 = cAdj[e];
                 crowdScratch.Add(n1);
-                for (int e2 = pStart[n1]; e2 < pStart[n1 + 1]; e2++) {
-                    crowdScratch.Add(pTo[e2]);
+                var n1Adj = pTo[n1];
+                for (int e2 = 0; e2 < n1Adj.Length; e2++) {
+                    crowdScratch.Add(n1Adj[e2]);
                 }
             }
             int total = 0;
@@ -648,7 +663,7 @@ namespace Metro.Sim {
             var locals = new List<int>(targetNodes.Length);
             for (int i = 0; i < targetNodes.Length; i++) {
                 int tn = targetNodes[i];
-                if ((uint)tn < (uint)Topology.NodeRegion.Length && Topology.NodeRegion[tn] == regionId) {
+                if ((uint)tn < (uint)Topology.NodeCount && Topology.NodeRegion[tn] == regionId) {
                     locals.Add(Topology.NodeLocalIdx[tn]);
                 }
             }
@@ -733,7 +748,6 @@ namespace Metro.Sim {
                     job.Heap.Push(li, 0, region.TileKeys[li], 0);
                 }
             }
-            var plainStart = Topology.PlainAdjStart;
             var plainTo = Topology.PlainAdjTo;
             var plainCost = Topology.PlainAdjCostMs;
             var nodeReg = Topology.NodeRegion;
@@ -748,19 +762,21 @@ namespace Metro.Sim {
                     if (curDist != job.DistMs[curLocal]) continue;
                     job.ExpandingLocal = curLocal;
                     job.ExpandingDist = curDist;
-                    job.EdgeCursor = plainStart[region.Nodes[curLocal]];
+                    job.EdgeCursor = 0;
                 }
                 int u = region.Nodes[job.ExpandingLocal];
-                int end = plainStart[u + 1];
+                var uTo = plainTo[u];
+                var uCost = plainCost[u];
+                int end = uTo.Length;
                 while (job.EdgeCursor < end) {
                     if (budget.Scans <= 0) return false;
                     int e = job.EdgeCursor++;
                     budget.Scans--;
                     statsFieldEdgeScans++;
-                    int v = plainTo[e];
+                    int v = uTo[e];
                     if (nodeReg[v] != job.RegionId) continue;
                     int vLocal = nodeLocal[v];
-                    int nd = job.ExpandingDist + plainCost[e];
+                    int nd = job.ExpandingDist + uCost[e];
                     if (nd < job.DistMs[vLocal]) {
                         job.DistMs[vLocal] = nd;
                         job.Heap.Push(vLocal, nd, region.TileKeys[vLocal], nd);
@@ -1645,7 +1661,6 @@ namespace Metro.Sim {
             }
             visited.Add(at);
 
-            var plainStart = Topology.PlainAdjStart;
             var plainTo = Topology.PlainAdjTo;
             var plainCost = Topology.PlainAdjCostMs;
             var nodeReg = Topology.NodeRegion;
@@ -1769,9 +1784,11 @@ namespace Metro.Sim {
                 long fallbackKey = long.MaxValue;
                 int ax = nodeTx[at], ay = nodeTy[at];
 
-                for (int e = plainStart[at]; e < plainStart[at + 1]; e++) {
+                var atTo = plainTo[at];
+                var atCost = plainCost[at];
+                for (int e = 0; e < atTo.Length; e++) {
                     statsLocalNeighbourScans++;
-                    int nb = plainTo[e];
+                    int nb = atTo[e];
                     if (nodeReg[nb] != regId || visited.Contains(nb)) continue;
                     int nbDist = field.DistMs[nodeLocal[nb]];
                     if (nbDist >= atDist) continue;
@@ -1784,15 +1801,16 @@ namespace Metro.Sim {
                     int direct = Occupancy.OtherBodiesOn(nb, selfNode);
                     int adjSum = 0, adjCnt = 0;
                     if (Options.UseDensity) {
-                        for (int ne = plainStart[nb]; ne < plainStart[nb + 1]; ne++) {
-                            adjSum += Occupancy.OtherBodiesOn(plainTo[ne], selfNode);
+                        var nbTo = plainTo[nb];
+                        for (int ne = 0; ne < nbTo.Length; ne++) {
+                            adjSum += Occupancy.OtherBodiesOn(nbTo[ne], selfNode);
                             adjCnt++;
                         }
                     }
                     int otherClaims = Options.UseClaims ? Claims.CountOtherAgentsOn(nb, agentId) : 0;
                     int moveOct = StationSparsePolicy.OctantOf(nodeTx[nb] - ax, nodeTy[nb] - ay);
                     int sc = StationSparsePolicy.ScoreTileMs(
-                        plainCost[e], nbDist, direct, adjSum, adjCnt, otherClaims, heading, moveOct,
+                        atCost[e], nbDist, direct, adjSum, adjCnt, otherClaims, heading, moveOct,
                         Topology.Seed, agentId, walker.SegmentSequence, nodeTx[nb], nodeTy[nb], nodeTz2[nb],
                         Options.UseDensity, Options.UseBias, Options.UseClaims);
                     if (sc < bestScore || (sc == bestScore && nbKey < bestKey)) {
@@ -1878,7 +1896,7 @@ namespace Metro.Sim {
                 if (k + 1 < keepEnd && Math.Abs(g.NodeZ[path[k]] - g.NodeZ[path[k + 1]]) > 1e-6) return;
             }
             int tailAfter = path[keepEnd - 1];
-            int tailReg = (uint)tailAfter < (uint)Topology.NodeRegion.Length ? Topology.NodeRegion[tailAfter] : -1;
+            int tailReg = (uint)tailAfter < (uint)Topology.NodeCount ? Topology.NodeRegion[tailAfter] : -1;
             if (tailReg < 0) return;
             long tailRegKey = Topology.Regions[tailReg].RegionKey;
             while (walker.StepIdx > 0) {

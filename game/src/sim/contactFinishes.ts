@@ -84,18 +84,129 @@ export function contactFaceCovered(shape: CellShape | null, neighbour: CellShape
   return points.length > 0 && points.every(([x, y, z]) => contains(neighbour, [x - dx, y - dy, z - dz]))
 }
 
+const cleanedCells = new WeakSet<readonly Cell[]>()
+const MAX_INCREMENTAL_CONTACT_CHANGES = 512
+
+const packable = (n: number): boolean => Number.isInteger(n) && n >= -4094 && n <= 4093
+
+/** Collect added or modified cells relative to a clean previous snapshot, or
+ * null when the edit is too large/scattered for a bounded local pass. */
+function collectChangedCells(previous: readonly Cell[], next: readonly Cell[]): Cell[] | null {
+  if (Math.abs(previous.length - next.length) > MAX_INCREMENTAL_CONTACT_CHANGES) return null
+  const common = Math.min(previous.length, next.length)
+  let prefix = 0, suffix = 0
+  while (prefix < common && previous[prefix] === next[prefix]) prefix++
+  while (suffix < common - prefix && previous[previous.length - 1 - suffix] === next[next.length - 1 - suffix]) suffix++
+  const pEnd = previous.length - suffix
+  const nEnd = next.length - suffix
+  if (pEnd - prefix + (nEnd - prefix) <= MAX_INCREMENTAL_CONTACT_CHANGES) {
+    return next.slice(prefix, nEnd)
+  }
+  const added: Cell[] = []
+  let i = prefix, j = prefix, ops = 0
+  while (i < pEnd && j < nEnd) {
+    const a = previous[i], b = next[j]
+    if (a === b) { i++; j++; continue }
+    if (++ops > MAX_INCREMENTAL_CONTACT_CHANGES) return null
+    if (a.x === b.x && a.y === b.y && a.z === b.z) {
+      added.push(b); i++; j++
+    } else if (i + 1 < pEnd && previous[i + 1] === b) {
+      i++
+    } else if (j + 1 < nEnd && a === next[j + 1]) {
+      added.push(b); j++
+    } else {
+      return null
+    }
+  }
+  if (pEnd - i + (nEnd - j) + ops > MAX_INCREMENTAL_CONTACT_CHANGES) return null
+  for (; j < nEnd; j++) added.push(next[j])
+  return added
+}
+
 /** Clear wholly covered solid faces; suspended ceilings retain finishes on both sides. */
-export function clearContactFinishes(cells: Cell[]): Cell[] {
+export function clearContactFinishes(cells: Cell[], previousCells?: readonly Cell[]): Cell[] {
+  if (cleanedCells.has(cells)) return cells
+  if (previousCells && cleanedCells.has(previousCells)) {
+    const touched = collectChangedCells(previousCells, cells)
+    if (touched !== null) {
+      if (touched.length === 0) {
+        cleanedCells.add(cells)
+        return cells
+      }
+      if (touched.every(c => packable(c.x) && packable(c.y) && packable(c.z))) {
+        const candidates = new Set<number>()
+        const probes = new Set<number>()
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, minZ = Infinity, maxZ = -Infinity
+        for (const c of touched) {
+          const cx = c.x, cy = c.y, cz = c.z
+          if (cx - 2 < minX) minX = cx - 2
+          if (cx + 2 > maxX) maxX = cx + 2
+          if (cy - 2 < minY) minY = cy - 2
+          if (cy + 2 > maxY) maxY = cy + 2
+          if (cz - 2 < minZ) minZ = cz - 2
+          if (cz + 2 > maxZ) maxZ = cz + 2
+          const ck = packKey(cx, cy, cz)
+          candidates.add(ck)
+          probes.add(ck)
+          for (const [, dx, dy, dz] of neighbours) {
+            const nx = cx + dx, ny = cy + dy, nz = cz + dz
+            const nk = packKey(nx, ny, nz)
+            candidates.add(nk)
+            probes.add(nk)
+            for (const [, dx2, dy2, dz2] of neighbours) {
+              probes.add(packKey(nx + dx2, ny + dy2, nz + dz2))
+            }
+          }
+        }
+        const solids = new Map<number, CellShape | null>()
+        const checkIndices: number[] = []
+        for (let i = 0; i < cells.length; i++) {
+          const c = cells[i]
+          if (c.x < minX || c.x > maxX || c.y < minY || c.y > maxY || c.z < minZ || c.z > maxZ) continue
+          if (c.fill !== 'solid' || c.tags?.includes('suspended-ceiling')) continue
+          const k = packKey(c.x, c.y, c.z)
+          if (!probes.has(k)) continue
+          solids.set(k, shapeOf(c))
+          if (c.finish && candidates.has(k)) checkIndices.push(i)
+        }
+        let out: Cell[] | undefined
+        for (const idx of checkIndices) {
+          const c = cells[idx]
+          const shape = solids.get(packKey(c.x, c.y, c.z))!
+          let finish = c.finish!
+          for (const [face, dx, dy, dz] of neighbours) {
+            if (finish[face] === undefined) continue
+            const neighbourKey = packKey(c.x + dx, c.y + dy, c.z + dz)
+            if (!solids.has(neighbourKey)) continue
+            if (!contactFaceCovered(shape, solids.get(neighbourKey)!, face)) continue
+            if (finish === c.finish) finish = { ...finish }
+            delete finish[face]
+          }
+          if (finish === c.finish) continue
+          out ??= cells.slice()
+          if (Object.keys(finish).length) out[idx] = { ...c, finish }
+          else {
+            const { finish: _removed, ...withoutFinish } = c
+            out[idx] = withoutFinish
+          }
+        }
+        const final = out ?? cells
+        cleanedCells.add(final)
+        return final
+      }
+    }
+  }
   // Leave one course for neighbour probes. Imported coordinates outside the
   // packed grid still need exact, non-aliasing keys.
-  const packable = (n: number): boolean => Number.isInteger(n) && n >= -4095 && n <= 4094
-  const keyOf = cells.every(c => packable(c.x) && packable(c.y) && packable(c.z)) ? packKey : key
+  const canPack = (n: number): boolean => Number.isInteger(n) && n >= -4095 && n <= 4094
+  const keyOf = cells.every(c => canPack(c.x) && canPack(c.y) && canPack(c.z)) ? packKey : key
   const solids = new Map<number | string, CellShape | null>()
   for (const c of cells) if (c.fill === 'solid' && !c.tags?.includes('suspended-ceiling')) solids.set(keyOf(c.x, c.y, c.z), shapeOf(c))
-  let changed = false
-  const result = cells.map(c => {
-    if (c.fill !== 'solid' || !c.finish || c.tags?.includes('suspended-ceiling')) return c
-    const shape = shapeOf(c)
+  let out: Cell[] | undefined
+  for (let i = 0; i < cells.length; i++) {
+    const c = cells[i]
+    if (c.fill !== 'solid' || !c.finish || c.tags?.includes('suspended-ceiling')) continue
+    const shape = solids.get(keyOf(c.x, c.y, c.z))!
     let finish = c.finish
     for (const [face, dx, dy, dz] of neighbours) {
       if (finish[face] === undefined) continue
@@ -105,11 +216,15 @@ export function clearContactFinishes(cells: Cell[]): Cell[] {
       if (finish === c.finish) finish = { ...finish }
       delete finish[face]
     }
-    if (finish === c.finish) return c
-    changed = true
-    if (Object.keys(finish).length) return { ...c, finish }
-    const { finish: _removed, ...withoutFinish } = c
-    return withoutFinish
-  })
-  return changed ? result : cells
+    if (finish === c.finish) continue
+    out ??= cells.slice()
+    if (Object.keys(finish).length) out[i] = { ...c, finish }
+    else {
+      const { finish: _removed, ...withoutFinish } = c
+      out[i] = withoutFinish
+    }
+  }
+  const final = out ?? cells
+  cleanedCells.add(final)
+  return final
 }

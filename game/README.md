@@ -1,5 +1,7 @@
 # Station Designer — the game
 
+Three.js Tianhe Park placement latency optimizations keep dense-station edits (151,852 cells, 76,438 modules) incremental across commit, worker transfer, tool geometry, chunk meshing, and equipment batching (`checkout` in `EQUIPMENT_ONLY`, `z === 0` and bounded `groundWindow` updates in `localCellEdit`/`patchGround`/`StationGeometry`/`ChunkSystem`, sparse multi-op `stationEdit`, incremental `clearContactFinishes`/`addWalls`/`addFloor`/`syncAutoWalls`/`placeFacility`/`nextModuleId`/`syncBridgePillars`/`groundWindow`/`finishesInUse`, and O(delta) updates in `ModuleSystem`/`EquipmentBatches`/`LevelSystem`/`SectionSystem`, pinned by `tianhe-placement-latency`).
+
 Three.js Tianhe Park playback optimizations (`materialCanonical.ts`, `EquipmentBatches`,
 `ExplodedLayout`, `PlateSystem`, `ModuleSystem`, `ClockSystem`, `EscalatorModel`,
 `LiftSystem`, `CrowdSystem`, `SimSlice`, `sim/worker.ts`, and `sim/world/World.ts`)

@@ -43,6 +43,7 @@ export class LevelSystem extends SceneSystem {
   /** The cut's plane while a cut is on, shared by every material this walk dresses. */
   private clip: THREE.Plane | null = null
   private lastAppliedView = ''
+  private lastChunkRevision = -1
   /** 显示其他层 on a dense document: distant storeys keep structure, not fixtures. */
   private denseGhost = false
 
@@ -163,7 +164,10 @@ export class LevelSystem extends SceneSystem {
     // before the plane was switched on carries no planes of its own, so assigning
     // it here is what stops the slice's own materials being holes in the cut.
     const clip = this.ctx.cutaway ? this.clip : null
-    for (const [lz, group] of this.chunks.levelGroups) {
+    const chunkRev = this.chunks.meshRevision ?? -1
+    const skipChunks = sameView && chunkRev >= 0 && chunkRev === this.lastChunkRevision
+    this.lastChunkRevision = chunkRev
+    if (!skipChunks) for (const [lz, group] of this.chunks.levelGroups) {
       group.visible = true
       const side = levelSide([lz], this.ctx.activeZ)
       for (const child of group.children) {
@@ -225,8 +229,12 @@ export class LevelSystem extends SceneSystem {
     }
     // Fixtures follow the same rule: the storey above loses the pieces that hang
     // over the room below, and 显示其他层 decides whether the rest are drawn.
-    for (const child of this.modules.moduleMeshes.children) {
-      if (!sameView || !this.modules.retainedLevelRoots?.has(child)) this.applyGroupLevel(child, 'module')
+    if (sameView && this.modules.dirtyLevelRoots) {
+      for (const child of this.modules.dirtyLevelRoots) this.applyGroupLevel(child, 'module')
+    } else {
+      for (const child of this.modules.moduleMeshes.children) {
+        if (!sameView || !this.modules.retainedLevelRoots?.has(child)) this.applyGroupLevel(child, 'module')
+      }
     }
     // Trains own their `visible` flag (`setTrains` parks them between services),
     // so the slicing is combined with the sim's own state rather than replacing it.
@@ -337,6 +345,8 @@ export class LevelSystem extends SceneSystem {
     // The next walk re-states the planes on every material, so it must not be
     // skipped as a repeat: the plane's *membership* changed even though the
     // slice's toggles did not.
+    this.lastAppliedView = ''
+    this.lastChunkRevision = -1
     this.ctx.levelKey = ''
     this.applyLevel()
   }

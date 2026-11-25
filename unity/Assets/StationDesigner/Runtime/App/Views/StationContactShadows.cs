@@ -184,6 +184,14 @@ namespace Metro.App.Views {
 
         /// <summary>Compute the world-space TRS matrix and document-space box for one module's shadow blob.</summary>
         public static Matrix4x4 ComputeBlobMatrix(StationModuleRecord module, StationWorldView world,
+            out StationBox documentBox) =>
+            ComputeBlobMatrix(module, world, null, null, out documentBox);
+
+        internal static Matrix4x4 ComputeBlobMatrix(
+            StationModuleRecord module,
+            StationWorldView world,
+            Dictionary<string, StationViewRecord> singleById,
+            Dictionary<string, StationBox> batchedBoundsById,
             out StationBox documentBox) {
             float r = BlobRadius(module.Type);
             float cx = module.X + .5f;
@@ -193,7 +201,7 @@ namespace Metro.App.Views {
             float ry = r;
 
             if (!string.Equals(module.Type, "tree", StringComparison.Ordinal)) {
-                bool hasFoot = TryResolveFootOrBounds(module, world, out var bounds, out bool usedFootBase);
+                bool hasFoot = TryResolveFootOrBounds(module, world, singleById, batchedBoundsById, out var bounds, out bool usedFootBase);
                 if (hasFoot) {
                     float width = (float)(bounds.X1 - bounds.X0);
                     float depth = (float)(bounds.Y1 - bounds.Y0);
@@ -216,11 +224,22 @@ namespace Metro.App.Views {
             return Matrix4x4.TRS(pos, Quaternion.identity, new Vector3(rx, 1f, ry));
         }
 
-        static bool TryResolveFootOrBounds(StationModuleRecord module, StationWorldView world,
-            out StationBox bounds, out bool usedFootBase) {
+        static bool TryResolveFootOrBounds(
+            StationModuleRecord module,
+            StationWorldView world,
+            Dictionary<string, StationViewRecord> singleById,
+            Dictionary<string, StationBox> batchedBoundsById,
+            out StationBox bounds,
+            out bool usedFootBase) {
             usedFootBase = false;
             bounds = default;
-            if (world != null && world.TryGetModule(module.Id, out var rec) && rec != null) {
+            StationViewRecord rec = null;
+            if (singleById != null) {
+                singleById.TryGetValue(module.Id, out rec);
+            } else if (world != null) {
+                world.TryGetModule(module.Id, out rec);
+            }
+            if (rec != null) {
                 var footName = FootSubmeshName(module.Type);
                 if (!string.IsNullOrEmpty(footName) && rec.View != null) {
                     var foot = FindDescendant(rec.View.transform, footName);
@@ -235,7 +254,12 @@ namespace Metro.App.Views {
                 }
             }
             // Check batched instanced records (SourceIds + SourceBounds).
-            if (world != null) {
+            if (batchedBoundsById != null) {
+                if (batchedBoundsById.TryGetValue(module.Id, out var bb) && !bb.IsEmpty) {
+                    bounds = bb;
+                    return true;
+                }
+            } else if (world != null) {
                 var records = world.Records;
                 for (int i = 0; i < records.Count; i++) {
                     var rec2 = records[i];
@@ -311,14 +335,36 @@ namespace Metro.App.Views {
     /// </summary>
     public sealed class StationContactShadowRenderer : IStationViewRenderer, IStationLocalViewRenderer {
         public const string RoleName = "contact-shadows";
+        const int ChunkSize = 64;
+
+        static int ChunkCoord(int value) => value >= 0 ? value / ChunkSize : (value - (ChunkSize - 1)) / ChunkSize;
 
         readonly struct BucketKey : IEquatable<BucketKey> {
             public readonly int Band;
             public readonly bool GradeOwned;
-            public BucketKey(int band, bool gradeOwned) { Band = band; GradeOwned = gradeOwned; }
-            public bool Equals(BucketKey other) => Band == other.Band && GradeOwned == other.GradeOwned;
+            public readonly int ChunkX;
+            public readonly int ChunkY;
+            public BucketKey(int band, bool gradeOwned, int chunkX, int chunkY) {
+                Band = band; GradeOwned = gradeOwned; ChunkX = chunkX; ChunkY = chunkY;
+            }
+            public bool Equals(BucketKey other) =>
+                Band == other.Band && GradeOwned == other.GradeOwned &&
+                ChunkX == other.ChunkX && ChunkY == other.ChunkY;
             public override bool Equals(object obj) => obj is BucketKey other && Equals(other);
-            public override int GetHashCode() => (Band * 397) ^ (GradeOwned ? 1 : 0);
+            public override int GetHashCode() {
+                unchecked {
+                    int h = (Band * 397) ^ (GradeOwned ? 1 : 0);
+                    h = (h * 397) ^ ChunkX;
+                    h = (h * 397) ^ ChunkY;
+                    return h;
+                }
+            }
+        }
+
+        readonly struct ShadowEntry {
+            public readonly Matrix4x4 Matrix;
+            public readonly StationBox DocBox;
+            public ShadowEntry(Matrix4x4 matrix, StationBox docBox) { Matrix = matrix; DocBox = docBox; }
         }
 
         sealed class BuiltBucket {
@@ -328,6 +374,7 @@ namespace Metro.App.Views {
             public Mesh ProxyMesh;
             public StationViewRecord Record;
             public readonly HashSet<string> ModuleIds = new HashSet<string>(StringComparer.Ordinal);
+            public Dictionary<string, ShadowEntry> Entries;
         }
 
         sealed class WorldState {
@@ -409,10 +456,18 @@ namespace Metro.App.Views {
             var state = new WorldState { Material = material, Drawer = drawer, RoleRoot = roleRoot };
             states[context.World] = state;
 
+            BuildRecordLookups(context.World, out var singleById, out var batchedBoundsById);
             var grid = StationLevelGrid.FromDocument(context.Document.LevelBase, context.Document.StoreyHeight);
             var grouped = GroupModules(context.Document.Modules, grid);
             foreach (var pair in grouped) {
-                var bucket = BuildBucket(pair.Key, pair.Value, context.World, material, roleRoot, active: true);
+                var entries = new Dictionary<string, ShadowEntry>(pair.Value.Count, StringComparer.Ordinal);
+                for (int i = 0; i < pair.Value.Count; i++) {
+                    var mod = pair.Value[i];
+                    var matrix = StationContactShadowRules.ComputeBlobMatrix(
+                        mod, context.World, singleById, batchedBoundsById, out var docBox);
+                    entries[mod.Id] = new ShadowEntry(matrix, docBox);
+                }
+                var bucket = BuildBucketFromEntries(pair.Key, entries, material, roleRoot, active: true);
                 if (bucket == null) continue;
                 drawer?.Add(bucket.Batch);
                 var r = bucket.Record;
@@ -421,6 +476,40 @@ namespace Metro.App.Views {
                     r.LevelMin, r.LevelMax, r.LevelBands, r.SourceIds, r.SourceBounds, r.GradeOwned);
                 state.Buckets[pair.Key] = bucket;
                 foreach (var id in bucket.ModuleIds) state.ModuleBuckets[id] = pair.Key;
+            }
+        }
+
+        static void BuildRecordLookups(
+            StationWorldView world,
+            out Dictionary<string, StationViewRecord> singleById,
+            out Dictionary<string, StationBox> batchedBoundsById) {
+            var records = world?.Records;
+            int count = records?.Count ?? 0;
+            singleById = new Dictionary<string, StationViewRecord>(count, StringComparer.Ordinal);
+            batchedBoundsById = new Dictionary<string, StationBox>(StringComparer.Ordinal);
+            if (records == null) return;
+            for (int i = 0; i < count; i++) {
+                var rec = records[i];
+                if (rec == null) continue;
+                if (!string.IsNullOrEmpty(rec.ModuleId) && rec.View != null) {
+                    if (rec.Part.Length == 0) {
+                        if (!singleById.TryGetValue(rec.ModuleId, out var existing) || existing.Part.Length > 0) {
+                            singleById[rec.ModuleId] = rec;
+                        }
+                    } else if (!singleById.ContainsKey(rec.ModuleId)) {
+                        singleById[rec.ModuleId] = rec;
+                    }
+                }
+                if (rec.SourceIds != null && rec.SourceBounds != null &&
+                    !string.Equals(rec.Role, RoleName, StringComparison.Ordinal)) {
+                    int n = Math.Min(rec.SourceIds.Length, rec.SourceBounds.Length);
+                    for (int j = 0; j < n; j++) {
+                        var id = rec.SourceIds[j];
+                        if (!string.IsNullOrEmpty(id) && !rec.SourceBounds[j].IsEmpty && !batchedBoundsById.ContainsKey(id)) {
+                            batchedBoundsById[id] = rec.SourceBounds[j];
+                        }
+                    }
+                }
             }
         }
 
@@ -435,15 +524,30 @@ namespace Metro.App.Views {
 
             var grid = StationLevelGrid.FromDocument(context.NextDocument.LevelBase, context.NextDocument.StoreyHeight);
             var dirtyKeys = new HashSet<BucketKey>();
+            var removedOrReplacedIds = new HashSet<string>(StringComparer.Ordinal);
+            var addedOrUpdatedByBucket = new Dictionary<BucketKey, List<StationModuleRecord>>();
+
             for (int i = 0; i < delta.RemovedModules.Count; i++) {
-                if (state.ModuleBuckets.TryGetValue(delta.RemovedModules[i], out var oldKey)) dirtyKeys.Add(oldKey);
+                var id = delta.RemovedModules[i];
+                if (state.ModuleBuckets.TryGetValue(id, out var oldKey)) {
+                    dirtyKeys.Add(oldKey);
+                    removedOrReplacedIds.Add(id);
+                }
             }
             for (int i = 0; i < delta.ChangedModules.Count; i++) {
                 var mod = delta.ChangedModules[i];
                 if (mod == null) continue;
-                if (state.ModuleBuckets.TryGetValue(mod.Id, out var oldKey)) dirtyKeys.Add(oldKey);
+                if (state.ModuleBuckets.TryGetValue(mod.Id, out var oldKey)) {
+                    dirtyKeys.Add(oldKey);
+                    removedOrReplacedIds.Add(mod.Id);
+                }
                 if (StationContactShadowRules.IsEligible(mod)) {
-                    dirtyKeys.Add(KeyOf(mod, grid));
+                    var nextKey = KeyOf(mod, grid);
+                    dirtyKeys.Add(nextKey);
+                    if (!addedOrUpdatedByBucket.TryGetValue(nextKey, out var list)) {
+                        addedOrUpdatedByBucket[nextKey] = list = new List<StationModuleRecord>(2);
+                    }
+                    list.Add(mod);
                 }
             }
             if (dirtyKeys.Count == 0) {
@@ -451,11 +555,28 @@ namespace Metro.App.Views {
                 return true;
             }
 
-            var grouped = GroupModules(context.NextDocument.Modules, grid, dirtyKeys);
-            var replacements = new Dictionary<BucketKey, BuiltBucket>();
+            Dictionary<string, StationViewRecord> singleById = null;
+            Dictionary<string, StationBox> batchedBoundsById = null;
+            if (addedOrUpdatedByBucket.Count > 0) {
+                BuildRecordLookups(context.World, out singleById, out batchedBoundsById);
+            }
+
+            var replacements = new Dictionary<BucketKey, BuiltBucket>(dirtyKeys.Count);
             foreach (var key in dirtyKeys) {
-                if (!grouped.TryGetValue(key, out var list) || list.Count == 0) continue;
-                var bucket = BuildBucket(key, list, context.World, state.Material, context.StagingRoot, active: false);
+                var nextEntries = state.Buckets.TryGetValue(key, out var oldBucket) && oldBucket.Entries != null
+                    ? new Dictionary<string, ShadowEntry>(oldBucket.Entries, StringComparer.Ordinal)
+                    : new Dictionary<string, ShadowEntry>(StringComparer.Ordinal);
+                foreach (var id in removedOrReplacedIds) nextEntries.Remove(id);
+                if (addedOrUpdatedByBucket.TryGetValue(key, out var updates)) {
+                    for (int i = 0; i < updates.Count; i++) {
+                        var mod = updates[i];
+                        var matrix = StationContactShadowRules.ComputeBlobMatrix(
+                            mod, context.World, singleById, batchedBoundsById, out var docBox);
+                        nextEntries[mod.Id] = new ShadowEntry(matrix, docBox);
+                    }
+                }
+                if (nextEntries.Count == 0) continue;
+                var bucket = BuildBucketFromEntries(key, nextEntries, state.Material, context.StagingRoot, active: false);
                 if (bucket != null) replacements[key] = bucket;
             }
             stage = new StagedShadowDelta(state, dirtyKeys, replacements);
@@ -480,7 +601,11 @@ namespace Metro.App.Views {
         }
 
         static BucketKey KeyOf(StationModuleRecord module, StationLevelGrid grid) =>
-            new BucketKey(StationModuleLevels.Band(grid, module.Z), module.Z == StationViewFeature.GroundZ);
+            new BucketKey(
+                StationModuleLevels.Band(grid, module.Z),
+                module.Z == StationViewFeature.GroundZ,
+                ChunkCoord(module.X),
+                ChunkCoord(module.Y));
 
         static Dictionary<BucketKey, List<StationModuleRecord>> GroupModules(
             IReadOnlyList<StationModuleRecord> modules, StationLevelGrid grid, HashSet<BucketKey> filter = null) {
@@ -497,34 +622,38 @@ namespace Metro.App.Views {
             return result;
         }
 
-        static BuiltBucket BuildBucket(BucketKey key, List<StationModuleRecord> modules, StationWorldView world,
+        static BuiltBucket BuildBucketFromEntries(BucketKey key, Dictionary<string, ShadowEntry> entries,
             Material material, Transform parent, bool active) {
-            if (modules == null || modules.Count == 0) return null;
+            if (entries == null || entries.Count == 0) return null;
             var quad = StationContactShadowAssets.QuadMesh();
-            var instances = new List<CombineInstance>(modules.Count);
-            var instanceSources = new List<int>(modules.Count);
-            var sourceIds = new string[modules.Count];
-            var sourceBounds = new StationBox[modules.Count];
+            int count = entries.Count;
+            var instances = new List<CombineInstance>(count);
+            var instanceSources = new List<int>(count);
+            var sourceIds = new string[count];
+            var sourceBounds = new StationBox[count];
             var docMin = new Vector3(float.MaxValue, float.MaxValue, float.MaxValue);
             var docMax = new Vector3(float.MinValue, float.MinValue, float.MinValue);
             var worldBounds = new Bounds();
             bool hasWorldBounds = false;
 
-            for (int i = 0; i < modules.Count; i++) {
-                var mod = modules[i];
-                var matrix = StationContactShadowRules.ComputeBlobMatrix(mod, world, out var docBox);
-                instances.Add(new CombineInstance { mesh = quad, subMeshIndex = 0, transform = matrix });
+            int i = 0;
+            foreach (var kv in entries) {
+                var entry = kv.Value;
+                var docBox = entry.DocBox;
+                instances.Add(new CombineInstance { mesh = quad, subMeshIndex = 0, transform = entry.Matrix });
                 instanceSources.Add(i);
-                sourceIds[i] = mod.Id;
+                sourceIds[i] = kv.Key;
                 sourceBounds[i] = docBox;
                 docMin = Vector3.Min(docMin, new Vector3((float)docBox.X0, (float)docBox.Y0, (float)docBox.Z0));
                 docMax = Vector3.Max(docMax, new Vector3((float)docBox.X1, (float)docBox.Y1, (float)docBox.Z1));
-                var wb = StationPrefabMeshTemplate.TransformBounds(quad.bounds, matrix);
+                var wb = StationPrefabMeshTemplate.TransformBounds(quad.bounds, entry.Matrix);
                 if (!hasWorldBounds) { worldBounds = wb; hasWorldBounds = true; }
                 else worldBounds.Encapsulate(wb);
+                i++;
             }
 
-            var go = new GameObject("contact-shadows-z" + key.Band + (key.GradeOwned ? "-grade" : ""));
+            var go = new GameObject("contact-shadows-z" + key.Band + (key.GradeOwned ? "-grade" : "") +
+                "-" + key.ChunkX + "," + key.ChunkY);
             go.SetActive(active);
             if (parent != null) go.transform.SetParent(parent, false);
             var proxyMesh = new Mesh { name = "contact-shadow-proxy" };
@@ -538,7 +667,7 @@ namespace Metro.App.Views {
 
             var batch = go.AddComponent<StationInstancedSurfaceBatch>();
             batch.ShadowCasting = ShadowCastingMode.Off;
-            batch.Configure(quad, 0, renderer, worldBounds, instances, modules.Count, instanceSources);
+            batch.Configure(quad, 0, renderer, worldBounds, instances, count, instanceSources);
 
             var aggregateBox = new StationBox(docMin.x, docMin.y, docMin.z, docMax.x, docMax.y, docMax.z);
             var bucket = new BuiltBucket {
@@ -546,6 +675,7 @@ namespace Metro.App.Views {
                 View = go,
                 Batch = batch,
                 ProxyMesh = proxyMesh,
+                Entries = entries,
                 Record = new StationViewRecord {
                     Role = RoleName,
                     ModuleId = "",
@@ -561,7 +691,7 @@ namespace Metro.App.Views {
                     GradeOwned = key.GradeOwned,
                 },
             };
-            for (int i = 0; i < sourceIds.Length; i++) bucket.ModuleIds.Add(sourceIds[i]);
+            for (int j = 0; j < sourceIds.Length; j++) bucket.ModuleIds.Add(sourceIds[j]);
             return bucket;
         }
 

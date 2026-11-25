@@ -3426,7 +3426,9 @@ namespace Metro.App {
         static bool IsLocalOpeningType(string type) =>
             string.Equals(type, "gate", StringComparison.Ordinal) ||
             string.Equals(type, "door", StringComparison.Ordinal) ||
-            string.Equals(type, "cubicle", StringComparison.Ordinal);
+            string.Equals(type, "cubicle", StringComparison.Ordinal) ||
+            string.Equals(type, "psd-end", StringComparison.Ordinal) ||
+            string.Equals(type, "platform-edge", StringComparison.Ordinal);
 
         static bool IsFenceConnectionType(string type) =>
             string.Equals(type, "fence", StringComparison.Ordinal) ||
@@ -3437,15 +3439,31 @@ namespace Metro.App {
             readonly WorldState state;
             readonly HashSet<string> retiredIds;
             readonly List<(StationModuleRecord Module, OpeningView View)> stagedViews;
+            readonly List<CoverChunkKey> dirtyCoverChunks;
+            readonly Dictionary<CoverChunkKey, StationInstancedPrefabChunk> stagedCoverChunks;
+            readonly Dictionary<CoverChunkKey, Dictionary<string, (StationStaticPrefabItem Item, OpeningView View)>> stagedCoverChunkItems;
+            readonly HashSet<string> removedOrMovedCoverIds;
             readonly bool rebuildHeaders;
             bool committed;
 
-            public StagedOpeningDelta(OpeningModuleRenderer owner, WorldState state, HashSet<string> retiredIds,
-                List<(StationModuleRecord Module, OpeningView View)> stagedViews, bool rebuildHeaders) {
+            public StagedOpeningDelta(
+                OpeningModuleRenderer owner,
+                WorldState state,
+                HashSet<string> retiredIds,
+                List<(StationModuleRecord Module, OpeningView View)> stagedViews,
+                List<CoverChunkKey> dirtyCoverChunks,
+                Dictionary<CoverChunkKey, StationInstancedPrefabChunk> stagedCoverChunks,
+                Dictionary<CoverChunkKey, Dictionary<string, (StationStaticPrefabItem Item, OpeningView View)>> stagedCoverChunkItems,
+                HashSet<string> removedOrMovedCoverIds,
+                bool rebuildHeaders) {
                 this.owner = owner;
                 this.state = state;
                 this.retiredIds = retiredIds;
                 this.stagedViews = stagedViews;
+                this.dirtyCoverChunks = dirtyCoverChunks;
+                this.stagedCoverChunks = stagedCoverChunks;
+                this.stagedCoverChunkItems = stagedCoverChunkItems;
+                this.removedOrMovedCoverIds = removedOrMovedCoverIds;
                 this.rebuildHeaders = rebuildHeaders;
             }
 
@@ -3457,25 +3475,111 @@ namespace Metro.App {
                     foreach (var id in retiredIds) {
                         if (state.Set.TryGet(id, out var oldView)) {
                             state.Set.Remove(id);
-                            if (oldView?.Holder != null) OpeningModuleViews.SafeDestroy(oldView.Holder.gameObject);
+                            if (oldView?.Holder != null) {
+                                commit.RetiredViews.Add(oldView.Holder.gameObject);
+                            }
                         }
                     }
                 }
+
                 var roleRoot = world.RoleRoot(RoleName);
+
+                if (removedOrMovedCoverIds != null && removedOrMovedCoverIds.Count > 0) {
+                    foreach (var id in removedOrMovedCoverIds) {
+                        state.Set.Remove(id);
+                        state.ModuleToCoverChunk.Remove(id);
+                    }
+                }
+
+                if (dirtyCoverChunks != null && dirtyCoverChunks.Count > 0) {
+                    for (int i = 0; i < dirtyCoverChunks.Count; i++) {
+                        var ck = dirtyCoverChunks[i];
+                        if (state.CoverChunksByKey.TryGetValue(ck, out var oldChunk)) {
+                            foreach (var id in oldChunk.ModuleIds) state.ModuleToCoverChunk.Remove(id);
+                            oldChunk.RetireFrom(world, state.Drawer, commit);
+                            state.CoverChunksByKey.Remove(ck);
+                        }
+                        state.CoverChunkItems.Remove(ck);
+
+                        if (stagedCoverChunks != null &&
+                            stagedCoverChunks.TryGetValue(ck, out var newChunk) &&
+                            newChunk.Views.Count > 0) {
+                            for (int v = 0; v < newChunk.Views.Count; v++) {
+                                var viewGo = newChunk.Views[v];
+                                if (viewGo != null && roleRoot != null) viewGo.transform.SetParent(roleRoot, false);
+                            }
+#if !UNITY_WEBGL
+                            if (Application.isPlaying && !Application.isEditor) {
+                                for (int v = 0; v < newChunk.Views.Count; v++) {
+                                    var viewGo = newChunk.Views[v];
+                                    if (viewGo == null) continue;
+                                    var renderers = viewGo.GetComponentsInChildren<Renderer>(true);
+                                    for (int r = 0; r < renderers.Length; r++) {
+                                        if (renderers[r] != null) renderers[r].shadowCastingMode = ShadowCastingMode.Off;
+                                    }
+                                }
+                                for (int b = 0; b < newChunk.Batches.Count; b++) {
+                                    if (newChunk.Batches[b] != null) newChunk.Batches[b].ShadowCasting = ShadowCastingMode.Off;
+                                }
+                            }
+#endif
+                            if (state.Drawer != null) {
+                                for (int b = 0; b < newChunk.Batches.Count; b++) state.Drawer.Add(newChunk.Batches[b]);
+                            }
+                            for (int r = 0; r < newChunk.Records.Count; r++) {
+                                world.AddLocalRecord(newChunk.Records[r], commit);
+                            }
+                            foreach (var id in newChunk.ModuleIds) state.ModuleToCoverChunk[id] = ck;
+                            state.CoverChunksByKey[ck] = newChunk;
+
+                            if (stagedCoverChunkItems != null && stagedCoverChunkItems.TryGetValue(ck, out var nextMap)) {
+                                state.CoverChunkItems[ck] = nextMap;
+                                var proxyGo = newChunk.Views[0];
+                                var proxyTransform = proxyGo != null ? proxyGo.transform : null;
+                                foreach (var kv in nextMap) {
+                                    var view = kv.Value.View;
+                                    if (view == null) continue;
+                                    view.Instance = proxyGo;
+                                    if (view.parts.Count > 0) view.parts[0].Node = proxyTransform;
+                                    state.Set.Add(view);
+                                }
+                            }
+                        }
+                    }
+                }
+
                 if (stagedViews != null && stagedViews.Count > 0) {
                     for (int i = 0; i < stagedViews.Count; i++) {
                         var (mod, view) = stagedViews[i];
                         if (view?.Holder != null && roleRoot != null) {
                             view.Holder.SetParent(roleRoot, false);
+                        } else if (view?.Instance != null && roleRoot != null) {
+                            view.Instance.transform.SetParent(roleRoot, false);
                         }
+#if !UNITY_WEBGL
+                        if (Application.isPlaying && !Application.isEditor) {
+                            var shadowRoot = view?.Holder != null ? view.Holder.gameObject : view?.Instance;
+                            if (shadowRoot != null) {
+                                var renderers = shadowRoot.GetComponentsInChildren<Renderer>(true);
+                                for (int r = 0; r < renderers.Length; r++) {
+                                    if (renderers[r] != null) renderers[r].shadowCastingMode = ShadowCastingMode.Off;
+                                }
+                            }
+                        }
+#endif
                         state.Set.Add(view);
                         if (view?.Instance != null) {
-                            int beforeCount = world.Records.Count;
-                            world.RegisterModule(RoleName, mod.Id, view.Instance, "", null, mod.Z, mod.Z + 1);
-                            if (world.Records.Count > beforeCount) commit.AddedRecords.Add(world.Records[world.Records.Count - 1]);
+                            world.AddLocalRecord(new StationViewRecord {
+                                Role = RoleName,
+                                ModuleId = mod.Id,
+                                View = view.Instance,
+                                LevelMin = mod.Z,
+                                LevelMax = mod.Z + 1,
+                            }, commit);
                         }
                     }
                 }
+
                 if (rebuildHeaders && owner != null && roleRoot != null) {
                     if (state.Headers != null) {
                         PsdHeaderArtwork.ReleaseScope(state.Headers);
@@ -3490,11 +3594,18 @@ namespace Metro.App {
             }
 
             public void Dispose() {
-                if (committed || stagedViews == null) return;
-                for (int i = 0; i < stagedViews.Count; i++) {
-                    var view = stagedViews[i].View;
-                    if (view?.Holder != null) OpeningModuleViews.SafeDestroy(view.Holder.gameObject);
-                    else if (view?.Instance != null) OpeningModuleViews.SafeDestroy(view.Instance);
+                if (committed) return;
+                if (stagedViews != null) {
+                    for (int i = 0; i < stagedViews.Count; i++) {
+                        var view = stagedViews[i].View;
+                        if (view?.Holder != null) OpeningModuleViews.SafeDestroy(view.Holder.gameObject);
+                        else if (view?.Instance != null) OpeningModuleViews.SafeDestroy(view.Instance);
+                    }
+                    stagedViews.Clear();
+                }
+                if (stagedCoverChunks != null) {
+                    foreach (var chunk in stagedCoverChunks.Values) chunk?.DestroyUncommitted();
+                    stagedCoverChunks.Clear();
                 }
             }
         }
@@ -3514,6 +3625,16 @@ namespace Metro.App {
             var retiredIds = new HashSet<string>(StringComparer.Ordinal);
             var dirtyIds = new HashSet<string>(StringComparer.Ordinal);
             List<(int X, int Y, int Z)> fenceTouchPoints = null;
+            HashSet<string> changedOrRemovedEdgeIds = null;
+            HashSet<string> changedOrRemovedTrackIds = null;
+
+            var dirtyCoverChunks = new HashSet<CoverChunkKey>();
+            var removedOrMovedCoverIds = new HashSet<string>(StringComparer.Ordinal);
+            Dictionary<CoverChunkKey, List<(StationStaticPrefabItem Item, OpeningView View)>> updatedCoverItemsByChunk = null;
+            bool rebuildHeaders = false;
+
+            int storeyHeight = Math.Max(1, context.NextDocument.StoreyHeight);
+            var grid = StationLevelGrid.FromDocument(context.NextDocument.LevelBase, storeyHeight);
 
             for (int i = 0; i < delta.RemovedModules.Count; i++) {
                 var id = delta.RemovedModules[i];
@@ -3521,13 +3642,26 @@ namespace Metro.App {
                 if (IsFenceConnectionType(oldMod.Type)) {
                     (fenceTouchPoints ??= new List<(int, int, int)>()).Add((oldMod.X, oldMod.Y, oldMod.Z));
                 }
+                if (string.Equals(oldMod.Type, "track", StringComparison.Ordinal)) {
+                    (changedOrRemovedTrackIds ??= new HashSet<string>(StringComparer.Ordinal)).Add(id);
+                }
+                if (string.Equals(oldMod.Type, "platform-edge", StringComparison.Ordinal)) {
+                    (changedOrRemovedEdgeIds ??= new HashSet<string>(StringComparer.Ordinal)).Add(id);
+                    rebuildHeaders = true;
+                }
                 if (!OpeningModuleViews.Owns(oldMod.Type)) continue;
                 if (!IsLocalOpeningType(oldMod.Type)) {
                     fallbackReason = "local-module-family:" + oldMod.Type;
                     return false;
                 }
-                retiredIds.Add(id);
+                if (state.ModuleToCoverChunk.TryGetValue(id, out var oldCk)) {
+                    dirtyCoverChunks.Add(oldCk);
+                    removedOrMovedCoverIds.Add(id);
+                } else {
+                    retiredIds.Add(id);
+                }
             }
+
             for (int i = 0; i < delta.ChangedModules.Count; i++) {
                 var mod = delta.ChangedModules[i];
                 if (mod == null) continue;
@@ -3537,13 +3671,61 @@ namespace Metro.App {
                         fenceTouchPoints.Add((prevMod.X, prevMod.Y, prevMod.Z));
                     }
                 }
+                if (string.Equals(mod.Type, "track", StringComparison.Ordinal)) {
+                    (changedOrRemovedTrackIds ??= new HashSet<string>(StringComparer.Ordinal)).Add(mod.Id);
+                }
+                if (string.Equals(mod.Type, "platform-edge", StringComparison.Ordinal)) {
+                    (changedOrRemovedEdgeIds ??= new HashSet<string>(StringComparer.Ordinal)).Add(mod.Id);
+                    rebuildHeaders = true;
+                }
                 if (!OpeningModuleViews.Owns(mod.Type)) continue;
                 if (!IsLocalOpeningType(mod.Type)) {
                     fallbackReason = "local-module-family:" + mod.Type;
                     return false;
                 }
-                retiredIds.Add(mod.Id);
+
+                bool wasBatchedCover = state.ModuleToCoverChunk.TryGetValue(mod.Id, out var oldCk);
+                if (wasBatchedCover) {
+                    dirtyCoverChunks.Add(oldCk);
+                    removedOrMovedCoverIds.Add(mod.Id);
+                }
+
+                if (state.CoverTemplate != null &&
+                    state.BatchedCoverBands.Count > 0 &&
+                    TryBuildBatchedCoverItem(mod, grid, state.CoverTemplate, state.CoverBakedBounds,
+                        state.CoverPrefabPath, out int band, out var coverItem, out var coverView) &&
+                    state.BatchedCoverBands.Contains(band)) {
+                    var ck = new CoverChunkKey(band, CoverChunkCoord(mod.X), CoverChunkCoord(mod.Y));
+                    dirtyCoverChunks.Add(ck);
+                    updatedCoverItemsByChunk ??= new Dictionary<CoverChunkKey, List<(StationStaticPrefabItem, OpeningView)>>();
+                    if (!updatedCoverItemsByChunk.TryGetValue(ck, out var list)) {
+                        updatedCoverItemsByChunk[ck] = list = new List<(StationStaticPrefabItem, OpeningView)>(2);
+                    }
+                    list.Add((coverItem, coverView));
+                    if (!wasBatchedCover && state.Set.TryGet(mod.Id, out _)) {
+                        retiredIds.Add(mod.Id);
+                    }
+                    continue;
+                }
+
+                if (!wasBatchedCover) retiredIds.Add(mod.Id);
                 dirtyIds.Add(mod.Id);
+            }
+
+            // A platform-edge reads its bound track's coordinates & span for doorway alignment.
+            if (changedOrRemovedTrackIds != null && changedOrRemovedTrackIds.Count > 0) {
+                var edges = context.NextIndex.ModulesOfType("platform-edge");
+                for (int i = 0; i < edges.Count; i++) {
+                    var edge = edges[i];
+                    if (edge == null || dirtyIds.Contains(edge.Id)) continue;
+                    string fromTrack = edge.Config.Text("from");
+                    if (fromTrack.Length > 0 && changedOrRemovedTrackIds.Contains(fromTrack)) {
+                        retiredIds.Add(edge.Id);
+                        dirtyIds.Add(edge.Id);
+                        (changedOrRemovedEdgeIds ??= new HashSet<string>(StringComparer.Ordinal)).Add(edge.Id);
+                        rebuildHeaders = true;
+                    }
+                }
             }
 
             // A doorless fare gate's carried fence panel depends on adjacent fence/gate tiles.
@@ -3565,22 +3747,43 @@ namespace Metro.App {
                 }
             }
 
-            bool rebuildHeaders = false;
             if (context.CityChanged || context.NameChanged || context.VisualChangedLineIds.Count > 0) {
                 var edges = context.NextIndex.ModulesOfType("platform-edge");
                 for (int i = 0; i < edges.Count; i++) {
                     var edge = edges[i];
-                    if (edge == null || retiredIds.Contains(edge.Id)) continue;
+                    if (edge == null) continue;
                     string lineId = edge.Config.Text("line");
                     if (context.CityChanged || context.NameChanged || context.VisualChangedLineIds.Contains(lineId)) {
-                        retiredIds.Add(edge.Id);
-                        dirtyIds.Add(edge.Id);
+                        if (!dirtyIds.Contains(edge.Id)) {
+                            retiredIds.Add(edge.Id);
+                            dirtyIds.Add(edge.Id);
+                        }
+                        if (context.LineStructureChanged || context.VisualChangedLineIds.Contains(lineId)) {
+                            (changedOrRemovedEdgeIds ??= new HashSet<string>(StringComparer.Ordinal)).Add(edge.Id);
+                        }
                         rebuildHeaders = true;
                     }
                 }
             }
 
-            if (retiredIds.Count == 0 && dirtyIds.Count == 0) return true;
+            // Full-height `psd-end` returns trim against their corner `platform-edge` housing (`cfg.corner`).
+            if (changedOrRemovedEdgeIds != null && changedOrRemovedEdgeIds.Count > 0) {
+                var psdEnds = context.NextIndex.ModulesOfType("psd-end");
+                for (int i = 0; i < psdEnds.Count; i++) {
+                    var end = psdEnds[i];
+                    if (end == null || dirtyIds.Contains(end.Id)) continue;
+                    var cfg = end.Config ?? ModuleConfig.Empty;
+                    if (string.Equals(cfg.Text("variant"), "cover", StringComparison.Ordinal)) continue;
+                    string corner = cfg.Text("corner");
+                    if (corner.Length == 0 || !changedOrRemovedEdgeIds.Contains(corner)) continue;
+                    if (!state.ModuleToCoverChunk.ContainsKey(end.Id)) {
+                        retiredIds.Add(end.Id);
+                    }
+                    dirtyIds.Add(end.Id);
+                }
+            }
+
+            if (retiredIds.Count == 0 && dirtyIds.Count == 0 && dirtyCoverChunks.Count == 0 && !rebuildHeaders) return true;
 
             var catalogue = context.World.Catalogue;
             if (dirtyIds.Count > 0 && catalogue == null) {
@@ -3589,38 +3792,90 @@ namespace Metro.App {
             }
 
             bool needGateStation = false;
+            bool needPsdEndStation = false;
             foreach (var id in dirtyIds) {
-                if (context.NextIndex.TryGetModule(id, out var m) && m != null && string.Equals(m.Type, "gate", StringComparison.Ordinal)) {
-                    needGateStation = true;
-                    break;
+                if (context.NextIndex.TryGetModule(id, out var m) && m != null) {
+                    if (string.Equals(m.Type, "gate", StringComparison.Ordinal)) needGateStation = true;
+                    else if (string.Equals(m.Type, "psd-end", StringComparison.Ordinal)) needPsdEndStation = true;
                 }
             }
-            var stationFacts = needGateStation
+            var gateFacts = needGateStation
                 ? context.GetNextFactsOfTypes("gate", "fence")
+                : Array.Empty<ModuleFacts>();
+            var edgeFacts = needPsdEndStation
+                ? context.GetNextFactsOfTypes("platform-edge")
                 : Array.Empty<ModuleFacts>();
 
             var stagedViews = new List<(StationModuleRecord Module, OpeningView View)>(dirtyIds.Count);
+            List<CoverChunkKey> dirtyChunkList = dirtyCoverChunks.Count > 0 ? new List<CoverChunkKey>(dirtyCoverChunks) : null;
+            Dictionary<CoverChunkKey, StationInstancedPrefabChunk> stagedCoverChunks = null;
+            Dictionary<CoverChunkKey, Dictionary<string, (StationStaticPrefabItem Item, OpeningView View)>> stagedCoverChunkItems = null;
+
             try {
                 foreach (var id in dirtyIds) {
                     if (!context.NextIndex.TryGetModule(id, out var mod) || mod == null) continue;
-                    bool isPsd = string.Equals(mod.Type, "platform-edge", StringComparison.Ordinal);
-                    if (!isPsd && !IsLocalOpeningType(mod.Type)) continue;
+                    if (!IsLocalOpeningType(mod.Type)) continue;
                     var request = OpeningModuleViews.RequestFor(mod, context.NextIndex);
+                    ModuleFacts[] stationFacts = string.Equals(mod.Type, "psd-end", StringComparison.Ordinal)
+                        ? edgeFacts
+                        : (string.Equals(mod.Type, "gate", StringComparison.Ordinal) ? gateFacts : Array.Empty<ModuleFacts>());
                     if (OpeningModuleViews.TryBuild(request, mod.Facts, stationFacts, catalogue, context.StagingRoot, state.Palette, out var view)) {
-                        if (!isPsd) StationRigidModelLods.Apply(view.Instance, System.IO.Path.GetFileNameWithoutExtension(view.PrefabPath));
+                        if (!string.IsNullOrEmpty(view.PrefabPath)) {
+                            StationRigidModelLods.Apply(view.Instance, System.IO.Path.GetFileNameWithoutExtension(view.PrefabPath));
+                        }
                         stagedViews.Add((mod, view));
                         StationEditTrace.AddInstantiatedPrefab();
                     } else {
                         context.ReportUnresolved("opening", mod.Type, mod.Id, view.Diagnostic);
                     }
                 }
-                stage = new StagedOpeningDelta(this, state, retiredIds, stagedViews, rebuildHeaders);
+
+                if (dirtyChunkList != null && state.CoverTemplate != null && state.Templates != null) {
+                    stagedCoverChunks = new Dictionary<CoverChunkKey, StationInstancedPrefabChunk>(dirtyChunkList.Count);
+                    stagedCoverChunkItems = new Dictionary<CoverChunkKey, Dictionary<string, (StationStaticPrefabItem Item, OpeningView View)>>(dirtyChunkList.Count);
+                    for (int i = 0; i < dirtyChunkList.Count; i++) {
+                        var ck = dirtyChunkList[i];
+                        var nextMap = state.CoverChunkItems.TryGetValue(ck, out var existingMap)
+                            ? new Dictionary<string, (StationStaticPrefabItem Item, OpeningView View)>(existingMap, StringComparer.Ordinal)
+                            : new Dictionary<string, (StationStaticPrefabItem Item, OpeningView View)>(StringComparer.Ordinal);
+                        foreach (var rid in removedOrMovedCoverIds) nextMap.Remove(rid);
+                        if (updatedCoverItemsByChunk != null && updatedCoverItemsByChunk.TryGetValue(ck, out var added)) {
+                            for (int j = 0; j < added.Count; j++) {
+                                var entry = added[j];
+                                nextMap[entry.Item.ModuleId] = entry;
+                            }
+                        }
+                        if (nextMap.Count == 0) continue;
+                        var itemList = new List<StationStaticPrefabItem>(nextMap.Count);
+                        foreach (var kv in nextMap) itemList.Add(kv.Value.Item);
+                        var chunk = StationInstancedPrefabChunk.Build(
+                            Role,
+                            ck.Label(),
+                            state.CoverTemplate,
+                            state.Templates,
+                            context.StagingRoot,
+                            itemList,
+                            ck.Band,
+                            ck.Band,
+                            new[] { ck.Band });
+                        stagedCoverChunks[ck] = chunk;
+                        stagedCoverChunkItems[ck] = nextMap;
+                    }
+                }
+
+                stage = new StagedOpeningDelta(
+                    this, state, retiredIds, stagedViews,
+                    dirtyChunkList, stagedCoverChunks, stagedCoverChunkItems, removedOrMovedCoverIds,
+                    rebuildHeaders);
                 return true;
             } catch {
                 for (int i = 0; i < stagedViews.Count; i++) {
                     var view = stagedViews[i].View;
                     if (view?.Holder != null) OpeningModuleViews.SafeDestroy(view.Holder.gameObject);
                     else if (view?.Instance != null) OpeningModuleViews.SafeDestroy(view.Instance);
+                }
+                if (stagedCoverChunks != null) {
+                    foreach (var chunk in stagedCoverChunks.Values) chunk?.DestroyUncommitted();
                 }
                 throw;
             }
@@ -3668,7 +3923,16 @@ namespace Metro.App {
             public OpeningPalette Palette;
             public StationPrefabTemplateCache Templates;
             public StationInstancedSurfaceDrawer Drawer;
-            public readonly List<StationInstancedPrefabChunk> CoverChunks = new List<StationInstancedPrefabChunk>();
+            public readonly Dictionary<CoverChunkKey, StationInstancedPrefabChunk> CoverChunksByKey =
+                new Dictionary<CoverChunkKey, StationInstancedPrefabChunk>();
+            public readonly Dictionary<CoverChunkKey, Dictionary<string, (StationStaticPrefabItem Item, OpeningView View)>> CoverChunkItems =
+                new Dictionary<CoverChunkKey, Dictionary<string, (StationStaticPrefabItem Item, OpeningView View)>>();
+            public readonly Dictionary<string, CoverChunkKey> ModuleToCoverChunk =
+                new Dictionary<string, CoverChunkKey>(StringComparer.Ordinal);
+            public readonly HashSet<int> BatchedCoverBands = new HashSet<int>();
+            public StationPrefabMeshTemplate CoverTemplate;
+            public Bounds CoverBakedBounds;
+            public string CoverPrefabPath = "";
             /// <summary>
             /// The station finish library this world resolved for the PSD foundation's
             /// `floor.concrete` (`PsdModel` draws it with the station finish, not a palette
@@ -3698,7 +3962,7 @@ namespace Metro.App {
         public OpeningModuleSet Views => newest?.Set ?? new OpeningModuleSet();
 
         /// <summary>Number of GPU-instanced `psd-end:cover` chunks built for the newest live world.</summary>
-        public int BatchedCoverChunkCount => newest?.CoverChunks?.Count ?? 0;
+        public int BatchedCoverChunkCount => newest?.CoverChunksByKey?.Count ?? 0;
 
         public void Build(StationViewBuildContext context) {
             if (context == null) return;
@@ -3760,6 +4024,74 @@ namespace Metro.App {
             BuildHeaders(context, state, roleRoot);
         }
 
+        static bool TryBuildBatchedCoverItem(
+            StationModuleRecord mod,
+            StationLevelGrid grid,
+            StationPrefabMeshTemplate coverTemplate,
+            Bounds baked,
+            string prefabPath,
+            out int band,
+            out StationStaticPrefabItem item,
+            out OpeningView proxyView) {
+            band = 0;
+            item = default;
+            proxyView = null;
+            if (mod == null || mod.Facts == null || string.IsNullOrEmpty(mod.Id) || coverTemplate == null) return false;
+            if (!string.Equals(mod.Type, "psd-end", StringComparison.Ordinal)) return false;
+            var cfg = mod.Config ?? ModuleConfig.Empty;
+            if (!string.Equals(cfg.Text("variant"), "cover", StringComparison.Ordinal)) return false;
+
+            band = StationModuleLevels.Band(grid, mod.Z);
+            float width = cfg.Has("width") ? (float)cfg.Number("width", 0) : 1f;
+            float depth = cfg.Has("depth") ? (float)cfg.Number("depth", 0) : .24f;
+            float ox = 0f, oy = 0f;
+            if (cfg.TryNumbers("offset", out var off) && off.Length >= 2) {
+                ox = (float)off[0];
+                oy = (float)off[1];
+            }
+            float sideY = string.Equals(cfg.Text("side"), "right", StringComparison.Ordinal) ? .34f : -.34f;
+            var target = OpeningModuleViews.Local(ox, sideY + oy, .5f);
+            var place = target - baked.center;
+
+            bool planMatch = Mathf.Abs(baked.size.x - width) <= .02f && Mathf.Abs(baked.size.z - depth) <= .02f;
+            float minY = baked.min.y + place.y;
+            float maxY = baked.max.y + place.y;
+            bool verticalMatch = Mathf.Abs(minY) <= .02f && Mathf.Abs(maxY - 1f) <= .02f;
+            if (!planMatch || !verticalMatch) return false;
+
+            var holderPos = OpeningModuleViews.Pivot(mod.Facts, new Vector3(.5f, .5f, 0f), floorTop: false);
+            var holderRot = ModulePlacement.Rotation(mod.Rotation);
+            var holderWorld = Matrix4x4.TRS(holderPos, holderRot, Vector3.one);
+            var instanceLocal = Matrix4x4.TRS(place, coverTemplate.PrefabLocalRotation, coverTemplate.PrefabLocalScale);
+            var worldMatrix = holderWorld * instanceLocal;
+            if (!coverTemplate.TryDocumentBounds(worldMatrix, out var docBox)) {
+                docBox = new StationBox(mod.X, mod.Y, mod.Z, mod.X + 1, mod.Y + 1, mod.Z + 1);
+            }
+
+            item = new StationStaticPrefabItem(mod.Id, worldMatrix, docBox);
+            proxyView = new OpeningView {
+                Kind = OpeningKind.PsdCover,
+                ModuleId = mod.Id,
+                Type = mod.Type,
+                ViewKey = OpeningModuleViews.PsdCoverPrefabKey,
+                PrefabPath = prefabPath ?? "",
+                Movable = false,
+                OpeningCount = 0,
+            };
+            var docMin = new Vector3((float)docBox.X0, (float)docBox.Y0, (float)docBox.Z0);
+            var docMax = new Vector3((float)docBox.X1, (float)docBox.Y1, (float)docBox.Z1);
+            proxyView.parts.Add(new OpeningPart {
+                Name = "psd-cover-panel",
+                Role = OpeningPartRole.Cover,
+                Local = new Bounds(target, baked.size),
+                Document = new Bounds((docMin + docMax) * .5f, docMax - docMin),
+                Material = OpeningColour.Name(OpeningColour.White),
+                PrefabOffset = place,
+                Datum = mod.Z,
+            });
+            return true;
+        }
+
         HashSet<string> TryBuildInstancedCovers(
             StationViewBuildContext context,
             IReadOnlyList<StationModuleRecord> records,
@@ -3796,8 +4128,9 @@ namespace Metro.App {
 
             var prefabLocal = Matrix4x4.TRS(Vector3.zero, coverTemplate.PrefabLocalRotation, coverTemplate.PrefabLocalScale);
             var baked = StationPrefabMeshTemplate.TransformBounds(coverTemplate.LocalBounds, prefabLocal);
+            string coverPrefabPath = coverEntry.prefabPath ?? "";
 
-            var candidates = new List<(StationModuleRecord Module, int Band, Matrix4x4 WorldMatrix, StationBox DocBox, Vector3 Target, Vector3 Place)>();
+            var candidates = new List<(StationModuleRecord Module, int Band, StationStaticPrefabItem Item, OpeningView View)>();
             var exactBandCounts = new Dictionary<int, int>();
 
             for (int i = 0; i < records.Count; i++) {
@@ -3806,36 +4139,15 @@ namespace Metro.App {
                 if (!string.Equals(mod.Type, "psd-end", StringComparison.Ordinal)) continue;
                 var cfg = mod.Config ?? ModuleConfig.Empty;
                 if (!string.Equals(cfg.Text("variant"), "cover", StringComparison.Ordinal)) continue;
-                int band = StationModuleLevels.Band(grid, mod.Z);
-                if (!roughBandCounts.TryGetValue(band, out int rough) || rough < threshold) continue;
+                int roughBand = StationModuleLevels.Band(grid, mod.Z);
+                if (!roughBandCounts.TryGetValue(roughBand, out int rough) || rough < threshold) continue;
 
-                float width = cfg.Has("width") ? (float)cfg.Number("width", 0) : 1f;
-                float depth = cfg.Has("depth") ? (float)cfg.Number("depth", 0) : .24f;
-                float ox = 0f, oy = 0f;
-                if (cfg.TryNumbers("offset", out var off) && off.Length >= 2) {
-                    ox = (float)off[0];
-                    oy = (float)off[1];
-                }
-                float sideY = string.Equals(cfg.Text("side"), "right", StringComparison.Ordinal) ? .34f : -.34f;
-                var target = OpeningModuleViews.Local(ox, sideY + oy, .5f);
-                var place = target - baked.center;
-
-                bool planMatch = Mathf.Abs(baked.size.x - width) <= .02f && Mathf.Abs(baked.size.z - depth) <= .02f;
-                float minY = baked.min.y + place.y;
-                float maxY = baked.max.y + place.y;
-                bool verticalMatch = Mathf.Abs(minY) <= .02f && Mathf.Abs(maxY - 1f) <= .02f;
-                if (!planMatch || !verticalMatch) continue;
-
-                var holderPos = OpeningModuleViews.Pivot(mod.Facts, new Vector3(.5f, .5f, 0f), floorTop: false);
-                var holderRot = ModulePlacement.Rotation(mod.Rotation);
-                var holderWorld = Matrix4x4.TRS(holderPos, holderRot, Vector3.one);
-                var instanceLocal = Matrix4x4.TRS(place, coverTemplate.PrefabLocalRotation, coverTemplate.PrefabLocalScale);
-                var worldMatrix = holderWorld * instanceLocal;
-                if (!coverTemplate.TryDocumentBounds(worldMatrix, out var docBox)) {
-                    docBox = new StationBox(mod.X, mod.Y, mod.Z, mod.X + 1, mod.Y + 1, mod.Z + 1);
+                if (!TryBuildBatchedCoverItem(mod, grid, coverTemplate, baked, coverPrefabPath,
+                        out int band, out var item, out var proxyView)) {
+                    continue;
                 }
 
-                candidates.Add((mod, band, worldMatrix, docBox, target, place));
+                candidates.Add((mod, band, item, proxyView));
                 exactBandCounts.TryGetValue(band, out int ec);
                 exactBandCounts[band] = ec + 1;
             }
@@ -3846,20 +4158,25 @@ namespace Metro.App {
             }
             if (eligibleBands.Count == 0) return null;
 
+            state.CoverTemplate = coverTemplate;
+            state.CoverBakedBounds = baked;
+            state.CoverPrefabPath = coverPrefabPath;
+            foreach (var b in eligibleBands) state.BatchedCoverBands.Add(b);
+
             state.Drawer = StationInstancedSurfaceDrawer.EnsureFor(context.Root);
             var batchedIds = new HashSet<string>(StringComparer.Ordinal);
-            var byChunk = new Dictionary<CoverChunkKey, (List<StationStaticPrefabItem> Items, List<(StationModuleRecord Module, StationBox DocBox, Vector3 Target, Vector3 Place)> Meta)>();
+            var byChunk = new Dictionary<CoverChunkKey, (List<StationStaticPrefabItem> Items, List<OpeningView> Views)>();
 
             for (int i = 0; i < candidates.Count; i++) {
                 var c = candidates[i];
                 if (!eligibleBands.Contains(c.Band)) continue;
                 var ck = new CoverChunkKey(c.Band, CoverChunkCoord(c.Module.X), CoverChunkCoord(c.Module.Y));
                 if (!byChunk.TryGetValue(ck, out var entry)) {
-                    entry = (new List<StationStaticPrefabItem>(), new List<(StationModuleRecord, StationBox, Vector3, Vector3)>());
+                    entry = (new List<StationStaticPrefabItem>(), new List<OpeningView>());
                     byChunk[ck] = entry;
                 }
-                entry.Items.Add(new StationStaticPrefabItem(c.Module.Id, c.WorldMatrix, c.DocBox));
-                entry.Meta.Add((c.Module, c.DocBox, c.Target, c.Place));
+                entry.Items.Add(c.Item);
+                entry.Views.Add(c.View);
                 batchedIds.Add(c.Module.Id);
             }
 
@@ -3876,36 +4193,23 @@ namespace Metro.App {
                     ck.Band,
                     new[] { ck.Band });
                 chunk.RegisterInto(context.World, state.Drawer);
-                state.CoverChunks.Add(chunk);
+                state.CoverChunksByKey[ck] = chunk;
 
                 var proxyGo = chunk.Views.Count > 0 ? chunk.Views[0] : null;
-                var metaList = kv.Value.Meta;
-                for (int m = 0; m < metaList.Count; m++) {
-                    var (mod, docBox, target, place) = metaList[m];
-                    var view = new OpeningView {
-                        Kind = OpeningKind.PsdCover,
-                        ModuleId = mod.Id,
-                        Type = mod.Type,
-                        ViewKey = OpeningModuleViews.PsdCoverPrefabKey,
-                        PrefabPath = coverEntry.prefabPath ?? "",
-                        Instance = proxyGo,
-                        Movable = false,
-                        OpeningCount = 0,
-                    };
-                    var docMin = new Vector3((float)docBox.X0, (float)docBox.Y0, (float)docBox.Z0);
-                    var docMax = new Vector3((float)docBox.X1, (float)docBox.Y1, (float)docBox.Z1);
-                    view.parts.Add(new OpeningPart {
-                        Name = "psd-cover-panel",
-                        Role = OpeningPartRole.Cover,
-                        Node = proxyGo != null ? proxyGo.transform : null,
-                        Local = new Bounds(target, baked.size),
-                        Document = new Bounds((docMin + docMax) * .5f, docMax - docMin),
-                        Material = OpeningColour.Name(OpeningColour.White),
-                        PrefabOffset = place,
-                        Datum = mod.Z,
-                    });
+                var proxyTransform = proxyGo != null ? proxyGo.transform : null;
+                var itemsList = kv.Value.Items;
+                var viewsList = kv.Value.Views;
+                var chunkMap = new Dictionary<string, (StationStaticPrefabItem Item, OpeningView View)>(itemsList.Count, StringComparer.Ordinal);
+                for (int m = 0; m < itemsList.Count; m++) {
+                    var item = itemsList[m];
+                    var view = viewsList[m];
+                    view.Instance = proxyGo;
+                    if (view.parts.Count > 0) view.parts[0].Node = proxyTransform;
                     state.Set.Add(view);
+                    chunkMap[item.ModuleId] = (item, view);
+                    state.ModuleToCoverChunk[item.ModuleId] = ck;
                 }
+                state.CoverChunkItems[ck] = chunkMap;
             }
 
             return batchedIds;
@@ -3997,9 +4301,8 @@ namespace Metro.App {
             foreach (var pair in states) {
                 if (pair.Key == null || pair.Key.IsDisposed) {
                     pair.Value.Set.Clear();
-                    if (pair.Value.CoverChunks != null) {
-                        for (int c = 0; c < pair.Value.CoverChunks.Count; c++) {
-                            var chunk = pair.Value.CoverChunks[c];
+                    if (pair.Value.CoverChunksByKey != null) {
+                        foreach (var chunk in pair.Value.CoverChunksByKey.Values) {
                             if (chunk == null) continue;
                             if (pair.Value.Drawer != null) {
                                 for (int b = 0; b < chunk.Batches.Count; b++) pair.Value.Drawer.Remove(chunk.Batches[b]);
@@ -4009,8 +4312,12 @@ namespace Metro.App {
                             }
                             chunk.ProxyMeshes.Clear();
                         }
-                        pair.Value.CoverChunks.Clear();
+                        pair.Value.CoverChunksByKey.Clear();
                     }
+                    pair.Value.CoverChunkItems.Clear();
+                    pair.Value.ModuleToCoverChunk.Clear();
+                    pair.Value.BatchedCoverBands.Clear();
+                    pair.Value.CoverTemplate = null;
                     pair.Value.Templates?.Dispose();
                     pair.Value.Templates = null;
                     pair.Value.Drawer = null;

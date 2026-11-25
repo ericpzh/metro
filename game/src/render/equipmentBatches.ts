@@ -32,6 +32,14 @@ interface View { entries: Map<string, Entry>; sources: Set<THREE.Mesh>; buckets:
 type Buckets = Map<string, { material: THREE.Material; canonKey?: string; sources: Source[] }>
 interface RootSources { key: string; matrix: THREE.Matrix4; textures: Set<THREE.Texture>; buckets: Buckets | null }
 
+export interface EquipmentSyncDelta {
+  removed: ReadonlySet<THREE.Object3D>
+  added: ReadonlySet<THREE.Object3D>
+  /** True when every added root sits at the end of `modules.children` after all
+   * retained roots, avoiding any index scan for source ordering. */
+  appended?: boolean
+}
+
 /** A Low proxy can combine several fittings beyond its owner's Near surface. */
 function combinedDetailBounds(near: THREE.BufferGeometry, far: THREE.BufferGeometry): THREE.Sphere {
   near.computeBoundingBox(); near.computeBoundingSphere()
@@ -104,6 +112,87 @@ export class EquipmentBatches {
   private canonicalMaterials = new Map<string, THREE.Material>()
   private planeIds = new WeakMap<THREE.Plane, number>()
   private nextPlaneId = 0
+  private lastSourceView: string | undefined
+  private lastBatchTileSize = 0
+  private lastParentMatrix = new THREE.Matrix4()
+  private hasParentMatrix = false
+  private textureRefCount = new Map<THREE.Texture, number>()
+  private cachedTextures = new Set<THREE.Texture>()
+
+  private addRootTextures(textures: ReadonlySet<THREE.Texture>): void {
+    for (const tex of textures) {
+      const next = (this.textureRefCount.get(tex) ?? 0) + 1
+      this.textureRefCount.set(tex, next)
+      if (next === 1) this.cachedTextures.add(tex)
+    }
+  }
+
+  private removeRootTextures(textures: ReadonlySet<THREE.Texture>): boolean {
+    let dropped = false
+    for (const tex of textures) {
+      const prev = this.textureRefCount.get(tex)
+      if (!prev) continue
+      if (prev <= 1) {
+        this.textureRefCount.delete(tex)
+        this.cachedTextures.delete(tex)
+        dropped = true
+      } else {
+        this.textureRefCount.set(tex, prev - 1)
+      }
+    }
+    return dropped
+  }
+
+  private rebuildTextureIndex(): void {
+    this.textureRefCount.clear()
+    this.cachedTextures.clear()
+    for (const record of this.sourceRoots.values()) this.addRootTextures(record.textures)
+  }
+
+  private updateRootCoverage(root: THREE.Object3D): void {
+    const entries = this.entriesByRoot.get(root)
+    if (!entries || entries.size === 0) {
+      this.entriesByRoot.delete(root)
+      this.sourceOnlyRoots.delete(root)
+      return
+    }
+    let coverage = this.rootCoverage.get(root)
+    if (!coverage || coverage.entries.length !== entries.size || coverage.entries.some(entry => !entries.has(entry))) {
+      let onlySources = true
+      root.traverse(object => {
+        if (object instanceof THREE.Mesh) {
+          if (!object.layers.isEnabled(BATCH_SOURCE_LAYER)) onlySources = false
+        } else if (!(object instanceof THREE.Group) && object.type !== 'Object3D') onlySources = false
+      })
+      coverage = { entries: [...entries], onlySources }
+      this.rootCoverage.set(root, coverage)
+    }
+    if (coverage.onlySources) this.sourceOnlyRoots.add(root)
+    else this.sourceOnlyRoots.delete(root)
+  }
+
+  private retireEntry(entry: Entry): void {
+    this.owned.delete(entry)
+    if (typeof requestIdleCallback === 'function') {
+      this.retired.add(entry)
+      this.scheduleRetirement()
+    } else {
+      this.drop(entry)
+    }
+  }
+
+  private restoreMeshTransform(mesh: THREE.Mesh): void {
+    const automatic = this.sourceTransforms.get(mesh)
+    if (automatic !== undefined) {
+      mesh.matrixAutoUpdate = automatic
+      this.sourceTransforms.delete(mesh)
+    }
+  }
+
+  private lockMeshTransform(mesh: THREE.Mesh): void {
+    if (!this.sourceTransforms.has(mesh)) this.sourceTransforms.set(mesh, mesh.matrixAutoUpdate)
+    mesh.matrixAutoUpdate = false
+  }
 
   private canonicalMaterial(canonKey: string, material: THREE.Material): THREE.Material {
     let shared = this.canonicalMaterials.get(canonKey)
@@ -147,7 +236,7 @@ export class EquipmentBatches {
       this.translatedRoots.set(root,root.matrixWorld.clone())
       this.rootSources.delete(root)
     }
-    this.views.clear();this.revision=undefined;this.generation=undefined
+    this.views.clear();this.revision=undefined;this.generation=undefined;this.lastSourceView=undefined
     this.releaseUnusedEntries()
     return true
   }
@@ -164,12 +253,18 @@ export class EquipmentBatches {
       this.rootCoverage = new WeakMap()
       this.sourceBuckets = null
       this.sourceRoots.clear()
+      this.lastSourceView = undefined
+      this.lastBatchTileSize = 0
+      this.hasParentMatrix = false
+      this.textureRefCount.clear()
+      this.cachedTextures.clear()
     }
     this.detailView = []
+    const hadViews = this.views.size > 0
     this.views.clear()
     this.revision = undefined
     this.generation = undefined
-    this.releaseUnusedEntries()
+    if (hadViews) this.releaseUnusedEntries()
   }
 
   /** Recent slices include the active one. Edits invalidate dormant GPU data. */
@@ -275,12 +370,421 @@ export class EquipmentBatches {
     this.masked = next
   }
 
-  sync(modules: THREE.Group, revision?: string, generation?: string, sourceView?: string): void {
+  private discoverRootRecord(root: THREE.Object3D, batchTileSize: number, sourceView: string | undefined): RootSources {
+    root.updateWorldMatrix(false, false)
+    const key = `${sourceView}|${batchTileSize}|${root.visible}|${root.userData.levelZs}|${root.userData.groundBand}`
+    const views = this.rootSources.get(root)
+    let record = sourceView === undefined ? undefined : views?.get(key)
+    if (!record || record.key !== key || !record.matrix.equals(root.matrixWorld)) {
+      root.updateWorldMatrix(false, true)
+      record = { key, matrix: root.matrixWorld.clone(), textures: new Set(), buckets: null }
+      root.traverse(o => {
+        if (o instanceof THREE.Mesh && !Array.isArray(o.material)) {
+          const map = (o.material as THREE.MeshBasicMaterial).map
+          if (map) record!.textures.add(map)
+        }
+      })
+      if (sourceView !== undefined) {
+        const retained = views ?? new Map<string, RootSources>()
+        retained.set(key, record)
+        if (retained.size > EQUIPMENT_VIEW_CACHE_SIZE) retained.delete(retained.keys().next().value!)
+        this.rootSources.set(root, retained)
+      }
+    }
+    return record
+  }
+
+  private buildRootBuckets(root: THREE.Object3D, batchTileSize: number): Buckets {
+    const local: Buckets = new Map()
+    const screen = root.userData.moduleType === 'billboard' ? undefined : root.userData.adScreen
+    const moving = new Set<THREE.Object3D>()
+    root.traverse(o => {
+      if (o.userData.signalAspect) moving.add(o)
+      for (const leaf of (o.userData.doors ?? []) as THREE.Object3D[]) moving.add(leaf)
+      for (const pivot of [...(o.userData.clockRig?.hour ?? []), ...(o.userData.clockRig?.minute ?? [])]) moving.add(pivot)
+      for (const key of ['wing', 'liftCabin', 'activityWater']) if (o.userData[key] instanceof THREE.Object3D) moving.add(o.userData[key])
+    })
+    root.traverseVisible(o => {
+      if (!(o instanceof THREE.Mesh) || o instanceof THREE.InstancedMesh || o instanceof THREE.SkinnedMesh || o instanceof THREE.BatchedMesh || Array.isArray(o.material) || o === screen) return
+      if (o.children.length || Object.keys(o.geometry.morphAttributes).length || o.geometry.drawRange.start !== 0 || o.geometry.drawRange.count !== Infinity || o.layers.mask !== 1) return
+      for (let parent: THREE.Object3D | null = o; parent && parent !== root; parent = parent.parent) if (moving.has(parent)) return
+      const uv = o.geometry.getAttribute('uv')
+      let boundedUV = !!uv
+      if (uv) for (let i = 0; i < uv.count && boundedUV; i++) boundedUV = uv.getX(i) >= 0 && uv.getX(i) <= 1 && uv.getY(i) >= 0 && uv.getY(i) <= 1
+      const region = boundedUV ? this.atlas.resolve(o.material) : null
+      const material = region?.material ?? o.material
+      const allowSortedTransparent = !o.userData.staticInstances && !(material as THREE.MeshBasicMaterial).wireframe
+      const canonKey = region ? undefined : (canonicalUntexturedMaterialKey(material, true, this.planeIds, () => ++this.nextPlaneId, allowSortedTransparent) ?? undefined)
+      const matKey = canonKey ?? material.uuid
+      const p = new THREE.Vector3().setFromMatrixPosition(o.matrixWorld)
+      const instanceKey = o.userData.staticInstances ? `|static:${o.geometry.uuid}` : ''
+      // The slice already resolved visibility and materials. Dense Low uses
+      // the same detail for every level span and coherent model part.
+      const detailKey = batchTileSize === 256 ? '' : `|${root.userData.levelZs}|coherent:${o.userData.coherentModelDetail === true}`
+      const key = `${Math.floor(p.x / batchTileSize)},${Math.floor(p.y / batchTileSize)}|${matKey}|${attributeKey(o.geometry)}|${o.renderOrder}|${o.castShadow}|${o.receiveShadow}|${o.frustumCulled}${instanceKey}${detailKey}`
+      const bucket = local.get(key) ?? { material, canonKey, sources: [] as Source[] }
+      const matrix = o.matrixWorld.clone()
+      const artwork = region ? `${(o.material as THREE.MeshBasicMaterial).map?.uuid}:${region.material.uuid}:${region.u},${region.v},${region.w},${region.h}` : ''
+      bucket.sources.push({ mesh: o, root, matrix, signature: `${o.uuid}:${o.geometry.uuid}:${matrix.elements.join(',')}:${artwork}`, region, levels: root.userData.levelZs }); local.set(key, bucket)
+    })
+    return local
+  }
+
+  private buildBucketEntry(
+    key: string,
+    canonKey: string | undefined,
+    sources: Source[],
+    batchTileSize: number,
+  ): { status: 'unbatched' | 'skipped' | 'reused' | 'created'; entry?: Entry } {
+    const coarse = sources.map(s => modelDetailGeometry(s.mesh))
+    // A bucket that no longer pays for a merge draws from its sources again. The
+    // last panel of a deleted pair kept the batch-only layer and went missing
+    // until something re-discovered the station.
+    if (sources.length < 2 && !sources[0].mesh.userData.staticInstances && !coarse[0]) {
+      return { status: 'unbatched' }
+    }
+    const firstSourceMat = sources[0].region?.material ?? (sources[0].mesh.material as THREE.Material)
+    const mixedOwned = canonKey !== undefined && sources.some(s => (s.region?.material ?? s.mesh.material) !== firstSourceMat)
+    const material = mixedOwned
+      ? this.canonicalMaterial(canonKey, firstSourceMat)
+      : firstSourceMat
+    const indexed = material.transparent && batchTileSize === 256 && !(material as THREE.MeshBasicMaterial).wireframe
+    const signature = `${material.uuid}|${material.transparent}|${indexed}|${coarse.map(g => g?.uuid ?? '').join(',')}|` + sources.map(s => s.signature).join('|')
+    const old = this.entries.get(key)
+    if (old?.signature === signature) return { status: 'reused', entry: old }
+    let mesh: THREE.Mesh
+    let detail: GeometryDetail | undefined
+    const hasCoarse = coarse.some(Boolean)
+    let size = 0
+    for (const s of sources) {
+      s.mesh.geometry.computeBoundingSphere()
+      size = Math.max(size, s.mesh.geometry.boundingSphere!.radius * 2 * s.matrix.getMaxScaleOnAxis())
+    }
+    // Repeated identical geometry can instance without duplicating vertex data.
+    // Reflections and atlas regions use the baked path to retain their winding/UV.
+    const staticInstances = sources.every(s => s.mesh.userData.staticInstances === true)
+    const identical = (sources.length > 1 || staticInstances) && (!material.transparent || staticInstances) &&
+      sources.every((s, i) => !s.region && s.matrix.determinant() > 0 && equalGeometry(s.mesh.geometry, sources[0].mesh.geometry) &&
+      (!!coarse[i] === !!coarse[0]) && (!coarse[i] || equalGeometry(coarse[i]!, coarse[0]!)))
+    if (identical) {
+      if (staticInstances) {
+        const source = sources[0].mesh
+        mesh = new StaticInstances(source.geometry, material, sources.map(s => s.matrix), source.userData.staticDetailGeometry,
+          source.userData.staticDetailSize, source.userData.staticDetailPixels, source.userData.staticFarGeometry, source.userData.staticFarPixels)
+      } else {
+        const instance = new THREE.InstancedMesh(sources[0].mesh.geometry.clone(), material, sources.length)
+        sources.forEach((s, i) => instance.setMatrixAt(i, s.matrix))
+        instance.computeBoundingBox(); instance.computeBoundingSphere(); mesh = instance
+        if (hasCoarse && coarse[0]) {
+          const near = instance.geometry, far = coarse[0].clone()
+          combinedDetailBounds(near, far); instance.computeBoundingBox(); instance.computeBoundingSphere()
+          detail = new GeometryDetail(instance, size, distant => {
+            instance.geometry = distant ? far : near
+            if ((instance.geometry.index?.count ?? instance.geometry.getAttribute('position').count) === 0) instance.layers.disable(0)
+            else instance.layers.enable(0)
+          }, () => far.dispose(), instance.boundingSphere!)
+        }
+      }
+    } else {
+      const geometries = sources.map(s => {
+        const g = bakedGeometry(s.mesh.geometry, s.matrix)
+        if (s.region) atlasUV(g, s.region)
+        return g
+      })
+      const distant = hasCoarse ? sources.map((s, i) => {
+        const g = bakedGeometry(coarse[i] ?? s.mesh.geometry, s.matrix)
+        if (s.region) atlasUV(g, s.region)
+        return g
+      }) : []
+      if (indexed) {
+        // These large static buckets can submit many sorted surfaces as one
+        // indexed draw, including on drivers that split multi-draw calls.
+        const near = sortedEquipmentGeometry(geometries)
+        const far = hasCoarse ? sortedEquipmentGeometry(distant) : null
+        mesh = new THREE.Mesh(near.geometry, material)
+        let drawing = near
+        mesh.onBeforeRender = (_renderer, _scene, camera) => drawing.update(camera, mesh)
+        if (far) {
+          const bounds = combinedDetailBounds(near.geometry, far.geometry)
+          detail = new GeometryDetail(mesh, size, useFar => {
+            drawing = useFar ? far : near
+            mesh.geometry = drawing.geometry
+            if (useFar && !far.geometry.getAttribute('position').count) mesh.layers.disable(0)
+            else mesh.layers.enable(0)
+          }, () => far.geometry.dispose(), bounds)
+        }
+      } else if (material.transparent) {
+        const batch = sortedBatch(sources.map(s => s.mesh), geometries, material, distant)
+        mesh = batch
+        const invalidateOrder = cacheBatchOrder(batch)
+        if (hasCoarse) {
+          const near = sources.map((_, i) => batch.getGeometryIdAt(i))
+          const far = distant.map(g => batch.addGeometry(g))
+          batch.computeBoundingBox(); batch.computeBoundingSphere()
+          for (const geometry of distant) if (geometry.getAttribute('position').count) {
+            geometry.computeBoundingBox(); geometry.computeBoundingSphere()
+            batch.boundingBox!.union(geometry.boundingBox!); batch.boundingSphere!.union(geometry.boundingSphere!)
+          }
+          const farVisible = distant.map(geometry => geometry.getAttribute('position').count > 0)
+          const farDraws = farVisible.some(Boolean)
+          detail = new GeometryDetail(batch, size, useFar => {
+            for (let i = 0; i < sources.length; i++) {
+              batch.setGeometryIdAt(i, (useFar ? far : near)[i])
+              batch.setVisibleAt(i, !useFar || farVisible[i])
+            }
+            if (useFar && !farDraws) batch.layers.disable(0)
+            else batch.layers.enable(0)
+            invalidateOrder()
+          }, undefined, batch.boundingSphere!)
+        }
+      } else {
+        const geometry = mergeGeometries(geometries)
+        if (!geometry) { geometries.forEach(g => g.dispose()); distant.forEach(g => g.dispose()); return { status: 'skipped' } }
+        geometry.computeBoundingBox(); geometry.computeBoundingSphere(); mesh = new THREE.Mesh(geometry, material)
+        if (hasCoarse) {
+          const far = mergeGeometries(distant)!
+          const bounds = combinedDetailBounds(geometry, far)
+          const drawn = mesh
+          detail = new GeometryDetail(drawn, size, useFar => {
+            drawn.geometry = useFar ? far : geometry
+            if (drawn.geometry.getAttribute('position').count === 0) drawn.layers.disable(0)
+            else drawn.layers.enable(0)
+          }, () => far.dispose(), bounds)
+        }
+      }
+      distant.forEach(g => g.dispose())
+      geometries.forEach(g => g.dispose())
+    }
+    mesh.renderOrder = sources[0].mesh.renderOrder
+    mesh.matrixAutoUpdate = false
+    mesh.castShadow = sources[0].mesh.castShadow; mesh.receiveShadow = sources[0].mesh.receiveShadow
+    mesh.frustumCulled = sources[0].mesh.frustumCulled
+    if (mesh instanceof THREE.BatchedMesh) mesh.perObjectFrustumCulled = mesh.frustumCulled
+    mesh.userData.equipmentBatch = true
+    return { status: 'created', entry: { signature, mesh, sources, detail } }
+  }
+
+  private syncDelta(
+    modules: THREE.Group,
+    revision: string | undefined,
+    generation: string | undefined,
+    sourceView: string,
+    batchTileSize: number,
+    equipmentRoots: readonly THREE.Object3D[] | undefined,
+    delta: EquipmentSyncDelta,
+  ): void {
+    this.detailView = []
+    this.setHiddenModule(null)
+    if (this.views.size > 0) {
+      this.views.clear()
+      this.releaseUnusedEntries()
+    }
+    this.generation = generation
+    this.revision = revision
+    this.lastSync.roots = modules.children.length
+    this.lastSync.rebuilt = 0
+
+    const buckets = this.sourceBuckets!
+    const changed = new Set<string>()
+    const removedOrRebuilt = new Set<THREE.Object3D>()
+    let textureDropped = false
+
+    const detachRoot = (root: THREE.Object3D): void => {
+      if (removedOrRebuilt.has(root)) return
+      removedOrRebuilt.add(root)
+      const oldRecord = this.sourceRoots.get(root)
+      if (!oldRecord) return
+      if (this.removeRootTextures(oldRecord.textures)) textureDropped = true
+      this.sourceRoots.delete(root)
+      for (const [key, bucket] of oldRecord.buckets ?? []) {
+        changed.add(key)
+        for (const source of bucket.sources) {
+          this.restoreMeshTransform(source.mesh)
+          this.sources.delete(source.mesh)
+          source.mesh.layers.set(0)
+        }
+      }
+    }
+
+    for (const root of delta.removed) detachRoot(root)
+    for (const root of delta.added) if (this.sourceRoots.has(root)) detachRoot(root)
+
+    const addedRecords: Array<{ root: THREE.Object3D; record: RootSources }> = []
+    for (const root of delta.added) {
+      if (root.userData.surfaceTile === true) continue
+      const record = this.discoverRootRecord(root, batchTileSize, sourceView)
+      this.sourceRoots.set(root, record)
+      this.addRootTextures(record.textures)
+      addedRecords.push({ root, record })
+    }
+
+    if (textureDropped) {
+      this.atlas.retain(this.cachedTextures)
+      if (this.atlasMappingVersion !== this.atlas.mappingVersion) {
+        this.views.clear()
+        this.atlasMappingVersion = this.atlas.mappingVersion
+      }
+    }
+
+    for (const key of changed) {
+      const bucket = buckets.get(key)
+      if (!bucket) continue
+      const sources = bucket.sources.filter(s => !removedOrRebuilt.has(s.root))
+      if (sources.length) {
+        const liveMaterial = sources[0].region?.material ?? (sources[0].mesh.material as THREE.Material)
+        buckets.set(key, { material: liveMaterial, canonKey: bucket.canonKey, sources })
+      } else {
+        buckets.delete(key)
+      }
+    }
+
+    const clonedBuckets = new Set<string>(changed)
+    for (const { root, record } of addedRecords) {
+      if (!STATIC_TYPES.has(root.userData.moduleType) || !root.visible || root.userData.explodedRamp) continue
+      if (!record.buckets) {
+        this.lastSync.rebuilt++
+        record.buckets = this.buildRootBuckets(root, batchTileSize)
+      }
+      for (const [key, localBucket] of record.buckets) {
+        let existing = buckets.get(key)
+        if (existing && !clonedBuckets.has(key)) {
+          existing = { material: existing.material, canonKey: existing.canonKey, sources: [...existing.sources] }
+          buckets.set(key, existing)
+          clonedBuckets.add(key)
+        }
+        if (existing) existing.sources.push(...localBucket.sources)
+        else {
+          buckets.set(key, { material: localBucket.material, canonKey: localBucket.canonKey, sources: [...localBucket.sources] })
+          clonedBuckets.add(key)
+        }
+        changed.add(key)
+      }
+    }
+
+    let rootOrder: Map<THREE.Object3D, number> | null = null
+    const getRootOrder = (): Map<THREE.Object3D, number> => {
+      if (!rootOrder) {
+        rootOrder = new Map()
+        const list = equipmentRoots ?? modules.children
+        for (let i = 0; i < list.length; i++) rootOrder.set(list[i], i)
+      }
+      return rootOrder
+    }
+
+    const affectedRoots = new Set<THREE.Object3D>()
+    for (const root of delta.added) affectedRoots.add(root)
+    const retiredEntries: Entry[] = []
+
+    for (const key of changed) {
+      const oldEntry = this.entries.get(key)
+      const bucket = buckets.get(key)
+      if (!bucket) {
+        if (oldEntry) {
+          this.entries.delete(key)
+          this.root.remove(oldEntry.mesh)
+          for (const s of oldEntry.sources) {
+            this.entriesByRoot.get(s.root)?.delete(oldEntry)
+            affectedRoots.add(s.root)
+          }
+          retiredEntries.push(oldEntry)
+        }
+        continue
+      }
+      if (!delta.appended && bucket.sources.length > 1) {
+        const order = getRootOrder()
+        bucket.sources.sort((a, b) => (order.get(a.root) ?? 0) - (order.get(b.root) ?? 0))
+      }
+      const built = this.buildBucketEntry(key, bucket.canonKey, bucket.sources, batchTileSize)
+      if (built.status === 'reused') {
+        for (const s of bucket.sources) {
+          s.mesh.layers.set(BATCH_SOURCE_LAYER)
+          this.sources.add(s.mesh)
+          this.lockMeshTransform(s.mesh)
+        }
+        continue
+      }
+      if (oldEntry) {
+        this.entries.delete(key)
+        this.root.remove(oldEntry.mesh)
+        for (const s of oldEntry.sources) {
+          this.entriesByRoot.get(s.root)?.delete(oldEntry)
+          affectedRoots.add(s.root)
+        }
+        retiredEntries.push(oldEntry)
+      }
+      if (built.status === 'unbatched') {
+        for (const s of bucket.sources) {
+          s.mesh.layers.set(0)
+          this.sources.delete(s.mesh)
+          this.restoreMeshTransform(s.mesh)
+          affectedRoots.add(s.root)
+        }
+        continue
+      }
+      if (built.status === 'created' && built.entry) {
+        const entry = built.entry
+        this.entries.set(key, entry)
+        this.owned.add(entry)
+        this.root.add(entry.mesh)
+        for (const s of entry.sources) {
+          s.mesh.layers.set(BATCH_SOURCE_LAYER)
+          this.sources.add(s.mesh)
+          this.lockMeshTransform(s.mesh)
+          let set = this.entriesByRoot.get(s.root)
+          if (!set) this.entriesByRoot.set(s.root, set = new Set())
+          set.add(entry)
+          affectedRoots.add(s.root)
+        }
+      }
+    }
+
+    for (const root of delta.removed) {
+      if (delta.added.has(root)) continue
+      this.entriesByRoot.delete(root)
+      this.sourceOnlyRoots.delete(root)
+    }
+    for (const root of affectedRoots) {
+      if (delta.removed.has(root) && !delta.added.has(root)) continue
+      this.updateRootCoverage(root)
+    }
+    for (const entry of retiredEntries) this.retireEntry(entry)
+
+    if (generation !== undefined && revision !== undefined) {
+      this.views.delete(revision)
+      this.views.set(revision, { entries: this.entries, sources: this.sources, buckets: this.sourceBuckets, roots: this.sourceRoots })
+      if (this.views.size > EQUIPMENT_VIEW_CACHE_SIZE) this.views.delete(this.views.keys().next().value!)
+    }
+    this.atlas.update()
+  }
+
+  sync(
+    modules: THREE.Group,
+    revision?: string,
+    generation?: string,
+    sourceView?: string,
+    equipmentRoots?: readonly THREE.Object3D[],
+    delta?: EquipmentSyncDelta,
+  ): void {
     if (!this.enabled) { this.clear(); return }
     if (this.atlasMappingVersion !== this.atlas.mappingVersion) this.invalidateViews()
     if (revision !== undefined && revision === this.revision && generation === this.generation) return
-    this.translatedRoots=new WeakMap()
+    this.translatedRoots = new WeakMap()
     const batchTileSize = equipmentBatchTileSize(this.graphicsQuality, modules.children.length)
+    if (
+      delta !== undefined &&
+      sourceView !== undefined &&
+      this.sourceBuckets !== null &&
+      this.lastSourceView === sourceView &&
+      this.lastBatchTileSize === batchTileSize &&
+      this.hasParentMatrix &&
+      (delta.removed.size + delta.added.size) <= 256
+    ) {
+      modules.updateWorldMatrix(true, false)
+      if (this.lastParentMatrix.equals(modules.matrixWorld)) {
+        this.syncDelta(modules, revision, generation, sourceView, batchTileSize, equipmentRoots, delta)
+        return
+      }
+    }
     this.restoreSourceTransforms()
     this.detailView = []
     this.setHiddenModule(null)
@@ -295,6 +799,11 @@ export class EquipmentBatches {
       this.sourceBuckets = cached.buckets
       this.sourceRoots = cached.roots
       for (const mesh of this.sources) mesh.layers.set(BATCH_SOURCE_LAYER)
+      this.lastSourceView = sourceView
+      this.lastBatchTileSize = batchTileSize
+      this.lastParentMatrix.copy(modules.matrixWorld)
+      this.hasParentMatrix = true
+      this.rebuildTextureIndex()
       this.publish(revision, generation)
       this.atlas.update()
       return
@@ -303,34 +812,16 @@ export class EquipmentBatches {
     modules.updateWorldMatrix(true, sourceView === undefined)
     this.lastSync.roots = modules.children.length
     this.lastSync.rebuilt = 0
+    const candidateRoots = equipmentRoots ?? modules.children
     const textures = new Set<THREE.Texture>()
     const prepared = new Map<THREE.Object3D, RootSources>()
-    for (const root of modules.children) {
+    for (const root of candidateRoots) {
       // Paving tiles are drawn by `SurfaceBatches`; their bare roots carry no
       // mesh, source, texture or batch record.
       if (root.userData.surfaceTile === true) continue
       // The shared parent chain was updated once above. Rewalking it for each
       // of thousands of roots repeats the same station/scene matrix work.
-      root.updateWorldMatrix(false, false)
-      const key = `${sourceView}|${batchTileSize}|${root.visible}|${root.userData.levelZs}|${root.userData.groundBand}`
-      const views = this.rootSources.get(root)
-      let record = sourceView === undefined ? undefined : views?.get(key)
-      if (!record || record.key !== key || !record.matrix.equals(root.matrixWorld)) {
-        root.updateWorldMatrix(false, true)
-        record = { key, matrix: root.matrixWorld.clone(), textures: new Set(), buckets: null }
-        root.traverse(o => {
-          if (o instanceof THREE.Mesh && !Array.isArray(o.material)) {
-            const map = (o.material as THREE.MeshBasicMaterial).map
-            if (map) record!.textures.add(map)
-          }
-        })
-        if (sourceView !== undefined) {
-          const retained = views ?? new Map<string, RootSources>()
-          retained.set(key, record)
-          if (retained.size > EQUIPMENT_VIEW_CACHE_SIZE) retained.delete(retained.keys().next().value!)
-          this.rootSources.set(root, retained)
-        }
-      }
+      const record = this.discoverRootRecord(root, batchTileSize, sourceView)
       prepared.set(root, record)
       for (const texture of record.textures) textures.add(texture)
     }
@@ -351,12 +842,12 @@ export class EquipmentBatches {
     // Immutable edits replace only affected roots. Remove their old bucket
     // contributions and merge their replacements; remote source lists and
     // geometry signatures remain exact without another station-wide walk.
-    const retainedOrder = [...this.sourceRoots.keys()].filter(root=>prepared.get(root)===this.sourceRoots.get(root))
-    const nextOrder = modules.children.filter(root=>root.userData.surfaceTile !== true&&prepared.get(root)===this.sourceRoots.get(root))
+    const retainedOrder = [...this.sourceRoots.keys()].filter(root => prepared.get(root) === this.sourceRoots.get(root))
+    const nextOrder = candidateRoots.filter(root => root.userData.surfaceTile !== true && prepared.get(root) === this.sourceRoots.get(root))
     const incremental = sourceView !== undefined && this.sourceBuckets !== null &&
-      retainedOrder.every((root,i)=>root===nextOrder[i])
+      retainedOrder.every((root, i) => root === nextOrder[i])
     const unchanged = new Set<THREE.Object3D>()
-    if (incremental) for (const [root,record] of prepared)
+    if (incremental) for (const [root, record] of prepared)
       if (this.sourceRoots.get(root) === record) unchanged.add(root)
     if (incremental) this.sources = new Set(this.sources)
     else {
@@ -367,8 +858,8 @@ export class EquipmentBatches {
     const changed = new Set<string>()
     if (incremental) {
       const affected = new Set<string>()
-      for (const [root,record] of this.sourceRoots) if (!unchanged.has(root)) {
-        for (const [key,bucket] of record.buckets ?? []) {
+      for (const [root, record] of this.sourceRoots) if (!unchanged.has(root)) {
+        for (const [key, bucket] of record.buckets ?? []) {
           affected.add(key)
           for (const source of bucket.sources) {
             this.sources.delete(source.mesh); source.mesh.layers.set(0)
@@ -377,10 +868,10 @@ export class EquipmentBatches {
       }
       for (const key of affected) {
         const bucket = buckets.get(key)!
-        const sources = bucket.sources.filter(s=>unchanged.has(s.root))
+        const sources = bucket.sources.filter(s => unchanged.has(s.root))
         if (sources.length) {
           const liveMaterial = sources[0].region?.material ?? (sources[0].mesh.material as THREE.Material)
-          buckets.set(key,{material:liveMaterial,canonKey:bucket.canonKey,sources})
+          buckets.set(key, { material: liveMaterial, canonKey: bucket.canonKey, sources })
         }
         else buckets.delete(key)
         changed.add(key)
@@ -398,7 +889,7 @@ export class EquipmentBatches {
         changed.add(key)
       }
     }
-    for (const root of modules.children) {
+    for (const root of candidateRoots) {
       if (unchanged.has(root)) continue
       if (root.userData.surfaceTile === true) continue
       if (!STATIC_TYPES.has(root.userData.moduleType) || !root.visible || root.userData.explodedRamp) continue
@@ -408,183 +899,49 @@ export class EquipmentBatches {
         continue
       }
       this.lastSync.rebuilt++
-      const local: Buckets = new Map()
-      const screen = root.userData.moduleType === 'billboard' ? undefined : root.userData.adScreen
-      const moving = new Set<THREE.Object3D>()
-      root.traverse(o => {
-        if (o.userData.signalAspect) moving.add(o)
-        for (const leaf of (o.userData.doors ?? []) as THREE.Object3D[]) moving.add(leaf)
-        for (const pivot of [...(o.userData.clockRig?.hour ?? []), ...(o.userData.clockRig?.minute ?? [])]) moving.add(pivot)
-        for (const key of ['wing', 'liftCabin', 'activityWater']) if (o.userData[key] instanceof THREE.Object3D) moving.add(o.userData[key])
-      })
-      root.traverseVisible(o => {
-        if (!(o instanceof THREE.Mesh) || o instanceof THREE.InstancedMesh || o instanceof THREE.SkinnedMesh || o instanceof THREE.BatchedMesh || Array.isArray(o.material) || o === screen) return
-        if (o.children.length || Object.keys(o.geometry.morphAttributes).length || o.geometry.drawRange.start !== 0 || o.geometry.drawRange.count !== Infinity || o.layers.mask !== 1) return
-        for (let parent: THREE.Object3D | null = o; parent && parent !== root; parent = parent.parent) if (moving.has(parent)) return
-        const uv = o.geometry.getAttribute('uv')
-        let boundedUV = !!uv
-        if (uv) for (let i = 0; i < uv.count && boundedUV; i++) boundedUV = uv.getX(i) >= 0 && uv.getX(i) <= 1 && uv.getY(i) >= 0 && uv.getY(i) <= 1
-        const region = boundedUV ? this.atlas.resolve(o.material) : null
-        const material = region?.material ?? o.material
-        const allowSortedTransparent = !o.userData.staticInstances && !(material as THREE.MeshBasicMaterial).wireframe
-        const canonKey = region ? undefined : (canonicalUntexturedMaterialKey(material, true, this.planeIds, () => ++this.nextPlaneId, allowSortedTransparent) ?? undefined)
-        const matKey = canonKey ?? material.uuid
-        const p = new THREE.Vector3().setFromMatrixPosition(o.matrixWorld)
-        const instanceKey = o.userData.staticInstances ? `|static:${o.geometry.uuid}` : ''
-        // The slice already resolved visibility and materials. Dense Low uses
-        // the same detail for every level span and coherent model part.
-        const detailKey = batchTileSize === 256 ? '' : `|${root.userData.levelZs}|coherent:${o.userData.coherentModelDetail === true}`
-        const key = `${Math.floor(p.x / batchTileSize)},${Math.floor(p.y / batchTileSize)}|${matKey}|${attributeKey(o.geometry)}|${o.renderOrder}|${o.castShadow}|${o.receiveShadow}|${o.frustumCulled}${instanceKey}${detailKey}`
-        const bucket = local.get(key) ?? { material, canonKey, sources: [] as Source[] }
-        const matrix = o.matrixWorld.clone()
-        const artwork = region ? `${(o.material as THREE.MeshBasicMaterial).map?.uuid}:${region.material.uuid}:${region.u},${region.v},${region.w},${region.h}` : ''
-        bucket.sources.push({ mesh: o, root, matrix, signature: `${o.uuid}:${o.geometry.uuid}:${matrix.elements.join(',')}:${artwork}`, region, levels: root.userData.levelZs }); local.set(key, bucket)
-      })
+      const local = this.buildRootBuckets(root, batchTileSize)
       record.buckets = local
       merge(local)
     }
-    const alive = incremental ? new Set([...this.entries.keys()].filter(key=>!changed.has(key))) : new Set<string>()
-    const rootOrder = new Map(modules.children.map((root,i)=>[root,i]))
+    const alive = incremental ? new Set([...this.entries.keys()].filter(key => !changed.has(key))) : new Set<string>()
+    let rootOrder: Map<THREE.Object3D, number> | null = null
+    const getRootOrder = (): Map<THREE.Object3D, number> => {
+      if (!rootOrder) {
+        rootOrder = new Map()
+        for (let i = 0; i < candidateRoots.length; i++) rootOrder.set(candidateRoots[i], i)
+      }
+      return rootOrder
+    }
     for (const [key, { canonKey, sources }] of buckets) {
       if (incremental && !changed.has(key)) continue
-      if (incremental) sources.sort((a,b)=>rootOrder.get(a.root)!-rootOrder.get(b.root)!)
-      const coarse = sources.map(s => modelDetailGeometry(s.mesh))
-      // A bucket that no longer pays for a merge draws from its sources again. The
-      // last panel of a deleted pair kept the batch-only layer and went missing
-      // until something re-discovered the station.
-      if (sources.length < 2 && !sources[0].mesh.userData.staticInstances && !coarse[0]) {
+      if (incremental && sources.length > 1) {
+        const order = getRootOrder()
+        sources.sort((a, b) => order.get(a.root)! - order.get(b.root)!)
+      }
+      const built = this.buildBucketEntry(key, canonKey, sources, batchTileSize)
+      if (built.status === 'unbatched') {
         for (const source of sources) { source.mesh.layers.set(0); this.sources.delete(source.mesh) }
         continue
       }
-      const firstSourceMat = sources[0].region?.material ?? (sources[0].mesh.material as THREE.Material)
-      const mixedOwned = canonKey !== undefined && sources.some(s => (s.region?.material ?? s.mesh.material) !== firstSourceMat)
-      const material = mixedOwned
-        ? this.canonicalMaterial(canonKey, firstSourceMat)
-        : firstSourceMat
+      if (built.status === 'skipped') {
+        alive.delete(key)
+        continue
+      }
       alive.add(key)
-      const indexed = material.transparent && batchTileSize === 256 && !(material as THREE.MeshBasicMaterial).wireframe
-      const signature = `${material.uuid}|${material.transparent}|${indexed}|${coarse.map(g => g?.uuid ?? '').join(',')}|` + sources.map(s => s.signature).join('|')
-      const old = this.entries.get(key)
-      if (old?.signature !== signature) {
-        if (old) this.entries.delete(key)
-        let mesh: THREE.Mesh
-        let detail: GeometryDetail | undefined
-        const hasCoarse = coarse.some(Boolean)
-        let size = 0
-        for (const s of sources) {
-          s.mesh.geometry.computeBoundingSphere()
-          size = Math.max(size, s.mesh.geometry.boundingSphere!.radius * 2 * s.matrix.getMaxScaleOnAxis())
-        }
-        // Repeated identical geometry can instance without duplicating vertex data.
-        // Reflections and atlas regions use the baked path to retain their winding/UV.
-        const staticInstances = sources.every(s => s.mesh.userData.staticInstances === true)
-        const identical = (sources.length > 1 || staticInstances) && (!material.transparent || staticInstances) &&
-          sources.every((s, i) => !s.region && s.matrix.determinant() > 0 && equalGeometry(s.mesh.geometry, sources[0].mesh.geometry) &&
-          (!!coarse[i] === !!coarse[0]) && (!coarse[i] || equalGeometry(coarse[i]!, coarse[0]!)))
-        if (identical) {
-          if (staticInstances) {
-            const source = sources[0].mesh
-            mesh = new StaticInstances(source.geometry, material, sources.map(s => s.matrix), source.userData.staticDetailGeometry,
-              source.userData.staticDetailSize, source.userData.staticDetailPixels, source.userData.staticFarGeometry, source.userData.staticFarPixels)
-          } else {
-            const instance = new THREE.InstancedMesh(sources[0].mesh.geometry.clone(), material, sources.length)
-            sources.forEach((s, i) => instance.setMatrixAt(i, s.matrix))
-            instance.computeBoundingBox(); instance.computeBoundingSphere(); mesh = instance
-            if (hasCoarse && coarse[0]) {
-              const near = instance.geometry, far = coarse[0].clone()
-              combinedDetailBounds(near, far); instance.computeBoundingBox(); instance.computeBoundingSphere()
-              detail = new GeometryDetail(instance, size, distant => {
-                instance.geometry = distant ? far : near
-                if ((instance.geometry.index?.count ?? instance.geometry.getAttribute('position').count) === 0) instance.layers.disable(0)
-                else instance.layers.enable(0)
-              }, () => far.dispose(), instance.boundingSphere!)
-            }
-          }
-        } else {
-          const geometries = sources.map(s => {
-            const g = bakedGeometry(s.mesh.geometry, s.matrix)
-            if (s.region) atlasUV(g, s.region)
-            return g
-          })
-          const distant = hasCoarse ? sources.map((s, i) => {
-            const g = bakedGeometry(coarse[i] ?? s.mesh.geometry, s.matrix)
-            if (s.region) atlasUV(g, s.region)
-            return g
-          }) : []
-          if (indexed) {
-            // These large static buckets can submit many sorted surfaces as one
-            // indexed draw, including on drivers that split multi-draw calls.
-            const near = sortedEquipmentGeometry(geometries)
-            const far = hasCoarse ? sortedEquipmentGeometry(distant) : null
-            mesh = new THREE.Mesh(near.geometry, material)
-            let drawing = near
-            mesh.onBeforeRender = (_renderer, _scene, camera) => drawing.update(camera, mesh)
-            if (far) {
-              const bounds = combinedDetailBounds(near.geometry, far.geometry)
-              detail = new GeometryDetail(mesh, size, useFar => {
-                drawing = useFar ? far : near
-                mesh.geometry = drawing.geometry
-                if (useFar && !far.geometry.getAttribute('position').count) mesh.layers.disable(0)
-                else mesh.layers.enable(0)
-              }, () => far.geometry.dispose(), bounds)
-            }
-          } else if (material.transparent) {
-            const batch = sortedBatch(sources.map(s => s.mesh), geometries, material, distant)
-            mesh = batch
-            const invalidateOrder = cacheBatchOrder(batch)
-            if (hasCoarse) {
-              const near = sources.map((_, i) => batch.getGeometryIdAt(i))
-              const far = distant.map(g => batch.addGeometry(g))
-              batch.computeBoundingBox(); batch.computeBoundingSphere()
-              for (const geometry of distant) if (geometry.getAttribute('position').count) {
-                geometry.computeBoundingBox(); geometry.computeBoundingSphere()
-                batch.boundingBox!.union(geometry.boundingBox!); batch.boundingSphere!.union(geometry.boundingSphere!)
-              }
-              const farVisible = distant.map(geometry => geometry.getAttribute('position').count > 0)
-              const farDraws = farVisible.some(Boolean)
-              detail = new GeometryDetail(batch, size, useFar => {
-                for (let i = 0; i < sources.length; i++) {
-                  batch.setGeometryIdAt(i, (useFar ? far : near)[i])
-                  batch.setVisibleAt(i, !useFar || farVisible[i])
-                }
-                if (useFar && !farDraws) batch.layers.disable(0)
-                else batch.layers.enable(0)
-                invalidateOrder()
-              }, undefined, batch.boundingSphere!)
-            }
-          }
-          else {
-            const geometry = mergeGeometries(geometries)
-            if (!geometry) { geometries.forEach(g => g.dispose()); alive.delete(key); continue }
-            geometry.computeBoundingBox(); geometry.computeBoundingSphere(); mesh = new THREE.Mesh(geometry, material)
-            if (hasCoarse) {
-              const far = mergeGeometries(distant)!
-              const bounds = combinedDetailBounds(geometry, far)
-              const drawn = mesh
-              detail = new GeometryDetail(drawn, size, useFar => {
-                drawn.geometry = useFar ? far : geometry
-                if (drawn.geometry.getAttribute('position').count === 0) drawn.layers.disable(0)
-                else drawn.layers.enable(0)
-              }, () => far.dispose(), bounds)
-            }
-          }
-          distant.forEach(g => g.dispose())
-          geometries.forEach(g => g.dispose())
-        }
-        mesh.renderOrder = sources[0].mesh.renderOrder
-        mesh.matrixAutoUpdate = false
-        mesh.castShadow = sources[0].mesh.castShadow; mesh.receiveShadow = sources[0].mesh.receiveShadow
-        mesh.frustumCulled = sources[0].mesh.frustumCulled
-        if (mesh instanceof THREE.BatchedMesh) mesh.perObjectFrustumCulled = mesh.frustumCulled
-        mesh.userData.equipmentBatch = true
-        const entry = { signature, mesh, sources, detail }
-        this.entries.set(key, entry); this.owned.add(entry)
+      if (built.status === 'created' && built.entry) {
+        this.entries.set(key, built.entry)
+        this.owned.add(built.entry)
       }
       for (const source of sources) { source.mesh.layers.set(BATCH_SOURCE_LAYER); this.sources.add(source.mesh) }
     }
     for (const key of this.entries.keys()) if (!alive.has(key)) this.entries.delete(key)
     this.sourceBuckets = buckets
     this.sourceRoots = prepared
+    this.lastSourceView = sourceView
+    this.lastBatchTileSize = batchTileSize
+    this.lastParentMatrix.copy(modules.matrixWorld)
+    this.hasParentMatrix = true
+    this.rebuildTextureIndex()
     this.publish(revision, generation)
     this.atlas.update()
   }
@@ -632,6 +989,11 @@ export class EquipmentBatches {
     this.rootCoverage = new WeakMap()
     this.sourceBuckets = null
     this.sourceRoots.clear()
+    this.lastSourceView = undefined
+    this.lastBatchTileSize = 0
+    this.hasParentMatrix = false
+    this.textureRefCount.clear()
+    this.cachedTextures.clear()
     this.detailView = []
     this.setHiddenModule(null)
     this.revision = undefined

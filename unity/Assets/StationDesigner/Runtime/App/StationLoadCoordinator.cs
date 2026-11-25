@@ -1579,22 +1579,99 @@ namespace Metro.App {
             }
 
             var exits = delta.ChangedModules.Count > 0 || exitChanged ? ExitFacts(nextDocument, nextIndex) : null;
+            HashSet<string> addedChangedIds = null;
+            List<ModuleFacts> touchedExits = null;
             for (int i = 0; i < delta.ChangedModules.Count; i++) {
-                result.ChangedModules.Add(ModuleFact(delta.ChangedModules[i], exits));
+                var cm = delta.ChangedModules[i];
+                result.ChangedModules.Add(ModuleFact(cm, exits));
+                if (exitChanged) {
+                    (addedChangedIds ??= new HashSet<string>(StringComparer.Ordinal)).Add(cm.Id);
+                    if (cm.Type == "exit" && cm.Facts != null) (touchedExits ??= new List<ModuleFacts>(2)).Add(cm.Facts);
+                    if (prevIndex != null && prevIndex.TryGetModule(cm.Id, out var pm) && pm.Type == "exit" && pm.Facts != null) {
+                        (touchedExits ??= new List<ModuleFacts>(2)).Add(pm.Facts);
+                    }
+                }
+            }
+            if (exitChanged && prevIndex != null) {
+                for (int i = 0; i < delta.RemovedModules.Count; i++) {
+                    if (prevIndex.TryGetModule(delta.RemovedModules[i], out var rm) && rm.Type == "exit" && rm.Facts != null) {
+                        (touchedExits ??= new List<ModuleFacts>(2)).Add(rm.Facts);
+                    }
+                }
+            }
+            if (exitChanged && nextIndex != null && touchedExits != null && touchedExits.Count > 0) {
+                // Only stair/escalator/walkway runs whose endpoints touch a changed/removed exit can change RidePath.
+                bool RampTouchesExit(StationModuleRecord rm) {
+                    var m = rm?.Facts;
+                    if (m == null || !m.From.HasValue || !m.To.HasValue) return false;
+                    var start = new StationRunPoint(m.From.X, m.From.Y, m.From.Z);
+                    var end = new StationRunPoint(m.To.X, m.To.Y, m.To.Z);
+                    if (StationRampOpenings.ExitLandingHeight(touchedExits, start) > 0 ||
+                        StationRampOpenings.ExitLandingHeight(touchedExits, end) > 0) return true;
+                    if (rm.Type == "stair") {
+                        var flights = StationRunGeometry.StairFlights(m);
+                        for (int f = 0; f < flights.Count; f++) {
+                            if (StationRampOpenings.ExitLandingHeight(touchedExits, flights[f].From) > 0 ||
+                                StationRampOpenings.ExitLandingHeight(touchedExits, flights[f].To) > 0) return true;
+                        }
+                    }
+                    return false;
+                }
+                void ReprojectRampType(string rampType) {
+                    var ramps = nextIndex.ModulesOfType(rampType);
+                    for (int i = 0; i < ramps.Count; i++) {
+                        var rm = ramps[i];
+                        if (!RampTouchesExit(rm)) continue;
+                        if (addedChangedIds != null && !addedChangedIds.Add(rm.Id)) continue;
+                        result.ChangedModules.Add(ModuleFact(rm, exits));
+                    }
+                }
+                ReprojectRampType("stair");
+                ReprojectRampType("escalator");
+                ReprojectRampType("walkway");
             }
             if (nextDocument != null && hasModuleDelta) {
-                if (exitChanged) {
+                if (exitChanged && (prevIndex == null || nextIndex == null)) {
                     var ordered = new List<StationModuleFact>(nextDocument.Modules.Count);
                     for (int i = 0; i < nextDocument.Modules.Count; i++) {
                         ordered.Add(ModuleFact(nextDocument.Modules[i], exits));
                     }
                     result.OrderedModules = ordered;
-                } else if (delta.ChangedModules.Count > 0) {
-                    var ids = new string[nextDocument.Modules.Count];
-                    for (int i = 0; i < ids.Length; i++) {
-                        ids[i] = nextDocument.Modules[i].Id;
+                } else if (result.ChangedModules.Count > 0) {
+                    bool needsExplicitOrder = true;
+                    var prevDoc = prevIndex?.Document;
+                    if (prevDoc != null) {
+                        int prevCount = prevDoc.ModuleCount;
+                        int nextCount = nextDocument.ModuleCount;
+                        int newCount = 0;
+                        bool tailMatches = true;
+                        for (int i = 0; i < result.ChangedModules.Count; i++) {
+                            string id = result.ChangedModules[i].Id ?? "";
+                            if (!prevIndex.TryGetModule(id, out _)) {
+                                int tailIdx = prevCount + newCount;
+                                if (delta.RemovedModules.Count > 0 || tailIdx >= nextCount ||
+                                    !string.Equals(nextDocument.Modules[tailIdx].Id, id, StringComparison.Ordinal)) {
+                                    tailMatches = false;
+                                    break;
+                                }
+                                newCount++;
+                            }
+                        }
+                        if (delta.RemovedModules.Count == 0 && tailMatches && nextCount == prevCount + newCount) {
+                            needsExplicitOrder = false;
+                            if (newCount == result.ChangedModules.Count) result.AppendOnlyModules = true;
+                            else if (newCount == 0) result.InPlaceUpdateOnly = true;
+                        } else if (delta.RemovedModules.Count > 0 && newCount == 0 && nextCount == prevCount - delta.RemovedModules.Count) {
+                            needsExplicitOrder = false;
+                        }
                     }
-                    result.OrderedModuleIds = ids;
+                    if (needsExplicitOrder) {
+                        var ids = new string[nextDocument.Modules.Count];
+                        for (int i = 0; i < ids.Length; i++) {
+                            ids[i] = nextDocument.Modules[i].Id;
+                        }
+                        result.OrderedModuleIds = ids;
+                    }
                 }
             }
             StationEditTrace.AddScanned(

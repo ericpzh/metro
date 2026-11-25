@@ -11,10 +11,12 @@ inventories, and [perf-benchmarks.md](perf-benchmarks.md) for commands.
   separately. Run `npm run bench:editor-actions` (see
   [perf-benchmarks.md](perf-benchmarks.md)) for per-action captures under
   `.preview/perf/editor-actions/`. For real-click full-catalog placement and
-  pick latencies on Tianhe Park (`high` / `native` FSR, `0×` & `1×`: `102/102`
-  objects OK, P50 `155–169 ms` click→render, P95 `374–386 ms`, 4 outliers
-  `> 900 ms`: `block/auto-walls`, `wall`, `checkout`, `checkout-cafe-pastry`;
-  pick P50 `31–33 ms` eyedropper/select, `66–68 ms` move), see
+  pick latencies on Tianhe Park (`e527757c`, `high` / `native` FSR, `0×` & `1×`:
+  `102/102` objects OK, all local, passing `P50 ≤ 100 ms` / `P90 ≤ 500 ms` /
+  `Max ≤ 1,000 ms` SLA with click→render P50 **`59.2–61.5 ms`** vs `155–169 ms`
+  before, P90 **`180.8–184.6 ms`** vs `331–336 ms`, P95 **`215.1–216.6 ms`** vs
+  `374–386 ms`, and Max **`331.2–336.1 ms`** on `tunnel` vs `1,348–1,369 ms`
+  before; pick P50 `30.2–32.1 ms` eyedropper/select, `63.5–64.9 ms` move), see
   [perf-tianhe-object-latency.md](perf-tianhe-object-latency.md).
 - **Single scene pick**: Resolve at most one scene raycast per pointer event and
   share it across tools, surface aims, selection, and audio
@@ -43,11 +45,15 @@ inventories, and [perf-benchmarks.md](perf-benchmarks.md) for commands.
   frames keep only immutable records (rebuilding indexes lazily if undone) while
   arrays shared with the live document stay cached. Any new station-sized
   `WeakMap` cache must register with `registerDocumentCache`.
-- **Local structural work**: Authored-cell carve/thinning queries nearby runs in
-  document order; stair models probe the shared cell index; rail validation and
-  platform-edge derivation prepare only needed courses; suspended ceilings
+- **Local structural & incremental placement work**: Authored-cell carve/thinning
+  queries nearby runs in document order; stair models probe the shared cell index;
+  rail validation, bridge pillars (`BridgePillars.ts`), and platform-edge
+  derivation prepare only needed courses; `ground.ts`, `Floors.ts`, `Walls.ts`,
+  `contactFinishes.ts`, and `stationEdit.ts` bound structural/ground/ceiling
+  invalidation to touched cells instead of whole-station scans; suspended ceilings
   invalidate locally; large documents send compact worker splices applied to the
   newest snapshot while keeping the active sim graph coherent until install.
+  Pinned by `game/test/tianhe-placement-latency.test.mjs`.
 
 ## Scene batching, retention & textures
 
@@ -80,13 +86,15 @@ inventories, and [perf-benchmarks.md](perf-benchmarks.md) for commands.
   `64 m` buckets (`SURFACE_BUCKET_SIZE = 64`) per finish and storey, resolving
   picks through `hit.instanceId` with no per-tile mesh or contact blob.
   `ModuleSystem` must not route paving through `EquipmentBatches`.
-- **Placement & presentation retention**: Retain unaffected module roots,
-  animation registrations, and Low geometry via immutable inputs and complete
-  dependency keys. City switches repaint cab decals in place, replace
-  city-specific exit/pylon/map roots, cache map artwork by city, decode city
-  posters lazily on demand (sharing pending requests), and retain train roots.
-  Ordinary label edits repaint retained artwork; invisible settings do not dirty
-  geometry or trigger a render.
+- **Placement & presentation retention**: `ChunkSystem`, `ModuleSystem`,
+  `moduleDependencies.ts`, and `EquipmentBatches` diff incremental edits against
+  spatial dependency indexes to rebuild only touched chunks, affected module
+  roots, and dirty equipment buckets (leaving unaffected roots, animation
+  registrations, batches, and Low geometry intact). City switches repaint cab
+  decals in place, replace city-specific exit/pylon/map roots, cache map artwork
+  by city, decode city posters lazily on demand (sharing pending requests), and
+  retain train roots. Ordinary label edits repaint retained artwork; invisible
+  settings do not dirty geometry or trigger a render.
 - **Contact shadows**: Only floor-standing equipment on the active storey
   allocates contact blobs (`contactShadowVisible`); ceiling fixtures and fixed
   PSD infill/covers allocate none.

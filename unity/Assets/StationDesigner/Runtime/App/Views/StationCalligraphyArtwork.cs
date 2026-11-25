@@ -384,6 +384,12 @@ namespace Metro.App.Views {
             return texture;
         }
 
+        /// <summary>Remove cached face bindings for retired or rebound inscription modules.</summary>
+        public static void Unbind(Scope scope, HashSet<string> moduleIds) {
+            if (scope == null || moduleIds == null || moduleIds.Count == 0) return;
+            scope.Cache?.Unbind(moduleIds);
+        }
+
         /// <summary>
         /// Bind one placed inscription to the committed document. Returns false with the reason
         /// in <paramref name="scope"/>'s ledger when the promoted prefab carries no ink surface.
@@ -400,22 +406,23 @@ namespace Metro.App.Views {
                 scope.Notes.Add("calligraphy-unresolved:" + module.Id + ":no-ink-surface");
                 return false;
             }
+            if (scope.World == null) scope.World = world;
+            if (scope.Font == null) scope.Font = font;
             var name = NameOf(document);
             var nameEn = document?.NameEn ?? "";
             var style = module.Config.Text("style");
             var axis = module.Config.Text("axis");
             bool showEnglish = module.Config.Bool("showEnglish") || module.Config.Bool("nameEn");
-            var panel = PanelSize(axis, module.Width, (float)PanelHeightOf(document, module));
+            var panel = PanelSize(axis, module.Width, (float)PanelHeightOf(document, module, world ?? scope.World));
             FitPlanarInkScale(renderer, panel);
             MeasureInkOrientation(root, renderer, out bool mirrorU, out bool flipV);
-            if (scope.World == null) scope.World = world;
-            if (scope.Font == null) scope.Font = font;
             var contentKey = ContentKey(name, nameEn, showEnglish, style, axis, panel);
             var materialKey = BridgeKey(contentKey, mirrorU, flipV);
             var plate = renderer.sharedMaterial ? renderer.sharedMaterial.name : "calligraphyInk";
             Material material;
             bool bridged = false;
             if (scope.Bridge && scope.Cache != null) {
+                if (!string.IsNullOrEmpty(module.Id)) scope.Cache.Unbind(module.Id);
                 // The browser is the painter. The instance material starts transparent so
                 // the wall shows through; the reply swaps the painted panel into this same
                 // material and the world recaptures the part (`StationVisibility`'s rule).
@@ -559,7 +566,14 @@ namespace Metro.App.Views {
         }
 
         /// <summary>The saved record's printed panel height (`panelH`), 1.6 m when absent.</summary>
-        public static double PanelHeightOf(StationDocument document, ModuleFacts module) {
+        public static double PanelHeightOf(StationDocument document, ModuleFacts module) =>
+            PanelHeightOf(document, module, null);
+
+        public static double PanelHeightOf(StationDocument document, ModuleFacts module, Metro.App.StationWorldView world) {
+            if (module != null && world?.Index != null && !string.IsNullOrEmpty(module.Id)) {
+                var indexed = world.Index.GetModule(module.Id);
+                if (indexed != null) return indexed.PanelHeight > 0 ? indexed.PanelHeight : 1.6;
+            }
             if (document != null && module != null) {
                 foreach (var record in document.Modules) {
                     if (record?.Facts == null) continue;

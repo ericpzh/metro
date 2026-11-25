@@ -660,5 +660,90 @@ namespace Metro.EditModeTests {
             AssertDocumentAndIndexMatchFullRead("post-rollback-recovery", host.Document, host.Index);
             AssertGraphMatchesReference("post-rollback-recovery", simHost.Session.WalkGraph, host.Document, host.Index);
         }
+
+        [Test]
+        public void AllTwelveNewlyLocalFamiliesStayLocalAndRollBackCleanly() {
+            var host = CreateHost(registerCellAndModuleViews: true);
+            host.RegisterRenderer(new StationSurfaceModuleRenderer());
+            host.RegisterRenderer(new StationStreetModuleRenderer());
+            host.RegisterRenderer(new StationEquipmentModuleRenderer());
+            host.RegisterRenderer(new StationDisplayModuleRenderer());
+            host.RegisterRenderer(new StationContactShadowRenderer());
+            host.RegisterRenderer(new StationSignRenderer());
+            host.RegisterRenderer(new TrainConsistRenderer());
+
+            var open = JObject.Parse(host.SendForTest(Cmd("station.open", new JObject { ["document"] = BuildShiftedStoreyTestSave() }, "open-12fam")));
+            Assert.AreEqual("commit", (string)open["kind"]);
+
+            void AssertLocalPatch(string label, StationCellPatch patch) {
+                using var metrics = StationEditTrace.BeginMetrics();
+                Assert.IsTrue(StationEditSession.TryApplyCells(host, patch, label, "cmd-" + label, out var res, out var err),
+                    $"{label} failed: {err}");
+                Assert.IsTrue(res.Accepted, $"{label} not accepted");
+                Assert.IsTrue(metrics.Metrics.UsedLocalDocument,
+                    $"{label}: expected local document (fallback={metrics.Metrics.DocumentFallbackReason})");
+                Assert.IsTrue(metrics.Metrics.UsedRetainedView,
+                    $"{label}: expected retained view (fallback={metrics.Metrics.ViewFallbackReason})");
+                Assert.IsTrue(metrics.Metrics.UsedIncrementalGraph,
+                    $"{label}: expected incremental graph (fallback={metrics.Metrics.SimFallbackReason})");
+                AssertDocumentAndIndexMatchFullRead(label, host.Document, host.Index);
+            }
+
+            StationEditDraft MakeDraft(string id, string type, int x, int y, int z, int w = 1, int d = 1, int h = 1, params (string k, string v)[] cfg) {
+                var draft = new StationEditDraft { Id = id, Type = type, X = x, Y = y, Z = z, Rotation = 0, Width = w, Depth = d, Height = h };
+                foreach (var kv in cfg) draft.Config[kv.k] = kv.v;
+                return draft;
+            }
+
+            // Cover all 11 Tier-3 newly local families + Tier-4 sign (add, rollback, and remove):
+            var cases = new (string Label, StationEditDraft Draft)[] {
+                ("pillar", MakeDraft("loc-pillar-1", "pillar", 2, 2, -1, 1, 1, 4, ("variant", "thick"))),
+                ("roof", MakeDraft("loc-roof-1", "roof", 2, 2, 4, 4, 4, 1, ("variant", "truss"))),
+                ("tv", MakeDraft("loc-tv-1", "tv", 3, 3, -1, 1, 1, 1, ("mount", "ceiling"), ("poster", "0"))),
+                ("calligraphy", MakeDraft("loc-callig-1", "calligraphy", 4, 1, -1, 2, 1, 1, ("style", "wei-h"))),
+                ("linemap", MakeDraft("loc-linemap-1", "linemap", 5, 3, -1, 2, 1, 1, ("variant", "stand"))),
+                ("glass", MakeDraft("loc-glass-1", "glass", 6, 3, -1, 2, 1, 2, ("variant", "2x2"))),
+                ("booth", MakeDraft("loc-booth-1", "booth", 7, 4, -1, 3, 2, 3, ("kind", "ticket"), ("stocked", "true"))),
+                ("track", MakeDraft("loc-track-1", "track", 10, 10, -2, 8, 1, 1, ("line", "L1"))),
+                ("exit", MakeDraft("loc-exit-1", "exit", 2, 8, 0, 3, 2, 3, ("name", "A"), ("headHouse", "true"))),
+                ("guidepost", MakeDraft("loc-guide-1", "guidepost", 6, 8, 0, 1, 1, 3, ("exitId", "loc-exit-1"))),
+                ("psd-end", MakeDraft("loc-psdend-1", "psd-end", 9, 3, -1, 1, 1, 3, ("variant", "cover"))),
+                ("sign", MakeDraft("loc-sign-1", "sign", 4, 4, -1, 2, 1, 1, ("mount", "ceiling"), ("preset", "exit"), ("text", "A"))),
+            };
+
+            foreach (var c in cases) {
+                var addPatch = new StationCellPatch();
+                addPatch.ModuleAdds.Add(c.Draft);
+                addPatch.Changed = 1;
+                AssertLocalPatch("add-" + c.Label, addPatch);
+            }
+
+            // Inject failure during a local sign edit to confirm zero leaked staged views on rollback:
+            int revBeforeRb = host.CurrentRevision;
+            int childCountBeforeRb = host.Coordinator.World.Root.childCount;
+            int recCountBeforeRb = host.Coordinator.World.Records.Count;
+            StationSimulationHost.SimStageFailureInjector = _ => throw new InvalidOperationException("injected-12fam-rb");
+            try {
+                var rbPatch = new StationCellPatch();
+                rbPatch.ModuleAdds.Add(MakeDraft("loc-rb-sign", "sign", 5, 5, -1, 2, 1, 1, ("mount", "ceiling"), ("preset", "exit"), ("text", "B")));
+                rbPatch.Changed = 1;
+                Assert.IsFalse(StationEditSession.TryApplyCells(host, rbPatch, "rb-sign", "cmd-rb-sign", out _, out var rbCode));
+                Assert.AreEqual("simulation-failed", rbCode);
+            } finally {
+                StationSimulationHost.SimStageFailureInjector = null;
+            }
+            Assert.AreEqual(revBeforeRb, host.CurrentRevision);
+            Assert.AreEqual(childCountBeforeRb, host.Coordinator.World.Root.childCount);
+            Assert.AreEqual(recCountBeforeRb, host.Coordinator.World.Records.Count);
+
+            // Remove all 12 in reverse order and confirm every removal stays 100% local:
+            for (int i = cases.Length - 1; i >= 0; i--) {
+                var c = cases[i];
+                var rmPatch = new StationCellPatch();
+                rmPatch.RemoveModuleIds.Add(c.Draft.Id);
+                rmPatch.Changed = 1;
+                AssertLocalPatch("rm-" + c.Label, rmPatch);
+            }
+        }
     }
 }

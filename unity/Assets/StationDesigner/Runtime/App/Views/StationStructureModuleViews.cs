@@ -120,6 +120,21 @@ namespace Metro.App.Views {
             return null;
         }
 
+        /// <summary>Indexed overload of <see cref="BridgeFor(ModuleFacts, IReadOnlyList{ModuleFacts})"/> scanning only track modules.</summary>
+        public static ModuleFacts BridgeFor(ModuleFacts pillar, StationIndex index) {
+            if (pillar == null || index == null) return null;
+            float top = pillar.Z + (float)pillar.Config.Number("height", 0);
+            var tracks = index.ModulesOfType("track");
+            for (int i = 0; i < tracks.Count; i++) {
+                var track = tracks[i]?.Facts;
+                if (track == null || !track.Config.Bool("bridge")) continue;
+                if (Math.Abs(track.Z - top) > 1e-3) continue;
+                if (!ContainsCell(track, pillar.X, pillar.Y)) continue;
+                return track;
+            }
+            return null;
+        }
+
         static bool ContainsCell(ModuleFacts run, int x, int y) {
             int width = Math.Max(1, run.Width), depth = Math.Max(1, run.Depth);
             int rotation = ((run.Rotation % 4) + 4) % 4;
@@ -392,24 +407,25 @@ namespace Metro.App.Views {
         /// <summary>One line per built hanger: its mount, span, bar top and endpoint backing.</summary>
         public List<string> HangerNotes { get; } = new List<string>();
 
-        sealed class StructureHangerCache {
+        sealed class StructureWorldCache {
             public StationWorldView World;
             public readonly Dictionary<long, HashSet<string>> RoofHangersByColumn = new Dictionary<long, HashSet<string>>();
-            public readonly Dictionary<string, List<Mesh>> MeshesByHangerId = new Dictionary<string, List<Mesh>>(StringComparer.Ordinal);
+            public readonly Dictionary<long, HashSet<string>> PillarsByColumn = new Dictionary<long, HashSet<string>>();
+            public readonly Dictionary<string, List<Mesh>> MeshesByModuleId = new Dictionary<string, List<Mesh>>(StringComparer.Ordinal);
         }
 
-        sealed class StagedHangerDelta : IStationLocalRendererStage {
+        sealed class StagedStructureDelta : IStationLocalRendererStage {
             readonly WorldState state;
-            readonly StructureHangerCache cache;
+            readonly StructureWorldCache cache;
             readonly HashSet<string> retiredIds;
-            readonly List<(ModuleFacts Module, GameObject Root, List<Mesh> Meshes, StationViewRecord Record, long[] EndpointColumns)> staged;
+            readonly List<(ModuleFacts Module, string Kind, GameObject Root, List<Mesh> Meshes, StationViewRecord Record, long[] EndpointColumns, long? PillarColumn)> staged;
             bool committed;
 
-            public StagedHangerDelta(
+            public StagedStructureDelta(
                 WorldState state,
-                StructureHangerCache cache,
+                StructureWorldCache cache,
                 HashSet<string> retiredIds,
-                List<(ModuleFacts Module, GameObject Root, List<Mesh> Meshes, StationViewRecord Record, long[] EndpointColumns)> staged) {
+                List<(ModuleFacts Module, string Kind, GameObject Root, List<Mesh> Meshes, StationViewRecord Record, long[] EndpointColumns, long? PillarColumn)> staged) {
                 this.state = state;
                 this.cache = cache;
                 this.retiredIds = retiredIds;
@@ -424,8 +440,8 @@ namespace Metro.App.Views {
                     state.Modules.RemoveAll(m => retiredIds.Contains(m.ModuleId));
                     foreach (var id in retiredIds) {
                         state.ById.Remove(id);
-                        if (cache.MeshesByHangerId.TryGetValue(id, out var oldMeshes)) {
-                            cache.MeshesByHangerId.Remove(id);
+                        if (cache.MeshesByModuleId.TryGetValue(id, out var oldMeshes)) {
+                            cache.MeshesByModuleId.Remove(id);
                             for (int i = 0; i < oldMeshes.Count; i++) {
                                 var m = oldMeshes[i];
                                 if (m == null) continue;
@@ -435,6 +451,9 @@ namespace Metro.App.Views {
                         }
                     }
                     foreach (var pair in cache.RoofHangersByColumn) {
+                        pair.Value.RemoveWhere(id => retiredIds.Contains(id));
+                    }
+                    foreach (var pair in cache.PillarsByColumn) {
                         pair.Value.RemoveWhere(id => retiredIds.Contains(id));
                     }
                 }
@@ -447,13 +466,15 @@ namespace Metro.App.Views {
                         ModuleId = item.Module.Id,
                         Type = item.Module.Type,
                         View = item.Root,
-                        Key = "generated:hanger",
+                        Key = "generated:" + item.Kind,
                     };
                     state.Modules.Add(built);
-                    state.ById[item.Module.Id] = built;
+                    if (!string.IsNullOrEmpty(item.Module.Id)) {
+                        state.ById[item.Module.Id] = built;
+                        cache.MeshesByModuleId[item.Module.Id] = item.Meshes;
+                    }
                     state.Meshes.AddRange(item.Meshes);
-                    cache.MeshesByHangerId[item.Module.Id] = item.Meshes;
-                    if (item.EndpointColumns != null) {
+                    if (item.EndpointColumns != null && !string.IsNullOrEmpty(item.Module.Id)) {
                         for (int c = 0; c < item.EndpointColumns.Length; c++) {
                             long col = item.EndpointColumns[c];
                             if (!cache.RoofHangersByColumn.TryGetValue(col, out var set)) {
@@ -461,6 +482,13 @@ namespace Metro.App.Views {
                             }
                             set.Add(item.Module.Id);
                         }
+                    }
+                    if (item.PillarColumn.HasValue && !string.IsNullOrEmpty(item.Module.Id)) {
+                        long col = item.PillarColumn.Value;
+                        if (!cache.PillarsByColumn.TryGetValue(col, out var set)) {
+                            cache.PillarsByColumn[col] = set = new HashSet<string>(StringComparer.Ordinal);
+                        }
+                        set.Add(item.Module.Id);
                     }
                     world.AddLocalRecord(item.Record, commit);
                 }
@@ -480,19 +508,24 @@ namespace Metro.App.Views {
             }
         }
 
-        readonly List<StructureHangerCache> hangerCaches = new List<StructureHangerCache>();
+        readonly List<StructureWorldCache> worldCaches = new List<StructureWorldCache>();
 
-        StructureHangerCache HangerCacheOf(StationWorldView world) {
-            for (int i = hangerCaches.Count - 1; i >= 0; i--) {
-                if (hangerCaches[i].World == world) return hangerCaches[i];
+        StructureWorldCache WorldCacheOf(StationWorldView world) {
+            for (int i = worldCaches.Count - 1; i >= 0; i--) {
+                if (worldCaches[i].World == world) return worldCaches[i];
             }
             return null;
         }
 
-        void PurgeHangerCaches() {
-            for (int i = hangerCaches.Count - 1; i >= 0; i--) {
-                if (hangerCaches[i].World == null || hangerCaches[i].World.IsDisposed) hangerCaches.RemoveAt(i);
+        void PurgeWorldCaches() {
+            for (int i = worldCaches.Count - 1; i >= 0; i--) {
+                if (worldCaches[i].World == null || worldCaches[i].World.IsDisposed) worldCaches.RemoveAt(i);
             }
+        }
+
+        public override void Release() {
+            base.Release();
+            PurgeWorldCaches();
         }
 
         sealed class HangerBackingIndex {
@@ -564,9 +597,9 @@ namespace Metro.App.Views {
         }
 
         protected override void BuildGroup(StationViewBuildContext context, ModuleFacts[] station, WorldState state) {
-            PurgeHangerCaches();
-            var hangerCache = new StructureHangerCache { World = context.World };
-            hangerCaches.Add(hangerCache);
+            PurgeWorldCaches();
+            var worldCache = new StructureWorldCache { World = context.World };
+            worldCaches.Add(worldCache);
             RoofNotes.Clear();
             PillarNotes.Clear();
             HangerNotes.Clear();
@@ -585,36 +618,70 @@ namespace Metro.App.Views {
                         for (int slot = 0; slot < StationMaterials.Colours.Length; slot++) state.Materials.Add(palette[slot]);
                     }
                 }
+                int meshesBefore = state.Meshes.Count;
                 if (string.Equals(module.Type, "roof", StringComparison.Ordinal)) {
                     BuildRoof(context, module, state, palette, grid);
                 } else if (string.Equals(module.Type, "hanger", StringComparison.Ordinal)) {
                     if (hangerBacking == null) hangerBacking = new HangerBackingIndex(context.Index, context.Document?.Cells, station);
-                    int meshesBefore = state.Meshes.Count;
                     BuildHanger(context, module, hangerBacking, state, palette, grid);
-                    RecordHangerCache(hangerCache, module, state, meshesBefore);
                 } else {
                     BuildPillar(context, module, station, state, palette, grid);
+                }
+                RecordModuleCache(worldCache, module, state, meshesBefore);
+            }
+        }
+
+        static void RecordModuleCache(StructureWorldCache cache, ModuleFacts module, WorldState state, int meshesBefore) {
+            if (cache == null || string.IsNullOrEmpty(module?.Id)) return;
+            var meshes = new List<Mesh>(Math.Max(0, state.Meshes.Count - meshesBefore));
+            for (int m = meshesBefore; m < state.Meshes.Count; m++) meshes.Add(state.Meshes[m]);
+            cache.MeshesByModuleId[module.Id] = meshes;
+            if (string.Equals(module.Type, "hanger", StringComparison.Ordinal)) {
+                if (!string.Equals(module.Config.Text("mount"), "post", StringComparison.Ordinal)) {
+                    var run = StationStructureGeometry.HangerCells(module);
+                    int width = Math.Max(1, module.Width);
+                    int[] endpoints = { 0, width - 1 };
+                    for (int e = 0; e < endpoints.Length; e++) {
+                        var cell = run[endpoints[e]];
+                        long col = StationLocalDeltaContext.PackColumn(cell.X, cell.Y);
+                        if (!cache.RoofHangersByColumn.TryGetValue(col, out var set)) {
+                            cache.RoofHangersByColumn[col] = set = new HashSet<string>(StringComparer.Ordinal);
+                        }
+                        set.Add(module.Id);
+                    }
+                }
+            } else if (string.Equals(module.Type, "pillar", StringComparison.Ordinal)) {
+                long col = StationLocalDeltaContext.PackColumn(module.X, module.Y);
+                if (!cache.PillarsByColumn.TryGetValue(col, out var set)) {
+                    cache.PillarsByColumn[col] = set = new HashSet<string>(StringComparer.Ordinal);
+                }
+                set.Add(module.Id);
+            }
+        }
+
+        static void AddRoofFootprintColumns(StationModuleRecord roof, HashSet<long> columns) {
+            if (roof == null || columns == null) return;
+            int width = Math.Max(1, roof.Width), depth = Math.Max(1, roof.Depth);
+            int rotation = ((roof.Rotation % 4) + 4) % 4;
+            for (int i = 0; i < width; i++) {
+                for (int j = 0; j < depth; j++) {
+                    int dx, dy;
+                    switch (rotation) {
+                        case 1: dx = -j; dy = i; break;
+                        case 2: dx = -i; dy = -j; break;
+                        case 3: dx = j; dy = -i; break;
+                        default: dx = i; dy = j; break;
+                    }
+                    columns.Add(StationLocalDeltaContext.PackColumn(roof.X + dx, roof.Y + dy));
                 }
             }
         }
 
-        static void RecordHangerCache(StructureHangerCache cache, ModuleFacts module, WorldState state, int meshesBefore) {
-            if (cache == null || string.IsNullOrEmpty(module?.Id)) return;
-            var meshes = new List<Mesh>(Math.Max(0, state.Meshes.Count - meshesBefore));
-            for (int m = meshesBefore; m < state.Meshes.Count; m++) meshes.Add(state.Meshes[m]);
-            cache.MeshesByHangerId[module.Id] = meshes;
-            if (!string.Equals(module.Config.Text("mount"), "post", StringComparison.Ordinal)) {
-                var run = StationStructureGeometry.HangerCells(module);
-                int width = Math.Max(1, module.Width);
-                int[] endpoints = { 0, width - 1 };
-                for (int e = 0; e < endpoints.Length; e++) {
-                    var cell = run[endpoints[e]];
-                    long col = StationLocalDeltaContext.PackColumn(cell.X, cell.Y);
-                    if (!cache.RoofHangersByColumn.TryGetValue(col, out var set)) {
-                        cache.RoofHangersByColumn[col] = set = new HashSet<string>(StringComparer.Ordinal);
-                    }
-                    set.Add(module.Id);
-                }
+        static void AddBridgeTrackColumns(StationModuleRecord track, HashSet<long> columns) {
+            if (track == null || columns == null) return;
+            var cells = StationFootprints.TrackCells(track);
+            for (int i = 0; i < cells.Length; i++) {
+                columns.Add(StationLocalDeltaContext.PackColumn((int)Math.Round(cells[i].X), (int)Math.Round(cells[i].Y)));
             }
         }
 
@@ -629,42 +696,84 @@ namespace Metro.App.Views {
                 fallbackReason = "no-structure-state";
                 return false;
             }
-            var cache = HangerCacheOf(context.World);
+            var cache = WorldCacheOf(context.World);
             if (cache == null) {
                 if (state.Modules.Count > 0) {
-                    fallbackReason = "no-structure-hanger-cache";
+                    fallbackReason = "no-structure-world-cache";
                     return false;
                 }
-                cache = new StructureHangerCache { World = context.World };
-                hangerCaches.Add(cache);
+                cache = new StructureWorldCache { World = context.World };
+                worldCaches.Add(cache);
             }
 
             var removedIds = new HashSet<string>(StringComparer.Ordinal);
             var dirtyIds = new HashSet<string>(StringComparer.Ordinal);
+            HashSet<long> dirtyRoofColumns = null;
+            HashSet<long> dirtyBridgeColumns = null;
             var delta = context.Delta;
 
             for (int i = 0; i < delta.RemovedModules.Count; i++) {
                 var id = delta.RemovedModules[i];
-                if (!context.PrevIndex.TryGetModule(id, out var oldMod) || oldMod == null || !Owns(oldMod.Type)) continue;
-                if (oldMod.Type != "hanger") {
-                    fallbackReason = "local-module-family:" + oldMod.Type;
-                    return false;
+                if (!context.PrevIndex.TryGetModule(id, out var oldMod) || oldMod == null) continue;
+                if (string.Equals(oldMod.Type, "track", StringComparison.Ordinal) && oldMod.Config.Bool("bridge")) {
+                    AddBridgeTrackColumns(oldMod, dirtyBridgeColumns ??= new HashSet<long>());
+                    continue;
                 }
+                if (!Owns(oldMod.Type)) continue;
                 removedIds.Add(id);
+                if (string.Equals(oldMod.Type, "roof", StringComparison.Ordinal)) {
+                    AddRoofFootprintColumns(oldMod, dirtyRoofColumns ??= new HashSet<long>());
+                }
             }
             for (int i = 0; i < delta.ChangedModules.Count; i++) {
                 var mod = delta.ChangedModules[i];
-                if (mod == null || !Owns(mod.Type)) continue;
-                if (mod.Type != "hanger") {
-                    fallbackReason = "local-module-family:" + mod.Type;
-                    return false;
+                if (mod == null) continue;
+                if (string.Equals(mod.Type, "track", StringComparison.Ordinal)) {
+                    if (mod.Config.Bool("bridge")) {
+                        AddBridgeTrackColumns(mod, dirtyBridgeColumns ??= new HashSet<long>());
+                    }
+                    if (context.PrevIndex.TryGetModule(mod.Id, out var prevTrack) && prevTrack != null &&
+                        string.Equals(prevTrack.Type, "track", StringComparison.Ordinal) && prevTrack.Config.Bool("bridge")) {
+                        AddBridgeTrackColumns(prevTrack, dirtyBridgeColumns ??= new HashSet<long>());
+                    }
+                    continue;
                 }
+                if (!Owns(mod.Type)) continue;
                 dirtyIds.Add(mod.Id);
+                if (string.Equals(mod.Type, "roof", StringComparison.Ordinal)) {
+                    AddRoofFootprintColumns(mod, dirtyRoofColumns ??= new HashSet<long>());
+                    if (context.PrevIndex.TryGetModule(mod.Id, out var prevRoof) && prevRoof != null &&
+                        string.Equals(prevRoof.Type, "roof", StringComparison.Ordinal)) {
+                        AddRoofFootprintColumns(prevRoof, dirtyRoofColumns);
+                    }
+                }
             }
 
             if (context.CellsChanged && cache.RoofHangersByColumn.Count > 0) {
                 foreach (long col in context.TouchedColumns) {
                     if (!cache.RoofHangersByColumn.TryGetValue(col, out var ids)) continue;
+                    foreach (var id in ids) {
+                        if (!removedIds.Contains(id) && context.NextIndex.TryGetModule(id, out _)) {
+                            dirtyIds.Add(id);
+                        }
+                    }
+                }
+            }
+
+            if (dirtyRoofColumns != null && cache.RoofHangersByColumn.Count > 0) {
+                foreach (long col in dirtyRoofColumns) {
+                    if (!cache.RoofHangersByColumn.TryGetValue(col, out var ids)) continue;
+                    foreach (var id in ids) {
+                        if (!removedIds.Contains(id) && context.NextIndex.TryGetModule(id, out _)) {
+                            dirtyIds.Add(id);
+                        }
+                    }
+                }
+            }
+
+            if (dirtyBridgeColumns != null && cache.PillarsByColumn.Count > 0) {
+                foreach (long col in dirtyBridgeColumns) {
+                    if (!cache.PillarsByColumn.TryGetValue(col, out var ids)) continue;
                     foreach (var id in ids) {
                         if (!removedIds.Contains(id) && context.NextIndex.TryGetModule(id, out _)) {
                             dirtyIds.Add(id);
@@ -680,24 +789,54 @@ namespace Metro.App.Views {
                 for (int slot = 0; slot < StationMaterials.Colours.Length; slot++) state.Materials.Add(state.Palette[slot]);
             }
 
-            var backing = dirtyIds.Count > 0 ? new HangerBackingIndex(context.NextIndex, null, null) : null;
+            HangerBackingIndex backing = null;
             var grid = StationLevelGrid.FromDocument(context.NextDocument.LevelBase, context.NextDocument.StoreyHeight);
             var retiredIds = new HashSet<string>(removedIds, StringComparer.Ordinal);
-            var staged = new List<(ModuleFacts Module, GameObject Root, List<Mesh> Meshes, StationViewRecord Record, long[] EndpointColumns)>(dirtyIds.Count);
+            var staged = new List<(ModuleFacts Module, string Kind, GameObject Root, List<Mesh> Meshes, StationViewRecord Record, long[] EndpointColumns, long? PillarColumn)>(dirtyIds.Count);
 
             try {
                 foreach (var id in dirtyIds) {
                     retiredIds.Add(id);
-                    if (!context.NextIndex.TryGetModule(id, out var record) || record == null || record.Type != "hanger") continue;
+                    if (!context.NextIndex.TryGetModule(id, out var record) || record == null || !Owns(record.Type)) continue;
                     var module = record.Facts;
-                    var parts = BuildHangerParts(module, backing, state);
-                    var root = new GameObject((string.IsNullOrEmpty(module.Id) ? "hanger" : module.Id) + " hanger");
+                    StructureParts parts;
+                    string kind;
+                    bool turn = true;
+                    long[] endpointCols = null;
+                    long? pillarCol = null;
+
+                    if (string.Equals(module.Type, "roof", StringComparison.Ordinal)) {
+                        kind = "roof";
+                        parts = BuildRoofParts(module, context.World.Shader, state, state.Palette,
+                            context.ReportUnresolved, out _, out _, out _, out _);
+                    } else if (string.Equals(module.Type, "pillar", StringComparison.Ordinal)) {
+                        kind = "pillar";
+                        parts = BuildPillarParts(module, context.NextIndex, null, context.World.Shader, state, state.Palette,
+                            context.ReportUnresolved, out bool thick, out _, out _, out _);
+                        turn = thick;
+                        pillarCol = StationLocalDeltaContext.PackColumn(module.X, module.Y);
+                    } else {
+                        kind = "hanger";
+                        backing ??= new HangerBackingIndex(context.NextIndex, null, null);
+                        parts = BuildHangerParts(module, backing, context.World.Shader, state, state.Palette,
+                            context.ReportUnresolved, out _);
+                        if (!string.Equals(module.Config.Text("mount"), "post", StringComparison.Ordinal)) {
+                            var run = StationStructureGeometry.HangerCells(module);
+                            int width = Math.Max(1, module.Width);
+                            endpointCols = new[] {
+                                StationLocalDeltaContext.PackColumn(run[0].X, run[0].Y),
+                                StationLocalDeltaContext.PackColumn(run[width - 1].X, run[width - 1].Y),
+                            };
+                        }
+                    }
+
+                    var root = new GameObject((string.IsNullOrEmpty(module.Id) ? kind : module.Id) + " " + kind);
                     root.transform.SetParent(context.StagingRoot, false);
                     root.transform.SetPositionAndRotation(
                         StationCoordinates.Point(new Vector3(module.X + .5f, module.Y + .5f, module.Z + 1f)),
-                        ModulePlacement.Rotation(module.Rotation));
+                        turn ? ModulePlacement.Rotation(module.Rotation) : Quaternion.identity);
                     var meshes = new List<Mesh>(4);
-                    parts.Emit(root.transform, meshes, "hanger");
+                    parts.Emit(root.transform, meshes, kind);
                     var bands = StationModuleLevels.Of(module, grid);
                     int levelMin = bands.Length > 0 ? bands[0] : module.Z;
                     int levelMax = bands.Length > 0 ? bands[bands.Length - 1] : levelMin;
@@ -705,7 +844,7 @@ namespace Metro.App.Views {
                     var viewRecord = new StationViewRecord {
                         Role = Role,
                         ModuleId = module.Id,
-                        Part = "hanger",
+                        Part = kind,
                         View = root,
                         Bounds = hasBounds ? bounds : BoxOf(module),
                         HasBounds = true,
@@ -713,19 +852,10 @@ namespace Metro.App.Views {
                         LevelMax = levelMax,
                         LevelBands = bands,
                     };
-                    long[] endpointCols = null;
-                    if (!string.Equals(module.Config.Text("mount"), "post", StringComparison.Ordinal)) {
-                        var run = StationStructureGeometry.HangerCells(module);
-                        int width = Math.Max(1, module.Width);
-                        endpointCols = new[] {
-                            StationLocalDeltaContext.PackColumn(run[0].X, run[0].Y),
-                            StationLocalDeltaContext.PackColumn(run[width - 1].X, run[width - 1].Y),
-                        };
-                    }
                     StationEditTrace.AddInstantiatedPrefab();
-                    staged.Add((module, root, meshes, viewRecord, endpointCols));
+                    staged.Add((module, kind, root, meshes, viewRecord, endpointCols, pillarCol));
                 }
-                stage = new StagedHangerDelta(state, cache, retiredIds, staged);
+                stage = new StagedStructureDelta(state, cache, retiredIds, staged);
                 return true;
             } catch {
                 for (int i = 0; i < staged.Count; i++) {
@@ -738,7 +868,8 @@ namespace Metro.App.Views {
             }
         }
 
-        StructureParts BuildHangerParts(ModuleFacts module, HangerBackingIndex backing, WorldState state) {
+        StructureParts BuildHangerParts(ModuleFacts module, HangerBackingIndex backing, Shader shader, WorldState state,
+            StationMaterials palette, Action<string, string, string, string> reportUnresolved, out string endpointSummary) {
             var parts = new StructureParts();
             int width = Math.Max(1, module.Width);
             string mount = module.Config.Text("mount");
@@ -746,8 +877,8 @@ namespace Metro.App.Views {
             bool isPost = string.Equals(mount, "post", StringComparison.Ordinal);
             float barTop = isRoof ? StationStructureGeometry.HangerBarTop : StationStructureGeometry.HangerPostBarTop;
             float centre = (width - 1) * .5f;
-            var steel = state.Palette != null ? state.Palette[StationMaterials.Steel] : null;
-            if (!steel && state.Finishes != null) steel = state.Finishes.For(StationStructureGeometry.DefaultRoofFinish);
+            var steel = palette != null ? palette[StationMaterials.Steel] : null;
+            if (!steel) steel = FinishMaterial(shader, state, StationStructureGeometry.DefaultRoofFinish, reportUnresolved);
 
             parts.Box(steel,
                 new Vector3(centre, 0f, barTop - StationStructureGeometry.HangerBarDepth * .5f),
@@ -760,33 +891,38 @@ namespace Metro.App.Views {
                 parts.Box(steel,
                     new Vector3(centre, StationStructureGeometry.HangerPostOffset, .025f),
                     new Vector3(.36f, .36f, .05f));
+                endpointSummary = "post";
             } else {
                 var run = StationStructureGeometry.HangerCells(module);
                 int[] endpoints = { 0, width - 1 };
+                double end0 = 0, end1 = 0;
                 for (int e = 0; e < endpoints.Length; e++) {
                     int index = endpoints[e];
                     var cell = run[index];
                     double roofZ = backing.RoofZ(module, cell.X, cell.Y) ?? (module.Z + 5d);
+                    if (e == 0) end0 = roofZ; else end1 = roofZ;
                     float height = Mathf.Max(0f, (float)(roofZ - (module.Z + 1d + barTop)));
                     if (height > 0f) {
                         parts.Box(steel, new Vector3(index, 0f, barTop + height * .5f), new Vector3(.08f, .08f, height));
                     }
                     parts.Box(steel, new Vector3(index, 0f, barTop), new Vector3(.3f, .3f, .04f));
                 }
+                endpointSummary = "roofZ=" + end0.ToString("0.###", CultureInfo.InvariantCulture) + "," +
+                    end1.ToString("0.###", CultureInfo.InvariantCulture);
             }
             return parts;
         }
 
         /// <summary>The world's finish library, acquired on first need like the cell mesher's.</summary>
-        Material FinishMaterial(StationViewBuildContext context, WorldState state, string id) {
-            if (state.Finishes == null && context.Shader != null) {
-                state.Finishes = StationCellRenderer.AcquireLibrary(context.Shader);
+        Material FinishMaterial(Shader shader, WorldState state, string id, Action<string, string, string, string> reportUnresolved) {
+            if (state.Finishes == null && shader != null) {
+                state.Finishes = StationCellRenderer.AcquireLibrary(shader);
             }
             var material = state.Finishes != null ? state.Finishes.For(id) : null;
             if (material) return material;
             if (!finishMissingReported) {
                 finishMissingReported = true;
-                context.ReportUnresolved("finish-library-missing", "structure", id,
+                reportUnresolved?.Invoke("finish-library-missing", "structure", id,
                     "the station finish library is not staged, so '" + id +
                     "' resolves to the palette; run `node tools/unity-assets/export-station-finishes.mjs --stage unity/Assets/Resources/StationFinishes`.");
             }
@@ -797,15 +933,16 @@ namespace Metro.App.Views {
 
         /* ------------------------------------------------------------------ roof */
 
-        void BuildRoof(StationViewBuildContext context, ModuleFacts module, WorldState state,
-            StationMaterials palette, StationLevelGrid grid) {
+        StructureParts BuildRoofParts(ModuleFacts module, Shader shader, WorldState state, StationMaterials palette,
+            Action<string, string, string, string> reportUnresolved,
+            out string variant, out string finishId, out float length, out float width) {
             var parts = new StructureParts();
-            float length = Math.Max(1, module.Width);
-            float width = Math.Max(1, module.Depth);
-            string variant = module.Config.Text("variant");
-            string finishId = module.Config.Text("finish");
+            length = Math.Max(1, module.Width);
+            width = Math.Max(1, module.Depth);
+            variant = module.Config.Text("variant");
+            finishId = module.Config.Text("finish");
             if (finishId.Length == 0) finishId = StationStructureGeometry.DefaultRoofFinish;
-            var sheet = FinishMaterial(context, state, finishId);
+            var sheet = FinishMaterial(shader, state, finishId, reportUnresolved);
             if (!sheet && palette != null) sheet = palette[StationMaterials.Platform];
             var steel = palette != null ? palette[StationMaterials.Steel] : null;
             if (!steel) steel = sheet;
@@ -824,7 +961,8 @@ namespace Metro.App.Views {
                 float drop = canopy ? StationStructureGeometry.CanopyRoofDrop : 0f;
                 float ridgeZ = StationStructureGeometry.TrussRoofRidge(width) - drop;
                 float eaveZ = StationStructureGeometry.TrussRoofEave - drop;
-                float upper(float y) => ridgeZ - (ridgeZ - eaveZ) * Mathf.Abs(y - crestY) / (width * .5f);
+                float localWidth = width;
+                float upper(float y) => ridgeZ - (ridgeZ - eaveZ) * Mathf.Abs(y - crestY) / (localWidth * .5f);
                 float lowerZ = StationStructureGeometry.TrussRoofBase + StationStructureGeometry.TrussRoofChord * .5f;
                 float skin = StationStructureGeometry.TrussRoofSkin;
                 // Two continuous sheet runs with the crest along the run's own axis. Each sheet
@@ -897,6 +1035,13 @@ namespace Metro.App.Views {
                     }
                 }
             }
+            return parts;
+        }
+
+        void BuildRoof(StationViewBuildContext context, ModuleFacts module, WorldState state,
+            StationMaterials palette, StationLevelGrid grid) {
+            var parts = BuildRoofParts(module, context.Shader, state, palette, context.ReportUnresolved,
+                out var variant, out var finishId, out float length, out float width);
             Emit(context, state, module, grid, parts, "roof");
             RoofNotes.Add(module.Id + " variant=" + (variant.Length == 0 ? "flat" : variant) +
                 " bay=" + length.ToString("0.##", CultureInfo.InvariantCulture) + "x" +
@@ -906,22 +1051,26 @@ namespace Metro.App.Views {
 
         /* ---------------------------------------------------------------- pillar */
 
-        void BuildPillar(StationViewBuildContext context, ModuleFacts module, ModuleFacts[] station, WorldState state,
-            StationMaterials palette, StationLevelGrid grid) {
+        StructureParts BuildPillarParts(ModuleFacts module, StationIndex index, IReadOnlyList<ModuleFacts> station,
+            Shader shader, WorldState state, StationMaterials palette,
+            Action<string, string, string, string> reportUnresolved,
+            out bool thick, out float h, out ModuleFacts bridge, out string finishId) {
             var parts = new StructureParts();
-            bool thick = module.Config.Text("size") == "thick";
+            thick = module.Config.Text("size") == "thick";
             float w = StationStructureGeometry.PillarWidth(module);
             var offset = StationStructureGeometry.PillarOffset(module);
-            var bridge = StationStructureGeometry.BridgeFor(module, station);
-            float h = bridge != null
+            bridge = index != null
+                ? StationStructureGeometry.BridgeFor(module, index)
+                : StationStructureGeometry.BridgeFor(module, station);
+            h = bridge != null
                 // `bridge.z − BRIDGE_DECK_DEPTH − mod.z − 1`: the shaft meets the deck's underside.
                 ? bridge.Z - StationStructureGeometry.BridgeDeckDepth - module.Z - 1f
                 : StationStructureGeometry.PillarHeight(module);
             if (h < .1f) h = .1f;
-            string finishId = module.Config.Text("finish");
+            finishId = module.Config.Text("finish");
             if (finishId.Length == 0) finishId = StationStructureGeometry.DefaultRoofFinish;
             var shaftMaterial = thick
-                ? FinishMaterial(context, state, finishId) ?? (palette != null ? palette[StationMaterials.Platform] : null)
+                ? FinishMaterial(shader, state, finishId, reportUnresolved) ?? (palette != null ? palette[StationMaterials.Platform] : null)
                 : palette != null ? palette[StationMaterials.Dark] : null;
             var collarMaterial = palette != null ? palette[StationMaterials.Steel] : shaftMaterial;
             if (!shaftMaterial) shaftMaterial = collarMaterial;
@@ -951,6 +1100,13 @@ namespace Metro.App.Views {
                         new Vector3(w, w, .1f));
                 }
             }
+            return parts;
+        }
+
+        void BuildPillar(StationViewBuildContext context, ModuleFacts module, ModuleFacts[] station, WorldState state,
+            StationMaterials palette, StationLevelGrid grid) {
+            var parts = BuildPillarParts(module, context.Index, station, context.Shader, state, palette,
+                context.ReportUnresolved, out bool thick, out float h, out var bridge, out var finishId);
             // `placeLocal(mod.cfg.size === 'slim' ? { ...mod, rot: 0 } : mod)`: a slim pillar's
             // in-cell spot is its turn, so the model must not turn about the origin as well.
             bool turn = thick;
@@ -965,47 +1121,11 @@ namespace Metro.App.Views {
 
         void BuildHanger(StationViewBuildContext context, ModuleFacts module, HangerBackingIndex backing,
             WorldState state, StationMaterials palette, StationLevelGrid grid) {
-            var parts = new StructureParts();
             int width = Math.Max(1, module.Width);
             string mount = module.Config.Text("mount");
             bool isRoof = string.Equals(mount, "roof", StringComparison.Ordinal);
-            bool isPost = string.Equals(mount, "post", StringComparison.Ordinal);
             float barTop = isRoof ? StationStructureGeometry.HangerBarTop : StationStructureGeometry.HangerPostBarTop;
-            float centre = (width - 1) * .5f;
-            var steel = palette != null ? palette[StationMaterials.Steel] : null;
-            if (!steel) steel = FinishMaterial(context, state, StationStructureGeometry.DefaultRoofFinish);
-
-            parts.Box(steel,
-                new Vector3(centre, 0f, barTop - StationStructureGeometry.HangerBarDepth * .5f),
-                new Vector3(width, StationStructureGeometry.HangerBarDepth, StationStructureGeometry.HangerBarDepth));
-
-            string endpointSummary;
-            if (isPost) {
-                parts.Box(steel,
-                    new Vector3(centre, StationStructureGeometry.HangerPostOffset, StationStructureGeometry.HangerPostBarTop * .5f),
-                    new Vector3(StationStructureGeometry.HangerPostWidth, StationStructureGeometry.HangerPostWidth, StationStructureGeometry.HangerPostBarTop));
-                parts.Box(steel,
-                    new Vector3(centre, StationStructureGeometry.HangerPostOffset, .025f),
-                    new Vector3(.36f, .36f, .05f));
-                endpointSummary = "post";
-            } else {
-                var run = StationStructureGeometry.HangerCells(module);
-                int[] endpoints = { 0, width - 1 };
-                double end0 = 0, end1 = 0;
-                for (int e = 0; e < endpoints.Length; e++) {
-                    int index = endpoints[e];
-                    var cell = run[index];
-                    double roofZ = backing.RoofZ(module, cell.X, cell.Y) ?? (module.Z + 5d);
-                    if (e == 0) end0 = roofZ; else end1 = roofZ;
-                    float height = Mathf.Max(0f, (float)(roofZ - (module.Z + 1d + barTop)));
-                    if (height > 0f) {
-                        parts.Box(steel, new Vector3(index, 0f, barTop + height * .5f), new Vector3(.08f, .08f, height));
-                    }
-                    parts.Box(steel, new Vector3(index, 0f, barTop), new Vector3(.3f, .3f, .04f));
-                }
-                endpointSummary = "roofZ=" + end0.ToString("0.###", CultureInfo.InvariantCulture) + "," +
-                    end1.ToString("0.###", CultureInfo.InvariantCulture);
-            }
+            var parts = BuildHangerParts(module, backing, context.Shader, state, palette, context.ReportUnresolved, out var endpointSummary);
 
             Emit(context, state, module, grid, parts, "hanger");
             HangerNotes.Add(module.Id + " mount=" + (mount.Length == 0 ? "post" : mount) +
@@ -1027,7 +1147,9 @@ namespace Metro.App.Views {
                 turn ? ModulePlacement.Rotation(module.Rotation) : Quaternion.identity);
             parts.Emit(root.transform, state.Meshes, kind);
             state.Count++;
-            state.Modules.Add(new BuiltModule { ModuleId = module.Id, Type = module.Type, View = root, Key = "generated:" + kind });
+            var built = new BuiltModule { ModuleId = module.Id, Type = module.Type, View = root, Key = "generated:" + kind };
+            state.Modules.Add(built);
+            if (!string.IsNullOrEmpty(module.Id)) state.ById[module.Id] = built;
             var bands = StationModuleLevels.Of(module, grid);
             int levelMin = bands.Length > 0 ? bands[0] : module.Z;
             int levelMax = bands.Length > 0 ? bands[bands.Length - 1] : levelMin;

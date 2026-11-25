@@ -665,10 +665,12 @@ export function reduce(current: StationSnapshot, reply: Reply): StationSnapshot 
     // longer has to wait for the next 100 ms state interval to hear the result (plan 29 §5).
     const camera = payload.camera
     const view = payload.view
-    if (kind === 'ack' && (camera !== undefined || view !== undefined)) {
+    const edit = payload.edit
+    if (kind === 'ack' && (camera !== undefined || view !== undefined || edit !== undefined)) {
       const state: Record<string, unknown> = { ...current.state }
       if (camera !== undefined) state.camera = camera
       if (view !== undefined) state.view = view
+      if (edit !== undefined) state.edit = edit
       if (typeof payload.level === 'number') state.level = payload.level
       next.state = state
     }

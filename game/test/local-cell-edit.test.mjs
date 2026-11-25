@@ -40,8 +40,10 @@ test('bounded immutable cell deltas share cached verdicts and reject structural/
   assert.deepEqual(localCellEdit(before,after),{removed:[],added:[cell]})
   assert.equal(localCellEdit(before,after),localCellEdit(before,after))
   assert.deepEqual(localCellEdit(after,before),{removed:[cell],added:[]})
+  const groundCell={...cell,z:0}
+  assert.deepEqual(localCellEdit(before,{...before,cells:[...before.cells,groundCell]}),{removed:[],added:[groundCell]})
   for(const next of [{...after,modules:[]},{...after,levelBase:1},{...after,storeyHeight:6},
-    {...before,cells:[...before.cells,{...cell,z:0}]},{...before,cells:[...before.cells,{...cell,x:500}]},
+    {...before,cells:[...before.cells,{...cell,x:500}]},
     {...before,cells:[...before.cells,...Array.from({length:257},(_,i)=>({...cell,x:i}))]}])assert.equal(localCellEdit(before,next),null)
 })
 

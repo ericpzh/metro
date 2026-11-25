@@ -13,21 +13,31 @@ import { exitHeaderScale } from '../../exitHeaderResolution.ts'
 // them.
 
 import * as THREE from 'three'
-import { movedGuidepostIds, translatedWalkwayIds } from '../../moduleDependencies.ts'
+import {
+  cellEditInvalidatedModules,
+  changedModules,
+  isEquipmentContentEdit,
+  moduleEditDelta,
+  movedGuidepostIds,
+  retainedModuleIds,
+  sameModuleMetadata,
+  signBoardsOnlyChange,
+  translatedWalkwayIds,
+} from '../../moduleDependencies.ts'
 
 import { batchStaticModule } from '../../batchStaticModule.ts'
 import { batchPlatformDoors } from '../../trainBatches.ts'
-import { EquipmentBatches } from '../../equipmentBatches.ts'
+import { EquipmentBatches, type EquipmentSyncDelta } from '../../equipmentBatches.ts'
 import { SourceGeometryDetail } from '../../sourceGeometryDetail.ts'
 import { detailHeight } from '../../detailPolicy.ts'
 import { ghostMaterial } from '../../materials.ts'
 import { canRetainPaintedModules } from '../../retainPaintedModules.ts'
-import { retainedModuleIds, sameModuleMetadata, signBoardsOnlyChange, isEquipmentContentEdit } from '../../moduleDependencies.ts'
-import { groundWindow } from '../../../sim/ground.ts'
+import { groundWindow, GROUND_Z } from '../../../sim/ground.ts'
 import { getLanguage } from '../../../sim/i18n.ts'
 import { populationEdit } from '../../../sim/populationEdit.ts'
 import { presentationKeepIds } from '../../presentationEdit.ts'
 import { prepareArtwork, repaintArtwork } from '../../artwork.ts'
+import { localCellEdit } from '../../localCellEdit.ts'
 import {
   buildModule,
   disposeObject,
@@ -40,7 +50,7 @@ import { blobRadius, moduleLevels, SceneSystem } from './SceneSystem.ts'
 import { OUTDOOR_SURFACE_HEIGHT, STOREY_HEIGHT } from '../../../sim/constants.ts'
 import { SurfaceBatches, SURFACE_BUCKET_SIZE } from '../../surfaceBatches.ts'
 import type { SceneContext } from './SceneSystem.ts'
-import type { Module, StationData } from '../../../sim/types.ts'
+import { packKey, type Module, type StationData } from '../../../sim/types.ts'
 import type { TrainSystem } from './TrainSystem.ts'
 import type { LiftSystem } from './LiftSystem.ts'
 import type { CrowdSystem } from './CrowdSystem.ts'
@@ -48,8 +58,6 @@ import type { PlateSystem } from './PlateSystem.ts'
 import type { ClockSystem } from './ClockSystem.ts'
 import { TV_FIRST_SWAP_MS, TV_SWAP_JITTER_MS } from './PlateSystem.ts'
 import type { GhostSystem } from './GhostSystem.ts'
-import { fenceConnectionIndex } from '../../../sim/fences.ts'
-import { GROUND_Z } from '../../../sim/ground.ts'
 
 class ModuleRenderGroup extends THREE.Group {
   withVisibleRoots(draw: () => void): void {
@@ -108,6 +116,7 @@ export class ModuleSystem extends SceneSystem {
   retainPaintedModules(data: StationData): boolean {
     if (!this.builtData || this.builtLanguage !== getLanguage() || !canRetainPaintedModules(this.builtData, data)) return false
     this.builtData = data
+    this.dirtyLevelRoots = new Set()
     return true
   }
 
@@ -156,21 +165,130 @@ export class ModuleSystem extends SceneSystem {
   readonly moduleMeshes = new ModuleRenderGroup()
   readonly moduleRootsById = new Map<string, THREE.Object3D>()
   readonly roadTrafficRoots = new Set<THREE.Object3D>()
+  /** Non-surface children of `moduleMeshes`, in child order (equipment + contact blobs). */
+  readonly equipmentRoots: THREE.Object3D[] = []
+  /** Non-surface, non-blob module roots for fast transform checks and source detail. */
+  private readonly moduleEquipmentRoots: THREE.Object3D[] = []
+  private readonly contactBlobsByKey = new Map<string, THREE.InstancedMesh>()
+  private readonly blobKeyByModuleId = new Map<string, string>()
   /** The instanced 草坪 / 人行道 layer: no per-tile mesh, source or contact blob. */
   readonly surfaces = new SurfaceBatches()
   /** Bumped when a paving tile root is built or dropped. */
   private surfaceRevision = 0
   readonly retainedLevelRoots = new Set<THREE.Object3D>()
+  /** When non-null after a delta build, only these roots need level/clip updates on the same view. */
+  dirtyLevelRoots: Set<THREE.Object3D> | null = null
   readonly batches = new EquipmentBatches()
   private readonly sourceDetail = new SourceGeometryDetail(true)
   private retainedBatches = false
   private batchView = ''
+  private builtByType = new Map<Module['type'], Module[]>()
+  private builtNonSurface: Module[] = []
+  private builtSurfacesByXY: Map<number, Module[]> | null = null
+  private builtIndexSource: readonly Module[] | null = null
+  private equipmentGenerationRev = 0
+  private pendingBatchDelta: { removed: Set<THREE.Object3D>; added: Set<THREE.Object3D>; appended: boolean } | null = null
+  private batchDeltaValid = false
+  private rootSnapshots = new WeakMap<THREE.Object3D, {
+    px: number; py: number; pz: number
+    rx: number; ry: number; rz: number
+    sx: number; sy: number; sz: number
+    vis: boolean; levelZs: unknown; groundBand: number | undefined
+  }>()
   private movingModuleId: string | null = null
   private movingRoot: THREE.Object3D | null = null
   private movingVisible = false
   private movingBlob: { mesh: THREE.InstancedMesh; index: number; matrix: THREE.Matrix4 } | null = null
   private previewRoots: readonly THREE.Object3D[] = []
   private previewVisibility = new Map<THREE.Object3D, boolean>()
+
+  private static packableXY(x: number, y: number): boolean {
+    return Number.isInteger(x) && Number.isInteger(y) && x >= -4096 && x <= 4095 && y >= -4096 && y <= 4095
+  }
+
+  private surfaceAtXY(x: number, y: number): readonly Module[] | undefined {
+    if (!this.builtSurfacesByXY || !ModuleSystem.packableXY(x, y)) return undefined
+    return this.builtSurfacesByXY.get(packKey(x, y, 0))
+  }
+
+  private rebuildBuiltIndex(modules: readonly Module[]): void {
+    this.builtByType.clear()
+    this.builtNonSurface = []
+    let surfacesByXY: Map<number, Module[]> | null = new Map()
+    for (let i = 0; i < modules.length; i++) {
+      const mod = modules[i]
+      let list = this.builtByType.get(mod.type)
+      if (!list) this.builtByType.set(mod.type, list = [])
+      list.push(mod)
+      if (isOutdoorSurface(mod)) {
+        if (surfacesByXY) {
+          if (!ModuleSystem.packableXY(mod.x, mod.y)) surfacesByXY = null
+          else {
+            const k = packKey(mod.x, mod.y, 0)
+            let slot = surfacesByXY.get(k)
+            if (!slot) surfacesByXY.set(k, slot = [])
+            slot.push(mod)
+          }
+        }
+      } else {
+        this.builtNonSurface.push(mod)
+      }
+    }
+    this.builtSurfacesByXY = surfacesByXY
+    this.builtIndexSource = modules
+  }
+
+  private patchBuiltIndex(goneModules: readonly Module[], rebuild: readonly Module[], nextModules: readonly Module[]): void {
+    if (goneModules.length > 0) {
+      const goneIds = new Set<string>()
+      const affectedTypes = new Set<Module['type']>()
+      let hadNonSurface = false
+      for (const old of goneModules) {
+        goneIds.add(old.id)
+        affectedTypes.add(old.type)
+        if (isOutdoorSurface(old)) {
+          if (this.builtSurfacesByXY && ModuleSystem.packableXY(old.x, old.y)) {
+            const k = packKey(old.x, old.y, 0)
+            const slot = this.builtSurfacesByXY.get(k)
+            if (slot) {
+              const filtered = slot.filter(m => !goneIds.has(m.id))
+              if (filtered.length) this.builtSurfacesByXY.set(k, filtered)
+              else this.builtSurfacesByXY.delete(k)
+            }
+          }
+        } else {
+          hadNonSurface = true
+        }
+      }
+      for (const type of affectedTypes) {
+        const list = this.builtByType.get(type)
+        if (!list) continue
+        const filtered = list.filter(m => !goneIds.has(m.id))
+        if (filtered.length) this.builtByType.set(type, filtered)
+        else this.builtByType.delete(type)
+      }
+      if (hadNonSurface) this.builtNonSurface = this.builtNonSurface.filter(m => !goneIds.has(m.id))
+    }
+    for (const mod of rebuild) {
+      let list = this.builtByType.get(mod.type)
+      if (!list) this.builtByType.set(mod.type, list = [])
+      list.push(mod)
+      if (isOutdoorSurface(mod)) {
+        if (this.builtSurfacesByXY) {
+          if (!ModuleSystem.packableXY(mod.x, mod.y)) this.builtSurfacesByXY = null
+          else {
+            const k = packKey(mod.x, mod.y, 0)
+            let slot = this.builtSurfacesByXY.get(k)
+            if (!slot) this.builtSurfacesByXY.set(k, slot = [])
+            slot.push(mod)
+          }
+        }
+      } else {
+        this.builtNonSurface.push(mod)
+      }
+    }
+    this.builtIndexSource = nextModules
+  }
 
   restoreMovingModule(): void {
     if (this.movingBlob) {
@@ -209,18 +327,23 @@ export class ModuleSystem extends SceneSystem {
       this.movingVisible = root.visible
       root.visible = false
     }
-    if (this.movingModuleId !== null) for (const child of this.moduleMeshes.children) {
-      const ids = child.userData.contactBlobIds as string[] | undefined
-      const index = ids?.indexOf(this.movingModuleId) ?? -1
-      if (index < 0) continue
-      const mesh = child as THREE.InstancedMesh
-      const matrix = new THREE.Matrix4()
-      mesh.getMatrixAt(index, matrix)
-      this.movingBlob = { mesh, index, matrix }
-      mesh.setMatrixAt(index, new THREE.Matrix4().makeScale(0, 0, 0))
-      mesh.instanceMatrix.addUpdateRange(index * 16, 16)
-      mesh.instanceMatrix.needsUpdate = true
-      break
+    if (this.movingModuleId !== null) {
+      const key = this.blobKeyByModuleId.get(this.movingModuleId)
+      const candidates = key && this.contactBlobsByKey.has(key)
+        ? [this.contactBlobsByKey.get(key)!]
+        : this.contactBlobsByKey.values()
+      for (const mesh of candidates) {
+        const ids = mesh.userData.contactBlobIds as string[] | undefined
+        const index = ids?.indexOf(this.movingModuleId) ?? -1
+        if (index < 0) continue
+        const matrix = new THREE.Matrix4()
+        mesh.getMatrixAt(index, matrix)
+        this.movingBlob = { mesh, index, matrix }
+        mesh.setMatrixAt(index, new THREE.Matrix4().makeScale(0, 0, 0))
+        mesh.instanceMatrix.addUpdateRange(index * 16, 16)
+        mesh.instanceMatrix.needsUpdate = true
+        break
+      }
     }
     for (const preview of this.previewRoots) {
       if (preview === root) continue // The moving piece already owns its saved visibility.
@@ -232,14 +355,14 @@ export class ModuleSystem extends SceneSystem {
   }
 
   syncBatches(): void {
-    const batchView=`${this.ctx.activeZ}|${this.ctx.ghost}|${this.ctx.autoCeiling}|${this.ctx.hideWalls}|${this.ctx.hideGround}|${this.ctx.hideRoof}|${this.ctx.hideUI}|${this.ctx.cutaway}|${this.ctx.graphicsQuality}|${this.ctx.detailEnabled}|${this.surfaceRevision}`
-    if(this.retainedBatches&&this.batchView===batchView){
+    const batchView = `${this.ctx.activeZ}|${this.ctx.ghost}|${this.ctx.autoCeiling}|${this.ctx.hideWalls}|${this.ctx.hideGround}|${this.ctx.hideRoof}|${this.ctx.hideUI}|${this.ctx.cutaway}|${this.ctx.graphicsQuality}|${this.ctx.detailEnabled}|${this.surfaceRevision}`
+    if (this.retainedBatches && this.batchView === batchView) {
       this.restoreMovingModule()
       this.applyMovingModule()
       this.ghost?.refreshFencePreviewLevels?.()
       return
     }
-    this.batchView=batchView
+    this.batchView = batchView
     this.sourceDetail.restore()
     this.restoreMovingModule()
     this.batches.activeZ = this.ctx.activeZ
@@ -249,15 +372,70 @@ export class ModuleSystem extends SceneSystem {
     // A cell-only edit with identical roots/slice need not walk or copy them again.
     const view = `${this.ctx.activeZ}|${this.ctx.ghost}|${this.ctx.autoCeiling}|${this.ctx.hideWalls}|${this.ctx.hideGround}|${this.ctx.hideRoof}|${this.ctx.hideUI}|${this.ctx.cutaway}|${this.ctx.graphicsQuality ?? 'high'}`
     // Paving has its own revision and visibility key in SurfaceBatches.
-    // Empty tile roots contribute no equipment source or atlas texture.
-    const equipmentRoots = this.moduleMeshes.children.filter(g => g.userData.surfaceTile !== true)
-    const roots = equipmentRoots.filter(g => typeof g.userData.moduleId === 'string')
-      .map(g => `${g.uuid}:${g.position.toArray()}:${g.rotation.toArray()}:${g.scale.toArray()}:${g.userData.levelZs}:${g.userData.groundBand}`).join('|')
-    const visibility = equipmentRoots.map(g => +g.visible).join('')
+    // Scan only non-surface equipment roots with zero string/array allocations
+    // so both external transform edits and visibility changes stay exact.
+    const delta = this.batchDeltaValid ? this.pendingBatchDelta : null
+    let externalTransformChange = false
+    let nonDeltaVisChange = false
+    let visHash = 2166136261
+    let visCount = 0
+    const sameLevels = (a: unknown, b: unknown): boolean => {
+      if (a === b) return true
+      if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false
+      for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false
+      return true
+    }
+    for (let i = 0; i < this.moduleEquipmentRoots.length; i++) {
+      const g = this.moduleEquipmentRoots[i]
+      const px = g.position.x, py = g.position.y, pz = g.position.z
+      const rx = g.rotation.x, ry = g.rotation.y, rz = g.rotation.z
+      const sx = g.scale.x, sy = g.scale.y, sz = g.scale.z
+      const vis = g.visible
+      const lz = g.userData.levelZs
+      const gb = g.userData.groundBand as number | undefined
+      if (vis) {
+        visCount++
+        visHash = Math.imul(visHash ^ (i + 1), 16777619)
+      }
+      const snap = this.rootSnapshots.get(g)
+      const inDeltaAdded = delta !== null && delta.added.has(g)
+      if (!snap) {
+        this.rootSnapshots.set(g, {
+          px, py, pz, rx, ry, rz, sx, sy, sz, vis,
+          levelZs: Array.isArray(lz) ? [...lz] : lz,
+          groundBand: gb,
+        })
+        if (!inDeltaAdded) externalTransformChange = true
+      } else {
+        if (
+          snap.px !== px || snap.py !== py || snap.pz !== pz ||
+          snap.rx !== rx || snap.ry !== ry || snap.rz !== rz ||
+          snap.sx !== sx || snap.sy !== sy || snap.sz !== sz ||
+          snap.groundBand !== gb || !sameLevels(snap.levelZs, lz)
+        ) {
+          snap.px = px; snap.py = py; snap.pz = pz
+          snap.rx = rx; snap.ry = ry; snap.rz = rz
+          snap.sx = sx; snap.sy = sy; snap.sz = sz
+          snap.groundBand = gb
+          snap.levelZs = Array.isArray(lz) ? [...lz] : lz
+          if (!inDeltaAdded) externalTransformChange = true
+        }
+        if (snap.vis !== vis) {
+          snap.vis = vis
+          if (!inDeltaAdded) nonDeltaVisChange = true
+        }
+      }
+    }
+    if (externalTransformChange) this.equipmentGenerationRev++
+    const useDelta: EquipmentSyncDelta | undefined =
+      delta !== null && !externalTransformChange && !nonDeltaVisChange ? delta : undefined
+    this.pendingBatchDelta = null
+    this.batchDeltaValid = false
     // Only pure storey changes may reuse prepared views. New roots, transforms,
     // global appearance toggles and clipping invalidate every dormant slice.
-    const generation = this.ctx.cutaway ? undefined : `${this.ctx.autoCeiling}|${this.ctx.hideWalls}|${this.ctx.hideGround}|${this.ctx.hideRoof}|${this.ctx.hideUI}|${roots}`
-    this.batches.sync(this.moduleMeshes, `${view}|${visibility}|${roots}`, generation, view)
+    const generation = this.ctx.cutaway ? undefined : `${this.ctx.autoCeiling}|${this.ctx.hideWalls}|${this.ctx.hideGround}|${this.ctx.hideRoof}|${this.ctx.hideUI}|${this.equipmentGenerationRev}`
+    const revision = `${view}|${this.equipmentGenerationRev}|${visCount}:${visHash >>> 0}`
+    this.batches.sync(this.moduleMeshes, revision, generation, view, this.equipmentRoots, useDelta)
     // Paving is drawn from its own instanced buckets: the bare tile roots above
     // carry only their storey/selection state.
     const data = this.ctx.stationData
@@ -276,14 +454,15 @@ export class ModuleSystem extends SceneSystem {
         },
       )
     }
-    for (const root of this.moduleMeshes.children) {
-      if(this.batches.isFullyBatched(root))continue
+    for (const root of this.moduleEquipmentRoots) {
+      if (this.batches.isFullyBatched(root)) continue
       this.applySourceDetail(root)
     }
     this.applyMovingModule()
     this.ghost?.refreshFencePreviewLevels?.()
   }
   applySourceDetail(root: THREE.Object3D): void {
+    if (root.userData.surfaceTile === true) return
     const reduced = this.ctx.detailEnabled !== false && detailHeight(root.userData.levelZs,
       this.ctx.activeZ, this.ctx.hideUI, this.ctx.graphicsQuality ?? 'high', 1) === 0
     this.sourceDetail.apply(root, reduced)
@@ -314,11 +493,34 @@ export class ModuleSystem extends SceneSystem {
     this.moduleMeshes.addEventListener('childadded', ({ child }) => {
       if (child.userData.moduleType === 'road' || child.userData.roadSignals?.length) this.roadTrafficRoots.add(child)
       if (typeof child.userData.moduleId === 'string') this.moduleRootsById.set(child.userData.moduleId, child)
+      if (typeof child.userData.contactBlobKey === 'string') {
+        this.contactBlobsByKey.set(child.userData.contactBlobKey, child as THREE.InstancedMesh)
+      }
+      if (child.userData.surfaceTile !== true) {
+        this.equipmentRoots.push(child)
+        if (child.userData.contactBlobKey === undefined) {
+          this.moduleEquipmentRoots.push(child)
+          this.equipmentGenerationRev++
+        }
+      }
     })
     this.moduleMeshes.addEventListener('childremoved', ({ child }) => {
       this.roadTrafficRoots.delete(child)
       const id = child.userData.moduleId
       if (typeof id === 'string' && this.moduleRootsById.get(id) === child) this.moduleRootsById.delete(id)
+      const blobKey = child.userData.contactBlobKey
+      if (typeof blobKey === 'string' && this.contactBlobsByKey.get(blobKey) === child) {
+        this.contactBlobsByKey.delete(blobKey)
+      }
+      if (child.userData.surfaceTile !== true) {
+        const ei = this.equipmentRoots.indexOf(child)
+        if (ei >= 0) this.equipmentRoots.splice(ei, 1)
+        if (blobKey === undefined) {
+          const mi = this.moduleEquipmentRoots.indexOf(child)
+          if (mi >= 0) this.moduleEquipmentRoots.splice(mi, 1)
+          this.equipmentGenerationRev++
+        }
+      }
     })
     this.ctx.scene.add(this.moduleMeshes)
     this.batches.root.matrixAutoUpdate = false
@@ -372,14 +574,517 @@ export class ModuleSystem extends SceneSystem {
     this.buildModuleStages(data, reuse, keepIds).next()
   }
 
+  private computeContactBlob(mod: Module, group: THREE.Object3D): {
+    key: string
+    levelZ: number
+    ground: number | undefined
+    blob: [number, number, number, number, number?]
+  } | null {
+    if (group.userData.surfaceTile === true) return null
+    const r = isCeilingHung(mod) || isWallMounted(mod) ? 0 : blobRadius(mod.type)
+    if (r <= 0) return null
+    const ground = this.ctx.groundOf.get(`${mod.x},${mod.y}`)
+    // Match the model's foot plane. A blob sunk into the block becomes visible
+    // through a triangular block's cut face instead of grounding the equipment.
+    // Follow the rendered footprint, including edge offsets and rotation.
+    let blob: [number, number, number, number, number?] = [mod.x + 0.5, mod.y + 0.5, mod.z + 1 + 0.012, r]
+    if (mod.type !== 'tree') {
+      let bounds = group.userData.contactShadowBounds as THREE.Box3 | undefined
+      if (!bounds) {
+        group.updateWorldMatrix(true, true)
+        bounds = group.userData.contactShadowBounds = new THREE.Box3().setFromObject(group)
+      }
+      const width = bounds.max.x - bounds.min.x, depth = bounds.max.y - bounds.min.y
+      const tightFootprint = mod.type === 'gate' || mod.type === 'shelf' || mod.type === 'bin' || mod.type === 'extinguisher'
+      if (Number.isFinite(width + depth) && (tightFootprint || group.userData.contactShadowBase || Math.max(width, depth) > 1.1)) {
+        const padding = tightFootprint ? 0.12 : 0.35
+        blob = [(bounds.min.x + bounds.max.x) / 2, (bounds.min.y + bounds.max.y) / 2, mod.z + 1 + 0.012, (width + padding) / 1.24, (depth + padding) / 1.24]
+      }
+    }
+    return { key: `${mod.z}|${ground ?? 'x'}`, levelZ: mod.z, ground, blob }
+  }
+
+  private applyIncrementalDelta(
+    data: StationData,
+    goneIds: ReadonlySet<string>,
+    rebuild: readonly Module[],
+    appendOnly: boolean,
+    batchDoors: boolean,
+    reuseTrackCells: boolean,
+  ): void {
+    this.batches.invalidateViews(true)
+    this.ghost.clearFencePreview()
+    const goneRoots: THREE.Object3D[] = []
+    const goneModules: Module[] = []
+    const goneTypes = new Set<string>()
+    let surfaceChanged = false
+    for (const id of goneIds) {
+      const root = this.moduleRootsById.get(id)
+      if (!root) continue
+      goneRoots.push(root)
+      if (root.userData.module) goneModules.push(root.userData.module as Module)
+      if (root.userData.surfaceTile === true) surfaceChanged = true
+      if (typeof root.userData.moduleType === 'string') goneTypes.add(root.userData.moduleType)
+    }
+    if (goneRoots.length > 0) {
+      if (goneTypes.has('tv')) this.plates.retainTvPlates(data)
+      if (goneTypes.has('sign')) this.plates.retainSignPlates(data)
+      if (goneTypes.has('calligraphy') || goneTypes.has('linemap')) this.plates.retainDecorPlates(data)
+      const droppedMats = new Set<THREE.Material>()
+      for (const root of goneRoots) {
+        for (const mat of (root.userData.ownedMaterials ?? []) as THREE.Material[]) droppedMats.add(mat)
+      }
+      if (droppedMats.size > 0) {
+        for (const root of this.moduleEquipmentRoots) {
+          if (goneIds.has(root.userData.moduleId)) continue
+          for (const mat of (root.userData.ownedMaterials ?? []) as THREE.Material[]) droppedMats.delete(mat)
+        }
+        for (const mat of droppedMats) {
+          const map = (mat as THREE.MeshBasicMaterial).map
+          if (map && !this.plates.ownsTexture(map)) map.dispose()
+          mat.dispose()
+        }
+        if (droppedMats.size > 0) this.ctx.ownedMats = this.ctx.ownedMats.filter(mat => !droppedMats.has(mat))
+      }
+    }
+    const liftRigs = goneTypes.has('lift') ? new Map(this.lifts.liftRigs.map(r => [r.group, r])) : null
+    const gateWings = goneTypes.has('gate') ? new Map(this.crowd.gateWings.map(r => [r.root, r])) : null
+    const tvScreens = goneTypes.has('tv') ? new Map(this.plates.tvScreens.map(r => [r.moduleId, r])) : null
+    const removedBatchRoots = new Set<THREE.Object3D>()
+    const addedBatchRoots = new Set<THREE.Object3D>()
+    for (const root of goneRoots) {
+      if (root.userData.surfaceTile !== true) removedBatchRoots.add(root)
+      disposeObject(root)
+      this.moduleMeshes.remove(root)
+    }
+    if (goneRoots.length > 0) this.filterRegistrations(new Set(goneRoots), false)
+
+    const trackCells = reuseTrackCells && this.builtTrackCells && this.trackInputCells === data.cells
+      ? this.builtTrackCells : trackBedKeys(data.cells, data.modules)
+    this.builtTrackCells = trackCells
+    this.trackInputCells = data.cells
+    const ctx: ModuleContext = {
+      mats: this.ctx.modelMats,
+      ads: this.ctx.ads,
+      data,
+      trackCells,
+      finish: (id) => this.ctx.mats.finish(id),
+      tvPlate: (id, x, y) => this.plates.makeTvPlate(id, x, y),
+      tvPairSlot: (id) => tvPairSlot(id, data.modules),
+      signFace: (id, layout, face, panel) => this.plates.makeSignPlate(id, layout, face, panel),
+      calligraphyFace: (id, spec) => this.plates.makeCalligraphyPlate(id, spec),
+      lineMapFace: (id, panel) => this.plates.makeLineMapPlate(id, panel),
+      owned: this.ctx.ownedMats,
+    }
+    const dirtyLevelRoots = new Set<THREE.Object3D>()
+    const builtPairs: Array<{ mod: Module; group: THREE.Object3D }> = []
+    for (const mod of rebuild) {
+      const ownedStart = this.ctx.ownedMats.length
+      const surface = isOutdoorSurface(mod)
+      const group = surface ? this.buildSurfaceRoot(mod) : this.buildModel(mod, ctx)
+      if (!group) continue
+      if (surface) surfaceChanged = true
+      const footName = mod.type === 'gate' ? 'gate-plinth'
+        : mod.type === 'hanger' ? 'hanger-base' : mod.type === 'cctv' ? 'cctv-post-base'
+        : mod.type === 'traffic-light' ? 'traffic-light-base' : mod.type === 'rail-signal' ? 'signal-concrete-base' : undefined
+      const foot = footName && group.getObjectByName(footName)
+      if (foot) {
+        group.updateWorldMatrix(true, true)
+        group.userData.contactShadowBounds = new THREE.Box3().setFromObject(foot)
+        group.userData.contactShadowBase = true
+      }
+      prepareArtwork(group)
+      batchStaticModule(group, mod.type)
+      if (mod.type === 'platform-edge' && batchDoors) batchPlatformDoors(group)
+      group.userData.ownedMaterials = this.ctx.ownedMats.slice(ownedStart)
+      group.userData.moduleId = mod.id
+      group.userData.moduleType = mod.type
+      group.userData.module = mod
+      if (surface) {
+        group.userData.surfaceHidden = outdoorSurfaceHidden(data.cells, data.modules, mod)
+      }
+      group.userData.roof = mod.type === 'roof'
+      group.userData.suspendedCeiling = false
+      group.userData.levelZs = moduleLevels(mod, this.ctx.levelBase, this.ctx.storeyHeight)
+      group.userData.groundBand = this.ctx.groundOf.get(`${mod.x},${mod.y}`)
+      this.moduleMeshes.add(group)
+      dirtyLevelRoots.add(group)
+      if (!surface) addedBatchRoots.add(group)
+      if (mod.type === 'fence') {
+        this.fenceGroups.push(group)
+        this.fenceGroupsById.set(mod.id, group)
+      }
+      if (mod.type === 'escalator' || mod.type === 'walkway') {
+        const roll = group.userData.escalator as EscalatorRoll | undefined
+        if (roll) this.lifts.escalatorRolls.push(roll)
+      }
+      if (mod.type === 'rail-signal') this.plates.railSignals?.push({ group, at: [mod.x + 0.5, mod.y + 0.5, mod.z] })
+      if (mod.type === 'clock') {
+        const rig = group.userData.clockRig as ClockRig | undefined
+        if (rig) this.clocks.clockRigs.push(rig)
+      }
+      if (mod.type === 'lift') {
+        const cabin = group.userData.liftCabin as THREE.Object3D | undefined
+        if (cabin) {
+          const originZ = group.position.z
+          this.lifts.liftRigs.push(liftRigs?.get(group) ?? { key: `${mod.x},${mod.y},${mod.from.z}`, group, cabin, originZ, baseFrom: originZ, baseTo: originZ, doorFrom: 0, doorTo: 0, side: 1, have: false })
+        }
+        group.traverse((o) => {
+          const mesh = o as THREE.Mesh
+          if (mesh.isMesh) this.lifts.liftPickMeshes.push(mesh)
+        })
+      }
+      if (mod.type === 'platform-edge') {
+        const [fx, fy] = trackFacing(mod.rot)
+        const [ox, oy] = rotateLocal(mod.rot, (mod.w - 1) / 2, 0)
+        this.trains.psdGroups.push({ group, x: mod.x + 0.5 + ox, y: mod.y + 0.5 + oy, z: mod.z, half: mod.w / 2, fx, fy })
+      }
+      if (mod.type === 'billboard' || mod.type === 'tv') {
+        const screen = group.userData.adScreen as THREE.Mesh | undefined
+        if (screen) this.plates.adScreens.push(screen)
+        if (mod.type === 'tv' && screen) {
+          this.plates.tvScreens.push(tvScreens?.get(mod.id) ?? {
+            screen,
+            moduleId: mod.id,
+            poster: String(screen.userData.adPoster ?? ''),
+            nextAt: performance.now() + TV_FIRST_SWAP_MS + Math.random() * TV_SWAP_JITTER_MS,
+          })
+        }
+      }
+      if (mod.type === 'gate' && group.userData.wing) {
+        const axisY = (mod.rot ?? 0) % 2 === 0
+        this.crowd.gateWings.push(gateWings?.get(group) ?? { root: group, x: mod.x + 0.5, y: mod.y + 0.5, z: mod.z + 1, axisY, pending: 0, hold: 0, open: 0, target: 0 })
+      }
+      let activity = this.activityByRoot.get(group)
+      if (!activity) {
+        activity = { sinks: [], doors: [] }
+        group.updateWorldMatrix(true, true)
+        group.traverse(object => {
+          if (object.userData.activityWater) {
+            const at = object.getWorldPosition(new THREE.Vector3())
+            activity!.sinks.push({ stream: object.userData.activityWater, x: at.x, y: at.y, z: at.z })
+          }
+          for (const rig of object.userData.swingDoors ?? []) {
+            const at = rig.pivot.getWorldPosition(new THREE.Vector3())
+            activity!.doors.push({
+              pivot: rig.pivot, sign: rig.sign, x: at.x, y: at.y, z: at.z, open: 0, target: 0, occupied: false,
+              ...(mod.type === 'cubicle' ? { cubicleX: mod.x + 0.5, cubicleY: mod.y + 0.5 } : {}),
+            })
+          }
+        })
+        this.activityByRoot.set(group, activity)
+      }
+      this.crowd.activitySinks.push(...activity.sinks)
+      this.crowd.swingDoors.push(...activity.doors)
+      builtPairs.push({ mod, group })
+    }
+    if (surfaceChanged) this.surfaceRevision++
+    if (goneTypes.has('rail-signal') || rebuild.some(m => m.type === 'rail-signal')) {
+      this.plates.updateRailSignals?.()
+    }
+
+    // Incrementally update contact blobs: preserve slot index on in-place move
+    // and append order on add so updateRanges and capacity stay exact.
+    const m = new THREE.Matrix4()
+    const p = new THREE.Vector3()
+    const q = new THREE.Quaternion()
+    const s = new THREE.Vector3()
+    const rebuiltSpecs = new Map<string, NonNullable<ReturnType<ModuleSystem['computeContactBlob']>> | null>()
+    for (const { mod, group } of builtPairs) {
+      rebuiltSpecs.set(mod.id, this.computeContactBlob(mod, group))
+    }
+    const inPlaceUpdated = new Set<string>()
+    const dirtyBlobMinIdx = new Map<string, number>()
+    const markBlobDirty = (key: string, idx: number): void => {
+      const prev = dirtyBlobMinIdx.get(key)
+      if (prev === undefined || idx < prev) dirtyBlobMinIdx.set(key, idx)
+    }
+    const newBlobEntries = new Map<string, { levelZ: number; ground: number | undefined; blobs: Array<[number, number, number, number, number?]>; ids: string[] }>()
+
+    for (const id of goneIds) {
+      const newSpec = rebuiltSpecs.get(id)
+      const oldKey = this.blobKeyByModuleId.get(id)
+      if (newSpec && oldKey === newSpec.key) {
+        const inst = this.contactBlobsByKey.get(oldKey)
+        const ids = inst?.userData.contactBlobIds as string[] | undefined
+        const values = inst?.userData.contactBlobValues as Array<[number, number, number, number, number?]> | undefined
+        const idx = ids?.indexOf(id) ?? -1
+        if (inst && ids && values && idx >= 0) {
+          const prev = values[idx]
+          if (prev.length !== newSpec.blob.length || !prev.every((v, j) => v === newSpec.blob[j])) {
+            values[idx] = newSpec.blob
+            const [x, y, z, r, ry = r] = newSpec.blob
+            m.compose(p.set(x, y, z), q, s.set(r, ry, 1))
+            inst.setMatrixAt(idx, m)
+            inst.instanceMatrix.addUpdateRange(idx * 16, 16)
+            inst.instanceMatrix.needsUpdate = true
+          }
+          inPlaceUpdated.add(id)
+        }
+      }
+    }
+    for (const id of goneIds) {
+      if (inPlaceUpdated.has(id)) continue
+      const oldKey = this.blobKeyByModuleId.get(id)
+      if (oldKey === undefined) continue
+      this.blobKeyByModuleId.delete(id)
+      const inst = this.contactBlobsByKey.get(oldKey)
+      if (!inst) continue
+      const ids = inst.userData.contactBlobIds as string[]
+      const values = inst.userData.contactBlobValues as Array<[number, number, number, number, number?]>
+      const idx = ids.indexOf(id)
+      if (idx >= 0) {
+        ids.splice(idx, 1)
+        values.splice(idx, 1)
+        markBlobDirty(oldKey, idx)
+      }
+    }
+    for (const [id, spec] of rebuiltSpecs) {
+      if (inPlaceUpdated.has(id) || !spec) continue
+      this.blobKeyByModuleId.set(id, spec.key)
+      const inst = this.contactBlobsByKey.get(spec.key)
+      if (inst) {
+        const ids = inst.userData.contactBlobIds as string[]
+        const values = inst.userData.contactBlobValues as Array<[number, number, number, number, number?]>
+        const idx = values.length
+        ids.push(id)
+        values.push(spec.blob)
+        if (!dirtyBlobMinIdx.has(spec.key) && values.length <= inst.instanceMatrix.count) {
+          const [x, y, z, r, ry = r] = spec.blob
+          m.compose(p.set(x, y, z), q, s.set(r, ry, 1))
+          inst.setMatrixAt(idx, m)
+          inst.instanceMatrix.addUpdateRange(idx * 16, 16)
+          inst.instanceMatrix.needsUpdate = true
+          inst.count = values.length
+        } else {
+          markBlobDirty(spec.key, idx)
+        }
+      } else {
+        let entry = newBlobEntries.get(spec.key)
+        if (!entry) {
+          entry = { levelZ: spec.levelZ, ground: spec.ground, blobs: [], ids: [] }
+          newBlobEntries.set(spec.key, entry)
+        }
+        entry.blobs.push(spec.blob)
+        entry.ids.push(id)
+      }
+    }
+    for (const [key, minIdx] of dirtyBlobMinIdx) {
+      const inst = this.contactBlobsByKey.get(key)
+      if (!inst) continue
+      const values = inst.userData.contactBlobValues as Array<[number, number, number, number, number?]>
+      const ids = inst.userData.contactBlobIds as string[]
+      if (values.length === 0) {
+        disposeObject(inst)
+        this.moduleMeshes.remove(inst)
+        continue
+      }
+      if (values.length > inst.instanceMatrix.count || values.length < inst.instanceMatrix.count / 4) {
+        const levelZ = (inst.userData.levelZs as number[])[0]
+        const ground = inst.userData.groundBand as number | undefined
+        disposeObject(inst)
+        this.moduleMeshes.remove(inst)
+        const nextInst = new THREE.InstancedMesh(
+          new THREE.PlaneGeometry(1.24, 1.24),
+          this.ctx.mats.equipmentBlob ?? this.ctx.mats.blob,
+          THREE.MathUtils.ceilPowerOfTwo(Math.max(1, values.length)),
+        )
+        nextInst.renderOrder = 2
+        nextInst.frustumCulled = false
+        nextInst.userData.levelZs = [levelZ]
+        nextInst.userData.groundBand = ground
+        nextInst.userData.contactBlobKey = key
+        nextInst.userData.ground = levelZ === GROUND_Z
+        for (let i = 0; i < values.length; i++) {
+          const [x, y, z, r, ry = r] = values[i]
+          m.compose(p.set(x, y, z), q, s.set(r, ry, 1))
+          nextInst.setMatrixAt(i, m)
+        }
+        nextInst.instanceMatrix.needsUpdate = true
+        nextInst.userData.contactBlobValues = values
+        nextInst.userData.contactBlobIds = ids
+        nextInst.count = values.length
+        this.moduleMeshes.add(nextInst)
+        dirtyLevelRoots.add(nextInst)
+      } else {
+        for (let i = minIdx; i < values.length; i++) {
+          const [x, y, z, r, ry = r] = values[i]
+          m.compose(p.set(x, y, z), q, s.set(r, ry, 1))
+          inst.setMatrixAt(i, m)
+          inst.instanceMatrix.addUpdateRange(i * 16, 16)
+        }
+        if (minIdx < values.length) inst.instanceMatrix.needsUpdate = true
+        inst.count = values.length
+      }
+    }
+    for (const [key, entry] of newBlobEntries) {
+      const nextInst = new THREE.InstancedMesh(
+        new THREE.PlaneGeometry(1.24, 1.24),
+        this.ctx.mats.equipmentBlob ?? this.ctx.mats.blob,
+        THREE.MathUtils.ceilPowerOfTwo(Math.max(1, entry.blobs.length)),
+      )
+      nextInst.renderOrder = 2
+      nextInst.frustumCulled = false
+      nextInst.userData.levelZs = [entry.levelZ]
+      nextInst.userData.groundBand = entry.ground
+      nextInst.userData.contactBlobKey = key
+      nextInst.userData.ground = entry.levelZ === GROUND_Z
+      for (let i = 0; i < entry.blobs.length; i++) {
+        const [x, y, z, r, ry = r] = entry.blobs[i]
+        m.compose(p.set(x, y, z), q, s.set(r, ry, 1))
+        nextInst.setMatrixAt(i, m)
+      }
+      nextInst.instanceMatrix.needsUpdate = true
+      nextInst.userData.contactBlobValues = entry.blobs
+      nextInst.userData.contactBlobIds = entry.ids
+      nextInst.count = entry.blobs.length
+      this.moduleMeshes.add(nextInst)
+      dirtyLevelRoots.add(nextInst)
+    }
+
+    this.patchBuiltIndex(goneModules, rebuild, data.modules)
+    this.retainedLevelRoots.clear()
+    if (this.moduleMeshes.children.length <= 4096) {
+      for (const root of this.moduleMeshes.children) {
+        if (!dirtyLevelRoots.has(root)) this.retainedLevelRoots.add(root)
+      }
+    }
+    this.dirtyLevelRoots = dirtyLevelRoots
+    this.pendingBatchDelta = { removed: removedBatchRoots, added: addedBatchRoots, appended: appendOnly }
+    this.batchDeltaValid = true
+    this.builtData = data
+    this.builtLanguage = getLanguage()
+  }
+
   *buildModuleStages(data: StationData, reuse = false, keepIds?: Set<string>,
     structure?: (module: Module) => boolean,
     options?: { sliceBudgetMs?: number; batchDoors?: boolean }): Generator<void> {
     this.restoreMovingModule()
-    this.retainedBatches=false
-    // Prepare once while opening/editing the immutable document, never on the
-    // first pointer-down of a fence drag (§9.5).
-    fenceConnectionIndex(data.modules)
+    this.retainedBatches = false
+    this.dirtyLevelRoots = null
+    this.pendingBatchDelta = null
+    this.batchDeltaValid = false
+    const batchDoors = options?.batchDoors ?? !structure
+
+    // Fast path for bounded same-cells module edits and bounded local cell edits:
+    // avoid 76k-module retention Sets, 76k Maps, and 76k groundOf string lookups.
+    if (
+      reuse && !keepIds && !structure && this.builtData && this.builtLanguage === getLanguage() &&
+      this.builtIndexSource === this.builtData.modules &&
+      (this.builtData.levelBase ?? 0) === this.ctx.levelBase &&
+      (this.builtData.storeyHeight ?? STOREY_HEIGHT) === this.ctx.storeyHeight
+    ) {
+      if (data.cells === this.builtData.cells) {
+        const changes = changedModules(this.builtData, data)
+        const hasWalkwayOrGuidepost = changes.some(m => m.type === 'walkway' || m.type === 'guidepost')
+        if (!hasWalkwayOrGuidepost) {
+          const delta = moduleEditDelta(
+            this.builtData,
+            data,
+            this.builtByType,
+            this.builtNonSurface,
+            this.builtSurfacesByXY ? (x, y) => this.surfaceAtXY(x, y) : undefined,
+          )
+          if (delta !== null && delta.goneIds.size + delta.rebuild.length <= 256) {
+            if (delta.goneIds.size === 0 && delta.rebuild.length === 0) {
+              this.dirtyLevelRoots = new Set()
+              this.retainedLevelRoots.clear()
+              if (this.moduleMeshes.children.length <= 4096) {
+                for (const root of this.moduleMeshes.children) this.retainedLevelRoots.add(root)
+              }
+              this.builtData = data
+              this.builtIndexSource = data.modules
+              this.retainedBatches = true
+              return
+            }
+            this.applyIncrementalDelta(
+              data,
+              delta.goneIds,
+              delta.rebuild,
+              delta.appendOnly,
+              batchDoors,
+              this.equipmentContentChanged(data),
+            )
+            return
+          }
+        }
+      } else if (sameModuleMetadata(this.builtData, data)) {
+        const local = localCellEdit(this.builtData, data)
+        if (local !== null && this.builtSurfacesByXY) {
+          const invalidated = cellEditInvalidatedModules(
+            this.builtData,
+            data,
+            this.builtByType,
+            (x, y) => this.surfaceAtXY(x, y),
+          )
+          if (invalidated !== null && invalidated.length <= 256) {
+            let groundBandChanged = false
+            if (this.moduleMeshes.children.length <= 4096) {
+              for (const mod of data.modules) {
+                const root = this.moduleRootsById.get(mod.id)
+                if (root && root.userData.groundBand !== this.ctx.groundOf.get(`${mod.x},${mod.y}`)) {
+                  groundBandChanged = true; break
+                }
+              }
+            } else {
+              const editedXY = new Set<number>()
+              let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
+              const addCol = (x: number, y: number): void => {
+                if (!ModuleSystem.packableXY(x, y)) return
+                editedXY.add(packKey(x, y, 0))
+                if (x < minX) minX = x
+                if (x > maxX) maxX = x
+                if (y < minY) minY = y
+                if (y > maxY) maxY = y
+              }
+              for (const c of local.removed) addCol(c.x, c.y)
+              for (const c of local.added) addCol(c.x, c.y)
+              if (editedXY.size > 0) {
+                for (const mod of this.builtNonSurface) {
+                  if (mod.x < minX || mod.x > maxX || mod.y < minY || mod.y > maxY) continue
+                  if (!editedXY.has(packKey(mod.x, mod.y, 0))) continue
+                  const root = this.moduleRootsById.get(mod.id)
+                  if (root && root.userData.groundBand !== this.ctx.groundOf.get(`${mod.x},${mod.y}`)) {
+                    groundBandChanged = true; break
+                  }
+                }
+                if (!groundBandChanged) {
+                  for (const c of [...local.removed, ...local.added]) {
+                    const list = this.surfaceAtXY(c.x, c.y)
+                    if (!list) continue
+                    const g = this.ctx.groundOf.get(`${c.x},${c.y}`)
+                    for (const mod of list) {
+                      const root = this.moduleRootsById.get(mod.id)
+                      if (root && root.userData.groundBand !== g) { groundBandChanged = true; break }
+                    }
+                    if (groundBandChanged) break
+                  }
+                }
+              }
+            }
+            if (!groundBandChanged) {
+              if (invalidated.length === 0) {
+                this.retainedLevelRoots.clear()
+                if (this.moduleMeshes.children.length <= 4096) {
+                  for (const root of this.moduleMeshes.children) this.retainedLevelRoots.add(root)
+                }
+                this.dirtyLevelRoots = new Set()
+                this.builtTrackCells = null
+                this.builtData = data
+                this.builtIndexSource = data.modules
+                this.retainedBatches = true
+                return
+              }
+              const goneIds = new Set(invalidated.map(m => m.id))
+              this.builtTrackCells = null
+              this.applyIncrementalDelta(data, goneIds, invalidated, false, batchDoors, false)
+              return
+            }
+          }
+        }
+      }
+    }
+
     // A new or rebuilt tile root is the only thing that invalidates the paving
     // layer by itself. A cell edit that changes a tile's support/opening input
     // rebuilds that root through `retainedModuleIds`; a remote cell edit leaves
@@ -441,10 +1146,11 @@ export class ModuleSystem extends SceneSystem {
           (!(translated.has(mod.id)||relocated.has(mod.id))||JSON.stringify(root.userData.levelZs)===JSON.stringify(moduleLevels(mod,this.ctx.levelBase,this.ctx.storeyHeight)))
       })&&(!relocated.size||this.moveGuidepostBlobs(this.builtData,data,relocated))) {
       for (const root of this.moduleMeshes.children) this.retainedLevelRoots.add(root)
-      if(this.builtData.cells!==data.cells)this.builtTrackCells=null
+      if (this.builtData.cells !== data.cells) this.builtTrackCells = null
       this.builtData = data
-      if(translationOnly)this.restoreMovingModule()
-      this.retainedBatches=!translationOnly||transforms.length===translated.size+relocated.size&&this.batches.translateRoots(transforms)
+      this.rebuildBuiltIndex(data.modules)
+      if (translationOnly) this.restoreMovingModule()
+      this.retainedBatches = !translationOnly || transforms.length === translated.size + relocated.size && this.batches.translateRoots(transforms)
       return
     }
     // Retention has proved these roots' model inputs unchanged. Cache discovery
@@ -501,32 +1207,13 @@ export class ModuleSystem extends SceneSystem {
         blobs: [...inst.userData.contactBlobValues], ids: [...inst.userData.contactBlobIds] })
     }
     const addBlob = (mod: Module, group: THREE.Object3D): void => {
-      const r = isCeilingHung(mod) || isWallMounted(mod) ? 0 : blobRadius(mod.type)
-      if (r <= 0) return
-      const ground=this.ctx.groundOf.get(`${mod.x},${mod.y}`)
-      // Match the model's foot plane. A blob sunk into the block becomes visible
-      // through a triangular block's cut face instead of grounding the equipment.
-      // Follow the rendered footprint, including edge offsets and rotation.
-      let blob: [number,number,number,number,number?] = [mod.x+.5,mod.y+.5,mod.z+1+.012,r]
-      if (mod.type !== 'tree') {
-        let bounds = group.userData.contactShadowBounds as THREE.Box3 | undefined
-        if (!bounds) {
-          group.updateWorldMatrix(true, true)
-          bounds = group.userData.contactShadowBounds = new THREE.Box3().setFromObject(group)
-        }
-        const width = bounds.max.x - bounds.min.x, depth = bounds.max.y - bounds.min.y
-        const tightFootprint = mod.type === 'gate' || mod.type === 'shelf' || mod.type === 'bin' || mod.type === 'extinguisher'
-        if (Number.isFinite(width + depth) && (tightFootprint || group.userData.contactShadowBase || Math.max(width, depth) > 1.1)) {
-          const padding = tightFootprint ? .12 : .35
-          blob = [(bounds.min.x + bounds.max.x) / 2, (bounds.min.y + bounds.max.y) / 2, mod.z + 1 + .012, (width + padding) / 1.24, (depth + padding) / 1.24]
-        }
-      }
-      const key=`${mod.z}|${ground??'x'}`,entry=blobsByKey.get(key)
-      if(entry){entry.blobs.push(blob);entry.ids.push(mod.id)}
-      else blobsByKey.set(key,{levelZ:mod.z,ground,blobs:[blob],ids:[mod.id]})
+      const spec = this.computeContactBlob(mod, group)
+      if (!spec) return
+      const entry = blobsByKey.get(spec.key)
+      if (entry) { entry.blobs.push(spec.blob); entry.ids.push(mod.id) }
+      else blobsByKey.set(spec.key, { levelZ: spec.levelZ, ground: spec.ground, blobs: [spec.blob], ids: [mod.id] })
     }
     const sliceBudgetMs = options?.sliceBudgetMs ?? 0
-    const batchDoors = options?.batchDoors ?? !structure
     const initial = structure ? data.modules.filter(structure) : data.modules
     const deferred = structure ? data.modules.filter(module => !structure(module)) : []
     const ordered = structure ? [...initial, ...deferred] : initial
@@ -542,9 +1229,9 @@ export class ModuleSystem extends SceneSystem {
       }
       if (appendOnly && kept.has(mod.id)) continue
       const existing=kept.get(mod.id)
-      if(existing&&this.retainedLevelRoots.has(existing)){
-        if (existing.userData.surfaceTile === true) existing.userData.module = mod
-        else addBlob(mod, existing)
+      if (existing && this.retainedLevelRoots.has(existing)) {
+        existing.userData.module = mod
+        if (existing.userData.surfaceTile !== true) addBlob(mod, existing)
         continue
       }
       const ownedStart = this.ctx.ownedMats.length
@@ -570,9 +1257,9 @@ export class ModuleSystem extends SceneSystem {
       }
       group.userData.moduleId = mod.id
       group.userData.moduleType = mod.type
+      group.userData.module = mod
       if (group.parent === this.moduleMeshes) this.moduleRootsById.set(mod.id, group)
       if (surface) {
-        group.userData.module = mod
         // Cached until this tile's own root is rebuilt: its supporting cell or an
         // opening over it is exactly what `retainedModuleIds` compares.
         group.userData.surfaceHidden = outdoorSurfaceHidden(data.cells, data.modules, mod)
@@ -712,6 +1399,11 @@ export class ModuleSystem extends SceneSystem {
       disposeObject(inst)
       this.moduleMeshes.remove(inst)
     }
+    this.blobKeyByModuleId.clear()
+    for (const [key, entry] of blobsByKey) {
+      for (const id of entry.ids) this.blobKeyByModuleId.set(id, key)
+    }
+    this.rebuildBuiltIndex(data.modules)
     this.builtData = data
     this.builtLanguage = getLanguage()
   }
@@ -721,7 +1413,7 @@ export class ModuleSystem extends SceneSystem {
     const updates:Array<{mesh:THREE.InstancedMesh;values:Array<[number,number,number,number]>;index:number;value:[number,number,number,number]}>=[]
     for(const mod of after.modules)if(ids.has(mod.id)){
       const old=previous.get(mod.id)!,r=blobRadius(mod.type),ground=this.ctx.groundOf.get(`${mod.x},${mod.y}`)
-      const mesh=this.moduleMeshes.children.find(root=>root.userData.contactBlobKey===`${mod.z}|${ground??'x'}`) as THREE.InstancedMesh|undefined
+      const mesh=this.contactBlobsByKey.get(`${mod.z}|${ground??'x'}`)
       const values=mesh?.userData.contactBlobValues as Array<[number,number,number,number]>|undefined
       const index=values?.findIndex(v=>v[0]===old.x+.5&&v[1]===old.y+.5&&v[2]===old.z+1+.012&&v[3]===r)??-1
       if(!mesh||!values||index<0)return false
@@ -749,8 +1441,18 @@ export class ModuleSystem extends SceneSystem {
    */
   clearModules(data?: StationData, kept = new Set<THREE.Object3D>(), registered = new Set<THREE.Object3D>()): void {
     this.retainedBatches=false
+    this.dirtyLevelRoots=null
+    this.pendingBatchDelta=null
+    this.batchDeltaValid=false
     this.sourceDetail.restore()
-    if (!data) this.batches.clear()
+    if (!data) {
+      this.batches.clear()
+      this.blobKeyByModuleId.clear()
+      this.builtByType.clear()
+      this.builtNonSurface = []
+      this.builtSurfacesByXY = null
+      this.builtIndexSource = null
+    }
     this.builtData = null
     this.builtTrackCells=null
     this.trackInputCells=null

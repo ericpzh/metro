@@ -315,15 +315,31 @@ namespace Metro.App.Views {
             var plates = new MeshRenderer[MaxFaces];
             foreach (var renderer in root.GetComponentsInChildren<MeshRenderer>(true)) {
                 if (!renderer) continue;
+                bool matched = false;
                 foreach (var material in renderer.sharedMaterials) {
                     if (!material || material.name == null) continue;
                     int window = SlotOf(material.name, WindowTag);
                     if (window >= 0) {
                         if (windows[window] == null) windows[window] = renderer;
+                        matched = true;
                         continue;
                     }
                     int plate = SlotOf(material.name, PlateTag);
-                    if (plate >= 0 && plates[plate] == null) plates[plate] = renderer;
+                    if (plate >= 0 && plates[plate] == null) {
+                        plates[plate] = renderer;
+                        matched = true;
+                    }
+                }
+                if (!matched) {
+                    var template = StationDisplayArtwork.TemplateForRenderer(scope, renderer);
+                    if (template != null && template.name != null) {
+                        int window = SlotOf(template.name, WindowTag);
+                        if (window >= 0 && windows[window] == null) windows[window] = renderer;
+                        else {
+                            int plate = SlotOf(template.name, PlateTag);
+                            if (plate >= 0 && plates[plate] == null) plates[plate] = renderer;
+                        }
+                    }
                 }
             }
             if (windows[0] == null && windows[1] == null) {
@@ -332,6 +348,7 @@ namespace Metro.App.Views {
             }
             Metro.View.ModuleViews.TryPairSlot(module, station, out bool hangs);
             var mate = hangs ? Mate(module, station) : module;
+            UnbindKeepingRenderers(scope, module.Id, mate != null ? mate.Id : null, windows, plates);
             var first = module;
             if (!WindowSlotResolves(windows)) {
                 // A paired root with only the `2` slots: the export named its faces from the
@@ -723,6 +740,107 @@ namespace Metro.App.Views {
         /// <summary>The catalogue texture a face currently prints.</summary>
         public static Texture2D PosterTextureOf(TvFace face) =>
             face != null ? StationDisplayArtwork.Poster(face.PosterSlug) : null;
+
+        /// <summary>Remove stale TV entries and surfaces for retired or rebound module ids.</summary>
+        public static void Unbind(StationDisplayArtwork.Scope scope, HashSet<string> moduleIds) {
+            if (scope == null || moduleIds == null || moduleIds.Count == 0) return;
+            if (!byScope.TryGetValue(scope, out var entries)) return;
+            bool removed = false;
+            for (int i = entries.Count - 1; i >= 0; i--) {
+                var entry = entries[i];
+                if (entry == null || !EntryMatches(entry, moduleIds)) continue;
+                for (int f = 0; f < entry.Faces.Count; f++) {
+                    var face = entry.Faces[f];
+                    if (face == null) continue;
+                    if (face.Surface != null) scope.Surfaces.Remove(face.Surface);
+                    if (face.PlateSurface != null) scope.Surfaces.Remove(face.PlateSurface);
+                }
+                entries.RemoveAt(i);
+                removed = true;
+            }
+            if (removed) {
+                scope.TvTickCursor = entries.Count > 0 ? (scope.TvTickCursor % entries.Count + entries.Count) % entries.Count : 0;
+                publishVersion++;
+            }
+        }
+
+        public static void Unbind(StationDisplayArtwork.Scope scope, string moduleId) {
+            if (scope == null || string.IsNullOrEmpty(moduleId)) return;
+            UnbindKeepingRenderers(scope, moduleId, null, null, null);
+        }
+
+        static void UnbindKeepingRenderers(StationDisplayArtwork.Scope scope, string idA, string idB,
+            MeshRenderer[] keepWindows, MeshRenderer[] keepPlates) {
+            if (scope == null || (string.IsNullOrEmpty(idA) && string.IsNullOrEmpty(idB))) return;
+            if (!byScope.TryGetValue(scope, out var entries)) return;
+            bool removed = false;
+            for (int i = entries.Count - 1; i >= 0; i--) {
+                var entry = entries[i];
+                if (entry == null || !EntryMatches(entry, idA, idB)) continue;
+                for (int f = 0; f < entry.Faces.Count; f++) {
+                    var face = entry.Faces[f];
+                    if (face == null) continue;
+                    if (face.Surface != null && !ContainsRenderer(keepWindows, face.Surface.Renderer)) {
+                        scope.Surfaces.Remove(face.Surface);
+                    }
+                    if (face.PlateSurface != null && !ContainsRenderer(keepPlates, face.PlateSurface.Renderer)) {
+                        scope.Surfaces.Remove(face.PlateSurface);
+                    }
+                }
+                entries.RemoveAt(i);
+                removed = true;
+            }
+            if (removed) {
+                scope.TvTickCursor = entries.Count > 0 ? (scope.TvTickCursor % entries.Count + entries.Count) % entries.Count : 0;
+                publishVersion++;
+            }
+        }
+
+        static bool EntryMatches(TvEntry entry, HashSet<string> moduleIds) {
+            if (!string.IsNullOrEmpty(entry.ModuleId) && moduleIds.Contains(entry.ModuleId)) return true;
+            for (int f = 0; f < entry.Faces.Count; f++) {
+                var mid = entry.Faces[f]?.ModuleId;
+                if (!string.IsNullOrEmpty(mid) && moduleIds.Contains(mid)) return true;
+            }
+            return false;
+        }
+
+        static bool EntryMatches(TvEntry entry, string idA, string idB) {
+            if (MatchesEither(entry.ModuleId, idA, idB)) return true;
+            for (int f = 0; f < entry.Faces.Count; f++) {
+                if (MatchesEither(entry.Faces[f]?.ModuleId, idA, idB)) return true;
+            }
+            return false;
+        }
+
+        static bool MatchesEither(string value, string a, string b) =>
+            !string.IsNullOrEmpty(value) &&
+            ((!string.IsNullOrEmpty(a) && string.Equals(value, a, StringComparison.Ordinal)) ||
+             (!string.IsNullOrEmpty(b) && string.Equals(value, b, StringComparison.Ordinal)));
+
+        static bool ContainsRenderer(MeshRenderer[] list, MeshRenderer renderer) {
+            if (list == null || renderer == null) return false;
+            for (int i = 0; i < list.Length; i++) {
+                if (ReferenceEquals(list[i], renderer)) return true;
+            }
+            return false;
+        }
+
+        /// <summary>Invalidate cached departure-board fingerprints so the next refresh repaints surviving faces.</summary>
+        public static void InvalidatePlates(StationDisplayArtwork.Scope scope, HashSet<string> skipModuleIds = null) {
+            if (scope == null || !byScope.TryGetValue(scope, out var entries)) return;
+            for (int e = 0; e < entries.Count; e++) {
+                var entry = entries[e];
+                if (entry == null) continue;
+                if (skipModuleIds != null && !string.IsNullOrEmpty(entry.ModuleId) && skipModuleIds.Contains(entry.ModuleId)) continue;
+                for (int f = 0; f < entry.Faces.Count; f++) {
+                    var face = entry.Faces[f];
+                    if (face == null) continue;
+                    face.PlateKey = "";
+                    face.LastSimTick = long.MinValue;
+                }
+            }
+        }
 
         internal static void ReleaseScope(StationDisplayArtwork.Scope scope) {
             if (scope != null && byScope.Remove(scope)) {

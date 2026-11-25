@@ -467,7 +467,11 @@ export function placeFacility(
   const h = rect.y1 - rect.y0 + 1;
   if (w < FACILITY_MIN || h < FACILITY_MIN) return state;
   if (w * h > 400) return state;
-  const solid = new Set(base.cells.filter((c) => c.fill === 'solid').map((c) => cellKey(c.x, c.y, c.z)));
+  const solid = new Set<string>();
+  for (const c of base.cells) {
+    if (c.fill !== 'solid' || c.z !== rect.z || c.x < rect.x0 || c.x > rect.x1 || c.y < rect.y0 || c.y > rect.y1) continue;
+    solid.add(cellKey(c.x, c.y, c.z));
+  }
   // Every rect cell must already be floor — and at z = 0 the implicit street
   // (`sim/ground.ts`) is floor, so a room may be drawn on virgin ground. A cell
   // the player dug through is not: the hole is the one thing the plane withholds.
@@ -513,7 +517,7 @@ export function placeFacility(
         }
       : { id: modId, type: 'booth', x: rect.x0, y: rect.y0, z: rect.z, w, h, cfg: { kind, stocked: true, front: ((front % 4) + 4) % 4 } }
   ) as StationState['modules'][number];
-  let next = { ...base, cells: [...base.cells, ...add], modules: [...base.modules, module] };
+  let next = { ...base, cells: add.length ? [...base.cells, ...add] : base.cells, modules: [...base.modules, module] };
   if (stocksBooth) {
     next = addAutoFurniture(next, rect.z, boothBenchSpots(rect, front));
   }

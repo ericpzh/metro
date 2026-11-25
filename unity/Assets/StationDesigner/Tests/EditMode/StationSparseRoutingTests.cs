@@ -687,7 +687,7 @@ public class StationSparseRoutingTests {
         int startNode = services.NearestNode(x, y, z);
         Assert.GreaterOrEqual(startNode, 0, $"walker spawn ({x},{y},{z}) must land on walkable node");
         var startLeg = rt.GetMethod("StartSparseLeg", BindingFlags.Instance | BindingFlags.NonPublic);
-        startLeg.Invoke(services, new object[] { p, startNode, destExitNode, null });
+        startLeg.Invoke(services, new object[] { p, startNode, destExitNode, null, null });
         return p;
     }
 
@@ -1065,5 +1065,140 @@ public class StationSparseRoutingTests {
         Assert.LessOrEqual(maxDelay, 3.0, $"Line 11 cold-start alighting-to-walk max delay ({maxDelay}) regressed");
         Assert.Less(stats.FieldBuilds, 1500, $"coarse search must not trigger thousands of cold field builds (got {stats.FieldBuilds})");
         Assert.AreEqual(0, stats.FineFallbacks, "no fine-graph fallbacks during cold start");
+    }
+
+    [Test]
+    public void IncrementalSparseTopologyMatchesFullBuildAcrossEdits() {
+        var doc = WideHallDocument(width: 9, length: 34, twoConnectors: true, diagonalOffset: false);
+        // Add a fare gate row across x=15 (right on the sector seam x=15|16!) to test seam + server + vertical transitions.
+        for (int y = 0; y < 9; y++) {
+            doc.Modules.Add(new StationModuleFact {
+                Id = "gate-" + y, Type = "gate", X = 15, Y = y, Z = 9, Rot = 0, GateHasLane = true, GateDir = 0,
+            });
+        }
+        var walkOpts = new StationWalkGraphOptions { IncludeGround = false };
+        var ws = StationWalkGraphBuilder.BuildWorkspace(doc, walkOpts);
+        var incTopo = StationSparseTopology.Build(ws.Graph, 42, null, null, out _);
+        var refPrevTopo = StationSparseTopology.Build(ws.Graph, 42, null, null, out _);
+
+        void ApplyAndAssertParity(string label, Action<StationSessionDocument, StationSessionDelta> mutate, IReadOnlyList<StationSparseLiftLink> lifts = null) {
+            var delta = new StationSessionDelta();
+            mutate(doc, delta);
+            var staged = ws.StageCellDelta(doc, delta);
+            ws = staged.Workspace;
+            bool usedInc = incTopo.TryUpdateIncremental(staged.Graph, lifts, staged.Delta, out var incDiff);
+            Assert.IsTrue(usedInc, label + ": expected TryUpdateIncremental to succeed");
+
+            var refTopo = StationSparseTopology.Build(staged.Graph, 42, lifts, refPrevTopo, out var refDiff);
+            refPrevTopo = refTopo;
+
+            Assert.AreEqual(refTopo.TopologyRevision, incTopo.TopologyRevision, label + ": TopologyRevision");
+            Assert.AreEqual(refDiff.RoutingNeutral, incDiff.RoutingNeutral, label + ": RoutingNeutral");
+            Assert.AreEqual(refDiff.TopologyRevision, incDiff.TopologyRevision, label + ": Diff.TopologyRevision");
+            CollectionAssert.AreEqual(refDiff.DirtySectorKeys, incDiff.DirtySectorKeys, label + ": DirtySectorKeys");
+            Assert.IsTrue(refDiff.PreservedRegionKeys.SetEquals(incDiff.PreservedRegionKeys), label + ": PreservedRegionKeys");
+            Assert.IsTrue(refDiff.DirtyRegionKeys.SetEquals(incDiff.DirtyRegionKeys), label + ": DirtyRegionKeys");
+            Assert.AreEqual(refTopo.HasLifts, incTopo.HasLifts, label + ": HasLifts");
+            Assert.AreEqual(refTopo.NodeCount, incTopo.NodeCount, label + ": NodeCount");
+            Assert.AreEqual(refTopo.Sectors.Count, incTopo.Sectors.Count, label + ": SectorCount");
+            Assert.AreEqual(refTopo.Regions.Count, incTopo.Regions.Count, label + ": RegionCount");
+            Assert.AreEqual(refTopo.Crossings.Count, incTopo.Crossings.Count, label + ": CrossingCount");
+            Assert.AreEqual(refTopo.ExplicitArcs.Count, incTopo.ExplicitArcs.Count, label + ": ExplicitArcCount");
+
+            foreach (var kv in refTopo.Sectors) {
+                Assert.IsTrue(incTopo.Sectors.TryGetValue(kv.Key, out var incSec), label + ": missing sector " + kv.Key);
+                Assert.AreEqual(kv.Value.Signature, incSec.Signature, label + ": sector signature " + kv.Key);
+                Assert.AreEqual(kv.Value.Revision, incSec.Revision, label + ": sector revision " + kv.Key);
+            }
+
+            foreach (var kv in refTopo.RegionByKey) {
+                Assert.IsTrue(incTopo.RegionByKey.TryGetValue(kv.Key, out var incReg), label + ": missing region " + kv.Key);
+                var refReg = kv.Value;
+                Assert.AreEqual(refReg.Revision, incReg.Revision, label + ": region revision " + kv.Key);
+                Assert.AreEqual(refReg.SampleTileKey, incReg.SampleTileKey, label + ": sample tile " + kv.Key);
+                CollectionAssert.AreEqual(refReg.TileKeys, incReg.TileKeys, label + ": region tiles " + kv.Key);
+                Assert.AreEqual(refReg.Crossings.Count, incReg.Crossings.Count, label + ": crossing count " + kv.Key);
+                for (int i = 0; i < refReg.Crossings.Count; i++) {
+                    var rc = refReg.Crossings[i];
+                    var ic = incReg.Crossings[i];
+                    Assert.AreEqual(rc.StableKey, ic.StableKey, label + ": crossing stableKey");
+                    Assert.AreEqual(rc.RegionWalkMs, ic.RegionWalkMs, label + ": crossing RegionWalkMs");
+                    Assert.AreEqual(rc.RepCostMs, ic.RepCostMs, label + ": crossing RepCostMs");
+                    CollectionAssert.AreEqual(rc.UniqueFromKeys, ic.UniqueFromKeys, label + ": crossing UniqueFromKeys");
+                }
+                Assert.AreEqual(refReg.ExplicitArcs.Count, incReg.ExplicitArcs.Count, label + ": explicit arc count " + kv.Key);
+                for (int i = 0; i < refReg.ExplicitArcs.Count; i++) {
+                    var ra = refReg.ExplicitArcs[i];
+                    var ia = incReg.ExplicitArcs[i];
+                    Assert.AreEqual(ra.FromKey, ia.FromKey, label + ": arc FromKey");
+                    Assert.AreEqual(ra.ToKey, ia.ToKey, label + ": arc ToKey");
+                    Assert.AreEqual(ra.Kind, ia.Kind, label + ": arc Kind");
+                    Assert.AreEqual(ra.Server, ia.Server, label + ": arc Server");
+                    Assert.AreEqual(ra.FromNodeServer, ia.FromNodeServer, label + ": arc FromNodeServer");
+                    Assert.AreEqual(ra.ToNodeServer, ia.ToNodeServer, label + ": arc ToNodeServer");
+                    Assert.AreEqual(ra.GateDir, ia.GateDir, label + ": arc GateDir");
+                    Assert.AreEqual(ra.StaticCostMs, ia.StaticCostMs, label + ": arc StaticCostMs");
+                    Assert.AreEqual(ra.LiftId, ia.LiftId, label + ": arc LiftId");
+                }
+            }
+
+            // Spot-check reachability parity on all exits/corners
+            int sampleStep = Math.Max(1, staged.Graph.NodeCount / 19);
+            for (int a = 0; a < staged.Graph.NodeCount; a += sampleStep) {
+                for (int b = 0; b < staged.Graph.NodeCount; b += sampleStep) {
+                    Assert.AreEqual(refTopo.CanReach(a, b, false), incTopo.CanReach(a, b, false), label + $": CanReach({a},{b},false)");
+                    Assert.AreEqual(refTopo.CanReach(a, b, true), incTopo.CanReach(a, b, true), label + $": CanReach({a},{b},true)");
+                }
+            }
+        }
+
+        // 1. Add wall block splitting a sector (triggers node removal + pop-and-swap + region split!)
+        ApplyAndAssertParity("split-sector-wall", (d, delta) => {
+            for (int y = 0; y < 9; y++) {
+                var c = SolidCell(8, y, 10, 2);
+                d.Cells.Add(c);
+                delta.ChangedCells.Add(c);
+            }
+        });
+
+        // 2. Carve opening back through the wall (node addition + region merge!)
+        ApplyAndAssertParity("reopen-wall", (d, delta) => {
+            d.Cells.RemoveAll(c => c.X == 8 && c.Y == 4 && c.Z == 10);
+            delta.RemovedCells.Add((8, 4, 10));
+        });
+
+        // 3. Remove a gate on the sector seam x=15 (server removal + plain walk restoration across seam!)
+        ApplyAndAssertParity("remove-seam-gate", (d, delta) => {
+            d.Modules.RemoveAll(m => m.Id == "gate-4");
+            delta.RemovedModules.Add("gate-4");
+        });
+
+        // 4. Add a decorative non-walk module (routing-neutral fast path!)
+        ApplyAndAssertParity("cosmetic-poster", (d, delta) => {
+            var poster = new StationModuleFact { Id = "poster-1", Type = "poster", X = 4, Y = 4, Z = 10, Rot = 0 };
+            d.Modules.Add(poster);
+            delta.ChangedModules.Add(poster);
+        });
+
+        // 5. Paint zone change on surviving tiles
+        ApplyAndAssertParity("zone-paint", (d, delta) => {
+            for (int i = 0; i < d.Cells.Count; i++) {
+                var c = d.Cells[i];
+                if (c.X == 20 && c.Y >= 2 && c.Y <= 5 && c.Z == 9) {
+                    c.Zone = 1;
+                    d.Cells[i] = c;
+                    delta.ChangedCells.Add(c);
+                }
+            }
+        });
+
+        // 6. Add & remove a lift link
+        Assert.IsTrue(ws.Graph.TryNode(2, 2, 9, out int liftTop));
+        Assert.IsTrue(ws.Graph.TryNode(40, 4, 4, out int liftBot));
+        ApplyAndAssertParity("add-lift-link", (d, delta) => { }, new[] {
+            new StationSparseLiftLink("lift-test", liftTop, liftBot, 40000),
+            new StationSparseLiftLink("lift-test", liftBot, liftTop, 40000),
+        });
+        ApplyAndAssertParity("remove-lift-link", (d, delta) => { }, Array.Empty<StationSparseLiftLink>());
     }
 }

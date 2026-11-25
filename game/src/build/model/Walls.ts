@@ -310,26 +310,43 @@ export function addWalls(
   // held made the ghost (which asks `checkBlockCells`, and fills the hole)
   // promise a 半墙 / 三角 the release then dropped — blue cursor, no block.
   // Share the preview index, while keeping this commit's additions private.
+  const run = height === undefined ? storeyWallRun(baseCells, state.levelBase, state.storeyHeight) : baseCells.flatMap(([x, y, z]) => Array.from({ length: height }, (_, dz) => [x, y, z + dz] as [number, number, number]));
+  if (run.length === 0) return { state, changed: 0, blocked: 0 };
   const level = blockIndex(state.cells, state.modules);
+  const cutMask = corner !== null ? halfCornerMask(corner) : side !== null ? halfWallMask(side) : 0;
+  const runKeys = new Set<string>();
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  for (const [x, y, z] of run) {
+    runKeys.add(cellKey(x, y, z));
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+    if (z < minZ) minZ = z;
+    if (z > maxZ) maxZ = z;
+  }
   const addedKeys = new Set<string>();
   const holes = new Map<string, number>();
   const solids = new Map<string, number[]>();
-  state.cells.forEach((c, i) => {
+  const needSolids = cutMask !== 0;
+  for (let i = 0; i < state.cells.length; i++) {
+    const c = state.cells[i];
+    if (c.x < minX || c.x > maxX || c.y < minY || c.y > maxY || c.z < minZ || c.z > maxZ) continue;
+    if (c.fill === 'solid' && !needSolids) continue;
     const k = cellKey(c.x, c.y, c.z);
+    if (!runKeys.has(k)) continue;
     if (c.fill !== 'solid') holes.set(k, i);
     else {
       const list = solids.get(k);
       if (list) list.push(i);
       else solids.set(k, [i]);
     }
-  });
-  const cutMask = corner !== null ? halfCornerMask(corner) : side !== null ? halfWallMask(side) : 0;
+  }
   const tags =
     corner !== null ? [WALL, halfCornerTag(corner)] : triangle !== null ? [WALL, triangleTag(triangle.kind, triangle.side)] : side === null ? [WALL] : [WALL, halfWallTag(side)];
   const added: Cell[] = [];
   const merged: Array<{ index: number; cell: Cell }> = [];
   let blocked = 0;
-  const run = height === undefined ? storeyWallRun(baseCells, state.levelBase, state.storeyHeight) : baseCells.flatMap(([x, y, z]) => Array.from({ length: height }, (_, dz) => [x, y, z + dz] as [number, number, number]));
   for (const [x, y, z] of run) {
     const k = cellKey(x, y, z);
     if (addedKeys.has(k)) continue;
@@ -371,13 +388,12 @@ export function addWalls(
   // and only appends the piece's tag.
   const next = state.cells.slice();
   for (const m of merged) next[m.index] = m.cell;
-  const grown: Cell[] = [];
   for (const c of added) {
     const hole = holes.get(cellKey(c.x, c.y, c.z));
-    if (hole === undefined) grown.push(c);
+    if (hole === undefined) next.push(c);
     else next[hole] = c;
   }
-  return { state: { ...state, cells: clearSupportedOpeningCeilings([...next, ...grown], addedKeys) }, changed: added.length + merged.length, blocked };
+  return { state: { ...state, cells: clearSupportedOpeningCeilings(next, addedKeys) }, changed: added.length + merged.length, blocked };
 }
 
 /**

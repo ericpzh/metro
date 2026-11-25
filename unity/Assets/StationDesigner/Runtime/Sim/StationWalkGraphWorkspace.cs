@@ -16,6 +16,10 @@ namespace Metro.Sim {
         public List<StationModuleFact> OrderedModules;
         /// <summary>Optional canonical module ID order when <see cref="ChangedModules"/> is non-empty without an exit change, avoiding full ModuleFact re-projection.</summary>
         public string[] OrderedModuleIds;
+        /// <summary>True when <see cref="RemovedModules"/> is empty and every entry in <see cref="ChangedModules"/> is a brand-new module appended in order at the tail of the document.</summary>
+        public bool AppendOnlyModules;
+        /// <summary>True when <see cref="RemovedModules"/> is empty and every entry in <see cref="ChangedModules"/> replaces an existing module in place without changing module order.</summary>
+        public bool InPlaceUpdateOnly;
 
         public bool HasModuleChanges => RemovedModules.Count > 0 || ChangedModules.Count > 0;
     }
@@ -91,11 +95,22 @@ namespace Metro.Sim {
         /// <summary>True when old node id was removed or had its speed, zone, server or outgoing edges modified.</summary>
         public bool[] OldNodeTouched = Array.Empty<bool>();
         public int OldNodeCount;
+        public int NewNodeCount;
         public int RebuiltNodeCount;
         public int RebuiltEdgeNodeCount;
         public bool AnyRoadAdded;
         public bool ConnectivityIncreased;
         public bool ModulesChanged;
+
+        /// <summary>Compact incremental node-change lists populated by <see cref="StationWalkGraphWorkspace.StageCellDelta"/>.</summary>
+        public bool HasIncrementalLists;
+        public int AddedNewNodeStart;
+        public int AddedNewNodeCount;
+        public int[] RemovedOldNodes = Array.Empty<int>();
+        public (int OldId, int NewId)[] MovedNodes = Array.Empty<(int, int)>();
+        public int[] RebuiltNewNodes = Array.Empty<int>();
+        public int[] VerticalChangedNewNodes = Array.Empty<int>();
+        public int[] VerticalRemovedOldNodes = Array.Empty<int>();
     }
 
     /// <summary>
@@ -250,7 +265,9 @@ namespace Metro.Sim {
         Dictionary<long, int> exitFloorCounts;
         Dictionary<long, List<RampWall>> rampWallGrid;
         bool hasAnyRampWalls;
+        List<ModuleContribution> rampWallContribs;
         List<StationModuleFact> serverModules;
+        List<(string Id, string[] Unported)> unportedEntries;
         string[] cachedUnported;
 
         static int ModuleShardOf(string id) =>
@@ -394,7 +411,9 @@ namespace Metro.Sim {
             ws.fixtureAccess = new Dictionary<long, long>();
             ws.exitFloorCounts = new Dictionary<long, int>();
             ws.rampWallGrid = new Dictionary<long, List<RampWall>>();
+            ws.rampWallContribs = new List<ModuleContribution>();
             ws.serverModules = new List<StationModuleFact>();
+            ws.unportedEntries = new List<(string Id, string[] Unported)>();
             var unportedList = new List<string>();
 
             for (int i = 0; i < document.Modules.Count; i++) {
@@ -406,9 +425,13 @@ namespace Metro.Sim {
                     AddContentXY(contrib.ContentXs[k], contrib.ContentYs[k]);
                 }
                 ApplyModuleContributionToShards(contrib, ws.obstacleShards, null, ws.gateEntriesByCoord, ws.gateLanes, ws.fixtureEntriesByCoord, ws.fixtureAccess, ws.exitFloorCounts, ws.rampWallGrid);
-                if (contrib.RampWalls != null && contrib.RampWalls.Length > 0) ws.hasAnyRampWalls = true;
+                if (contrib.RampWalls != null && contrib.RampWalls.Length > 0) {
+                    ws.hasAnyRampWalls = true;
+                    ws.rampWallContribs.Add(contrib);
+                }
                 if (contrib.IsServerOrPlatformOrExit) ws.serverModules.Add(mod);
-                if (contrib.Unported != null) {
+                if (contrib.Unported != null && contrib.Unported.Length > 0) {
+                    ws.unportedEntries.Add((keyId, contrib.Unported));
                     for (int u = 0; u < contrib.Unported.Length; u++) unportedList.Add(contrib.Unported[u]);
                 }
             }
@@ -597,7 +620,9 @@ namespace Metro.Sim {
                 next.exitFloorCounts = exitFloorCounts;
                 next.rampWallGrid = rampWallGrid;
                 next.hasAnyRampWalls = hasAnyRampWalls;
+                next.rampWallContribs = rampWallContribs;
                 next.serverModules = serverModules;
+                next.unportedEntries = unportedEntries;
                 next.cachedUnported = cachedUnported;
             } else {
                 next.moduleShards = (Dictionary<string, ModuleContribution>[])moduleShards.Clone();
@@ -710,23 +735,147 @@ namespace Metro.Sim {
                 if (!rampWallsChanged && !serverModulesChanged && !unportedChanged) {
                     next.rampWallGrid = rampWallGrid;
                     next.hasAnyRampWalls = hasAnyRampWalls;
+                    next.rampWallContribs = rampWallContribs;
                     next.serverModules = serverModules;
+                    next.unportedEntries = unportedEntries;
                     next.cachedUnported = cachedUnported;
-                } else if (!rampWallsChanged && !serverModulesChanged && delta.ChangedModules.Count == 0 && removedUnportedStrings != null) {
-                    // Pure removal of non-server, non-ramp modules (e.g. floor delete cascading a bench): O(|cachedUnported|)!
-                    next.rampWallGrid = rampWallGrid;
-                    next.hasAnyRampWalls = hasAnyRampWalls;
-                    next.serverModules = serverModules;
-                    var filteredUnported = new List<string>(cachedUnported.Length);
-                    for (int u = 0; u < cachedUnported.Length; u++) {
-                        if (!removedUnportedStrings.Contains(cachedUnported[u])) filteredUnported.Add(cachedUnported[u]);
+                } else if (delta.OrderedModules == null && delta.OrderedModuleIds == null) {
+                    // Incremental O(|serverModules| + |rampWallContribs| + |unportedEntries|) update:
+                    // avoids scanning all 76k document modules on placements, in-place edits, and removals.
+                    var removedIdSet = delta.RemovedModules.Count > 0
+                        ? new HashSet<string>(delta.RemovedModules, StringComparer.Ordinal)
+                        : null;
+                    Dictionary<string, ModuleContribution> changedContribById = null;
+                    var changedNewIds = delta.ChangedModules.Count > 0 ? new List<string>(delta.ChangedModules.Count) : null;
+                    if (delta.ChangedModules.Count > 0) {
+                        changedContribById = new Dictionary<string, ModuleContribution>(delta.ChangedModules.Count, StringComparer.Ordinal);
+                        for (int i = 0; i < delta.ChangedModules.Count; i++) {
+                            string id = delta.ChangedModules[i].Id ?? "";
+                            if (next.TryGetModuleContrib(id, out var nc)) {
+                                changedContribById[id] = nc;
+                                changedNewIds.Add(id);
+                            }
+                        }
                     }
-                    next.cachedUnported = filteredUnported.ToArray();
+
+                    bool needsCanonicalServerScan = false;
+                    if (serverModulesChanged && delta.InPlaceUpdateOnly && changedContribById != null) {
+                        foreach (var kv in changedContribById) {
+                            if (kv.Value.IsServerOrPlatformOrExit && TryGetModuleContrib(kv.Key, out var oldC) && !oldC.IsServerOrPlatformOrExit) {
+                                needsCanonicalServerScan = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (!rampWallsChanged) {
+                        next.rampWallGrid = rampWallGrid;
+                        next.hasAnyRampWalls = hasAnyRampWalls;
+                        next.rampWallContribs = rampWallContribs;
+                    } else {
+                        var nextRamps = new List<ModuleContribution>(rampWallContribs.Count + (changedNewIds?.Count ?? 0));
+                        var placed = changedContribById != null ? new HashSet<string>(StringComparer.Ordinal) : null;
+                        for (int i = 0; i < rampWallContribs.Count; i++) {
+                            var rc = rampWallContribs[i];
+                            if (removedIdSet != null && removedIdSet.Contains(rc.Id)) continue;
+                            if (changedContribById != null && changedContribById.TryGetValue(rc.Id, out var rep)) {
+                                placed.Add(rc.Id);
+                                if (rep.RampWalls != null && rep.RampWalls.Length > 0) nextRamps.Add(rep);
+                            } else {
+                                nextRamps.Add(rc);
+                            }
+                        }
+                        if (changedNewIds != null) {
+                            for (int i = 0; i < changedNewIds.Count; i++) {
+                                string id = changedNewIds[i];
+                                if (placed.Add(id) && changedContribById.TryGetValue(id, out var nc) && nc.RampWalls != null && nc.RampWalls.Length > 0) {
+                                    nextRamps.Add(nc);
+                                }
+                            }
+                        }
+                        var grid = new Dictionary<long, List<RampWall>>();
+                        for (int i = 0; i < nextRamps.Count; i++) AddRampWallsToGrid(nextRamps[i].RampWalls, grid);
+                        next.rampWallContribs = nextRamps;
+                        next.rampWallGrid = grid;
+                        next.hasAnyRampWalls = nextRamps.Count > 0;
+                    }
+
+                    if (!serverModulesChanged) {
+                        next.serverModules = serverModules;
+                    } else if (!needsCanonicalServerScan) {
+                        var nextServers = new List<StationModuleFact>(serverModules.Count + (changedNewIds?.Count ?? 0));
+                        var placed = changedContribById != null ? new HashSet<string>(StringComparer.Ordinal) : null;
+                        for (int i = 0; i < serverModules.Count; i++) {
+                            var sm = serverModules[i];
+                            string id = sm.Id ?? "";
+                            if (removedIdSet != null && removedIdSet.Contains(id)) continue;
+                            if (changedContribById != null && changedContribById.TryGetValue(id, out var rep)) {
+                                placed.Add(id);
+                                if (rep.IsServerOrPlatformOrExit) nextServers.Add(rep.Fact);
+                            } else {
+                                nextServers.Add(sm);
+                            }
+                        }
+                        if (changedNewIds != null) {
+                            for (int i = 0; i < changedNewIds.Count; i++) {
+                                string id = changedNewIds[i];
+                                if (placed.Add(id) && changedContribById.TryGetValue(id, out var nc) && nc.IsServerOrPlatformOrExit) {
+                                    nextServers.Add(nc.Fact);
+                                }
+                            }
+                        }
+                        next.serverModules = nextServers;
+                    } else {
+                        var nextServers = new List<StationModuleFact>(serverModules.Count + delta.ChangedModules.Count);
+                        for (int i = 0; i < nextDocument.Modules.Count; i++) {
+                            var mod = nextDocument.Modules[i];
+                            if (!string.IsNullOrEmpty(mod.Id) && next.TryGetModuleContrib(mod.Id, out var c) && c.IsServerOrPlatformOrExit) {
+                                nextServers.Add(mod);
+                            }
+                        }
+                        next.serverModules = nextServers;
+                    }
+
+                    if (!unportedChanged) {
+                        next.unportedEntries = unportedEntries;
+                        next.cachedUnported = cachedUnported;
+                    } else {
+                        var nextUnpEntries = new List<(string Id, string[] Unported)>(unportedEntries.Count + (changedNewIds?.Count ?? 0));
+                        var placed = changedContribById != null ? new HashSet<string>(StringComparer.Ordinal) : null;
+                        var flat = new List<string>(cachedUnported.Length + 4);
+                        for (int i = 0; i < unportedEntries.Count; i++) {
+                            var entry = unportedEntries[i];
+                            if (removedIdSet != null && removedIdSet.Contains(entry.Id)) continue;
+                            if (changedContribById != null && changedContribById.TryGetValue(entry.Id, out var rep)) {
+                                placed.Add(entry.Id);
+                                if (rep.Unported != null && rep.Unported.Length > 0) {
+                                    nextUnpEntries.Add((entry.Id, rep.Unported));
+                                    for (int u = 0; u < rep.Unported.Length; u++) flat.Add(rep.Unported[u]);
+                                }
+                            } else {
+                                nextUnpEntries.Add(entry);
+                                for (int u = 0; u < entry.Unported.Length; u++) flat.Add(entry.Unported[u]);
+                            }
+                        }
+                        if (changedNewIds != null) {
+                            for (int i = 0; i < changedNewIds.Count; i++) {
+                                string id = changedNewIds[i];
+                                if (placed.Add(id) && changedContribById.TryGetValue(id, out var nc) && nc.Unported != null && nc.Unported.Length > 0) {
+                                    nextUnpEntries.Add((id, nc.Unported));
+                                    for (int u = 0; u < nc.Unported.Length; u++) flat.Add(nc.Unported[u]);
+                                }
+                            }
+                        }
+                        next.unportedEntries = nextUnpEntries;
+                        next.cachedUnported = flat.ToArray();
+                    }
                 } else {
                     next.rampWallGrid = rampWallsChanged ? new Dictionary<long, List<RampWall>>() : rampWallGrid;
+                    next.rampWallContribs = rampWallsChanged ? new List<ModuleContribution>(rampWallContribs.Count + 4) : rampWallContribs;
                     next.serverModules = serverModulesChanged
                         ? new List<StationModuleFact>(serverModules.Count + delta.ChangedModules.Count)
                         : serverModules;
+                    next.unportedEntries = unportedChanged ? new List<(string Id, string[] Unported)>(unportedEntries.Count + 4) : unportedEntries;
                     var unportedList = unportedChanged ? new List<string>(cachedUnported.Length + 4) : null;
                     bool anyRamp = hasAnyRampWalls && !rampWallsChanged;
                     for (int i = 0; i < nextDocument.Modules.Count; i++) {
@@ -737,10 +886,12 @@ namespace Metro.Sim {
                         }
                         if (rampWallsChanged && c.RampWalls != null && c.RampWalls.Length > 0) {
                             anyRamp = true;
+                            next.rampWallContribs.Add(c);
                             AddRampWallsToGrid(c.RampWalls, next.rampWallGrid);
                         }
                         if (serverModulesChanged && c.IsServerOrPlatformOrExit) next.serverModules.Add(mod);
-                        if (unportedChanged && c.Unported != null) {
+                        if (unportedChanged && c.Unported != null && c.Unported.Length > 0) {
+                            next.unportedEntries.Add((c.Id, c.Unported));
                             for (int u = 0; u < c.Unported.Length; u++) unportedList.Add(c.Unported[u]);
                         }
                     }
@@ -920,6 +1071,8 @@ namespace Metro.Sim {
 
             // Apply node removals via dense pop-and-swap:
             int currentCount = oldCount;
+            var removedOldList = toRemoveCoords.Count > 0 ? new List<int>(toRemoveCoords.Count) : null;
+            var candidateMovedOrig = toRemoveCoords.Count > 0 ? new List<int>(toRemoveCoords.Count) : null;
             for (int i = 0; i < toRemoveCoords.Count; i++) {
                 long rmCoord = toRemoveCoords[i];
                 int rmShard = ShardOf(rmCoord);
@@ -941,6 +1094,7 @@ namespace Metro.Sim {
                 if (removedOrig >= 0 && removedOrig < oldCount) {
                     oldToNew[removedOrig] = -1;
                     oldNodeTouched[removedOrig] = true;
+                    removedOldList.Add(removedOrig);
                 }
 
                 WritableNodeShard(rmShard).Remove(rmCoord);
@@ -966,6 +1120,7 @@ namespace Metro.Sim {
                     newToOld[slot] = movedOrig;
                     if (movedOrig >= 0 && movedOrig < oldCount) {
                         oldToNew[movedOrig] = slot;
+                        candidateMovedOrig.Add(movedOrig);
                     }
                     // Rebuild planar edges around movedCoord so its neighbors point to `slot` instead of `last`:
                     planarDirtySeeds.Add(movedCoord);
@@ -973,7 +1128,21 @@ namespace Metro.Sim {
                 currentCount--;
             }
 
+            (int OldId, int NewId)[] movedNodesArr = Array.Empty<(int, int)>();
+            if (candidateMovedOrig != null && candidateMovedOrig.Count > 0) {
+                var movedList = new List<(int OldId, int NewId)>(candidateMovedOrig.Count);
+                var seenMoved = new HashSet<int>();
+                for (int i = 0; i < candidateMovedOrig.Count; i++) {
+                    int orig = candidateMovedOrig[i];
+                    if (!seenMoved.Add(orig)) continue;
+                    int ns = oldToNew[orig];
+                    if (ns >= 0 && ns != orig) movedList.Add((orig, ns));
+                }
+                if (movedList.Count > 0) movedNodesArr = movedList.ToArray();
+            }
+
             // Apply node additions at the end [currentCount ..]:
+            int addedNewNodeStart = currentCount;
             bool connectivityIncreased = serverModulesChanged || obstacleRemoved;
             for (int i = 0; i < toAddNodes.Count; i++) {
                 var add = toAddNodes[i];
@@ -1138,39 +1307,67 @@ namespace Metro.Sim {
             next.nodesWithVerticalOut = new HashSet<int>();
             var nextGraph = next.CreateGraphInstance();
 
-            // Mark oldNodeTouched ONLY on vertical origins whose outgoing vertical edges actually changed:
+            // Mark oldNodeTouched ONLY on vertical origins whose outgoing vertical edges actually changed,
+            // and record exact vertical changes for incremental sparse topology updates:
+            List<int> vertChangedNew = null;
+            List<int> vertRemovedOld = null;
+            var oldServers = Graph?.Servers;
+            var newServers = nextGraph.Servers;
             foreach (int oldVNode in nodesWithVerticalOut) {
-                if (oldVNode < 0 || oldVNode >= oldCount || oldNodeTouched[oldVNode]) continue;
+                if (oldVNode < 0 || oldVNode >= oldCount) continue;
                 int curSlot = oldToNew[oldVNode];
-                if (curSlot < 0 || curSlot >= currentCount || !next.nodesWithVerticalOut.Contains(curSlot)) {
+                if (curSlot < 0 || curSlot >= currentCount) {
                     oldNodeTouched[oldVNode] = true;
+                    (vertRemovedOld ??= new List<int>()).Add(oldVNode);
+                    continue;
+                }
+                if (!next.nodesWithVerticalOut.Contains(curSlot)) {
+                    oldNodeTouched[oldVNode] = true;
+                    (vertChangedNew ??= new List<int>()).Add(curSlot);
                     continue;
                 }
                 int oldPDeg = planarDegree[oldVNode];
                 int newPDeg = next.planarDegree[curSlot];
                 int oldVCount = adjTo[oldVNode].Length - oldPDeg;
                 int newVCount = next.adjTo[curSlot].Length - newPDeg;
-                if (oldVCount != newVCount) {
-                    oldNodeTouched[oldVNode] = true;
-                    continue;
-                }
-                for (int k = 0; k < oldVCount; k++) {
-                    int oldTarget = adjTo[oldVNode][oldPDeg + k];
-                    int mappedTarget = (oldTarget >= 0 && oldTarget < oldCount) ? oldToNew[oldTarget] : -1;
-                    if (mappedTarget != next.adjTo[curSlot][newPDeg + k] ||
-                        adjKind[oldVNode][oldPDeg + k] != next.adjKind[curSlot][newPDeg + k] ||
-                        Math.Abs(adjCost[oldVNode][oldPDeg + k] - next.adjCost[curSlot][newPDeg + k]) > 1e-9) {
-                        oldNodeTouched[oldVNode] = true;
-                        break;
+                bool changed = oldVCount != newVCount;
+                if (!changed) {
+                    for (int k = 0; k < oldVCount; k++) {
+                        int oldTarget = adjTo[oldVNode][oldPDeg + k];
+                        int newTarget = next.adjTo[curSlot][newPDeg + k];
+                        int mappedTarget = (oldTarget >= 0 && oldTarget < oldCount) ? oldToNew[oldTarget] : -1;
+                        if (mappedTarget != newTarget ||
+                            adjKind[oldVNode][oldPDeg + k] != next.adjKind[curSlot][newPDeg + k] ||
+                            Math.Abs(adjCost[oldVNode][oldPDeg + k] - next.adjCost[curSlot][newPDeg + k]) > 1e-9) {
+                            changed = true;
+                            break;
+                        }
+                        int oldSv = adjServer[oldVNode][oldPDeg + k];
+                        int newSv = next.adjServer[curSlot][newPDeg + k];
+                        string oldKind = oldServers != null && (uint)oldSv < (uint)oldServers.Count ? oldServers[oldSv].Kind : null;
+                        string newKind = newServers != null && (uint)newSv < (uint)newServers.Count ? newServers[newSv].Kind : null;
+                        int oldFlights = oldServers != null && (uint)oldSv < (uint)oldServers.Count ? oldServers[oldSv].StairFlights : 0;
+                        int newFlights = newServers != null && (uint)newSv < (uint)newServers.Count ? newServers[newSv].StairFlights : 0;
+                        if (!string.Equals(oldKind, newKind, StringComparison.Ordinal) || oldFlights != newFlights) {
+                            changed = true;
+                            break;
+                        }
                     }
+                }
+                if (changed) {
+                    oldNodeTouched[oldVNode] = true;
+                    (vertChangedNew ??= new List<int>()).Add(curSlot);
                 }
             }
             foreach (int newVSlot in next.nodesWithVerticalOut) {
                 if (newVSlot < 0 || newVSlot >= currentCount) continue;
                 int orig = newToOld[newVSlot];
-                if (orig >= 0 && orig < oldCount && !nodesWithVerticalOut.Contains(orig)) {
-                    oldNodeTouched[orig] = true;
-                    connectivityIncreased = true;
+                if (orig < 0 || orig >= oldCount || !nodesWithVerticalOut.Contains(orig)) {
+                    if (orig >= 0 && orig < oldCount) {
+                        oldNodeTouched[orig] = true;
+                        connectivityIncreased = true;
+                    }
+                    (vertChangedNew ??= new List<int>()).Add(newVSlot);
                 }
             }
 
@@ -1183,11 +1380,20 @@ namespace Metro.Sim {
                 OldToNewNode = oldToNew,
                 OldNodeTouched = oldNodeTouched,
                 OldNodeCount = oldCount,
+                NewNodeCount = currentCount,
                 RebuiltNodeCount = toRemoveCoords.Count + toAddNodes.Count + toUpdateAttrs.Count,
                 RebuiltEdgeNodeCount = rebuildNodes.Count,
                 AnyRoadAdded = anyRoadAdded,
                 ConnectivityIncreased = connectivityIncreased,
                 ModulesChanged = delta.HasModuleChanges,
+                HasIncrementalLists = true,
+                AddedNewNodeStart = addedNewNodeStart,
+                AddedNewNodeCount = toAddNodes.Count,
+                RemovedOldNodes = removedOldList != null && removedOldList.Count > 0 ? removedOldList.ToArray() : Array.Empty<int>(),
+                MovedNodes = movedNodesArr,
+                RebuiltNewNodes = rebuildNodes.Count > 0 ? rebuildNodes.ToArray() : Array.Empty<int>(),
+                VerticalChangedNewNodes = vertChangedNew != null && vertChangedNew.Count > 0 ? vertChangedNew.ToArray() : Array.Empty<int>(),
+                VerticalRemovedOldNodes = vertRemovedOld != null && vertRemovedOld.Count > 0 ? vertRemovedOld.ToArray() : Array.Empty<int>(),
             };
             return new StagedResult(next, nextGraph, graphDelta);
         }

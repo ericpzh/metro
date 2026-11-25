@@ -98,6 +98,14 @@ namespace Metro.App.Views {
         public static bool Bind(StationDisplayArtwork.Scope scope, GameObject root, ModuleFacts module,
             StationClockFrame clock, Metro.App.StationWorldView world) {
             if (scope == null || root == null || module == null) return false;
+            if (!string.IsNullOrEmpty(module.Id) && byScope.TryGetValue(scope, out var existingList)) {
+                for (int i = existingList.Count - 1; i >= 0; i--) {
+                    var existing = existingList[i];
+                    if (existing == null || !string.Equals(existing.ModuleId, module.Id, StringComparison.Ordinal)) continue;
+                    ReleaseClockEntry(scope, existing);
+                    existingList.RemoveAt(i);
+                }
+            }
             var entry = new ClockEntry { ModuleId = module.Id ?? "" };
             var faces = new Dictionary<string, Vector3>(StringComparer.Ordinal);
             var digitalFound = new List<(int slot, int order, MeshRenderer renderer)>();
@@ -147,6 +155,36 @@ namespace Metro.App.Views {
             list.Add(entry);
             Apply(scope, world, clock, 0);
             return true;
+        }
+
+        /// <summary>Remove stale clock entries, surfaces, and per-clock digital materials for retired modules.</summary>
+        public static void Unbind(StationDisplayArtwork.Scope scope, HashSet<string> moduleIds) {
+            if (scope == null || moduleIds == null || moduleIds.Count == 0) return;
+            if (!byScope.TryGetValue(scope, out var entries)) return;
+            for (int i = entries.Count - 1; i >= 0; i--) {
+                var entry = entries[i];
+                if (entry == null || (!string.IsNullOrEmpty(entry.ModuleId) && moduleIds.Contains(entry.ModuleId))) {
+                    ReleaseClockEntry(scope, entry);
+                    entries.RemoveAt(i);
+                }
+            }
+        }
+
+        static void ReleaseClockEntry(StationDisplayArtwork.Scope scope, ClockEntry entry) {
+            if (scope == null || entry == null) return;
+            for (int s = 0; s < entry.DigitalSurfaces.Count; s++) {
+                if (entry.DigitalSurfaces[s] != null) scope.Surfaces.Remove(entry.DigitalSurfaces[s]);
+            }
+            if (!string.IsNullOrEmpty(entry.ModuleId)) {
+                string matKey = "clock-display|" + entry.ModuleId;
+                if (scope.Materials.TryGetValue(matKey, out var mat)) {
+                    scope.Materials.Remove(matKey);
+                    if (mat != null) {
+                        if (Application.isPlaying) UnityEngine.Object.Destroy(mat);
+                        else UnityEngine.Object.DestroyImmediate(mat);
+                    }
+                }
+            }
         }
 
         /// <summary>Resolve one hand's dial frame and the angle its arm is baked at.</summary>

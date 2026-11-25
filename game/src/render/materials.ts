@@ -5,7 +5,36 @@
 
 import * as THREE from 'three'
 import { DEFAULT_FINISH, FINISH_LIST, RAMP_SOFFIT_FINISH, finishDef, type FinishDef } from '../sim/finishes.ts'
-import type { FinishId, StationData } from '../sim/types.ts'
+import type { Cell, FinishId, Module, StationData } from '../sim/types.ts'
+
+const STOCK_FINISHES: ReadonlySet<FinishId> = new Set<FinishId>([
+  ...FINISH_LIST.map((f) => f.id),
+  ...Object.values(DEFAULT_FINISH),
+  RAMP_SOFFIT_FINISH,
+])
+
+export function isStockFinish(id: FinishId): boolean {
+  return STOCK_FINISHES.has(id)
+}
+
+export function cellHasCustomFinish(cell: Cell): boolean {
+  if (!cell.finish) return false
+  for (const id of Object.values(cell.finish)) {
+    if (id && !STOCK_FINISHES.has(id)) return true
+  }
+  return false
+}
+
+export function moduleHasCustomFinish(mod: Module): boolean {
+  if ((mod.type === 'stair' || mod.type === 'roof' || mod.type === 'pillar') && mod.cfg.finish && !STOCK_FINISHES.has(mod.cfg.finish)) return true
+  if (mod.type === 'track') {
+    if (mod.cfg.bridgeFinish && !STOCK_FINISHES.has(mod.cfg.bridgeFinish)) return true
+    for (const id of Object.values(mod.cfg.surfaceFinishes ?? {})) {
+      if (id && !STOCK_FINISHES.has(id)) return true
+    }
+  }
+  return false
+}
 
 function canvas(size: number): { c: HTMLCanvasElement; g: CanvasRenderingContext2D } {
   const c = document.createElement('canvas')
@@ -395,6 +424,10 @@ export interface MaterialSet {
    * shades keeps every shade's pixels for the whole session.
    */
   retain: (inUse: ReadonlySet<FinishId>) => void
+  /** True when `finishCache` holds any non-stock finish that could be pruned. */
+  hasCustomFinishes?: () => boolean
+  /** True when a non-stock finish was minted since the last `retain` call. */
+  hasUnretainedCustomFinishes?: () => boolean
   outline: THREE.MeshBasicMaterial
   blob: THREE.MeshBasicMaterial
   equipmentBlob: THREE.MeshBasicMaterial
@@ -431,6 +464,8 @@ export function finishesInUse(data: StationData): Set<FinishId> {
 
 export function createMaterials(): MaterialSet {
   const cache = new Map<FinishId, THREE.MeshStandardMaterial>()
+  let customCount = 0
+  let unretainedCustom = false
   /** Everything this set minted, for `owns` — including finishes minted after it. */
   const minted = new WeakSet<THREE.Material>()
   const finish = (id: FinishId): THREE.MeshStandardMaterial => {
@@ -439,6 +474,10 @@ export function createMaterials(): MaterialSet {
       m = finishMaterial(finishDef(id))
       minted.add(m)
       cache.set(id, m)
+      if (!STOCK_FINISHES.has(id)) {
+        customCount++
+        unretainedCustom = true
+      }
     }
     return m
   }
@@ -487,8 +526,12 @@ export function createMaterials(): MaterialSet {
         if (inUse.has(id)) continue
         drop(m)
         cache.delete(id)
+        if (!STOCK_FINISHES.has(id)) customCount = Math.max(0, customCount - 1)
       }
+      unretainedCustom = false
     },
+    hasCustomFinishes: () => customCount > 0,
+    hasUnretainedCustomFinishes: () => unretainedCustom,
     outline,
     blob,
     equipmentBlob,
@@ -497,6 +540,8 @@ export function createMaterials(): MaterialSet {
     dispose: () => {
       for (const m of cache.values()) drop(m)
       cache.clear()
+      customCount = 0
+      unretainedCustom = false
       // `platform` is a cache entry (`floor.granite`), so it has already gone with
       // the rest; these three are the set's own.
       outline.dispose()

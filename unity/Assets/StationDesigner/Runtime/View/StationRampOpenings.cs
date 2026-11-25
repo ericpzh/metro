@@ -313,7 +313,12 @@ namespace Metro.View {
             RampSlopeCuts(ExtractFacts(modules));
 
         /// <summary>Port of <c>rampSlopeCuts</c> (<c>sim/openings.ts</c>).</summary>
-        public static Dictionary<StationCellKey, StationSlopeCut> RampSlopeCuts(IReadOnlyList<ModuleFacts> modules) {
+        public static Dictionary<StationCellKey, StationSlopeCut> RampSlopeCuts(IReadOnlyList<ModuleFacts> modules) =>
+            RampSlopeCutsCore(modules, null);
+
+        static Dictionary<StationCellKey, StationSlopeCut> RampSlopeCutsCore(
+            IReadOnlyList<ModuleFacts> modules,
+            Dictionary<ModuleFacts, HashSet<StationCellKey>> moduleCutKeys) {
             var cuts = new Dictionary<StationCellKey, StationSlopeCut>();
             if (modules == null || modules.Count == 0) return cuts;
 
@@ -379,6 +384,7 @@ namespace Metro.View {
                 bool stairOffGrid = isStair && !StationRunGeometry.StairOnBlockGrid(stairTreadWidth);
                 string finish = isStair ? m.Config.Text("finish") : null;
                 double escHalf = isEscalator ? StationRunGeometry.EscalatorBodyWidth(m) * .5 : 0;
+                HashSet<StationCellKey> ownKeys = null;
 
                 for (int flightIndex = 0; flightIndex < segs.Count; flightIndex++) {
                     var s = segs[flightIndex];
@@ -427,6 +433,10 @@ namespace Metro.View {
 
                                 var patch = new StationRampPatch(axis, lo, hi, x0, x1, y0, y1, hasFlightBase, baseZ);
                                 var key = new StationCellKey(x, y, z);
+                                if (moduleCutKeys != null) {
+                                    ownKeys ??= new HashSet<StationCellKey>();
+                                    ownKeys.Add(key);
+                                }
                                 var cut = new StationSlopeCut {
                                     Axis = axis,
                                     Lo = localLo,
@@ -459,6 +469,9 @@ namespace Metro.View {
                         }
                     }
                 }
+                if (ownKeys != null && moduleCutKeys != null) {
+                    moduleCutKeys[m] = ownKeys;
+                }
             }
             return cuts;
         }
@@ -483,9 +496,11 @@ namespace Metro.View {
             readonly List<RampSegment> ramps;
             readonly Dictionary<(int x, int y), List<RampSegment>> buckets;
             readonly Dictionary<int, HashSet<StationCellKey>> cacheByLevel = new Dictionary<int, HashSet<StationCellKey>>();
+            public Dictionary<StationCellKey, StationSlopeCut> SlopeCuts { get; }
 
-            internal PreparedRampOpenings(List<RampSegment> ramps) {
+            internal PreparedRampOpenings(List<RampSegment> ramps, Dictionary<StationCellKey, StationSlopeCut> slopeCuts = null) {
                 this.ramps = ramps ?? new List<RampSegment>(0);
+                SlopeCuts = slopeCuts ?? new Dictionary<StationCellKey, StationSlopeCut>();
                 buckets = this.ramps.Count > 0 ? BuildRampBuckets(this.ramps) : null;
             }
 
@@ -548,7 +563,37 @@ namespace Metro.View {
             Collect("stair");
             Collect("escalator");
             Collect("lift");
-            return new PreparedRampOpenings(structural.Count == 0 ? null : BuildRampList(structural));
+            if (structural.Count == 0) return new PreparedRampOpenings(null);
+            var ramps = BuildRampList(structural, out var cuts);
+            return new PreparedRampOpenings(ramps, cuts);
+        }
+
+        /// <summary>
+        /// Collect all integer cell coordinates inside the tight bounding box where <paramref name="module"/>
+        /// can affect <see cref="PreparedRampOpenings.TryComputeThinSide"/>.
+        /// </summary>
+        public static void CollectThinCandidateCells(ModuleFacts module, HashSet<StationCellKey> outCells) {
+            if (module == null || outCells == null) return;
+            var segs = RampSegments(module);
+            if (segs == null || segs.Count == 0) return;
+            double segHeadroom = string.Equals(module.Type, "escalator", StringComparison.Ordinal) ? EscalatorHeadroom : Headroom;
+            for (int s = 0; s < segs.Count; s++) {
+                var r = segs[s];
+                double reach = Math.Max(r.CoreHalf, Math.Max(r.RailHalf, r.BodyHalf)) + 1.0;
+                int x0 = (int)Math.Floor(Math.Min(r.From.X, r.To.X) + r.Sx - reach);
+                int x1 = (int)Math.Ceiling(Math.Max(r.From.X, r.To.X) + r.Sx + reach);
+                int y0 = (int)Math.Floor(Math.Min(r.From.Y, r.To.Y) + r.Sy - reach);
+                int y1 = (int)Math.Ceiling(Math.Max(r.From.Y, r.To.Y) + r.Sy + reach);
+                int z0 = (int)Math.Floor(Math.Min(r.From.Z, r.To.Z) + 1.0 + Eps) - 1;
+                int z1 = (int)Math.Ceiling(Math.Max(r.From.Z, r.To.Z) + 1.0 + segHeadroom) + 1;
+                for (int x = x0; x <= x1; x++) {
+                    for (int y = y0; y <= y1; y++) {
+                        for (int z = z0; z <= z1; z++) {
+                            outCells.Add(new StationCellKey(x, y, z));
+                        }
+                    }
+                }
+            }
         }
 
         public static HashSet<StationCellKey> RampOpeningsAtLevel(IReadOnlyList<StationModuleRecord> modules, int z) =>
@@ -606,8 +651,13 @@ namespace Metro.View {
             return thins;
         }
 
-        static List<RampSegment> BuildRampList(IReadOnlyList<ModuleFacts> modules) {
+        static List<RampSegment> BuildRampList(IReadOnlyList<ModuleFacts> modules) =>
+            BuildRampList(modules, out _);
+
+        static List<RampSegment> BuildRampList(IReadOnlyList<ModuleFacts> modules,
+            out Dictionary<StationCellKey, StationSlopeCut> slopeCuts) {
             var ramps = new List<RampSegment>();
+            slopeCuts = new Dictionary<StationCellKey, StationSlopeCut>();
             if (modules == null || modules.Count == 0) return ramps;
 
             var structural = new List<ModuleFacts>();
@@ -626,13 +676,14 @@ namespace Metro.View {
             }
             if (structural.Count == 0) return ramps;
 
-            var cuts = RampSlopeCuts(structural);
+            var moduleCutKeys = new Dictionary<ModuleFacts, HashSet<StationCellKey>>(structural.Count);
+            var cuts = RampSlopeCutsCore(structural, moduleCutKeys);
+            slopeCuts = cuts;
             var retained = new HashSet<StationCellKey>();
             foreach (var pair in cuts) {
                 if (RampSurfaceRetainsVolume(pair.Value.PatchList)) retained.Add(pair.Key);
             }
 
-            var singleInput = new List<ModuleFacts>(exits.Count + 1);
             for (int i = 0; i < structural.Count; i++) {
                 var m = structural[i];
                 if (string.Equals(m.Type, "exit", StringComparison.Ordinal)) continue;
@@ -640,12 +691,9 @@ namespace Metro.View {
                 if (segs == null || segs.Count == 0) continue;
 
                 HashSet<StationCellKey> groundCells = null;
-                if (!string.Equals(m.Type, "lift", StringComparison.Ordinal)) {
-                    singleInput.Clear();
-                    singleInput.Add(m);
-                    for (int e = 0; e < exits.Count; e++) singleInput.Add(exits[e]);
-                    var ownCuts = RampSlopeCuts(singleInput);
-                    foreach (var key in ownCuts.Keys) {
+                if (!string.Equals(m.Type, "lift", StringComparison.Ordinal) &&
+                    moduleCutKeys.TryGetValue(m, out var ownKeys)) {
+                    foreach (var key in ownKeys) {
                         if (!retained.Contains(key)) continue;
                         groundCells ??= new HashSet<StationCellKey>();
                         groundCells.Add(key);

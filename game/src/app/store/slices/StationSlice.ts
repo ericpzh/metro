@@ -11,6 +11,7 @@ import type { StateCreator } from 'zustand'
 import { emptyStation, REFERENCE_BOOT, referenceStationDocument } from '../../../data/reference-station.ts'
 import type { ExampleStationId } from '../../../data/reference-station.ts'
 import {
+  hasBridgeOrBridgePillar,
   nearestLevel,
   toData,
   toState,
@@ -47,6 +48,23 @@ function pushPast(past: readonly StationState[], snap: StationState): StationSta
   const next = [...past, snap]
   if (next.length > UNDO_MAX_FRAMES) next.splice(0, next.length - UNDO_MAX_FRAMES)
   return next
+}
+
+function modulesTouchTrackOrPillar(before: readonly StationState['modules'][number][], after: readonly StationState['modules'][number][]): boolean {
+  if (before === after) return false
+  const common = Math.min(before.length, after.length)
+  let prefix = 0, suffix = 0
+  while (prefix < common && before[prefix] === after[prefix]) prefix++
+  while (suffix < common - prefix && before[before.length - 1 - suffix] === after[after.length - 1 - suffix]) suffix++
+  for (let i = prefix; i < before.length - suffix; i++) {
+    const t = before[i].type
+    if (t === 'track' || t === 'pillar') return true
+  }
+  for (let i = prefix; i < after.length - suffix; i++) {
+    const t = after[i].type
+    if (t === 'track' || t === 'pillar') return true
+  }
+  return false
 }
 
 export interface StationSlice {
@@ -205,9 +223,13 @@ export const createStationSlice: StateCreator<AppState, [], [], StationSlice> = 
     const cur = get().station
     if (next === cur) return
     const settingsOnly = populationEdit(cur, next)
-    if (!settingsOnly) next = syncBridgePillars(next)
+    if (!settingsOnly && (next.cells !== cur.cells ||
+      ((hasBridgeOrBridgePillar(cur.modules) || hasBridgeOrBridgePillar(next.modules)) &&
+        modulesTouchTrackOrPillar(cur.modules, next.modules)))) {
+      next = syncBridgePillars(next)
+    }
     if (next.cells !== cur.cells) {
-      const cells = clearContactFinishes(next.cells)
+      const cells = clearContactFinishes(next.cells, cur.cells)
       if (cells !== next.cells) next = { ...next, cells }
     }
     // Documents are immutable (the renderer and placement caches rely on this).

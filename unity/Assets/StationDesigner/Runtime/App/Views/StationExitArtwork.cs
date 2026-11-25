@@ -689,6 +689,45 @@ namespace Metro.App {
         /// <summary>Every plate this cache bound, in build order (a probe reads them).</summary>
         public IReadOnlyList<ExitFaceBinding> Bindings => bindings;
 
+        /// <summary>Remove bindings and subscribers for retired or rebound modules, pruning empty wanted keys.</summary>
+        public void Unbind(HashSet<string> moduleIds) {
+            if (disposed || moduleIds == null || moduleIds.Count == 0) return;
+            for (int i = bindings.Count - 1; i >= 0; i--) {
+                var binding = bindings[i];
+                if (binding == null || (!string.IsNullOrEmpty(binding.ModuleId) && moduleIds.Contains(binding.ModuleId))) {
+                    bindings.RemoveAt(i);
+                    if (binding == null) continue;
+                    var key = binding.Key;
+                    if (!string.IsNullOrEmpty(key)) {
+                        if (subscribers.TryGetValue(key, out var list)) {
+                            list.Remove(binding);
+                            if (list.Count == 0) {
+                                subscribers.Remove(key);
+                                if (wanted.Remove(key)) Forget(key);
+                            }
+                        }
+                        if (entries.TryGetValue(key, out var entry) && entry.Refs > 0) {
+                            entry.Refs--;
+                        }
+                    }
+                }
+            }
+            if (wanted.Count > 0) {
+                List<string> staleWanted = null;
+                foreach (var key in wanted.Keys) {
+                    if (!subscribers.TryGetValue(key, out var list) || list.Count == 0) {
+                        (staleWanted ??= new List<string>()).Add(key);
+                    }
+                }
+                if (staleWanted != null) {
+                    for (int i = 0; i < staleWanted.Count; i++) {
+                        wanted.Remove(staleWanted[i]);
+                        Forget(staleWanted[i]);
+                    }
+                }
+            }
+        }
+
         void Subscribe(ExitFaceBinding binding) {
             if (binding == null || binding.Facts == null) return;
             binding.Key = binding.Facts.ContentKey;
@@ -1612,6 +1651,37 @@ namespace Metro.App {
         }
 
         static readonly List<StationExitArtworkScope> liveScopes = new List<StationExitArtworkScope>();
+
+        /// <summary>Unbind and dispose per-binding quads, materials, and runtime meshes for retired or rebound modules.</summary>
+        public static void Unbind(StationExitArtworkScope scope, HashSet<string> moduleIds, List<Mesh> retiredMeshes = null) {
+            if (scope == null || moduleIds == null || moduleIds.Count == 0) return;
+            scope.Cache?.Unbind(moduleIds);
+            for (int i = scope.Bindings.Count - 1; i >= 0; i--) {
+                var binding = scope.Bindings[i];
+                if (binding == null || (!string.IsNullOrEmpty(binding.ModuleId) && moduleIds.Contains(binding.ModuleId))) {
+                    scope.Bindings.RemoveAt(i);
+                    if (binding == null) continue;
+                    if (binding.Baked != null) binding.Baked.enabled = true;
+                    if (binding.Quad != null) {
+                        binding.Quad.SetActive(false);
+                        binding.Quad.transform.SetParent(null, false);
+                        SafeDestroy(binding.Quad);
+                        binding.Quad = null;
+                    }
+                    if (binding.Material != null) {
+                        SafeDestroy(binding.Material);
+                        binding.Material = null;
+                    }
+                    if (binding.RuntimeMesh != null) {
+                        if (retiredMeshes != null) retiredMeshes.Add(binding.RuntimeMesh);
+                        else SafeDestroy(binding.RuntimeMesh);
+                        binding.RuntimeMesh = null;
+                    }
+                    binding.Renderer = null;
+                    binding.Recapture = null;
+                }
+            }
+        }
 
         /// <summary>Free one world's cache, textures, materials and quads. Idempotent.</summary>
         internal static void ReleaseScope(StationExitArtworkScope released) {

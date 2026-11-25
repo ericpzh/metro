@@ -28,17 +28,20 @@ namespace Metro.Build {
             if (index == null || track == null) return writes;
             int headroom = StationRailRules.Headroom(track.Config.Text("power"), true, false,
                 track.Config.Text("catenary"));
-            var solid = new HashSet<StationCellKey>();
-            foreach (var cell in index.Document.Cells) {
-                if (cell == null || !cell.IsSolid) continue;
-                if (cell.Z < track.Z || cell.Z > track.Z + headroom + 1) continue;
-                solid.Add(cell.Key);
+            var dropped = new HashSet<StationCellKey>();
+            var added = new HashSet<StationCellKey>();
+            bool IsSolidNow(StationCellKey key) {
+                if (added.Contains(key)) return true;
+                if (dropped.Contains(key)) return false;
+                var cell = index.GetCell(key);
+                return cell != null && cell.IsSolid;
             }
             // 1. Clear the bore: only the run's own footprint is removed.
             foreach (var bed in StationFootprints.TrackCells(track)) {
                 for (int dz = 1; dz <= headroom; dz++) {
                     var key = new StationCellKey((int)Math.Round(bed.X), (int)Math.Round(bed.Y), (int)Math.Round(bed.Z) + dz);
-                    if (!solid.Remove(key)) continue;
+                    if (!IsSolidNow(key)) continue;
+                    dropped.Add(key);
                     writes.Add(StationCellWrite.Drop(key));
                 }
             }
@@ -47,17 +50,19 @@ namespace Metro.Build {
             int depth = Math.Max(1, track.Depth);
             for (int i = 0; i < width; i++) {
                 // Side walls run down to the dug bed, so their bottoms meet the recessed slab.
-                foreach (var j in new[] { -1, depth }) {
+                for (int sideIdx = 0; sideIdx < 2; sideIdx++) {
+                    int j = sideIdx == 0 ? -1 : depth;
+                    StationFootprints.RotateLocal(track.Rotation, i, j, out var dx, out var dy);
+                    int wx = track.X + (int)Math.Round(dx);
+                    int wy = track.Y + (int)Math.Round(dy);
                     for (int dz = 0; dz <= headroom + 1; dz++) {
-                        StationFootprints.RotateLocal(track.Rotation, i, j, out var dx, out var dy);
-                        Want(writes, solid, world, track.X + (int)Math.Round(dx), track.Y + (int)Math.Round(dy),
-                            track.Z + dz, tag);
+                        Want(writes, IsSolidNow, added, world, wx, wy, track.Z + dz, tag);
                     }
                 }
                 // The ceiling spans the bore.
                 for (int j = 0; j < depth; j++) {
                     StationFootprints.RotateLocal(track.Rotation, i, j, out var dx, out var dy);
-                    Want(writes, solid, world, track.X + (int)Math.Round(dx), track.Y + (int)Math.Round(dy),
+                    Want(writes, IsSolidNow, added, world, track.X + (int)Math.Round(dx), track.Y + (int)Math.Round(dy),
                         track.Z + headroom + 1, tag);
                 }
             }
@@ -82,12 +87,12 @@ namespace Metro.Build {
             return writes;
         }
 
-        static void Want(List<StationCellWrite> writes, HashSet<StationCellKey> solid,
+        static void Want(List<StationCellWrite> writes, Func<StationCellKey, bool> isSolidNow, HashSet<StationCellKey> added,
             StationCellEditWorld world, int x, int y, int z, string tag) {
             var key = new StationCellKey(x, y, z);
-            if (solid.Contains(key)) return;
+            if (isSolidNow(key)) return;
             if (world != null && world.IsOpening(x, y, z)) return;
-            solid.Add(key);
+            added.Add(key);
             writes.Add(StationCellWrite.Set(key, false, tag));
         }
     }

@@ -335,6 +335,22 @@ namespace Metro.App.Views {
             return platforms.Count > 0 ? platforms : bound;
         }
 
+        /// <summary>Indexed overload of <see cref="ServiceTracks(StationDocument, string)"/> scanning only track modules.</summary>
+        public static List<StationModuleRecord> ServiceTracks(StationIndex index, string lineId) {
+            var bound = new List<StationModuleRecord>();
+            if (index == null || string.IsNullOrEmpty(lineId)) return bound;
+            var tracks = index.ModulesOfType("track");
+            for (int i = 0; i < tracks.Count; i++) {
+                var module = tracks[i];
+                if (module == null) continue;
+                if (!string.Equals(module.Config.Text("line"), lineId, StringComparison.Ordinal)) continue;
+                bound.Add(module);
+            }
+            var platforms = new List<StationModuleRecord>();
+            for (int i = 0; i < bound.Count; i++) if (!IsTunnelOrBridge(bound[i])) platforms.Add(bound[i]);
+            return platforms.Count > 0 ? platforms : bound;
+        }
+
         /// <summary>The platform edge that boards this track (`cfg.from`, else a direction match).</summary>
         public static StationModuleRecord PlatformEdgeFor(StationDocument document, StationModuleRecord track, string lineId, string direction) {
             if (document == null || track == null) return null;
@@ -352,6 +368,73 @@ namespace Metro.App.Views {
                 if (string.Equals(module.Config.Text("dir"), direction, StringComparison.Ordinal)) byDirection = module;
             }
             return byDirection;
+        }
+
+        /// <summary>Indexed overload of <see cref="PlatformEdgeFor(StationDocument, StationModuleRecord, string, string)"/> scanning only platform-edge modules.</summary>
+        public static StationModuleRecord PlatformEdgeFor(StationIndex index, StationModuleRecord track, string lineId, string direction) {
+            if (index == null || track == null) return null;
+            StationModuleRecord byDirection = null;
+            var edges = index.ModulesOfType("platform-edge");
+            for (int i = 0; i < edges.Count; i++) {
+                var module = edges[i];
+                if (module == null) continue;
+                if (!string.Equals(module.Config.Text("line"), lineId, StringComparison.Ordinal)) continue;
+                var from = module.Config.Text("from");
+                if (from.Length > 0) {
+                    if (string.Equals(from, track.Id, StringComparison.Ordinal)) return module;
+                    continue;
+                }
+                if (byDirection != null) continue;
+                if (string.Equals(module.Config.Text("dir"), direction, StringComparison.Ordinal)) byDirection = module;
+            }
+            return byDirection;
+        }
+
+        static void SelectBerthPlatformEdges(StationIndex index, StationModuleRecord track,
+            string lineId, string direction, List<StationModuleRecord> output) {
+            if (output == null) return;
+            output.Clear();
+            if (index == null || track == null || IsTunnelOrBridge(track)) return;
+            var edges = index.ModulesOfType("platform-edge");
+            List<StationModuleRecord> legacy = null;
+            for (int i = 0; i < edges.Count; i++) {
+                var module = edges[i];
+                if (module == null) continue;
+                if (!string.Equals(module.Config.Text("line"), lineId, StringComparison.Ordinal)) continue;
+                var from = module.Config.Text("from");
+                if (from.Length > 0) {
+                    if (string.Equals(from, track.Id, StringComparison.Ordinal)) output.Add(module);
+                    continue;
+                }
+                if (output.Count == 0 && string.Equals(module.Config.Text("dir"), direction, StringComparison.Ordinal)) {
+                    if (legacy == null) legacy = new List<StationModuleRecord>(2);
+                    legacy.Add(module);
+                }
+            }
+            if (output.Count == 0 && legacy != null) {
+                for (int i = 0; i < legacy.Count; i++) output.Add(legacy[i]);
+            }
+        }
+
+        static float TrainCentreAcross(StationModuleRecord track, float vehicleWidth, StationIndex index,
+            string lineId, string lineDirection) {
+            if (track == null) return 0f;
+            float depth = Depth(track);
+            if (IsTunnelOrBridge(track)) return depth * .5f;
+            var direction = track.Config.Text("dir");
+            if (direction.Length == 0) direction = string.IsNullOrEmpty(lineDirection) ? "up" : lineDirection;
+            var selected = new List<StationModuleRecord>(2);
+            SelectBerthPlatformEdges(index, track, lineId, direction, selected);
+            var edge = selected.Count > 0 ? selected[0] : null;
+            if (edge == null) return depth * .5f;
+            if (string.Equals(edge.Config.Text("side"), "left", StringComparison.Ordinal)) {
+                float low = vehicleWidth * .5f;
+                float high = depth - PlatformGap - vehicleWidth * .5f;
+                return low <= high ? Mathf.Min(high, Mathf.Max(low, depth * .5f)) : low;
+            }
+            float rightLow = PlatformGap + vehicleWidth * .5f;
+            float rightHigh = depth - vehicleWidth * .5f;
+            return rightLow <= rightHigh ? Mathf.Min(rightHigh, Mathf.Max(rightLow, depth * .5f)) : rightHigh;
         }
 
         /// <summary>
@@ -382,19 +465,28 @@ namespace Metro.App.Views {
         /// half a cell in from the track record's origin corner (`centre = w/2`).
         /// </summary>
         public static void ConnectedRun(StationDocument document, StationModuleRecord track, out float back, out float forward) {
+            ConnectedRunCore(document?.Modules, track, out back, out forward);
+        }
+
+        /// <summary>Indexed overload of <see cref="ConnectedRun(StationDocument, StationModuleRecord, out float, out float)"/> scanning only track modules.</summary>
+        public static void ConnectedRun(StationIndex index, StationModuleRecord track, out float back, out float forward) {
+            ConnectedRunCore(index?.ModulesOfType("track"), track, out back, out forward);
+        }
+
+        static void ConnectedRunCore(IReadOnlyList<StationModuleRecord> candidates, StationModuleRecord track, out float back, out float forward) {
             float centre = track.Width * .5f;
             back = centre;
             forward = track.Width - centre;
-            if (document == null) return;
+            if (candidates == null) return;
             int rotation = NormTurn(track.Rotation);
             var facing = Facing(rotation);
             var side = Side(rotation);
             float depth = Depth(track);
             string lineId = track.Config.Text("line");
             var spans = new List<Vector2>();
-            for (int i = 0; i < document.Modules.Count; i++) {
-                var module = document.Modules[i];
-                if (module.Type != "track") continue;
+            for (int i = 0; i < candidates.Count; i++) {
+                var module = candidates[i];
+                if (module == null || module.Type != "track") continue;
                 if (!string.Equals(module.Config.Text("line"), lineId, StringComparison.Ordinal)) continue;
                 if (module.Z != track.Z) continue;
                 if (NormTurn(module.Rotation) != rotation) continue;
@@ -436,6 +528,14 @@ namespace Metro.App.Views {
         /// reason when the record cannot be placed (a line with no track, an empty box).
         /// </summary>
         public static bool TryBerth(StationDocument document, StationLineRecord line, StationModuleRecord track,
+            float scale, out TrainBerth berth, out string failure) =>
+            TryBerth(document, null, line, track, scale, out berth, out failure);
+
+        /// <summary>
+        /// Indexed overload of <see cref="TryBerth(StationDocument, StationLineRecord, StationModuleRecord, float, out TrainBerth, out string)"/>
+        /// scanning only track and platform-edge modules when <paramref name="index"/> is supplied.
+        /// </summary>
+        public static bool TryBerth(StationDocument document, StationIndex index, StationLineRecord line, StationModuleRecord track,
             float scale, out TrainBerth berth, out string failure) {
             berth = null;
             failure = "";
@@ -446,21 +546,37 @@ namespace Metro.App.Views {
             int rotation = NormTurn(track.Rotation);
             var facing = Facing(rotation);
             float width = StationRailGeometry.StockWidth(line.Stock) * modelScale;
-            float across = StationRailGeometry.TrainCentreAcross(track, width, document, line.Id, line.Direction);
+            float across = index != null
+                ? TrainCentreAcross(track, width, index, line.Id, line.Direction)
+                : StationRailGeometry.TrainCentreAcross(track, width, document, line.Id, line.Direction);
             var offset = RotateLocal(rotation, (track.Width - 1) * .5f, across - .5f);
             var position = new Vector3(
                 track.X + .5f + offset.x,
                 track.Y + .5f + offset.y,
                 StationRailGeometry.TrainOriginFor(track, modelScale));
-            ConnectedRun(document, track, out float back, out float forward);
+            float back, forward;
+            if (index != null) ConnectedRun(index, track, out back, out forward);
+            else ConnectedRun(document, track, out back, out forward);
             var direction = track.Config.Text("dir");
             if (direction.Length == 0) direction = line.Direction;
             var selectedEdges = new List<StationModuleRecord>(2);
-            StationRailGeometry.SelectBerthPlatformEdges(document, track, line.Id, direction, selectedEdges);
+            if (index != null) SelectBerthPlatformEdges(index, track, line.Id, direction, selectedEdges);
+            else StationRailGeometry.SelectBerthPlatformEdges(document, track, line.Id, direction, selectedEdges);
             var edge = selectedEdges.Count > 0 ? selectedEdges[0] : null;
             int dirSign = DirectionSign(track, line);
-            var facts = new List<ModuleFacts>(document.Modules.Count);
-            for (int i = 0; i < document.Modules.Count; i++) facts.Add(document.Modules[i].Facts);
+            List<ModuleFacts> edgeFacts;
+            if (index != null) {
+                var edges = index.ModulesOfType("platform-edge");
+                edgeFacts = new List<ModuleFacts>(edges.Count);
+                for (int i = 0; i < edges.Count; i++) {
+                    if (edges[i]?.Facts != null) edgeFacts.Add(edges[i].Facts);
+                }
+            } else {
+                edgeFacts = new List<ModuleFacts>(document != null ? document.Modules.Count : 0);
+                if (document != null) {
+                    for (int i = 0; i < document.Modules.Count; i++) edgeFacts.Add(document.Modules[i].Facts);
+                }
+            }
             int trackSides = 0;
             var platformPoints = new List<Vector3>(selectedEdges.Count);
             for (int i = 0; i < selectedEdges.Count; i++) {
@@ -489,7 +605,7 @@ namespace Metro.App.Views {
                 RailSurfaceZ = StationRailGeometry.RailSurfaceZ(track, modelScale),
                 CabinFloorDocumentZ = StationRailGeometry.CabinFloorFor(track, modelScale),
                 PlatformTopZ = track.Z + StationRailGeometry.PlatformTopAboveModule,
-                ThirdRailSide = StationRailGeometry.ThirdRailSide(track.Facts, facts,
+                ThirdRailSide = StationRailGeometry.ThirdRailSide(track.Facts, edgeFacts,
                     StationRailGeometry.LineDirectionOf(document, track.Facts)),
             };
             berth.PlatformPoints.AddRange(platformPoints);
@@ -768,19 +884,29 @@ namespace Metro.App.Views {
             return mesh;
         }
 
-        void CompactConsistStaticBodies(string formationKey, IReadOnlyList<TrainCarView> carViews, List<Transform> gangways) {
+        void CompactConsistStaticBodies(string formationKey, IReadOnlyList<TrainCarView> carViews, List<Transform> gangways) =>
+            CompactConsistStaticBodies(formationKey, carViews, gangways, staticBodyCache, staticBodyMeshes);
+
+        static void CompactConsistStaticBodies(
+            string formationKey,
+            IReadOnlyList<TrainCarView> carViews,
+            List<Transform> gangways,
+            Dictionary<string, StaticCombinedPart[]> cache,
+            List<Mesh> ownedMeshes) {
             if (carViews != null) {
                 for (int i = 0; i < carViews.Count; i++) {
                     var car = carViews[i];
                     if (car?.Root == null) continue;
-                    CompactSubtree(car.Root.transform, (formationKey ?? "") + "|car|" + (car.Part ?? ""), preserveDoors: true);
+                    CompactSubtreeCore(car.Root.transform, (formationKey ?? "") + "|car|" + (car.Part ?? ""),
+                        preserveDoors: true, cache, ownedMeshes, null);
                 }
             }
             if (gangways != null) {
                 for (int i = 0; i < gangways.Count; i++) {
                     var gw = gangways[i];
                     if (gw == null) continue;
-                    CompactSubtree(gw, (formationKey ?? "") + "|gangway", preserveDoors: false);
+                    CompactSubtreeCore(gw, (formationKey ?? "") + "|gangway",
+                        preserveDoors: false, cache, ownedMeshes, null);
                 }
             }
         }
@@ -985,28 +1111,72 @@ namespace Metro.App.Views {
             context = buildContext ?? throw new ArgumentNullException(nameof(buildContext));
             var document = context.Document;
             if (document == null) return;
-            lastPresentationDoc = document;
+            AttachMarkListener();
+            BuildAllCore(
+                context.World,
+                document,
+                context.Index,
+                context.TrainCatalogue,
+                context.RoleRoot(TrainConsistRenderer.RoleName),
+                context.Root,
+                context.ReportUnresolved,
+                stagedRecords: null);
+        }
+
+        internal void StageBuild(
+            StationWorldView world,
+            StationDocument document,
+            StationIndex index,
+            Transform stagingRoot,
+            Action<string, string, string, string> reportUnresolved,
+            List<StationViewRecord> stagedRecords) {
+            if (world == null || document == null || stagingRoot == null) return;
+            BuildAllCore(
+                world,
+                document,
+                index,
+                world.TrainCatalogue,
+                stagingRoot,
+                world.Root,
+                reportUnresolved,
+                stagedRecords ?? new List<StationViewRecord>());
+        }
+
+        internal void AttachMarkListener() {
             if (!markListenerAttached) {
                 TrainMarkTextureCache.TextureUpdated += OnTrainMarksUpdated;
                 markListenerAttached = true;
             }
-            var catalogue = context.TrainCatalogue;
-            var roleRoot = context.RoleRoot(TrainConsistRenderer.RoleName);
+        }
+
+        void BuildAllCore(
+            StationWorldView world,
+            StationDocument document,
+            StationIndex index,
+            TrainCatalogue catalogue,
+            Transform parent,
+            Transform boundsRoot,
+            Action<string, string, string, string> reportUnresolved,
+            List<StationViewRecord> stagedRecords) {
+            lastPresentationDoc = document;
             for (int l = 0; l < document.Lines.Count; l++) {
                 var line = document.Lines[l];
                 if (line == null || string.IsNullOrEmpty(line.Id)) continue;
                 var formationKey = TrainFormations.Select(line.Stock, line.Cars, line.Power, catalogue);
-                var tracks = TrainConsistGeometry.ServiceTracks(document, line.Id);
+                var tracks = index != null
+                    ? TrainConsistGeometry.ServiceTracks(index, line.Id)
+                    : TrainConsistGeometry.ServiceTracks(document, line.Id);
                 if (tracks.Count == 0) {
-                    context.ReportUnresolved("train-no-track", "line", line.Id,
+                    reportUnresolved?.Invoke("train-no-track", "line", line.Id,
                         "Line '" + line.Id + "' runs no saved track module, so no consist is drawn for it.");
                     continue;
                 }
                 for (int t = 0; t < tracks.Count; t++) {
                     try {
-                        BuildConsist(document, line, tracks[t], formationKey, catalogue, roleRoot);
+                        BuildConsist(world, document, index, line, tracks[t], formationKey, catalogue, parent, boundsRoot,
+                            reportUnresolved, stagedRecords);
                     } catch (Exception error) {
-                        context.ReportUnresolved("train-build-failed", "train",
+                        reportUnresolved?.Invoke("train-build-failed", "train",
                             "train:" + line.Id + "|" + tracks[t].Id,
                             error.GetType().Name + ": " + error.Message);
                     }
@@ -1014,50 +1184,61 @@ namespace Metro.App.Views {
             }
         }
 
-        void BuildConsist(StationDocument document, StationLineRecord line, StationModuleRecord track,
-            string formationKey, TrainCatalogue catalogue, Transform roleRoot) {
+        void BuildConsist(
+            StationWorldView world,
+            StationDocument document,
+            StationIndex index,
+            StationLineRecord line,
+            StationModuleRecord track,
+            string formationKey,
+            TrainCatalogue catalogue,
+            Transform parent,
+            Transform boundsRoot,
+            Action<string, string, string, string> reportUnresolved,
+            List<StationViewRecord> stagedRecords) {
             var trainId = line.Id + "|" + track.Id;
             var recordId = "train:" + trainId;
             if (catalogue == null) {
-                context.ReportUnresolved("no-train-catalogue", "train", recordId,
+                reportUnresolved?.Invoke("no-train-catalogue", "train", recordId,
                     "No TrainCatalogue is bound to the scene, so no promoted formation can be drawn.");
                 return;
             }
             if (!catalogue.TryGet(formationKey, out var entry) || entry == null || entry.prefab == null) {
-                context.ReportUnresolved("no-formation", "train", recordId,
+                reportUnresolved?.Invoke("no-formation", "train", recordId,
                     "No promoted formation for key '" + formationKey + "' (line " + line.Id +
                     " stock " + line.Stock + ", " + line.Cars + " cars, " + line.Power +
                     "); nothing is drawn and no box stands in for it.");
                 return;
             }
             float scale = entry.bakedScale > 0f ? entry.bakedScale : 1f;
-            if (!TrainConsistGeometry.TryBerth(document, line, track, scale, out var berth, out var failure)) {
-                context.ReportUnresolved("train-berth", "train", recordId,
+            if (!TrainConsistGeometry.TryBerth(document, index, line, track, scale, out var berth, out var failure)) {
+                reportUnresolved?.Invoke("train-berth", "train", recordId,
                     "The track record cannot give this consist a berth: " + failure + ".");
                 return;
             }
             if (entry.cars != line.Cars) {
-                context.ReportUnresolved("formation-car-count", "train", recordId,
+                reportUnresolved?.Invoke("formation-car-count", "train", recordId,
                     "Formation '" + formationKey + "' carries " + entry.cars + " cars but the line runs " +
                     line.Cars + "; the cars on the rails follow the promoted formation.");
             }
-            var instance = UnityEngine.Object.Instantiate(entry.prefab, roleRoot);
+            var instance = UnityEngine.Object.Instantiate(entry.prefab, parent);
             instance.name = "consist " + trainId;
             // The promoted formation bakes the line's model scale on its own
             // `Consist` node; rescaling the wrapper would shrink it twice.
             instance.transform.localScale = Vector3.one;
+            if (stagedRecords != null) StationEditTrace.AddInstantiatedPrefab();
 
             var view = new TrainConsistView {
                 TrainId = trainId, LineId = line.Id, TrackId = track.Id,
                 FormationKey = formationKey, PrefabPath = entry.prefabPath ?? "",
                 Stock = line.Stock, Scale = scale, Berth = berth, Root = instance,
-                World = context.World,
+                World = world,
             };
             view.Place();
 
             var carNodes = CollectCars(instance);
             if (carNodes.Count == 0) {
-                context.ReportUnresolved("no-cars", "train", recordId,
+                reportUnresolved?.Invoke("no-cars", "train", recordId,
                     "The promoted formation '" + formationKey + "' carries no Car<n> node; nothing is drawn.");
                 DestroyNow(instance);
                 return;
@@ -1081,7 +1262,7 @@ namespace Metro.App.Views {
                 // so the record's level comes from the car origin, not the raw bounds.
                 int level = StationCoordinates.StoreyBand(car.DocumentPosition.z, document.LevelBase);
                 car.LevelMin = car.LevelMax = level;
-                if (TryDocumentBounds(node, context.Root, out var bounds)) {
+                if (TryDocumentBounds(node, boundsRoot, out var bounds)) {
                     car.Bounds = bounds;
                     car.HasBounds = true;
                 }
@@ -1098,10 +1279,10 @@ namespace Metro.App.Views {
             rig.SetActiveBankMask(bankMask);
             rig.Reset();
             if (rig.Leaves == 0) {
-                context.ReportUnresolved("train-rig-no-leaves", "train", recordId,
+                reportUnresolved?.Invoke("train-rig-no-leaves", "train", recordId,
                     "The promoted formation carries no DoorNN leaf the rig can bind; its body is still drawn.");
             } else if (!dispatch.BindTrainMask(trainId, rig, bankMask)) {
-                context.ReportUnresolved("train-rig-unbound", "train", recordId,
+                reportUnresolved?.Invoke("train-rig-unbound", "train", recordId,
                     "The consist's door rig could not be bound for frame.Trains.");
             }
 
@@ -1135,8 +1316,22 @@ namespace Metro.App.Views {
             var consistBounds = TrackBandBounds(track, scale);
             view.ConsistBounds = consistBounds;
             view.HasConsistBounds = !consistBounds.IsEmpty;
-            context.World.RegisterModule(TrainConsistRenderer.RoleName, recordId, instance, "consist",
-                view.HasConsistBounds ? consistBounds : (StationBox?)null, trackLevel, trackLevelMax, bands);
+            if (stagedRecords != null) {
+                stagedRecords.Add(new StationViewRecord {
+                    Role = TrainConsistRenderer.RoleName,
+                    ModuleId = recordId,
+                    Part = "consist",
+                    View = instance,
+                    Bounds = view.HasConsistBounds ? consistBounds : default,
+                    HasBounds = view.HasConsistBounds,
+                    LevelMin = trackLevel,
+                    LevelMax = trackLevelMax,
+                    LevelBands = bands,
+                });
+            } else {
+                world.RegisterModule(TrainConsistRenderer.RoleName, recordId, instance, "consist",
+                    view.HasConsistBounds ? consistBounds : (StationBox?)null, trackLevel, trackLevelMax, bands);
+            }
             var initialTarget = instance.GetComponent<StationVisibilityTarget>() ?? instance.AddComponent<StationVisibilityTarget>();
             initialTarget.Configure(StationPartRole.Train, bands, isParked: true);
             initialTarget.Refresh();
@@ -1316,6 +1511,40 @@ namespace Metro.App.Views {
 
         /* -------------------------------------------------------------- teardown */
 
+        internal void DisposeRetired(StationLocalViewCommit commit) {
+            if (markListenerAttached) {
+                TrainMarkTextureCache.TextureUpdated -= OnTrainMarksUpdated;
+                markListenerAttached = false;
+            }
+            lastPresentationDoc = null;
+            if (commit != null && consists.Count > 0) {
+                var alreadyRetired = new HashSet<GameObject>();
+                for (int i = 0; i < commit.RetiredViews.Count; i++) {
+                    if (commit.RetiredViews[i] != null) alreadyRetired.Add(commit.RetiredViews[i]);
+                }
+                for (int i = 0; i < consists.Count; i++) {
+                    var root = consists[i].Root;
+                    if (root != null && !alreadyRetired.Contains(root)) commit.RetiredViews.Add(root);
+                }
+            }
+            consists.Clear();
+            byId.Clear();
+            dispatch.Clear();
+            for (int i = 0; i < staticBodyMeshes.Count; i++) {
+                var mesh = staticBodyMeshes[i];
+                if (mesh == null) continue;
+                if (commit != null) commit.RetiredMeshes.Add(mesh);
+                else DestroyNow(mesh);
+            }
+            staticBodyMeshes.Clear();
+            staticBodyCache.Clear();
+            for (int i = 0; i < ownedLiveryMaterials.Count; i++) {
+                if (ownedLiveryMaterials[i] != null) DestroyNow(ownedLiveryMaterials[i]);
+            }
+            ownedLiveryMaterials.Clear();
+            liveryMaterials.Clear();
+        }
+
         public void Dispose() {
             if (markListenerAttached) {
                 TrainMarkTextureCache.TextureUpdated -= OnTrainMarksUpdated;
@@ -1399,6 +1628,242 @@ namespace Metro.App.Views {
             return !bounds.IsEmpty;
         }
 
+        internal readonly struct StagedConsistEntry {
+            public readonly TrainConsistView View;
+            public readonly StationViewRecord Record;
+            public readonly int BankMask;
+
+            public StagedConsistEntry(TrainConsistView view, StationViewRecord record, int bankMask) {
+                View = view;
+                Record = record;
+                BankMask = bankMask;
+            }
+        }
+
+        internal Dictionary<string, StaticCombinedPart[]> CloneStaticBodyCache() =>
+            new Dictionary<string, StaticCombinedPart[]>(staticBodyCache, StringComparer.Ordinal);
+
+        internal Dictionary<string, Material> CloneLiveryMaterials() =>
+            new Dictionary<string, Material>(liveryMaterials, StringComparer.Ordinal);
+
+        internal bool TryStageSingleConsist(
+            StationWorldView world,
+            StationDocument document,
+            StationIndex index,
+            StationLineRecord line,
+            StationModuleRecord track,
+            string formationKey,
+            TrainCatalogue catalogue,
+            Transform stagingParent,
+            Action<string, string, string, string> reportUnresolved,
+            Dictionary<string, StaticCombinedPart[]> workingCache,
+            List<Mesh> newMeshes,
+            Dictionary<string, Material> workingLivery,
+            List<Material> newLiveryMaterials,
+            out StagedConsistEntry staged) {
+            staged = default;
+            var trainId = line.Id + "|" + track.Id;
+            var recordId = "train:" + trainId;
+            if (catalogue == null) {
+                reportUnresolved?.Invoke("no-train-catalogue", "train", recordId,
+                    "No TrainCatalogue is bound to the scene, so no promoted formation can be drawn.");
+                return false;
+            }
+            if (!catalogue.TryGet(formationKey, out var entry) || entry == null || entry.prefab == null) {
+                reportUnresolved?.Invoke("no-formation", "train", recordId,
+                    "No promoted formation for key '" + formationKey + "' (line " + line.Id +
+                    " stock " + line.Stock + ", " + line.Cars + " cars, " + line.Power +
+                    "); nothing is drawn and no box stands in for it.");
+                return false;
+            }
+            float scale = entry.bakedScale > 0f ? entry.bakedScale : 1f;
+            if (!TrainConsistGeometry.TryBerth(document, index, line, track, scale, out var berth, out var failure)) {
+                reportUnresolved?.Invoke("train-berth", "train", recordId,
+                    "The track record cannot give this consist a berth: " + failure + ".");
+                return false;
+            }
+            if (entry.cars != line.Cars) {
+                reportUnresolved?.Invoke("formation-car-count", "train", recordId,
+                    "Formation '" + formationKey + "' carries " + entry.cars + " cars but the line runs " +
+                    line.Cars + "; the cars on the rails follow the promoted formation.");
+            }
+            var instance = UnityEngine.Object.Instantiate(entry.prefab, stagingParent);
+            instance.name = "consist " + trainId;
+            instance.transform.localScale = Vector3.one;
+            StationEditTrace.AddInstantiatedPrefab();
+
+            var view = new TrainConsistView {
+                TrainId = trainId, LineId = line.Id, TrackId = track.Id,
+                FormationKey = formationKey, PrefabPath = entry.prefabPath ?? "",
+                Stock = line.Stock, Scale = scale, Berth = berth, Root = instance,
+                World = world,
+            };
+            view.Place();
+
+            var carNodes = CollectCars(instance);
+            if (carNodes.Count == 0) {
+                reportUnresolved?.Invoke("no-cars", "train", recordId,
+                    "The promoted formation '" + formationKey + "' carries no Car<n> node; nothing is drawn.");
+                DestroyNow(instance);
+                return false;
+            }
+            var boundsRoot = world.Root;
+            for (int i = 0; i < carNodes.Count; i++) {
+                var node = carNodes[i];
+                var originalName = node.name;
+                var dash = originalName.IndexOf('-');
+                var part = dash >= 0 && dash + 1 < originalName.Length ? originalName.Substring(dash + 1) : originalName;
+                node.name = recordId + "|" + i;
+                var car = new TrainCarView { Index = i, Part = part, Root = node.gameObject };
+                view.AddCar(car);
+                car.DocumentPosition = StationCoordinates.WorldToDocument(node.position);
+                int level = StationCoordinates.StoreyBand(car.DocumentPosition.z, document.LevelBase);
+                car.LevelMin = car.LevelMax = level;
+                if (TryDocumentBounds(node, boundsRoot, out var bounds)) {
+                    car.Bounds = bounds;
+                    car.HasBounds = true;
+                }
+            }
+
+            var rig = new TrainDoorRig(instance, TrainDoorRig.ForLine(line.Stock, line.Cars, scale));
+            view.Rig = rig;
+            int bankMask = berth.DoorBankMask;
+            view.DoorBankMask = bankMask;
+            view.PlatformBank = (bankMask & 1) != 0 ? 1 : ((bankMask & 2) != 0 ? -1 : berth.DefaultPlatformBank);
+            rig.SetActiveBankMask(bankMask);
+            rig.Reset();
+            if (rig.Leaves == 0) {
+                reportUnresolved?.Invoke("train-rig-no-leaves", "train", recordId,
+                    "The promoted formation carries no DoorNN leaf the rig can bind; its body is still drawn.");
+            }
+
+            var gangways = CollectGangways(instance);
+            for (int i = 0; i < gangways.Count; i++) view.Gangways.Add(gangways[i]);
+            CompactConsistStaticBodies(formationKey, view.CarViews, gangways, workingCache, newMeshes);
+            view.LiveryBinding = TrainLiveryBinder.Capture(instance);
+            TrainLiveryBinder.Apply(
+                view.LiveryBinding,
+                line.Id,
+                string.IsNullOrEmpty(line.Colour) ? StationCityStyles.LineColourFor(line.Id, document.City) : line.Colour,
+                document.City,
+                workingLivery,
+                newLiveryMaterials,
+                recaptureVisibility: false);
+            ApplyUnbatchedLods(instance, workingCache, newMeshes);
+
+            var grid = StationLevelGrid.FromDocument(document.LevelBase, document.StoreyHeight);
+            var bands = StationModuleLevels.Of(track.Facts, grid);
+            int trackLevel = bands.Length > 0 ? bands[0] : StationModuleLevels.Band(grid, track.Z);
+            int trackLevelMax = bands.Length > 0 ? bands[bands.Length - 1] : trackLevel;
+            view.LevelMin = trackLevel;
+            view.LevelMax = trackLevelMax;
+            view.LevelBands = bands;
+            view.VisibilityRecordId = recordId;
+            var consistBounds = TrackBandBounds(track, scale);
+            view.ConsistBounds = consistBounds;
+            view.HasConsistBounds = !consistBounds.IsEmpty;
+
+            var record = new StationViewRecord {
+                Role = TrainConsistRenderer.RoleName,
+                ModuleId = recordId,
+                Part = "consist",
+                View = instance,
+                Bounds = view.HasConsistBounds ? consistBounds : default,
+                HasBounds = view.HasConsistBounds,
+                LevelMin = trackLevel,
+                LevelMax = trackLevelMax,
+                LevelBands = bands,
+            };
+
+            var initialTarget = instance.GetComponent<StationVisibilityTarget>() ?? instance.AddComponent<StationVisibilityTarget>();
+            initialTarget.Configure(StationPartRole.Train, bands, isParked: true);
+            initialTarget.Refresh();
+            view.Retire();
+
+            staged = new StagedConsistEntry(view, record, bankMask);
+            return true;
+        }
+
+        internal void CommitIncrementalDelta(
+            StationDocument nextDocument,
+            List<string> removedTrainIds,
+            Dictionary<string, TrainBerth> retainedBerths,
+            List<StagedConsistEntry> addedConsists,
+            Dictionary<string, StaticCombinedPart[]> workingCache,
+            List<Mesh> newMeshes,
+            Dictionary<string, Material> workingLivery,
+            List<Material> newLiveryMaterials,
+            StationLocalViewCommit commit) {
+            lastPresentationDoc = nextDocument;
+            if (workingCache != null) {
+                foreach (var kv in workingCache) staticBodyCache[kv.Key] = kv.Value;
+            }
+            if (newMeshes != null && newMeshes.Count > 0) staticBodyMeshes.AddRange(newMeshes);
+            if (workingLivery != null) {
+                foreach (var kv in workingLivery) liveryMaterials[kv.Key] = kv.Value;
+            }
+            if (newLiveryMaterials != null && newLiveryMaterials.Count > 0) ownedLiveryMaterials.AddRange(newLiveryMaterials);
+
+            if (removedTrainIds != null && removedTrainIds.Count > 0) {
+                var removedSet = new HashSet<string>(removedTrainIds, StringComparer.Ordinal);
+                HashSet<GameObject> alreadyRetired = null;
+                if (commit != null) {
+                    alreadyRetired = new HashSet<GameObject>();
+                    for (int i = 0; i < commit.RetiredViews.Count; i++) {
+                        if (commit.RetiredViews[i] != null) alreadyRetired.Add(commit.RetiredViews[i]);
+                    }
+                }
+                for (int i = consists.Count - 1; i >= 0; i--) {
+                    var view = consists[i];
+                    if (view == null || !removedSet.Contains(view.TrainId)) continue;
+                    dispatch.Unbind(view.TrainId);
+                    byId.Remove(view.TrainId);
+                    consists.RemoveAt(i);
+                    if (view.Root != null) {
+                        if (commit != null) {
+                            if (alreadyRetired.Add(view.Root)) commit.RetiredViews.Add(view.Root);
+                        } else {
+                            DestroyNow(view.Root);
+                        }
+                    }
+                }
+            }
+
+            if (retainedBerths != null && retainedBerths.Count > 0) {
+                for (int i = 0; i < consists.Count; i++) {
+                    var view = consists[i];
+                    if (view != null && retainedBerths.TryGetValue(view.TrainId, out var nextBerth)) {
+                        view.Berth = nextBerth;
+                    }
+                }
+            }
+
+            if (addedConsists != null && addedConsists.Count > 0) {
+                for (int i = 0; i < addedConsists.Count; i++) {
+                    var item = addedConsists[i];
+                    var view = item.View;
+                    if (view == null) continue;
+                    if (view.Rig != null && view.Rig.Leaves > 0) {
+                        dispatch.BindTrainMask(view.TrainId, view.Rig, item.BankMask);
+                    }
+                    consists.Add(view);
+                    byId[view.TrainId] = view;
+                }
+            }
+            AttachMarkListener();
+        }
+
+        internal void ApplyRefreshedBerths(StationDocument nextDocument, Dictionary<string, TrainBerth> refreshed) {
+            lastPresentationDoc = nextDocument;
+            if (refreshed == null) return;
+            for (int i = 0; i < consists.Count; i++) {
+                var view = consists[i];
+                if (view != null && refreshed.TryGetValue(view.TrainId, out var nextBerth)) {
+                    view.Berth = nextBerth;
+                }
+            }
+        }
+
         static void DestroyNow(UnityEngine.Object value) {
             if (!value) return;
             if (Application.isPlaying) UnityEngine.Object.Destroy(value);
@@ -1435,39 +1900,388 @@ namespace Metro.App.Views {
             public void Dispose() { }
         }
 
+        sealed class TrainBerthRefreshStage : IStationLocalRendererStage {
+            readonly TrainConsistRenderer owner;
+            readonly WorldState state;
+            readonly StationDocument nextDocument;
+            readonly Dictionary<string, TrainBerth> refreshedBerths;
+
+            public TrainBerthRefreshStage(
+                TrainConsistRenderer owner,
+                WorldState state,
+                StationDocument nextDocument,
+                Dictionary<string, TrainBerth> refreshedBerths) {
+                this.owner = owner;
+                this.state = state;
+                this.nextDocument = nextDocument;
+                this.refreshedBerths = refreshedBerths;
+            }
+
+            public void Commit(StationWorldView world, StationLocalViewCommit commit) {
+                state?.Views?.ApplyRefreshedBerths(nextDocument, refreshedBerths);
+                owner.ViewsGeneration++;
+            }
+
+            public void Dispose() { }
+        }
+
+        static bool SameConsistStructure(TrainConsistView view, string formationKey, float scale, TrainBerth next) {
+            if (view == null || view.Berth == null || next == null) return false;
+            var cur = view.Berth;
+            if (!string.Equals(view.FormationKey, formationKey, StringComparison.Ordinal)) return false;
+            if (Math.Abs(view.Scale - scale) > 1e-4f) return false;
+            if (cur.DirectionSign != next.DirectionSign ||
+                cur.HasPlatform != next.HasPlatform ||
+                cur.TrackDoorSides != next.TrackDoorSides ||
+                cur.DoorBankMask != next.DoorBankMask ||
+                cur.DefaultPlatformBank != next.DefaultPlatformBank ||
+                cur.ThirdRailSide != next.ThirdRailSide) return false;
+            if (Math.Abs(cur.HalfLength - next.HalfLength) > 1e-3f ||
+                Math.Abs(cur.RailSurfaceZ - next.RailSurfaceZ) > 1e-3f ||
+                Math.Abs(cur.CabinFloorDocumentZ - next.CabinFloorDocumentZ) > 1e-3f ||
+                Math.Abs(cur.PlatformTopZ - next.PlatformTopZ) > 1e-3f) return false;
+            if ((cur.DocumentPosition - next.DocumentPosition).sqrMagnitude > 1e-5f) return false;
+            if ((cur.Facing - next.Facing).sqrMagnitude > 1e-5f) return false;
+            return true;
+        }
+
+        static bool TryMatchExistingConsists(
+            TrainConsistViews existingViews,
+            StationDocument nextDocument,
+            StationIndex nextIndex,
+            TrainCatalogue catalogue,
+            out Dictionary<string, TrainBerth> refreshedBerths) {
+            refreshedBerths = null;
+            if (existingViews == null || nextDocument == null || nextIndex == null || catalogue == null) return false;
+            var curConsists = existingViews.Consists;
+            var matched = new Dictionary<string, TrainBerth>(curConsists.Count, StringComparer.Ordinal);
+            for (int l = 0; l < nextDocument.Lines.Count; l++) {
+                var line = nextDocument.Lines[l];
+                if (line == null || string.IsNullOrEmpty(line.Id)) continue;
+                var formationKey = TrainFormations.Select(line.Stock, line.Cars, line.Power, catalogue);
+                var tracks = TrainConsistGeometry.ServiceTracks(nextIndex, line.Id);
+                if (tracks.Count == 0) continue;
+                if (!catalogue.TryGet(formationKey, out var entry) || entry == null || entry.prefab == null) return false;
+                float scale = entry.bakedScale > 0f ? entry.bakedScale : 1f;
+                for (int t = 0; t < tracks.Count; t++) {
+                    var track = tracks[t];
+                    if (!TrainConsistGeometry.TryBerth(nextDocument, nextIndex, line, track, scale, out var berth, out _)) {
+                        return false;
+                    }
+                    string trainId = line.Id + "|" + track.Id;
+                    if (!existingViews.TryGet(trainId, out var curView) ||
+                        !SameConsistStructure(curView, formationKey, scale, berth)) {
+                        return false;
+                    }
+                    matched[trainId] = berth;
+                }
+            }
+            if (matched.Count != curConsists.Count) return false;
+            refreshedBerths = matched;
+            return true;
+        }
+
+        sealed class StagedTrainRebuild : IStationLocalRendererStage {
+            readonly TrainConsistRenderer owner;
+            readonly WorldState state;
+            readonly TrainConsistViews nextViews;
+            readonly List<StationViewRecord> stagedRecords;
+            bool committed;
+
+            public StagedTrainRebuild(
+                TrainConsistRenderer owner,
+                WorldState state,
+                TrainConsistViews nextViews,
+                List<StationViewRecord> stagedRecords) {
+                this.owner = owner;
+                this.state = state;
+                this.nextViews = nextViews;
+                this.stagedRecords = stagedRecords;
+            }
+
+            public void Commit(StationWorldView world, StationLocalViewCommit commit) {
+                committed = true;
+                world.RetireRecordsWhere(r => r.Role == RoleName, commit, retireViewObjects: true);
+                var oldViews = state.Views;
+                if (oldViews != null) {
+                    nextViews.LogDoorEvents = oldViews.LogDoorEvents;
+                    oldViews.DisposeRetired(commit);
+                }
+                var roleRoot = world.RoleRoot(RoleName);
+                var nextConsists = nextViews.Consists;
+                for (int i = 0; i < nextConsists.Count; i++) {
+                    var root = nextConsists[i]?.Root;
+                    if (root != null && roleRoot != null) root.transform.SetParent(roleRoot, false);
+                }
+                for (int i = 0; i < stagedRecords.Count; i++) {
+                    world.AddLocalRecord(stagedRecords[i], commit);
+                }
+                nextViews.AttachMarkListener();
+                state.Views = nextViews;
+                owner.ViewsGeneration++;
+            }
+
+            public void Dispose() {
+                if (committed) return;
+                nextViews?.Dispose();
+                stagedRecords?.Clear();
+            }
+        }
+
+        sealed class StagedTrainDelta : IStationLocalRendererStage {
+            readonly TrainConsistRenderer owner;
+            readonly WorldState state;
+            readonly StationDocument nextDocument;
+            readonly List<string> removedTrainIds;
+            readonly Dictionary<string, TrainBerth> retainedBerths;
+            readonly List<TrainConsistViews.StagedConsistEntry> addedConsists;
+            readonly Dictionary<string, TrainConsistViews.StaticCombinedPart[]> workingCache;
+            readonly List<Mesh> newMeshes;
+            readonly Dictionary<string, Material> workingLivery;
+            readonly List<Material> newLiveryMaterials;
+            readonly bool refreshPresentation;
+            bool committed;
+
+            public StagedTrainDelta(
+                TrainConsistRenderer owner,
+                WorldState state,
+                StationDocument nextDocument,
+                List<string> removedTrainIds,
+                Dictionary<string, TrainBerth> retainedBerths,
+                List<TrainConsistViews.StagedConsistEntry> addedConsists,
+                Dictionary<string, TrainConsistViews.StaticCombinedPart[]> workingCache,
+                List<Mesh> newMeshes,
+                Dictionary<string, Material> workingLivery,
+                List<Material> newLiveryMaterials,
+                bool refreshPresentation) {
+                this.owner = owner;
+                this.state = state;
+                this.nextDocument = nextDocument;
+                this.removedTrainIds = removedTrainIds;
+                this.retainedBerths = retainedBerths;
+                this.addedConsists = addedConsists;
+                this.workingCache = workingCache;
+                this.newMeshes = newMeshes;
+                this.workingLivery = workingLivery;
+                this.newLiveryMaterials = newLiveryMaterials;
+                this.refreshPresentation = refreshPresentation;
+            }
+
+            public void Commit(StationWorldView world, StationLocalViewCommit commit) {
+                committed = true;
+                if (removedTrainIds != null && removedTrainIds.Count > 0) {
+                    var removedRecordIds = new HashSet<string>(StringComparer.Ordinal);
+                    for (int i = 0; i < removedTrainIds.Count; i++) removedRecordIds.Add("train:" + removedTrainIds[i]);
+                    world.RetireRecordsWhere(r => r.Role == RoleName && removedRecordIds.Contains(r.ModuleId), commit, retireViewObjects: true);
+                }
+                var roleRoot = world.RoleRoot(RoleName);
+                if (addedConsists != null) {
+                    for (int i = 0; i < addedConsists.Count; i++) {
+                        var root = addedConsists[i].View?.Root;
+                        if (root != null && roleRoot != null) root.transform.SetParent(roleRoot, false);
+                        if (addedConsists[i].Record != null) world.AddLocalRecord(addedConsists[i].Record, commit);
+                    }
+                }
+                state.Views.CommitIncrementalDelta(
+                    nextDocument,
+                    removedTrainIds,
+                    retainedBerths,
+                    addedConsists,
+                    workingCache,
+                    newMeshes,
+                    workingLivery,
+                    newLiveryMaterials,
+                    commit);
+                if (refreshPresentation) {
+                    state.Views.RefreshPresentation(nextDocument);
+                }
+                owner.ViewsGeneration++;
+            }
+
+            public void Dispose() {
+                if (committed) return;
+                if (addedConsists != null) {
+                    for (int i = 0; i < addedConsists.Count; i++) {
+                        var root = addedConsists[i].View?.Root;
+                        if (root != null) {
+                            if (Application.isPlaying) UnityEngine.Object.Destroy(root);
+                            else UnityEngine.Object.DestroyImmediate(root);
+                        }
+                    }
+                    addedConsists.Clear();
+                }
+                if (newMeshes != null) {
+                    for (int i = 0; i < newMeshes.Count; i++) {
+                        if (newMeshes[i] == null) continue;
+                        if (Application.isPlaying) UnityEngine.Object.Destroy(newMeshes[i]);
+                        else UnityEngine.Object.DestroyImmediate(newMeshes[i]);
+                    }
+                    newMeshes.Clear();
+                }
+                if (newLiveryMaterials != null) {
+                    for (int i = 0; i < newLiveryMaterials.Count; i++) {
+                        if (newLiveryMaterials[i] == null) continue;
+                        if (Application.isPlaying) UnityEngine.Object.Destroy(newLiveryMaterials[i]);
+                        else UnityEngine.Object.DestroyImmediate(newLiveryMaterials[i]);
+                    }
+                    newLiveryMaterials.Clear();
+                }
+            }
+        }
+
         public bool TryStageLocalDelta(
             StationLocalDeltaContext context,
             out IStationLocalRendererStage stage,
             out string fallbackReason) {
             stage = null;
             fallbackReason = null;
-            if (context.LineStructureChanged) {
-                fallbackReason = "local-line-structure";
+            WorldState state = null;
+            for (int i = worlds.Count - 1; i >= 0; i--) {
+                if (worlds[i].World == context.World) { state = worlds[i]; break; }
+            }
+            if (state == null) {
+                fallbackReason = "no-train-state";
                 return false;
             }
-            var delta = context.Delta;
-            for (int i = 0; i < delta.RemovedModules.Count; i++) {
-                if (context.PrevIndex.TryGetModule(delta.RemovedModules[i], out var oldMod) &&
-                    oldMod != null && (oldMod.Type == "track" || oldMod.Type == "platform-edge")) {
-                    fallbackReason = "local-module-family:" + oldMod.Type;
-                    return false;
+
+            bool needsRebuild = context.LineStructureChanged;
+            if (!needsRebuild) {
+                var delta = context.Delta;
+                for (int i = 0; i < delta.RemovedModules.Count; i++) {
+                    if (context.PrevIndex.TryGetModule(delta.RemovedModules[i], out var oldMod) &&
+                        oldMod != null && (oldMod.Type == "track" || oldMod.Type == "platform-edge")) {
+                        needsRebuild = true;
+                        break;
+                    }
                 }
             }
-            for (int i = 0; i < delta.ChangedModules.Count; i++) {
-                var mod = delta.ChangedModules[i];
-                if (mod != null && (mod.Type == "track" || mod.Type == "platform-edge")) {
-                    fallbackReason = "local-module-family:" + mod.Type;
-                    return false;
+            if (!needsRebuild) {
+                var delta = context.Delta;
+                for (int i = 0; i < delta.ChangedModules.Count; i++) {
+                    var mod = delta.ChangedModules[i];
+                    if (mod != null && (mod.Type == "track" || mod.Type == "platform-edge")) {
+                        needsRebuild = true;
+                        break;
+                    }
                 }
             }
-            if (context.CityChanged || context.VisualChangedLineIds.Count > 0) {
-                WorldState state = null;
-                for (int i = worlds.Count - 1; i >= 0; i--) {
-                    if (worlds[i].World == context.World) { state = worlds[i]; break; }
+
+            if (needsRebuild) {
+                if (!context.LineStructureChanged &&
+                    !context.CityChanged &&
+                    context.VisualChangedLineIds.Count == 0 &&
+                    TryMatchExistingConsists(state.Views, context.NextDocument, context.NextIndex,
+                        context.World.TrainCatalogue, out var refreshedBerths)) {
+                    stage = new TrainBerthRefreshStage(this, state, context.NextDocument, refreshedBerths);
+                    return true;
                 }
-                if (state?.Views != null) {
-                    stage = new TrainPresentationStage(state, context.NextDocument);
+                if (state.Views != null) {
+                    var existingViews = state.Views;
+                    var catalogue = context.World.TrainCatalogue;
+                    var retainedBerths = new Dictionary<string, TrainBerth>(existingViews.Consists.Count, StringComparer.Ordinal);
+                    var desiredIds = new HashSet<string>(StringComparer.Ordinal);
+                    var addedConsists = new List<TrainConsistViews.StagedConsistEntry>();
+                    var workingCache = existingViews.CloneStaticBodyCache();
+                    var newMeshes = new List<Mesh>();
+                    var workingLivery = existingViews.CloneLiveryMaterials();
+                    var newLiveryMaterials = new List<Material>();
+                    try {
+                        var lines = context.NextDocument.Lines;
+                        for (int l = 0; l < lines.Count; l++) {
+                            var line = lines[l];
+                            if (line == null || string.IsNullOrEmpty(line.Id)) continue;
+                            var formationKey = TrainFormations.Select(line.Stock, line.Cars, line.Power, catalogue);
+                            var tracks = TrainConsistGeometry.ServiceTracks(context.NextIndex, line.Id);
+                            if (tracks.Count == 0) {
+                                context.ReportUnresolved("train-no-track", "line", line.Id,
+                                    "Line '" + line.Id + "' runs no saved track module, so no consist is drawn for it.");
+                                continue;
+                            }
+                            bool hasEntry = false;
+                            float scale = 1f;
+                            if (catalogue != null && catalogue.TryGet(formationKey, out var entry) &&
+                                entry != null && entry.prefab != null) {
+                                hasEntry = true;
+                                if (entry.bakedScale > 0f) scale = entry.bakedScale;
+                            }
+                            for (int t = 0; t < tracks.Count; t++) {
+                                var track = tracks[t];
+                                string trainId = line.Id + "|" + track.Id;
+                                desiredIds.Add(trainId);
+                                if (hasEntry &&
+                                    existingViews.TryGet(trainId, out var curView) &&
+                                    TrainConsistGeometry.TryBerth(context.NextDocument, context.NextIndex, line, track, scale, out var berth, out _) &&
+                                    SameConsistStructure(curView, formationKey, scale, berth)) {
+                                    retainedBerths[trainId] = berth;
+                                    continue;
+                                }
+                                if (existingViews.TryStageSingleConsist(
+                                        context.World, context.NextDocument, context.NextIndex,
+                                        line, track, formationKey, catalogue, context.StagingRoot,
+                                        context.ReportUnresolved,
+                                        workingCache, newMeshes, workingLivery, newLiveryMaterials,
+                                        out var stagedEntry)) {
+                                    addedConsists.Add(stagedEntry);
+                                }
+                            }
+                        }
+                        var removedTrainIds = new List<string>();
+                        var curList = existingViews.Consists;
+                        for (int i = 0; i < curList.Count; i++) {
+                            var cur = curList[i];
+                            if (cur == null) continue;
+                            if (!retainedBerths.ContainsKey(cur.TrainId)) {
+                                removedTrainIds.Add(cur.TrainId);
+                            }
+                        }
+                        bool refreshPres = context.CityChanged || context.VisualChangedLineIds.Count > 0;
+                        stage = new StagedTrainDelta(
+                            this, state, context.NextDocument,
+                            removedTrainIds, retainedBerths, addedConsists,
+                            workingCache, newMeshes, workingLivery, newLiveryMaterials,
+                            refreshPres);
+                        return true;
+                    } catch {
+                        for (int i = 0; i < addedConsists.Count; i++) {
+                            var root = addedConsists[i].View?.Root;
+                            if (root != null) {
+                                if (Application.isPlaying) UnityEngine.Object.Destroy(root);
+                                else UnityEngine.Object.DestroyImmediate(root);
+                            }
+                        }
+                        for (int i = 0; i < newMeshes.Count; i++) {
+                            if (newMeshes[i] == null) continue;
+                            if (Application.isPlaying) UnityEngine.Object.Destroy(newMeshes[i]);
+                            else UnityEngine.Object.DestroyImmediate(newMeshes[i]);
+                        }
+                        for (int i = 0; i < newLiveryMaterials.Count; i++) {
+                            if (newLiveryMaterials[i] == null) continue;
+                            if (Application.isPlaying) UnityEngine.Object.Destroy(newLiveryMaterials[i]);
+                            else UnityEngine.Object.DestroyImmediate(newLiveryMaterials[i]);
+                        }
+                        throw;
+                    }
                 }
+                var nextViews = new TrainConsistViews();
+                var stagedRecords = new List<StationViewRecord>();
+                try {
+                    nextViews.StageBuild(
+                        context.World,
+                        context.NextDocument,
+                        context.NextIndex,
+                        context.StagingRoot,
+                        context.ReportUnresolved,
+                        stagedRecords);
+                } catch {
+                    nextViews.Dispose();
+                    throw;
+                }
+                stage = new StagedTrainRebuild(this, state, nextViews, stagedRecords);
+                return true;
+            }
+
+            if ((context.CityChanged || context.VisualChangedLineIds.Count > 0) && state.Views != null) {
+                stage = new TrainPresentationStage(state, context.NextDocument);
             }
             return true;
         }
@@ -1487,6 +2301,8 @@ namespace Metro.App.Views {
         public static TrainConsistRenderer Current { get; private set; }
         /// <summary>The last failure, kept off the Console so a console-clean gate is not broken.</summary>
         public string LastError { get; internal set; } = "";
+        /// <summary>Incremented whenever active consists are rebuilt so the frame sink snaps and mounts immediately.</summary>
+        public int ViewsGeneration { get; private set; }
 
         public IReadOnlyList<TrainConsistView> Consists {
             get {
@@ -1531,6 +2347,7 @@ namespace Metro.App.Views {
             };
             worlds.Add(state);
             Current = this;
+            ViewsGeneration++;
             try {
                 state.Views.Build(context);
             } catch (Exception error) {
@@ -1604,6 +2421,7 @@ namespace Metro.App.Views {
         StationMotionFrame frame;
         long lastTick = long.MinValue;
         long lastEpoch = long.MinValue;
+        int lastViewsGeneration = -1;
         bool hasFrame;
 
         public void Tick(StationDocument document, StationIndex index, StationFrameClock clock) {
@@ -1616,12 +2434,14 @@ namespace Metro.App.Views {
                 var published = simHost?.PublishedFrame;
                 if (published == null) return;
                 var live = simHost.Session;
-                bool reset = !ReferenceEquals(live, session) || clock.Epoch != lastEpoch;
+                int viewsGen = renderer.ViewsGeneration;
+                bool reset = !ReferenceEquals(live, session) || clock.Epoch != lastEpoch || viewsGen != lastViewsGeneration;
                 if (reset) {
-                    // A new session or an invalidated history: snap to the frame's own
-                    // pose instead of blending from a route the station no longer has.
+                    // A new session, invalidated history, or locally restaged consist set:
+                    // snap to the frame's own pose instead of blending from a route the station no longer has.
                     session = live;
                     lastEpoch = clock.Epoch;
+                    lastViewsGeneration = viewsGen;
                     lastTick = published.Tick;
                     frame = published.Motion;
                     hasFrame = true;

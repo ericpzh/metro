@@ -495,6 +495,63 @@ namespace Metro.App.Views {
             if (!wanted.ContainsKey(request.Key)) wanted[request.Key] = request;
         }
 
+        /// <summary>Remove bindings for retired or rebound modules and prune any wanted keys left without bindings.</summary>
+        public void Unbind(HashSet<string> moduleIds) {
+            if (disposed || moduleIds == null || moduleIds.Count == 0) return;
+            List<string> emptyKeys = null;
+            foreach (var pair in bindings) {
+                var list = pair.Value;
+                if (list == null) {
+                    (emptyKeys ??= new List<string>()).Add(pair.Key);
+                    continue;
+                }
+                for (int i = list.Count - 1; i >= 0; i--) {
+                    var b = list[i];
+                    if (b == null || (!string.IsNullOrEmpty(b.ModuleId) && moduleIds.Contains(b.ModuleId))) {
+                        list.RemoveAt(i);
+                    }
+                }
+                if (list.Count == 0) (emptyKeys ??= new List<string>()).Add(pair.Key);
+            }
+            if (emptyKeys != null) {
+                for (int i = 0; i < emptyKeys.Count; i++) {
+                    var key = emptyKeys[i];
+                    bindings.Remove(key);
+                    wanted.Remove(key);
+                    Forget(key);
+                    nagged.Remove(key);
+                }
+            }
+        }
+
+        public void Unbind(string moduleId) {
+            if (disposed || string.IsNullOrEmpty(moduleId)) return;
+            List<string> emptyKeys = null;
+            foreach (var pair in bindings) {
+                var list = pair.Value;
+                if (list == null) {
+                    (emptyKeys ??= new List<string>()).Add(pair.Key);
+                    continue;
+                }
+                for (int i = list.Count - 1; i >= 0; i--) {
+                    var b = list[i];
+                    if (b == null || string.Equals(b.ModuleId, moduleId, StringComparison.Ordinal)) {
+                        list.RemoveAt(i);
+                    }
+                }
+                if (list.Count == 0) (emptyKeys ??= new List<string>()).Add(pair.Key);
+            }
+            if (emptyKeys != null) {
+                for (int i = 0; i < emptyKeys.Count; i++) {
+                    var key = emptyKeys[i];
+                    bindings.Remove(key);
+                    wanted.Remove(key);
+                    Forget(key);
+                    nagged.Remove(key);
+                }
+            }
+        }
+
         /// <summary>
         /// Drain replies, upload what arrived, ask for anything still missing and paint
         /// natively anything no transport could carry. The command handler calls this after

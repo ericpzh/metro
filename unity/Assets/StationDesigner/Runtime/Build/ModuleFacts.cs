@@ -68,8 +68,10 @@ namespace Metro.Build {
         public bool Bool(string key, bool fallback = false) {
             var text = Text(key);
             if (text.Length == 0) return fallback;
-            if (string.Equals(text, "true", StringComparison.OrdinalIgnoreCase)) return true;
-            if (string.Equals(text, "false", StringComparison.OrdinalIgnoreCase)) return false;
+            if (string.Equals(text, "true", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(text, "1", StringComparison.Ordinal)) return true;
+            if (string.Equals(text, "false", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(text, "0", StringComparison.Ordinal)) return false;
             return fallback;
         }
 

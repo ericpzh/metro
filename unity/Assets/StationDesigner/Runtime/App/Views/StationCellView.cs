@@ -1571,18 +1571,33 @@ namespace Metro.App.Views {
                         break;
                 }
             }
-            var moduleFacts = StationRampOpenings.ExtractFacts(document.Modules);
-            var slopeCuts = StationRampOpenings.RampSlopeCuts(moduleFacts);
+            preparedRamps = stationIndex != null ? StationRampOpenings.PrepareOpenings(stationIndex) : null;
+            var moduleFacts = preparedRamps == null ? StationRampOpenings.ExtractFacts(document.Modules) : null;
+            var slopeCuts = preparedRamps != null ? preparedRamps.SlopeCuts : StationRampOpenings.RampSlopeCuts(moduleFacts);
             input.SlopeCuts = slopeCuts;
             input.SlopeFills = StationRampOpenings.RampFillKeys(solidKeys, slopeCuts);
-            preparedRamps = stationIndex != null ? StationRampOpenings.PrepareOpenings(stationIndex) : null;
-            var thinCells = StationRampOpenings.RampThinCells(input.Cells, moduleFacts);
-            for (int i = 0; i < thinCells.Count; i++) {
-                var thin = thinCells[i];
-                if (!cellIndices.TryGetValue(thin.Key, out var idx)) continue;
-                var meshCell = input.Cells[idx];
-                meshCell.Shape = StationCellShape.Half(thin.Side);
-                input.Cells[idx] = meshCell;
+            int thinApplied = 0;
+            if (preparedRamps != null) {
+                if (preparedRamps.HasRamps) {
+                    for (int i = 0; i < input.Cells.Count; i++) {
+                        var meshCell = input.Cells[i];
+                        if (preparedRamps.TryComputeThinSide(meshCell, out var side)) {
+                            meshCell.Shape = StationCellShape.Half(side);
+                            input.Cells[i] = meshCell;
+                            thinApplied++;
+                        }
+                    }
+                }
+            } else {
+                var thinCells = StationRampOpenings.RampThinCells(input.Cells, moduleFacts);
+                thinApplied = thinCells.Count;
+                for (int i = 0; i < thinCells.Count; i++) {
+                    var thin = thinCells[i];
+                    if (!cellIndices.TryGetValue(thin.Key, out var idx)) continue;
+                    var meshCell = input.Cells[idx];
+                    meshCell.Shape = StationCellShape.Half(thin.Side);
+                    input.Cells[idx] = meshCell;
+                }
             }
             var derivedRampHoles = preparedRamps != null
                 ? preparedRamps.AtLevel(StationPaintSnapshot.GroundZ)
@@ -1600,8 +1615,8 @@ namespace Metro.App.Views {
                     notes.Add("platform-inset-applied: " + platformInsets.Count + " platform cell(s) stop at the PSD base");
                 if (slopeCuts.Count > 0)
                     notes.Add("ramp-slope-applied: " + slopeCuts.Count + " underside slope cut(s) derived across " + ramps + " run(s)");
-                if (thinCells.Count > 0)
-                    notes.Add("ramp-thin-applied: " + thinCells.Count + " wall/floor cell(s) thinned beside runs");
+                if (thinApplied > 0)
+                    notes.Add("ramp-thin-applied: " + thinApplied + " wall/floor cell(s) thinned beside runs");
                 if (rampGroundHoles > 0)
                     notes.Add("ramp-openings-applied: " + rampGroundHoles + " street corridor cell(s) kept open where runs cross grade");
                 if (wellway > 0) notes.Add("exit-wellway-open: " + wellway + " run column cell(s) under " + exits.Count + " exit(s)");

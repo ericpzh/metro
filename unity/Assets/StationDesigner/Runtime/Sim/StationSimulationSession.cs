@@ -289,6 +289,118 @@ namespace Metro.Sim {
                 }
             }
 
+            if (delta.AppendOnlyModules && delta.RemovedModules.Count == 0 && delta.OrderedModuleIds == null) {
+                var appendedMods = new List<StationModuleFact>(Modules.Count + delta.ChangedModules.Count);
+                appendedMods.AddRange(Modules);
+                appendedMods.AddRange(delta.ChangedModules);
+                next.Modules = appendedMods;
+                if (!simBucketsChanged && cachedByType != null) {
+                    next.cachedByType = cachedByType;
+                    next.cachedMovingBands = cachedMovingBands;
+                    next.cachedModulesCount = appendedMods.Count;
+                } else if (cachedByType != null) {
+                    var nextByType = new Dictionary<string, List<StationModuleFact>>(cachedByType.Count + 2, StringComparer.Ordinal);
+                    foreach (var kv in cachedByType) nextByType[kv.Key] = kv.Value;
+                    List<StationModuleFact> nextBands = cachedMovingBands;
+                    bool bandsCloned = false;
+                    var clonedTypes = new HashSet<string>(StringComparer.Ordinal);
+                    for (int i = 0; i < delta.ChangedModules.Count; i++) {
+                        var cm = delta.ChangedModules[i];
+                        string t = cm.Type ?? "";
+                        if (!IsIndexedSimModuleType(t)) continue;
+                        if (clonedTypes.Add(t)) {
+                            nextByType[t] = nextByType.TryGetValue(t, out var existing)
+                                ? new List<StationModuleFact>(existing)
+                                : new List<StationModuleFact>(2);
+                        }
+                        nextByType[t].Add(cm);
+                        if (t == "escalator" || t == "walkway") {
+                            if (!bandsCloned) { nextBands = new List<StationModuleFact>(cachedMovingBands); bandsCloned = true; }
+                            nextBands.Add(cm);
+                        }
+                    }
+                    next.cachedByType = nextByType;
+                    next.cachedMovingBands = nextBands;
+                    next.cachedModulesCount = appendedMods.Count;
+                }
+                return next;
+            }
+
+            if (delta.InPlaceUpdateOnly && delta.RemovedModules.Count == 0 && delta.OrderedModuleIds == null && changedById != null) {
+                if (cachedIndexById == null || cachedIndexByIdSourceCount != Modules.Count) {
+                    var idMap = new Dictionary<string, int>(Modules.Count, StringComparer.Ordinal);
+                    for (int i = 0; i < Modules.Count; i++) {
+                        var m = Modules[i];
+                        if (!string.IsNullOrEmpty(m.Id)) idMap[m.Id] = i;
+                    }
+                    cachedIndexById = idMap;
+                    cachedIndexByIdSourceCount = Modules.Count;
+                }
+                bool allFound = true;
+                for (int i = 0; i < delta.ChangedModules.Count; i++) {
+                    string id = delta.ChangedModules[i].Id ?? "";
+                    if (!cachedIndexById.ContainsKey(id)) { allFound = false; break; }
+                }
+                if (allFound) {
+                    var updatedMods = new List<StationModuleFact>(Modules.Count);
+                    updatedMods.AddRange(Modules);
+                    for (int i = 0; i < delta.ChangedModules.Count; i++) {
+                        var cm = delta.ChangedModules[i];
+                        updatedMods[cachedIndexById[cm.Id ?? ""]] = cm;
+                    }
+                    next.Modules = updatedMods;
+                    next.cachedIndexById = cachedIndexById;
+                    next.cachedIndexByIdSourceCount = updatedMods.Count;
+                    if (!simBucketsChanged && cachedByType != null) {
+                        next.cachedByType = cachedByType;
+                        next.cachedMovingBands = cachedMovingBands;
+                        next.cachedModulesCount = updatedMods.Count;
+                    } else if (cachedByType != null) {
+                        var nextByType = new Dictionary<string, List<StationModuleFact>>(cachedByType.Count + 2, StringComparer.Ordinal);
+                        foreach (var kv in cachedByType) nextByType[kv.Key] = kv.Value;
+                        List<StationModuleFact> nextBands = cachedMovingBands;
+                        bool bandsCloned = false;
+                        var clonedTypes = new HashSet<string>(StringComparer.Ordinal);
+                        for (int i = 0; i < delta.ChangedModules.Count; i++) {
+                            var cm = delta.ChangedModules[i];
+                            string t = cm.Type ?? "";
+                            if (!IsIndexedSimModuleType(t)) continue;
+                            if (clonedTypes.Add(t)) {
+                                nextByType[t] = nextByType.TryGetValue(t, out var existing)
+                                    ? new List<StationModuleFact>(existing)
+                                    : new List<StationModuleFact>(2);
+                            }
+                            var bucket = nextByType[t];
+                            bool replaced = false;
+                            for (int b = 0; b < bucket.Count; b++) {
+                                if (string.Equals(bucket[b].Id, cm.Id, StringComparison.Ordinal)) {
+                                    bucket[b] = cm;
+                                    replaced = true;
+                                    break;
+                                }
+                            }
+                            if (!replaced) bucket.Add(cm);
+                            if (t == "escalator" || t == "walkway") {
+                                if (!bandsCloned) { nextBands = new List<StationModuleFact>(cachedMovingBands); bandsCloned = true; }
+                                bool bandRep = false;
+                                for (int b = 0; b < nextBands.Count; b++) {
+                                    if (string.Equals(nextBands[b].Id, cm.Id, StringComparison.Ordinal)) {
+                                        nextBands[b] = cm;
+                                        bandRep = true;
+                                        break;
+                                    }
+                                }
+                                if (!bandRep) nextBands.Add(cm);
+                            }
+                        }
+                        next.cachedByType = nextByType;
+                        next.cachedMovingBands = nextBands;
+                        next.cachedModulesCount = updatedMods.Count;
+                    }
+                    return next;
+                }
+            }
+
             if (delta.OrderedModuleIds != null) {
                 if (cachedIndexById == null || cachedIndexByIdSourceCount != Modules.Count) {
                     var idMap = new Dictionary<string, int>(Modules.Count, StringComparer.Ordinal);

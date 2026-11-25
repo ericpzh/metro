@@ -108,11 +108,12 @@ namespace Metro.App.Views {
         public static bool Bind(StationDisplayArtwork.Scope scope, StationDocument document, GameObject root,
             ModuleFacts module, StationWorldView world) {
             if (scope == null || root == null || module == null) return false;
-            var plates = PrintSurfaces(root);
+            var plates = PrintSurfaces(root, scope);
             if (plates.Count == 0) {
                 scope.Notes.Add("linemap-unresolved:" + module.Id + ":no-print-surface");
                 return false;
             }
+            UnbindKeepingPlates(scope, module.Id, plates);
             var city = Normalise(document != null ? document.City : "");
             var slug = SlugOf(city);
             var texture = Artwork(slug);
@@ -159,15 +160,24 @@ namespace Metro.App.Views {
         /// compared on the station's axes — never from child order, which a re-promotion may
         /// change.
         /// </summary>
-        static List<MeshRenderer> PrintSurfaces(GameObject root) {
+        static List<MeshRenderer> PrintSurfaces(GameObject root, StationDisplayArtwork.Scope scope = null) {
             var plates = new List<MeshRenderer>();
             foreach (var renderer in root.GetComponentsInChildren<MeshRenderer>(true)) {
                 if (!renderer) continue;
+                bool matched = false;
                 foreach (var material in renderer.sharedMaterials) {
                     if (!material || material.name == null) continue;
                     if (material.name.IndexOf(PlaceholderTag, StringComparison.OrdinalIgnoreCase) < 0) continue;
                     plates.Add(renderer);
+                    matched = true;
                     break;
+                }
+                if (!matched && scope != null) {
+                    var template = StationDisplayArtwork.TemplateForRenderer(scope, renderer);
+                    if (template != null && template.name != null &&
+                        template.name.IndexOf(PlaceholderTag, StringComparison.OrdinalIgnoreCase) >= 0) {
+                        plates.Add(renderer);
+                    }
                 }
             }
             if (plates.Count <= 1) return plates;
@@ -193,6 +203,36 @@ namespace Metro.App.Views {
             var sum = Vector3.zero;
             for (int i = 0; i < normals.Length; i++) sum += normals[i];
             return sum.sqrMagnitude < 1e-10f ? Vector3.zero : renderer.transform.TransformDirection(sum.normalized);
+        }
+
+        /// <summary>Remove bound line-map faces and surfaces for retired or rebound modules.</summary>
+        public static void Unbind(StationDisplayArtwork.Scope scope, HashSet<string> moduleIds) {
+            if (scope == null || moduleIds == null || moduleIds.Count == 0) return;
+            if (!byScope.TryGetValue(scope, out var list)) return;
+            for (int i = list.Count - 1; i >= 0; i--) {
+                var face = list[i];
+                if (face == null || (!string.IsNullOrEmpty(face.ModuleId) && moduleIds.Contains(face.ModuleId))) {
+                    if (face?.Surface != null) scope.Surfaces.Remove(face.Surface);
+                    list.RemoveAt(i);
+                }
+            }
+        }
+
+        static void UnbindKeepingPlates(StationDisplayArtwork.Scope scope, string moduleId, List<MeshRenderer> keepPlates) {
+            if (scope == null || string.IsNullOrEmpty(moduleId)) return;
+            if (!byScope.TryGetValue(scope, out var list)) return;
+            for (int i = list.Count - 1; i >= 0; i--) {
+                var face = list[i];
+                if (face == null || !string.Equals(face.ModuleId, moduleId, StringComparison.Ordinal)) continue;
+                if (face.Surface != null && (keepPlates == null || !keepPlates.Contains(face.Surface.Renderer))) {
+                    scope.Surfaces.Remove(face.Surface);
+                }
+                list.RemoveAt(i);
+            }
+        }
+
+        internal static void ReleaseScope(StationDisplayArtwork.Scope scope) {
+            if (scope != null) byScope.Remove(scope);
         }
 
         /// <summary>

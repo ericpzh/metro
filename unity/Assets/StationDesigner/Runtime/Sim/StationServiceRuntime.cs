@@ -350,21 +350,20 @@ namespace Metro.Sim {
                     sizeX = sizeY = sizeZ = 0;
                     return;
                 }
-                int loX = int.MaxValue, hiX = int.MinValue;
-                int loY = int.MaxValue, hiY = int.MinValue;
-                int loZ = int.MaxValue, hiZ = int.MinValue;
-                for (int i = 0; i < g.NodeCount; i++) {
-                    int nx = (int)Math.Floor(g.NodeX[i]);
-                    int ny = (int)Math.Floor(g.NodeY[i]);
-                    int nz = (int)Math.Round(g.NodeZ[i], MidpointRounding.AwayFromZero);
-                    if (nx < loX) loX = nx; if (nx > hiX) hiX = nx;
-                    if (ny < loY) loY = ny; if (ny > hiY) hiY = ny;
-                    if (nz < loZ) loZ = nz; if (nz > hiZ) hiZ = nz;
+                int loX = g.MinX, hiX = g.MaxX;
+                int loY = g.MinY, hiY = g.MaxY;
+                int loZ = g.LevelsZ != null && g.LevelsZ.Length > 0 ? g.LevelsZ[0] + 1 : 0;
+                int hiZ = g.LevelsZ != null && g.LevelsZ.Length > 0 ? g.LevelsZ[g.LevelsZ.Length - 1] + 1 : 0;
+                if (sizeX > 0 && sizeY > 0 && sizeZ > 0 &&
+                    loX - 2 >= minX && hiX + 2 < minX + sizeX &&
+                    loY - 2 >= minY && hiY + 2 < minY + sizeY &&
+                    loZ - 2 >= minZ && hiZ + 2 < minZ + sizeZ) {
+                    return;
                 }
-                minX = loX - 4; minY = loY - 4; minZ = loZ - 3;
-                long sx = (long)(hiX + 4) - minX + 1;
-                long sy = (long)(hiY + 4) - minY + 1;
-                long sz = (long)(hiZ + 3) - minZ + 1;
+                minX = loX - 8; minY = loY - 8; minZ = loZ - 4;
+                long sx = (long)(hiX + 8) - minX + 1;
+                long sy = (long)(hiY + 8) - minY + 1;
+                long sz = (long)(hiZ + 4) - minZ + 1;
                 if (sx <= 0 || sy <= 0 || sz <= 0 || sx * sy * sz > MaxCells) {
                     sizeX = sizeY = sizeZ = 0;
                     return;
@@ -1449,7 +1448,7 @@ namespace Metro.Sim {
 
             InstallFacts(staged);
             ReconcileTrainWatches();
-            CommitSparseTopology();
+            CommitSparseTopology(delta);
 
             var newGatesById = new Dictionary<string, GateFact>(gates.Count, StringComparer.Ordinal);
             for (int i = 0; i < gates.Count; i++) {
@@ -4970,7 +4969,7 @@ namespace Metro.Sim {
             return links;
         }
 
-        void CommitSparseTopology() {
+        void CommitSparseTopology(StationWalkGraphDelta delta = null) {
             if (options.RoutingMode != StationRoutingMode.Sparse || graph == null || graph.NodeCount == 0) {
                 sparseRouter = null;
                 return;
@@ -4979,7 +4978,7 @@ namespace Metro.Sim {
             if (sparseRouter == null) {
                 sparseRouter = new StationSparseRouter(graph, (int)seed, liftLinks, options.SparseOptions);
             } else {
-                sparseRouter.OnCommit(graph, (int)seed, liftLinks);
+                sparseRouter.OnCommit(graph, (int)seed, liftLinks, delta);
             }
         }
 
@@ -4987,7 +4986,7 @@ namespace Metro.Sim {
             var w = p.Walker;
             if (w == null || sparseRouter == null || graph == null || planner == null) return false;
             var newTop = sparseRouter.Topology;
-            if ((uint)w.GoalNode >= (uint)prevTop.NodeTileKey.Length) return false;
+            if ((uint)w.GoalNode >= (uint)prevTop.NodeCount) return false;
             if (!newTop.TileKeyToNode.TryGetValue(prevTop.NodeTileKey[w.GoalNode], out int mappedGoal)) return false;
             if (p.OnStopLeg) {
                 if (!stopById.TryGetValue(p.CurrentStopId, out var curStop) || curStop.Node != mappedGoal) return false;
@@ -5004,13 +5003,13 @@ namespace Metro.Sim {
             }
             if (p.Path == null || p.Path.Length == 0 || p.PathIndex < 0 || p.PathIndex >= p.Path.Length) return false;
             int firstOld = p.Path[p.PathIndex];
-            if ((uint)firstOld >= (uint)prevTop.NodeTileKey.Length ||
+            if ((uint)firstOld >= (uint)prevTop.NodeCount ||
                 !newTop.TileKeyToNode.TryGetValue(prevTop.NodeTileKey[firstOld], out int firstNew)) return false;
             var kept = new List<int>(p.Path.Length - p.PathIndex) { firstNew };
             bool truncated = false;
             for (int k = p.PathIndex + 1; k < p.Path.Length; k++) {
                 int oldN = p.Path[k];
-                if ((uint)oldN >= (uint)prevTop.NodeTileKey.Length ||
+                if ((uint)oldN >= (uint)prevTop.NodeCount ||
                     !newTop.TileKeyToNode.TryGetValue(prevTop.NodeTileKey[oldN], out int mapped) ||
                     !planner.GatePassage(kept[kept.Count - 1], mapped, out _) ||
                     Array.IndexOf(graph.AdjTo[kept[kept.Count - 1]], mapped) < 0) {
@@ -5044,7 +5043,7 @@ namespace Metro.Sim {
                 var remappedIds = new List<string>(p.CandidateDoorNodes.Length);
                 for (int c = 0; c < p.CandidateDoorNodes.Length; c++) {
                     int oldD = p.CandidateDoorNodes[c];
-                    if ((uint)oldD < (uint)prevTop.NodeTileKey.Length &&
+                    if ((uint)oldD < (uint)prevTop.NodeCount &&
                         newTop.TileKeyToNode.TryGetValue(prevTop.NodeTileKey[oldD], out int md)) {
                         string cid = p.CandidateDoorIds != null && c < p.CandidateDoorIds.Length ? p.CandidateDoorIds[c] : null;
                         DoorFact dFact = !string.IsNullOrEmpty(cid) && doorById.TryGetValue(cid, out var byIdDoor) && byIdDoor.Node == md

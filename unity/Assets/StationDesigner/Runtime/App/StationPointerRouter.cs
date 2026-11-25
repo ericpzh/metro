@@ -1390,7 +1390,7 @@ namespace Metro.App {
                 patch.ModuleAdds.Add(plan.Candidate);
                 foreach (var write in StationRampCarve.MaterializeExitFloorLandings(host.Index, candidateRecord))
                     patch.Writes.Add(write);
-                foreach (var write in StationRampCarve.Carve(host.Index, new[] { candidateRecord }))
+                foreach (var write in StationRampCarve.Carve(host.Index, new[] { candidateRecord }, onlyExtraRuns: true))
                     patch.Writes.Add(write);
                 if (!StationEditSession.TryApplyCells(host, patch, "place", null, out _, out code)) {
                     reason = code;

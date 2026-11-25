@@ -43,8 +43,138 @@ export function isPaintedGround(cell: Cell): boolean {
  * build rather than bounding it.
  */
 export const GROUND_MARGIN = 16
-type GroundBounds={x0:number;x1:number;y0:number;y1:number}
-const groundBounds=new WeakMap<readonly Cell[],WeakMap<readonly Module[],{content:GroundBounds;painted:GroundBounds}>>()
+export type GroundBounds = { x0: number; x1: number; y0: number; y1: number }
+type CellGroundBounds = { content: GroundBounds; painted: GroundBounds }
+const cellBoundsCache = new WeakMap<readonly Cell[], CellGroundBounds>()
+const moduleBoundsCache = new WeakMap<readonly Module[], GroundBounds>()
+let lastCellBounds: { cells: readonly Cell[]; bounds: CellGroundBounds } | null = null
+let lastModuleBounds: { modules: readonly Module[]; bounds: GroundBounds } | null = null
+
+function emptyBounds(): GroundBounds {
+  return { x0: Infinity, x1: -Infinity, y0: Infinity, y1: -Infinity }
+}
+
+function eatPoint(b: GroundBounds, x: number, y: number): void {
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return
+  if (x < b.x0) b.x0 = x
+  if (y < b.y0) b.y0 = y
+  if (x > b.x1) b.x1 = x
+  if (y > b.y1) b.y1 = y
+}
+
+function eatModuleBounds(b: GroundBounds, m: Module): void {
+  eatPoint(b, m.x, m.y)
+  if (m.type === 'road') eatPoint(b, m.x + m.w - 1, m.y + m.d - 1)
+  if (m.type === 'track') for (const [x, y] of trackCells(m)) eatPoint(b, x, y)
+  const run = m as { from?: { x: number; y: number }; to?: { x: number; y: number } }
+  if (run.from) eatPoint(b, run.from.x, run.from.y)
+  if (run.to) eatPoint(b, run.to.x, run.to.y)
+}
+
+function strictlyInside(outer: GroundBounds, x0: number, x1: number, y0: number, y1: number): boolean {
+  return Number.isFinite(outer.x0) && x0 > outer.x0 && x1 < outer.x1 && y0 > outer.y0 && y1 < outer.y1
+}
+
+function cellBoundsOf(cells: readonly Cell[]): CellGroundBounds {
+  const cached = cellBoundsCache.get(cells)
+  if (cached) return cached
+  if (lastCellBounds && Number.isFinite(lastCellBounds.bounds.content.x0) &&
+    Math.abs(cells.length - lastCellBounds.cells.length) <= 256) {
+    const prev = lastCellBounds.cells
+    const pb = lastCellBounds.bounds
+    const common = Math.min(prev.length, cells.length)
+    let prefix = 0, suffix = 0
+    while (prefix < common && prev[prefix] === cells[prefix]) prefix++
+    while (suffix < common - prefix && prev[prev.length - 1 - suffix] === cells[cells.length - 1 - suffix]) suffix++
+    const pEnd = prev.length - suffix, nEnd = cells.length - suffix
+    const removed: Cell[] = [], added: Cell[] = []
+    let ok = true
+    if (pEnd - prefix + (nEnd - prefix) <= 256) {
+      for (let i = prefix; i < pEnd; i++) removed.push(prev[i])
+      for (let j = prefix; j < nEnd; j++) added.push(cells[j])
+    } else {
+      let i = prefix, j = prefix
+      while (i < pEnd && j < nEnd) {
+        const a = prev[i], b = cells[j]
+        if (a === b) { i++; j++; continue }
+        if (a.x === b.x && a.y === b.y && a.z === b.z) { removed.push(a); added.push(b); i++; j++ }
+        else if (i + 1 < pEnd && prev[i + 1] === b) { removed.push(a); i++ }
+        else if (j + 1 < nEnd && a === cells[j + 1]) { added.push(b); j++ }
+        else { ok = false; break }
+        if (removed.length + added.length > 256) { ok = false; break }
+      }
+      if (ok) {
+        for (; i < pEnd; i++) removed.push(prev[i])
+        for (; j < nEnd; j++) added.push(cells[j])
+        if (removed.length + added.length > 256) ok = false
+      }
+    }
+    if (ok) {
+      let canReuse = true
+      for (const c of removed) {
+        const box = isPaintedGround(c) ? pb.painted : pb.content
+        if (!strictlyInside(box, c.x, c.x, c.y, c.y)) { canReuse = false; break }
+      }
+      if (canReuse) {
+        const content = { ...pb.content }
+        const painted = { ...pb.painted }
+        for (const c of added) {
+          if (isPaintedGround(c)) eatPoint(painted, c.x, c.y)
+          else eatPoint(content, c.x, c.y)
+        }
+        const result = { content, painted }
+        cellBoundsCache.set(cells, result)
+        lastCellBounds = { cells, bounds: result }
+        return result
+      }
+    }
+  }
+  const content = emptyBounds()
+  const painted = emptyBounds()
+  for (const c of cells) {
+    if (isPaintedGround(c)) eatPoint(painted, c.x, c.y)
+    else eatPoint(content, c.x, c.y)
+  }
+  const result = { content, painted }
+  cellBoundsCache.set(cells, result)
+  lastCellBounds = { cells, bounds: result }
+  return result
+}
+
+function moduleBoundsOf(modules: readonly Module[]): GroundBounds {
+  const cached = moduleBoundsCache.get(modules)
+  if (cached) return cached
+  if (lastModuleBounds && Number.isFinite(lastModuleBounds.bounds.x0) &&
+    Math.abs(modules.length - lastModuleBounds.modules.length) <= 64) {
+    const prev = lastModuleBounds.modules
+    const pb = lastModuleBounds.bounds
+    const common = Math.min(prev.length, modules.length)
+    let prefix = 0, suffix = 0
+    while (prefix < common && prev[prefix] === modules[prefix]) prefix++
+    while (suffix < common - prefix && prev[prev.length - 1 - suffix] === modules[modules.length - 1 - suffix]) suffix++
+    const pEnd = prev.length - suffix, nEnd = modules.length - suffix
+    if (pEnd - prefix + (nEnd - prefix) <= 64) {
+      let canReuse = true
+      for (let i = prefix; i < pEnd; i++) {
+        const mb = emptyBounds()
+        eatModuleBounds(mb, prev[i])
+        if (Number.isFinite(mb.x0) && !strictlyInside(pb, mb.x0, mb.x1, mb.y0, mb.y1)) { canReuse = false; break }
+      }
+      if (canReuse) {
+        const next = { ...pb }
+        for (let j = prefix; j < nEnd; j++) eatModuleBounds(next, modules[j])
+        moduleBoundsCache.set(modules, next)
+        lastModuleBounds = { modules, bounds: next }
+        return next
+      }
+    }
+  }
+  const bounds = emptyBounds()
+  for (const m of modules) eatModuleBounds(bounds, m)
+  moduleBoundsCache.set(modules, bounds)
+  lastModuleBounds = { modules, bounds }
+  return bounds
+}
 
 function paddedGroundBounds(content: GroundBounds, painted: GroundBounds, margin: number): GroundBounds {
   return {
@@ -81,47 +211,18 @@ export function groundWindow(
   modules: readonly Module[],
   margin = GROUND_MARGIN,
 ): { x0: number; x1: number; y0: number; y1: number } {
-  let byModules=groundBounds.get(cells)
-  if(!byModules)groundBounds.set(cells,byModules=new WeakMap())
-  const cached=byModules.get(modules)
-  if(cached)return paddedGroundBounds(cached.content, cached.painted, margin)
-  let minX = Infinity
-  let minY = Infinity
-  let maxX = -Infinity
-  let maxY = -Infinity
-  const eat = (x: number, y: number): void => {
-    if (!Number.isFinite(x) || !Number.isFinite(y)) return
-    if (x < minX) minX = x
-    if (y < minY) minY = y
-    if (x > maxX) maxX = x
-    if (y > maxY) maxY = y
-  }
-  // Paint at the edge of the generated window must not push the edge outward.
-  const painted = { x0: Infinity, x1: -Infinity, y0: Infinity, y1: -Infinity }
-  for (const c of cells) {
-    if (isPaintedGround(c)) {
-      painted.x0 = Math.min(painted.x0, c.x)
-      painted.x1 = Math.max(painted.x1, c.x)
-      painted.y0 = Math.min(painted.y0, c.y)
-      painted.y1 = Math.max(painted.y1, c.y)
-    } else eat(c.x, c.y)
-  }
-  for (const m of modules) {
-    eat(m.x, m.y)
-    if (m.type === 'road') eat(m.x + m.w - 1, m.y + m.d - 1)
-    if (m.type === 'track') for (const [x, y] of trackCells(m)) eat(x, y)
-    const run = m as { from?: { x: number; y: number }; to?: { x: number; y: number } }
-    if (run.from) eat(run.from.x, run.from.y)
-    if (run.to) eat(run.to.x, run.to.y)
-  }
+  const cb = cellBoundsOf(cells)
+  const mb = moduleBoundsOf(modules)
+  let minX = Math.min(cb.content.x0, mb.x0)
+  let minY = Math.min(cb.content.y0, mb.y0)
+  let maxX = Math.max(cb.content.x1, mb.x1)
+  let maxY = Math.max(cb.content.y1, mb.y1)
   if (!Number.isFinite(minX)) {
     // A station with nothing in it yet: the window is the origin the new
     // ground is built from, not an empty set no tool can address.
-    minX=minY=maxX=maxY=0
+    minX = minY = maxX = maxY = 0
   }
-  const content = { x0: minX, x1: maxX, y0: minY, y1: maxY }
-  byModules.set(modules, { content, painted })
-  return paddedGroundBounds(content, painted, margin)
+  return paddedGroundBounds({ x0: minX, x1: maxX, y0: minY, y1: maxY }, cb.painted, margin)
 }
 
 /**
@@ -137,6 +238,19 @@ export function groundHoleAt(cells: readonly Cell[], modules: readonly Module[],
 }
 
 const groundHoleReaders = new WeakMap<readonly Cell[], WeakMap<readonly Module[], (x: number, y: number) => boolean>>()
+const moduleGroundHoleReaders = new WeakMap<readonly Module[], (x: number, y: number) => boolean>()
+
+function moduleGroundHoleReader(modules: readonly Module[]): (x: number, y: number) => boolean {
+  const cached = moduleGroundHoleReaders.get(modules)
+  if (cached) return cached
+  const tracks = modules.filter((m): m is TrackModule => m.type === 'track' && !m.cfg.tunnel && !m.cfg.bridge)
+  const read = (x: number, y: number): boolean =>
+    tracks.some(m => trackCellAt(m, x, y, GROUND_Z)) ||
+    rampOpeningAt(modules, x, y, GROUND_Z) ||
+    exitFloorAt(modules, x, y, GROUND_Z)
+  moduleGroundHoleReaders.set(modules, read)
+  return read
+}
 
 /** Prepare the same point rule for a multi-cell footprint on immutable input. */
 export function groundHoleReader(cells: readonly Cell[], modules: readonly Module[]): (x: number, y: number) => boolean {
@@ -146,9 +260,8 @@ export function groundHoleReader(cells: readonly Cell[], modules: readonly Modul
   if (cached) return cached
   const explicit = new Set<string>()
   for (const c of cells) if (c.z === GROUND_Z && c.fill !== 'solid') explicit.add(`${c.x},${c.y}`)
-  const tracks = modules.filter((m): m is TrackModule => m.type === 'track' && !m.cfg.tunnel && !m.cfg.bridge)
-  const read = (x: number, y: number): boolean => explicit.has(`${x},${y}`) || tracks.some(m => trackCellAt(m, x, y, GROUND_Z)) ||
-    rampOpeningAt(modules, x, y, GROUND_Z) || exitFloorAt(modules, x, y, GROUND_Z)
+  const moduleHole = moduleGroundHoleReader(modules)
+  const read = (x: number, y: number): boolean => explicit.has(`${x},${y}`) || moduleHole(x, y)
   readers.set(modules, read)
   return read
 }
@@ -206,6 +319,125 @@ export function resizeGround(cells: readonly Cell[], modules: readonly Module[],
   return out
 }
 
+function mergeSortedGround(a: readonly Cell[], b: readonly Cell[]): Cell[] {
+  if (a.length === 0) return b.slice()
+  if (b.length === 0) return a.slice()
+  const out: Cell[] = []
+  let i = 0, j = 0
+  while (i < a.length && j < b.length) {
+    const ca = a[i], cb = b[j]
+    if (ca.x < cb.x || (ca.x === cb.x && ca.y < cb.y)) { out.push(ca); i++ }
+    else { out.push(cb); j++ }
+  }
+  while (i < a.length) out.push(a[i++])
+  while (j < b.length) out.push(b[j++])
+  return out
+}
+
+function diffSortedGround(oldTail: readonly Cell[], oldStart: number, newTail: readonly Cell[]): { removedGround: Cell[]; addedGround: Cell[] } {
+  const removedGround: Cell[] = []
+  const addedGround: Cell[] = []
+  let i = oldStart, j = 0
+  while (i < oldTail.length && j < newTail.length) {
+    const a = oldTail[i], b = newTail[j]
+    if (a.x === b.x && a.y === b.y) { i++; j++ }
+    else if (a.x < b.x || (a.x === b.x && a.y < b.y)) { removedGround.push(a); i++ }
+    else { addedGround.push(b); j++ }
+  }
+  while (i < oldTail.length) removedGround.push(oldTail[i++])
+  while (j < newTail.length) addedGround.push(newTail[j++])
+  return { removedGround, addedGround }
+}
+
+/** Incrementally update generated street pavement for a bounded cell-only edit.
+ * Caller guarantees identical modules; supports z === 0 authored transitions and
+ * bounded window growth/shrink while preserving exact `withGround` ordering. */
+export function patchGround(
+  cells: readonly Cell[],
+  modules: readonly Module[],
+  previous: readonly Cell[],
+  prevAuthoredCount: number,
+  prevW: GroundBounds,
+  removed: readonly Cell[],
+  added: readonly Cell[],
+): { ground: Cell[]; removedGround: Cell[]; addedGround: Cell[] } {
+  const w = groundWindow(cells, modules)
+  const inputs = preparedGround(cells, modules)
+  const cached = inputs.windows.get(windowKey(w))
+  if (cached) {
+    const { removedGround, addedGround } = diffSortedGround(previous, prevAuthoredCount, cached)
+    return { ground: cells.concat(cached), removedGround, addedGround }
+  }
+  if (
+    !Number.isInteger(w.x0 - prevW.x0) || !Number.isInteger(w.x1 - prevW.x1) ||
+    !Number.isInteger(w.y0 - prevW.y0) || !Number.isInteger(w.y1 - prevW.y1)
+  ) {
+    const tail = generatedGround(cells, modules, w)
+    const { removedGround, addedGround } = diffSortedGround(previous, prevAuthoredCount, tail)
+    return { ground: cells.concat(tail), removedGround, addedGround }
+  }
+  const removedZ0 = new Map<string, [number, number]>()
+  for (const c of removed) if (c.z === GROUND_Z) removedZ0.set(`${c.x},${c.y}`, [c.x, c.y])
+  const newlyAuthoredZ0 = new Set<string>()
+  for (const c of added) {
+    if (c.z !== GROUND_Z) continue
+    const k = `${c.x},${c.y}`
+    if (!removedZ0.delete(k)) newlyAuthoredZ0.add(k)
+  }
+  const extraAdded: Cell[] = []
+  if (removedZ0.size > 0) {
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
+    for (const [x, y] of removedZ0.values()) {
+      if (x < minX) minX = x
+      if (x > maxX) maxX = x
+      if (y < minY) minY = y
+      if (y > maxY) maxY = y
+    }
+    for (const c of cells) {
+      if (c.z !== GROUND_Z || c.x < minX || c.x > maxX || c.y < minY || c.y > maxY) continue
+      removedZ0.delete(`${c.x},${c.y}`)
+      if (removedZ0.size === 0) break
+    }
+    if (removedZ0.size > 0) {
+      const moduleHole = moduleGroundHoleReader(modules)
+      for (const [x, y] of removedZ0.values()) {
+        // Coordinates outside prevW are handled by the border-strip pass below.
+        if (x < w.x0 || x > w.x1 || y < w.y0 || y > w.y1) continue
+        if (x < prevW.x0 || x > prevW.x1 || y < prevW.y0 || y > prevW.y1) continue
+        if (moduleHole(x, y)) continue
+        extraAdded.push({ x, y, z: GROUND_Z, fill: 'solid', zone: 'outside' })
+      }
+      if (extraAdded.length > 1) extraAdded.sort((a, b) => a.x - b.x || a.y - b.y)
+    }
+  }
+  const sameWindow = w.x0 === prevW.x0 && w.x1 === prevW.x1 && w.y0 === prevW.y0 && w.y1 === prevW.y1
+  if (sameWindow && newlyAuthoredZ0.size === 0 && extraAdded.length === 0) {
+    const tail = previous.slice(prevAuthoredCount)
+    rememberGround(inputs, w, tail)
+    return { ground: cells.concat(tail), removedGround: [], addedGround: [] }
+  }
+  const kept: Cell[] = []
+  const removedGround: Cell[] = []
+  const hasNewAuthored = newlyAuthoredZ0.size > 0
+  for (let i = prevAuthoredCount; i < previous.length; i++) {
+    const c = previous[i]
+    if (
+      c.x < w.x0 || c.x > w.x1 || c.y < w.y0 || c.y > w.y1 ||
+      (hasNewAuthored && newlyAuthoredZ0.has(`${c.x},${c.y}`))
+    ) {
+      removedGround.push(c)
+    } else {
+      kept.push(c)
+    }
+  }
+  const expanded = w.x0 < prevW.x0 || w.x1 > prevW.x1 || w.y0 < prevW.y0 || w.y1 > prevW.y1
+  const stripAdded = expanded ? generatedGround(cells, modules, w, prevW) : []
+  const addedGround = mergeSortedGround(stripAdded, extraAdded)
+  const tail = mergeSortedGround(kept, addedGround)
+  rememberGround(inputs, w, tail)
+  return { ground: cells.concat(tail), removedGround, addedGround }
+}
+
 /** Speculative derived data only: an accepted non-carving move can prepare its
  * next street window without mutating the document or live occupancy indexes. */
 export function primeGroundResize(cells:readonly Cell[],before:readonly Module[],after:readonly Module[]):void{
@@ -219,6 +451,8 @@ function generatedGround(cells: readonly Cell[],modules: readonly Module[],w: Re
   if(cached)return exclude?cached.filter(c=>c.x<exclude.x0||c.x>exclude.x1||c.y<exclude.y0||c.y>exclude.y1):cached
   const holes = new Map<number, Set<number>>()
   const omit = (x: number, y: number): void => {
+    if (x < w.x0 || x > w.x1 || y < w.y0 || y > w.y1) return
+    if (exclude && x >= exclude.x0 && x <= exclude.x1 && y >= exclude.y0 && y <= exclude.y1) return
     let row = holes.get(x)
     if (!row) holes.set(x, row = new Set())
     row.add(y)
@@ -238,16 +472,11 @@ function generatedGround(cells: readonly Cell[],modules: readonly Module[],w: Re
   }
   for (const m of modules) {
     if (m.type === 'track' && m.z === GROUND_Z && !m.cfg.tunnel && !m.cfg.bridge) {
-      for (const [x, y] of trackCells(m)) {
-        if (x >= w.x0 && x <= w.x1 && y >= w.y0 && y <= w.y1) omit(x, y)
-      }
+      for (const [x, y] of trackCells(m)) omit(x, y)
       continue
     }
     if (m.type !== 'exit' || !isExitHeadHouse(m) || m.z !== GROUND_Z) continue
-    for (const [x, y] of exitFootprintCells(m)) {
-      if (x < w.x0 || x > w.x1 || y < w.y0 || y > w.y1) continue
-      omit(x, y)
-    }
+    for (const [x, y] of exitFootprintCells(m)) omit(x, y)
   }
   const out: Cell[] = []
   for (let x = w.x0; x <= w.x1; x++) {
@@ -271,11 +500,15 @@ function generatedGround(cells: readonly Cell[],modules: readonly Module[],w: Re
 
 registerDocumentCache((cells, modules, liveCells, liveModules) => {
   if (cells !== liveCells) {
-    groundBounds.delete(cells)
+    cellBoundsCache.delete(cells)
+    if (lastCellBounds?.cells === cells) lastCellBounds = null
     groundInputs.delete(cells)
     groundHoleReaders.delete(cells)
-  } else if (modules !== liveModules) {
-    groundBounds.get(cells)?.delete(modules)
+  }
+  if (modules !== liveModules) {
+    moduleBoundsCache.delete(modules)
+    if (lastModuleBounds?.modules === modules) lastModuleBounds = null
+    moduleGroundHoleReaders.delete(modules)
     groundHoleReaders.get(cells)?.delete(modules)
   }
 })

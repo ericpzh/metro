@@ -465,9 +465,33 @@ namespace Metro.EditModeTests {
             Assert.IsNotNull(pillar, "the Tanwei fixture carries a bridge-owned pillar");
             Assert.AreEqual("local-bridge-pillars", Refusal(tanwei, () => Remove(pillar.Id)), "bridge pillar");
 
-            var sign = tanwei.Index.ModulesOfType("sign").FirstOrDefault();
-            Assert.IsNotNull(sign, "the Tanwei fixture carries a sign");
-            Assert.AreEqual("local-sign-repair", Refusal(tanwei, () => Remove(sign.Id)), "sign");
+            var invalidSign = new StationEditDraft { Id = "local-test-bad-sign", Type = "sign", X = 1, Y = 1, Z = 0, Rotation = 0 };
+            invalidSign.JsonKeys.Add("front");
+            invalidSign.Config["front"] = "[{\"id\":\"c1\",\"kind\":\"text\",\"text\":\"\",\"x\":0.5,\"y\":0.2,\"scale\":1}]";
+            Assert.AreEqual("local-sign-repair", Refusal(tanwei, () => {
+                var patch = new StationCellPatch();
+                patch.AddModule(invalidSign);
+                return patch;
+            }), "unrepairable sign falls back");
+
+            // Valid sign add, move and remove stay on the bounded local path and match full read.
+            var existingSign = tanwei.Index.ModulesOfType("sign").FirstOrDefault();
+            Assert.IsNotNull(existingSign, "the Tanwei fixture carries a sign");
+            var signRemoveLocal = StationLocalEdit.TryApplyModule(tanwei, StationModuleEditMode.Remove, null, existingSign.Id, "fixture", out var signRemoveCode);
+            Assert.IsNotNull(signRemoveLocal, "valid sign remove uses local path: " + signRemoveCode);
+            var signRemoveFullJson = StationModuleEdits.Apply(StationDocumentReader.Write(tanwei.Document, DateTimeOffset.UtcNow), StationModuleEditMode.Remove, null, existingSign.Id, out var fullRemoveCode);
+            Assert.IsNotNull(signRemoveFullJson, fullRemoveCode);
+            var signRemoveFull = StationDocumentReader.Read(signRemoveFullJson, StationSource.None);
+            Assert.AreEqual(Canonical(signRemoveFull.Document.NormalizedJson), Canonical(signRemoveLocal.Document.NormalizedJson), "sign remove matches full read");
+
+            var newSign = new StationEditDraft { Id = "local-test-sign-add", Type = "sign", X = 2, Y = 2, Z = 0, Rotation = 0, CeilingAnchored = true };
+            newSign.Config["mount"] = "ceiling";
+            var signAddLocal = StationLocalEdit.TryApplyModule(tanwei, StationModuleEditMode.Add, newSign, null, "fixture", out var signAddCode);
+            Assert.IsNotNull(signAddLocal, "valid sign add uses local path: " + signAddCode);
+            var signAddFullJson = StationModuleEdits.Apply(StationDocumentReader.Write(tanwei.Document, DateTimeOffset.UtcNow), StationModuleEditMode.Add, newSign, null, out var fullAddCode);
+            Assert.IsNotNull(signAddFullJson, fullAddCode);
+            var signAddFull = StationDocumentReader.Read(signAddFullJson, StationSource.None);
+            Assert.AreEqual(Canonical(signAddFull.Document.NormalizedJson), Canonical(signAddLocal.Document.NormalizedJson), "sign add matches full read");
 
             // A fresh screen without a poster would gain one on the next full read.
             var unpostered = new StationEditDraft { Id = "local-test-tv", Type = "tv", X = 1, Y = 1, Z = 0, Rotation = 0 };

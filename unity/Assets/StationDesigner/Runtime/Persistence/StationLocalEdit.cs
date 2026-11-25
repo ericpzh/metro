@@ -703,6 +703,20 @@ namespace Metro.Persistence {
         static bool TryBuildProjectedModule(JObject moduleJson, string city, out StationModuleRecord record, out string code) {
             record = null;
             code = null;
+            if (string.Equals(StationDocumentReader.Str(moduleJson?["type"]), "sign", StringComparison.Ordinal)) {
+                try {
+                    moduleJson = JObject.Parse(StationSignRepair.NormalizeJson(moduleJson.ToString(Formatting.None)));
+                } catch (NotSupportedException) {
+                    code = "local-sign-repair";
+                    return false;
+                } catch (JsonException) {
+                    code = "local-sign-repair";
+                    return false;
+                } catch (FormatException) {
+                    code = "local-sign-repair";
+                    return false;
+                }
+            }
             try {
                 record = StationDocumentReader.BuildModule(moduleJson, city);
                 return true;
@@ -867,7 +881,6 @@ namespace Metro.Persistence {
             if (type.Length == 0) return "local-unsupported-record";
             if (!StationGridRepair.KeepsModule(record)) return "local-off-grid";
             var cfg = record["cfg"] as JObject;
-            if (type == "sign") return "local-sign-repair";
             if (type == "billboard" || type == "tv" || type == "busstop") {
                 return cfg != null && cfg.Property("poster") != null ? null : "local-ad-poster";
             }
@@ -885,7 +898,6 @@ namespace Metro.Persistence {
         static string ModuleRefusal(StationModuleRecord record) {
             if (record == null) return null;
             var type = record.Type;
-            if (type == "sign") return "local-sign-repair";
             if (type == "billboard" || type == "tv" || type == "busstop") {
                 return record.Config.Has("poster") ? null : "local-ad-poster";
             }

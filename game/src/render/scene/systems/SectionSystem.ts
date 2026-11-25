@@ -75,6 +75,7 @@ export class SectionSystem extends SceneSystem {
   private arrowKey = 0
   private appliedClip: THREE.Plane | null | undefined
   private appliedClipView = ''
+  private appliedChunkRevision = -1
 
   constructor(ctx: SceneContext) {
     super(ctx)
@@ -286,9 +287,11 @@ export class SectionSystem extends SceneSystem {
       mat.clippingPlanes = planes
       mat.needsUpdate = true
     }
-    for (const m of [...this.chunks.chunkMeshes, ...this.chunks.outlineMeshes]) {
-      const mat = m.material as THREE.Material
-      apply(mat)
+    const chunkRev = this.chunks.meshRevision ?? -1
+    const skipChunks = retainedView && chunkRev >= 0 && chunkRev === this.appliedChunkRevision
+    if (!skipChunks) {
+      for (const m of this.chunks.chunkMeshes) apply(m.material as THREE.Material)
+      for (const m of this.chunks.outlineMeshes) apply(m.material as THREE.Material)
     }
     // The street ground is real chunk cells now, so the loop above already clips
     // it with the station.
@@ -297,8 +300,11 @@ export class SectionSystem extends SceneSystem {
     }
     // Equipment is clipped too: a 闸机, a screen door and a train standing in
     // the half that is cut away must go with the slab, exactly as the crowd does.
-    for (const root of this.modules.moduleMeshes.children) {
-      if(retainedView&&this.modules.retainedLevelRoots?.has(root))continue
+    const moduleRoots = retainedView && this.modules.dirtyLevelRoots
+      ? this.modules.dirtyLevelRoots
+      : this.modules.moduleMeshes.children
+    for (const root of moduleRoots) {
+      if (retainedView && !this.modules.dirtyLevelRoots && this.modules.retainedLevelRoots?.has(root)) continue
       root.traverse((o) => {
         // Equipment is not all meshes: the ball-court net is a `LineSegments`
         // (and points/sprites are no different to the shader). Three's basic
@@ -334,8 +340,9 @@ export class SectionSystem extends SceneSystem {
     // the walk the plane is what makes it restate them (`LevelSystem.setClip`).
     // Without this the cut has holes in it, and a storey shows straight through.
     this.level?.setClip(this.on ? this.plane : null)
-    this.appliedClip=plane
-    this.appliedClipView=this.ctx.levelKey
+    this.appliedClip = plane
+    this.appliedClipView = this.ctx.levelKey
+    this.appliedChunkRevision = chunkRev
   }
 
   /**

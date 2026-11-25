@@ -639,29 +639,53 @@ namespace Metro.View {
                 }
 
                 // Check whether any module change affects ground holes, slope cuts, ramp thinning, or PSD insets.
-                bool rampOrHoleModuleChanged = false;
+                bool rampOrExitChanged = false;
+                bool trackOrWalkwayChanged = false;
+                bool exitChanged = false;
                 bool psdModuleChanged = false;
+                List<ModuleFacts> touchedRamps = null;
                 for (int i = 0; i < delta.RemovedModules.Count; i++) {
                     if (prevIndex != null) {
-                        string t = prevIndex.GetModule(delta.RemovedModules[i])?.Type;
-                        if (t == "track" || t == "exit" || t == "stair" || t == "escalator" || t == "walkway" || t == "lift")
-                            rampOrHoleModuleChanged = true;
+                        var oldMod = prevIndex.GetModule(delta.RemovedModules[i]);
+                        string t = oldMod?.Type;
+                        if (t == "stair" || t == "escalator" || t == "lift") {
+                            rampOrExitChanged = true;
+                            if (oldMod.Facts != null) (touchedRamps ??= new List<ModuleFacts>(2)).Add(oldMod.Facts);
+                        } else if (t == "exit") {
+                            rampOrExitChanged = true;
+                            exitChanged = true;
+                        } else if (t == "track" || t == "walkway") {
+                            trackOrWalkwayChanged = true;
+                        }
                         if (t == "platform-edge")
                             psdModuleChanged = true;
                     } else {
-                        rampOrHoleModuleChanged = true;
+                        rampOrExitChanged = true;
+                        trackOrWalkwayChanged = true;
+                        exitChanged = true;
                         psdModuleChanged = true;
                     }
                 }
                 for (int i = 0; i < delta.ChangedModules.Count; i++) {
-                    string t = delta.ChangedModules[i].Type;
-                    if (t == "track" || t == "exit" || t == "stair" || t == "escalator" || t == "walkway" || t == "lift")
-                        rampOrHoleModuleChanged = true;
+                    var mod = delta.ChangedModules[i];
+                    string t = mod.Type;
+                    if (t == "stair" || t == "escalator" || t == "lift") {
+                        rampOrExitChanged = true;
+                        if (mod.Facts != null) (touchedRamps ??= new List<ModuleFacts>(2)).Add(mod.Facts);
+                        if (prevIndex != null && prevIndex.TryGetModule(mod.Id, out var prevMod) && prevMod?.Facts != null) {
+                            (touchedRamps ??= new List<ModuleFacts>(2)).Add(prevMod.Facts);
+                        }
+                    } else if (t == "exit") {
+                        rampOrExitChanged = true;
+                        exitChanged = true;
+                    } else if (t == "track" || t == "walkway") {
+                        trackOrWalkwayChanged = true;
+                    }
                     if (t == "platform-edge")
                         psdModuleChanged = true;
                 }
 
-                if (rampOrHoleModuleChanged) {
+                if (rampOrExitChanged) {
                     preparedRamps = StationRampOpenings.PrepareOpenings(nextIndex);
                 }
 
@@ -691,18 +715,24 @@ namespace Metro.View {
                 }
 
                 // 2. Update module-derived SlopeCuts, ThinCells, GroundHoles, Insets, or local SlopeFills.
-                if (rampOrHoleModuleChanged) {
+                if (rampOrExitChanged) {
                     prevSlopeCuts = new Dictionary<StationCellKey, StationSlopeCut>(slopeCuts);
                     prevSlopeFills = new HashSet<StationCellKey>(slopeFills);
                     prevGroundHoles = new HashSet<StationCellKey>(groundHoles);
 
-                    var structuralFacts = CollectStructuralFacts(nextIndex);
-                    var nextCuts = StationRampOpenings.RampSlopeCuts(structuralFacts);
+                    var nextCuts = preparedRamps.SlopeCuts;
+                    var dirtySlopeKeys = new HashSet<StationCellKey>();
                     foreach (var kv in slopeCuts) {
-                        if (!nextCuts.TryGetValue(kv.Key, out var nxt) || !SameSlopeCut(kv.Value, nxt)) NoteDirtyCoord(kv.Key);
+                        if (!nextCuts.TryGetValue(kv.Key, out var nxt) || !SameSlopeCut(kv.Value, nxt)) {
+                            NoteDirtyCoord(kv.Key);
+                            dirtySlopeKeys.Add(kv.Key);
+                        }
                     }
                     foreach (var kv in nextCuts) {
-                        if (!slopeCuts.TryGetValue(kv.Key, out var cur) || !SameSlopeCut(cur, kv.Value)) NoteDirtyCoord(kv.Key);
+                        if (!slopeCuts.TryGetValue(kv.Key, out var cur) || !SameSlopeCut(cur, kv.Value)) {
+                            NoteDirtyCoord(kv.Key);
+                            dirtySlopeKeys.Add(kv.Key);
+                        }
                     }
                     slopeCuts.Clear();
                     foreach (var kv in nextCuts) slopeCuts[kv.Key] = kv.Value;
@@ -722,19 +752,42 @@ namespace Metro.View {
                     slopeFills.Clear();
                     foreach (var f in nextFills) slopeFills.Add(f);
 
-                    // Re-evaluate RampThinCells for Full-authored cells where thin state changed.
+                    // Re-evaluate RampThinCells only inside the tight AABBs of delta-touched ramps
+                    // (plus any cells whose slope cut changed) instead of scanning all authored cells.
                     var toUpdateThin = new List<(StationMeshCell Cell, StationCellShape RawShape)>();
-                    foreach (var kv in rawShapes) {
-                        if (kv.Value.Kind != StationShapeKind.Full) continue;
-                        if (!authoredCells.TryGetValue(kv.Key, out var cur)) continue;
-                        var probe = cur;
-                        probe.Shape = StationCellShape.Full;
-                        var nextShape = preparedRamps != null && preparedRamps.TryComputeThinSide(probe, out var side)
-                            ? StationCellShape.Half(side)
-                            : StationCellShape.Full;
-                        if (!cur.Shape.Equals(nextShape)) {
-                            probe.Shape = nextShape;
-                            toUpdateThin.Add((probe, kv.Value));
+                    if (prevIndex != null && !exitChanged) {
+                        var thinCandidates = new HashSet<StationCellKey>(dirtySlopeKeys);
+                        if (touchedRamps != null) {
+                            for (int i = 0; i < touchedRamps.Count; i++) {
+                                StationRampOpenings.CollectThinCandidateCells(touchedRamps[i], thinCandidates);
+                            }
+                        }
+                        foreach (var k in thinCandidates) {
+                            if (!rawShapes.TryGetValue(k, out var raw) || raw.Kind != StationShapeKind.Full) continue;
+                            if (!authoredCells.TryGetValue(k, out var cur)) continue;
+                            var probe = cur;
+                            probe.Shape = StationCellShape.Full;
+                            var nextShape = preparedRamps != null && preparedRamps.TryComputeThinSide(probe, out var side)
+                                ? StationCellShape.Half(side)
+                                : StationCellShape.Full;
+                            if (!cur.Shape.Equals(nextShape)) {
+                                probe.Shape = nextShape;
+                                toUpdateThin.Add((probe, raw));
+                            }
+                        }
+                    } else {
+                        foreach (var kv in rawShapes) {
+                            if (kv.Value.Kind != StationShapeKind.Full) continue;
+                            if (!authoredCells.TryGetValue(kv.Key, out var cur)) continue;
+                            var probe = cur;
+                            probe.Shape = StationCellShape.Full;
+                            var nextShape = preparedRamps != null && preparedRamps.TryComputeThinSide(probe, out var side)
+                                ? StationCellShape.Half(side)
+                                : StationCellShape.Full;
+                            if (!cur.Shape.Equals(nextShape)) {
+                                probe.Shape = nextShape;
+                                toUpdateThin.Add((probe, kv.Value));
+                            }
                         }
                     }
                     for (int i = 0; i < toUpdateThin.Count; i++) {
@@ -751,6 +804,14 @@ namespace Metro.View {
                     groundHoles.Clear();
                     foreach (var h in nextHoles) groundHoles.Add(h);
                 } else {
+                    if (trackOrWalkwayChanged) {
+                        prevGroundHoles = new HashSet<StationCellKey>(groundHoles);
+                        var nextHoles = ComputeGroundHoles(nextIndex, preparedRamps, groundZ);
+                        foreach (var oldHole in groundHoles) if (!nextHoles.Contains(oldHole)) NoteDirtyCoord(oldHole);
+                        foreach (var newHole in nextHoles) if (!groundHoles.Contains(newHole)) NoteDirtyCoord(newHole);
+                        groundHoles.Clear();
+                        foreach (var h in nextHoles) groundHoles.Add(h);
+                    }
                     // Pure cell delta: SlopeFills can only change at dirty cell `k` or `k + (0,0,1)`.
                     var fillCandidates = new List<StationCellKey>((delta.RemovedCells.Count + delta.ChangedCells.Count) * 2);
                     for (int i = 0; i < delta.RemovedCells.Count; i++) {
@@ -857,7 +918,8 @@ namespace Metro.View {
                         }
                     }
 
-                    // Ground window perimeter diff when station XY bounds changed.
+                    // Ground window perimeter diff when station XY bounds changed:
+                    // only dirty the strip(s) along edges that actually moved (with 2-cell AO halo).
                     if (virtualGround && (oldHasWin != newHasWin || oldGx0 != newGx0 || oldGx1 != newGx1 || oldGy0 != newGy0 || oldGy1 != newGy1)) {
                         int gBand = StoreyBand(groundZ);
                         int gBelow = StoreyBand(groundZ - step);
@@ -865,22 +927,24 @@ namespace Metro.View {
                         if (oldHasWin && newHasWin) {
                             int uX0 = Math.Min(oldGx0, newGx0) - 2, uX1 = Math.Max(oldGx1, newGx1) + 2;
                             int uY0 = Math.Min(oldGy0, newGy0) - 2, uY1 = Math.Max(oldGy1, newGy1) + 2;
-                            int iX0 = Math.Max(oldGx0, newGx0) + 2, iX1 = Math.Min(oldGx1, newGx1) - 2;
-                            int iY0 = Math.Max(oldGy0, newGy0) + 2, iY1 = Math.Min(oldGy1, newGy1) - 2;
-                            int cx0 = FloorChunk(uX0), cx1 = FloorChunk(uX1);
-                            int cy0 = FloorChunk(uY0), cy1 = FloorChunk(uY1);
-                            for (int cx = cx0; cx <= cx1; cx += StationCellMesher.ChunkSize) {
-                                for (int cy = cy0; cy <= cy1; cy += StationCellMesher.ChunkSize) {
-                                    bool insideUnchanged = iX0 <= iX1 && iY0 <= iY1 &&
-                                                           cx >= iX0 && cx + StationCellMesher.ChunkSize - 1 <= iX1 &&
-                                                           cy >= iY0 && cy + StationCellMesher.ChunkSize - 1 <= iY1;
-                                    if (insideUnchanged) continue;
-                                    if (buildGround) dirtySet.Add(new ChunkBandKey(cx, cy, gBand, true));
-                                    dirtySet.Add(new ChunkBandKey(cx, cy, gBand, false));
-                                    if (gBelow != gBand) dirtySet.Add(new ChunkBandKey(cx, cy, gBelow, false));
-                                    if (gAbove != gBand) dirtySet.Add(new ChunkBandKey(cx, cy, gAbove, false));
+                            void DirtyGroundStrip(int sx0, int sx1, int sy0, int sy1) {
+                                int cx0 = FloorChunk(sx0), cx1 = FloorChunk(sx1);
+                                int cy0 = FloorChunk(sy0), cy1 = FloorChunk(sy1);
+                                for (int cx = cx0; cx <= cx1; cx += StationCellMesher.ChunkSize) {
+                                    for (int cy = cy0; cy <= cy1; cy += StationCellMesher.ChunkSize) {
+                                        if (buildGround) dirtySet.Add(new ChunkBandKey(cx, cy, gBand, true));
+                                        if (chunkCells.ContainsKey((cx, cy))) {
+                                            dirtySet.Add(new ChunkBandKey(cx, cy, gBand, false));
+                                            if (gBelow != gBand) dirtySet.Add(new ChunkBandKey(cx, cy, gBelow, false));
+                                            if (gAbove != gBand) dirtySet.Add(new ChunkBandKey(cx, cy, gAbove, false));
+                                        }
+                                    }
                                 }
                             }
+                            if (oldGx0 != newGx0) DirtyGroundStrip(Math.Min(oldGx0, newGx0) - 2, Math.Max(oldGx0, newGx0) + 2, uY0, uY1);
+                            if (oldGx1 != newGx1) DirtyGroundStrip(Math.Min(oldGx1, newGx1) - 2, Math.Max(oldGx1, newGx1) + 2, uY0, uY1);
+                            if (oldGy0 != newGy0) DirtyGroundStrip(uX0, uX1, Math.Min(oldGy0, newGy0) - 2, Math.Max(oldGy0, newGy0) + 2);
+                            if (oldGy1 != newGy1) DirtyGroundStrip(uX0, uX1, Math.Min(oldGy1, newGy1) - 2, Math.Max(oldGy1, newGy1) + 2);
                         } else {
                             foreach (var ck in CollectAllChunkKeys()) dirtySet.Add(ck);
                         }

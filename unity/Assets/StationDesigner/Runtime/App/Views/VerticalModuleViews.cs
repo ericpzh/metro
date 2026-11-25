@@ -4026,6 +4026,11 @@ namespace Metro.App.Views {
             return new StationBox(x0 - 4, y0 - 4, z0 - 6, x1 + 4, y1 + 4, z1 + 6);
         }
 
+        static StationBox ExitSearchEnvelope(StationModuleRecord module) {
+            var b = StationFootprints.ExitFloorBounds(module);
+            return new StationBox(b.X0 - 2, b.Y0 - 2, b.Z0 - 6, b.X1 + 2, b.Y1 + 2, b.Z1 + 6);
+        }
+
         static bool BoxesOverlap(in StationBox a, double bx0, double by0, double bz0, double bx1, double by1, double bz1) =>
             a.X0 <= bx1 && a.X1 >= bx0 && a.Y0 <= by1 && a.Y1 >= by0 && a.Z0 <= bz1 && a.Z1 >= bz0;
 
@@ -4056,18 +4061,28 @@ namespace Metro.App.Views {
             var delta = context.Delta;
             for (int i = 0; i < delta.RemovedModules.Count; i++) {
                 var id = delta.RemovedModules[i];
-                if (context.PrevIndex.TryGetModule(id, out var oldMod) && IsVerticalType(oldMod.Type)) {
+                if (!context.PrevIndex.TryGetModule(id, out var oldMod) || oldMod == null) continue;
+                if (IsVerticalType(oldMod.Type)) {
                     removedIds.Add(id);
                     (rampEnvelopes ??= new List<StationBox>()).Add(VerticalSearchEnvelope(oldMod));
+                } else if (string.Equals(oldMod.Type, "exit", StringComparison.Ordinal)) {
+                    (rampEnvelopes ??= new List<StationBox>()).Add(ExitSearchEnvelope(oldMod));
                 }
             }
             for (int i = 0; i < delta.ChangedModules.Count; i++) {
                 var mod = delta.ChangedModules[i];
-                if (mod != null && IsVerticalType(mod.Type)) {
+                if (mod == null) continue;
+                if (IsVerticalType(mod.Type)) {
                     dirtyIds.Add(mod.Id);
                     (rampEnvelopes ??= new List<StationBox>()).Add(VerticalSearchEnvelope(mod));
-                    if (context.PrevIndex.TryGetModule(mod.Id, out var prevMod)) {
+                    if (context.PrevIndex.TryGetModule(mod.Id, out var prevMod) && prevMod != null) {
                         rampEnvelopes.Add(VerticalSearchEnvelope(prevMod));
+                    }
+                } else if (string.Equals(mod.Type, "exit", StringComparison.Ordinal)) {
+                    (rampEnvelopes ??= new List<StationBox>()).Add(ExitSearchEnvelope(mod));
+                    if (context.PrevIndex.TryGetModule(mod.Id, out var prevMod) && prevMod != null &&
+                        string.Equals(prevMod.Type, "exit", StringComparison.Ordinal)) {
+                        rampEnvelopes.Add(ExitSearchEnvelope(prevMod));
                     }
                 }
             }

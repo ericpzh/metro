@@ -124,6 +124,7 @@ namespace Metro.App.Views {
         public static void ReleaseScope(Scope scope) {
             if (scope == null) return;
             StationDisplayTvArtwork.ReleaseScope(scope);
+            StationLineMapArtwork.ReleaseScope(scope);
             StationClockArtwork.ReleaseScope(scope);
             foreach (var material in scope.Materials.Values) {
                 if (material) SafeDestroy(material);
@@ -183,6 +184,26 @@ namespace Metro.App.Views {
             filter.sharedMesh = basis.Canonical;
             scope.Surfaces.Add(surface);
             return surface;
+        }
+
+        internal static Material TemplateForRenderer(Scope scope, MeshRenderer renderer) {
+            if (scope == null || renderer == null) return null;
+            for (int i = 0; i < scope.Surfaces.Count; i++) {
+                var known = scope.Surfaces[i];
+                if (known != null && ReferenceEquals(known.Renderer, renderer)) return known.Template;
+            }
+            return null;
+        }
+
+        internal static void RemoveSurfacesUnder(Scope scope, GameObject root) {
+            if (scope == null || root == null || scope.Surfaces.Count == 0) return;
+            var rootTransform = root.transform;
+            for (int i = scope.Surfaces.Count - 1; i >= 0; i--) {
+                var surface = scope.Surfaces[i];
+                if (surface == null || surface.Renderer == null || surface.Renderer.transform.IsChildOf(rootTransform)) {
+                    scope.Surfaces.RemoveAt(i);
+                }
+            }
         }
 
         /// <summary>The node's physical up in the printed mesh's own frame.</summary>

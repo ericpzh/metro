@@ -16,13 +16,22 @@ and per-model triangle counts, see
   deferring full `NormalizedJson`/`EnsureContentHash`. `StationEditClassifier.ClassifyLocal`
   classifies edits as `DayOnly`, `Cosmetic`, or `Structural` before staging.
   `StationWorldView.StageLocalWorld` / `CommitLocalWorld` updates only dirty
-  geometry, affected module families (`StationEquipmentModuleRenderer`,
-  `OutdoorModuleRenderer`, `OpeningModuleRenderer` for `gate`/`door`/`cubicle`,
+  geometry, affected module families (16 m chunk-indexed surface modules,
+  `StationEquipmentModuleRenderer`, `OutdoorModuleRenderer`,
+  `OpeningModuleRenderer` for `gate`/`door`/`cubicle`/`psd-end`/`psd-end-cover`,
+  `StationStructureModuleViews` for `pillar`/`roof`/`hanger` + column-probed
+  `StationBridgePillars`, `StationSignView` inline normalize, displays/artwork
+  `tv`/`calligraphy`/`linemap`/`clock`/`glass`/`booth`/`guidepost`, `VerticalModuleViews`
+  exits + bounded `StationRampCarve` `onlyExtraRuns: true` & single-pass
+  `RampSlopeCutsCore`, `track`/`platform-edge` + incremental `TrainConsistRenderer.StagedTrainDelta`,
   `StationRoadRenderer` via `TryApplyRoadSet` + `TryStageLocalDelta`,
-  `StationContactShadowRenderer`, and zone overlay bands), and
-  `StationScenePicker.ApplyLocalCommit`, while
-  `StationWalkGraphWorkspace.StageCellDelta` repairs walk topology in ping-pong
-  scratch buffers. `StationEditSession.ClearHistory()` unconditionally clears
+  `StationContactShadowRenderer` 64 m chunk deltas, and cached zone overlay bands),
+  and `StationScenePicker.ApplyLocalCommit`, while
+  `StationWalkGraphWorkspace.StageCellDelta`, `StationSparseTopology.TryUpdateIncremental`
+  (jagged `int[][]` adjacency + `OldToNewNode` claim remapping), and
+  `StationSimulationSession` `AppendOnlyModules`/`InPlaceUpdateOnly` fast paths
+  repair simulation topology incrementally (0 fallbacks across all 99/99 Unity
+  objects on Tianhe Park). `StationEditSession.ClearHistory()` unconditionally clears
   undo/redo on every non-edit station load (`stationEpoch` bumps monotonically).
   Any stage failure rolls back document, view, and simulation together
   (`StationPlan32EquivalenceAndRollbackTests`, `StationShellAndRoadDeltaTests`).

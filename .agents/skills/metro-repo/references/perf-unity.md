@@ -55,17 +55,38 @@ for measurement rules and [perf-benchmarks.md](perf-benchmarks.md) for commands.
   with ping-pong scratch buffers, selective `StationServiceRuntime`
   reconciliation, and versioned `delta` (`schemaVersion: 1`) bridge commits
   adopted incrementally by `game/src/unity-web/stationDelta.ts`.
-- **Retained view families**: Local delta staging covers cells, independent
-  static equipment (`StationEquipmentModuleRenderer`), straight fences/trees
-  (`OutdoorModuleRenderer`), openings (`gate`, `door`, `cubicle` in
-  `OpeningModuleRenderer`; `platform-edge`/`psd-end` keep conservative fallback),
-  authored road networks + ambient road traffic (`StationLocalEdit.TryApplyRoadSet`
-  with semantic `RoadRecordUnchanged` diffing, `StationRoadComponents.Partition`
+- **Retained view families & incremental topology**: Local delta staging covers
+  cells (with single-pass `RampSlopeCutsCore` / `PreparedRampOpenings.SlopeCuts`,
+  bounded AABB + `onlyExtraRuns: true` in `StationRampCarve`, bounded thin-side
+  lookup, and moved-edge `GroundWindow` diffing), signs (`StationSignView` inline
+  `StationSignRepair.NormalizeJson` without full-doc fallback), structural
+  modules (`pillar`, `roof`, `hanger` + indexed `StationBridgePillars` column
+  Z-probe invalidation), rails and trains (`track`, `platform-edge`,
+  `StationRailPlanner` `ModulesOfType("track")` + `CollectModulesOnDigCells` /
+  `CollectStaticGroundHoles`, `StationTunnelShell` O(1) cell lookup,
+  `ModuleConfig.Bool` `"1"`/`"0"` bridge parsing, `TrainBerthRefreshStage`
+  fast-path consist matching, and incremental `TrainConsistRenderer.StagedTrainDelta`
+  reusing cached livery/body geometry for added consists), openings (`gate`, `door`,
+  `cubicle`, `psd-end`, `psd-end-cover`),
+  exits (`VerticalModuleViews` landing-height invalidation + exit-filtered ramp
+  re-projection), displays/glass/booths/guideposts (`tv`, `calligraphy`,
+  `linemap`, `glass`, `booth`, `guidepost` with idempotent artwork `Bind`/`Unbind`
+  and shared `TouchedCeilingColumns`), 16 m chunk-indexed surface modules
+  (`StationSurfaceModuleRenderer`), 64 × 64 m chunked static equipment
+  (`StationEquipmentModuleRenderer` delta patching), 64 × 64 m spatial-chunked
+  equipment contact shadows (`StationContactShadowRenderer` delta matrix
+  updates), straight fences/trees (`OutdoorModuleRenderer`), authored road
+  networks + ambient road traffic (`StationLocalEdit.TryApplyRoadSet` with
+  semantic `RoadRecordUnchanged` diffing, `StationRoadComponents.Partition`
   connected-component partitioning, and component-scoped
   `StationRoadRenderer.TryStageLocalDelta` / `RoadVehicleViews.BuildMultiComponent`),
-  equipment contact shadows
-  (`StationContactShadowRenderer`), and zone overlay bands
-  (`StationZoneMap.FloorsAt` + `CachedZoneBand` in `StationOverlayRenderer`).
+  and zone overlay bands (`StationZoneMap.FloorsAt` + `CachedZoneBand` in
+  `StationOverlayRenderer`). On the simulation side, `StationSparseTopology`
+  uses jagged `int[][]` adjacency with O(|dirtySectors|) `TryUpdateIncremental`
+  and `OldToNewNode` claim remapping, `StationSimulationSession` uses
+  `AppendOnlyModules`/`InPlaceUpdateOnly` fast paths avoiding 76k-module scans,
+  and `game/src/unity-web/stationBridge.ts` `reduce()` folds `payload.edit`
+  immediately on `kind === "ack"`.
   On shipped `zoo.metro.json` (4,299 modules, 2 disconnected road networks, Unity
   6000.6.8f1 `-nographics` EditMode
   `StationRoadDeltaPerfTests.MeasureRoadPreviewCommitEraseAndUndoOnZoo`,
@@ -94,25 +115,35 @@ for measurement rules and [perf-benchmarks.md](perf-benchmarks.md) for commands.
   suppression, and single-level target indexing to visit only affected storey
   bands on Q/E switches. Unchanged accepted `view.set level` commands no-op
   without running `Visibility.Apply` or `RefreshHover`.
-- **Measured Tianhe Park 102-object placement & pick baseline (`d019f4d2`, `high` / `native` FSR, `0×` & `1×`)**:
+- **Measured Tianhe Park 102-object placement & pick latency (`e527757c`, `high` / `native` FSR, `0×` & `1×`)**:
   Full matrix in [perf-tianhe-object-latency.md](perf-tianhe-object-latency.md).
-  On Tianhe Park (`151,852` cells, `76,438` modules), Unity Desktop `.exe`
-  (Mono) placement splits into 4 tiers: fast local (`48–380 ms`, 47 cases),
-  heavy local (`435–1,330 ms`, 27 cases; `StageLocal.equipment` ~400 ms +
-  `StageLocal.contact-shadows` ~240 ms + ramp `StageLocal.cells` ~380 ms),
-  full-view fallback (`6,320–6,980 ms`, 23 cases across 11 families: `booth`,
-  `track`, `pillar`, `roof`, `exit`, `tv`, `glass`, `calligraphy`, `linemap`,
-  `psd-end`, `guidepost`), and sign full-document + full-sim fallback
-  (`9,460–9,590 ms` host present / ~11.4 s click→reply, ~1.05 GB alloc from
-  `local-sign-repair` + `full-stage-install` + `delta: false`, which
-  deterministically triggers `abort("OOM")` on Unity WebGL). Unity WebGL
-  (IL2CPP WASM) runs C# rebuild stages ~1.4×–1.7× faster than Desktop Mono
-  (P50 `261–287 ms` vs `441–447 ms`; fallback P50 `5,340–5,464 ms` vs
-  `6,472–6,479 ms`). Real-click pick host `ack` is `17–44 ms` median, while
-  React UI adoption lags to ~`95 ms` median because `stationBridge.ts`
-  `reduce()` omits `payload.edit` on `kind === "ack"` and waits for the 100 ms
-  periodic `state` tick. `exit-doorway-1`, `exit-virtual`, and `traffic-light`
-  currently return `no-candidate` in `StationModuleFamilies.TryParse`.
+  All **99/99** Unity-supported objects stay on the local retained-view path
+  (**0** full fallbacks, **0** WebGL WASM OOMs — previously 25 fallbacks on
+  `.exe` and 2 deterministic WASM OOMs on `sign-ceiling`/`sign-wall`), with
+  **0 items > 500 ms** (and **0 items > 300 ms**) across both `.exe` and WebGL,
+  beating Web Three.js on Mean, P90, P95, and Max:
+  - **Unity Desktop `.exe` (Mono, D3D12)**: Paused `0×` P50 **`48.1 ms`** (was
+    `441.1 ms`), Mean **`61.8 ms`** (was `1,982.9 ms`), P90 **`101.9 ms`** (was
+    `6,517 ms`), P95 **`127.0 ms`**, Max **`237.7 ms`** (was `9,586 ms`); Live
+    `1×` P50 **`52.5 ms`**, Mean **`66.2 ms`**, P90 **`109.2 ms`**, P95
+    **`157.4 ms`**, Max **`271.4 ms`**. Former `> 500 ms` cases dropped to
+    `bridge` (`52.4 / 65.0 ms`), `stair-left90` (`95.8 / 109.2 ms`),
+    `stair-straight` (`102.9 / 99.7 ms`), `escalator` (`113.3 / 172.1 ms`),
+    `tunnel` (`202.4 / 192.3 ms`), and `platform` (`237.7 / 271.4 ms`).
+    Real-click pick host `ack` is `20.6–21.6 ms` (Eyedropper/Select) /
+    `39.7–42.9 ms` (Move) median, with React UI adoption cut from ~`95 ms` to
+    `46.7–48.9 ms` median via `ack`-folded `payload.edit`.
+  - **Unity WebGL (IL2CPP WASM, ANGLE D3D11)**: Paused `0×` P50 **`69.8 ms`**
+    (was `261.2 ms`), Mean **`75.5 ms`** (was `1,458 ms`), P90 **`102.3 ms`**
+    (was `5,408 ms`), P95 **`128.6 ms`**, Max **`174.1 ms`** (was `5,865 ms` +
+    2 OOMs); Live `1×` P50 **`80.1 ms`**, Mean **`86.0 ms`**, P90 **`113.3 ms`**,
+    P95 **`137.3 ms`**, Max **`182.0 ms`** (`bridge` `68.2 / 72.7 ms`,
+    `stair-left90` `97.8 / 106.7 ms`, `stair-straight` `98.8 / 103.0 ms`,
+    `escalator` `128.6 / 113.1 ms`, `tunnel` `156.8 / 179.2 ms`, `platform`
+    `167.6 / 158.7 ms`; `sign-ceiling` and `sign-wall` commit locally in
+    `74.3–107.5 ms` with zero OOMs).
+  - `exit-doorway-1`, `exit-virtual`, and `traffic-light` still return
+    `no-candidate` in `StationModuleFamilies.TryParse` (parity gap).
 
 ## Crowds, displays & exploded view memory
 

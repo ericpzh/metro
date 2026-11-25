@@ -24,8 +24,10 @@ import type { GraphicsQuality } from '../detailPolicy.ts'
 import type { UpscalingMode } from '../upscaling.ts'
 import { FsrUpscaler } from './FsrUpscaler.ts'
 import type { TrainService } from '../../sim/trainSchedule.ts'
-import { createMaterials, finishesInUse } from '../materials.ts'
+import { cellHasCustomFinish, createMaterials, finishesInUse, moduleHasCustomFinish } from '../materials.ts'
 import type { MaterialSet } from '../materials.ts'
+import { localCellEdit } from '../localCellEdit.ts'
+import { changedModules } from '../moduleDependencies.ts'
 import { createModelMaterials, disposeModelMaterials, refreshSignFaceMaterial } from '../models.ts'
 import type { ModelMaterials } from '../models.ts'
 import { createAdArt } from '../adArt.ts'
@@ -515,6 +517,26 @@ export class SceneRenderer {
     })
   }
 
+  private retainFinishes(previous: StationData | null, next: StationData): void {
+    const mats = this.ctx.mats
+    if (mats.hasCustomFinishes && !mats.hasCustomFinishes()) return
+    if (previous && !mats.hasUnretainedCustomFinishes?.()) {
+      let droppedCustom = false
+      if (previous.cells !== next.cells) {
+        const edit = localCellEdit(previous, next)
+        if (!edit) { mats.retain(finishesInUse(next)); return }
+        droppedCustom = edit.removed.some(cellHasCustomFinish)
+      }
+      if (!droppedCustom && previous.modules !== next.modules) {
+        for (const m of changedModules(previous, next)) {
+          if (moduleHasCustomFinish(m)) { droppedCustom = true; break }
+        }
+      }
+      if (!droppedCustom) return
+    }
+    mats.retain(finishesInUse(next))
+  }
+
   setStation(data: StationData, trackCells: Set<number> = new Set(), effective?: Cell[]): void {
     this.requestRender()
     if (this.pendingModuleStages) {
@@ -542,7 +564,7 @@ export class SceneRenderer {
     // A painted colour the document no longer holds can go: each finish material
     // wraps a 128² canvas texture, and the colour picker hands out a new id per
     // shade, so a long painting session used to keep every shade it ever tried.
-    this.ctx.mats.retain(finishesInUse(data))
+    this.retainFinishes(previousData, data)
     this.ghostSys.clearModulePreview()
     const retainedModules = this.modules.retainPaintedModules(data)
     // A 指示牌 prints the station's lines, so a line edit reprints every face

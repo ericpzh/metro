@@ -499,6 +499,14 @@ namespace Metro.App {
             return true;
         }
 
+        /// <summary>Remove one binding by id (used by incremental local view updates).</summary>
+        public bool Unbind(string id) {
+            if (string.IsNullOrEmpty(id) || !byId.TryGetValue(id, out var binding)) return false;
+            byId.Remove(id);
+            bindings.Remove(binding);
+            return true;
+        }
+
         Binding Add(string id, ModuleMotionFamily family, VerticalModuleView view = null, OpeningView opening = null,
             ModuleMotion legacy = null, TrainDoorRig train = null) {
             if (byId.TryGetValue(id, out var existing)) {

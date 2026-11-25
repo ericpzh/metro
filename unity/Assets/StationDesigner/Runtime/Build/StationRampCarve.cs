@@ -152,14 +152,14 @@ namespace Metro.Build {
         /// tagged as opening ceilings.
         /// </summary>
         public static List<StationCellWrite> Carve(StationIndex index, IEnumerable<StationModuleRecord> extra = null,
-            string excludeModuleId = null, ISet<StationCellKey> preRemoved = null) {
+            string excludeModuleId = null, ISet<StationCellKey> preRemoved = null, bool onlyExtraRuns = false) {
             var writes = new List<StationCellWrite>();
             if (index == null) return writes;
             var runs = new List<Run>();
             var protect = new HashSet<StationCellKey>();
-            void CollectModule(StationModuleRecord module) {
+            void CollectModule(StationModuleRecord module, bool collectRuns) {
                 if (module == null) return;
-                runs.AddRange(RunsFor(module));
+                if (collectRuns) runs.AddRange(RunsFor(module));
                 if (module.Type == "stair" && !module.Config.Bool("block")) {
                     foreach (var l in StationRampRules.StairLandings(module)) protect.Add(l);
                 } else if (module.Type == "escalator" || module.Type == "walkway") {
@@ -173,50 +173,89 @@ namespace Metro.Build {
                     }
                 }
             }
-            foreach (var module in index.Document.Modules) {
-                if (module == null) continue;
-                if (!string.IsNullOrEmpty(excludeModuleId) && string.Equals(module.Id, excludeModuleId, StringComparison.Ordinal)) continue;
-                CollectModule(module);
+            void CollectType(string type, bool collectRuns) {
+                var list = index.ModulesOfType(type);
+                for (int i = 0; i < list.Count; i++) {
+                    var module = list[i];
+                    if (module == null) continue;
+                    if (!string.IsNullOrEmpty(excludeModuleId) && string.Equals(module.Id, excludeModuleId, StringComparison.Ordinal)) continue;
+                    CollectModule(module, collectRuns);
+                }
             }
+            CollectType("stair", !onlyExtraRuns);
+            CollectType("escalator", !onlyExtraRuns);
+            CollectType("walkway", false);
+            CollectType("lift", false);
             if (extra != null) {
-                foreach (var module in extra) CollectModule(module);
+                foreach (var module in extra) CollectModule(module, true);
             }
             if (runs.Count == 0) return writes;
             var kill = new HashSet<StationCellKey>();
-            var opened = new Dictionary<string, int>();
-            foreach (var cell in index.Document.Cells) {
-                if (cell == null || !cell.IsSolid) continue;
-                if (preRemoved != null && preRemoved.Contains(cell.Key)) continue;
-                if (StationCellRules.IsWallBlock(cell.Tags)) continue;
-                if (protect.Contains(cell.Key)) continue;
-                bool reached = false;
-                foreach (var run in runs) {
-                    if (!Within(cell, run, run.CoreHalf)) continue;
-                    reached = true;
-                    break;
+            var opened = new Dictionary<(int X, int Y), int>();
+            for (int rIdx = 0; rIdx < runs.Count; rIdx++) {
+                var run = runs[rIdx];
+                double ax = run.FromX + 0.5, ay = run.FromY + 0.5, az = run.FromZ + 1;
+                double dx = run.ToX + 0.5 - ax, dy = run.ToY + 0.5 - ay;
+                double len2 = dx * dx + dy * dy;
+                if (len2 < 1e-6) continue;
+                double invLen = 1.0 / Math.Sqrt(len2);
+                double invLen2 = 1.0 / len2;
+                double dzRun = (run.ToZ + 1) - az;
+                double half = run.CoreHalf;
+                double reach = half + 1.0;
+                int x0 = (int)Math.Floor(Math.Min(run.FromX, run.ToX) + run.SlideX - reach);
+                int x1 = (int)Math.Ceiling(Math.Max(run.FromX, run.ToX) + run.SlideX + reach);
+                int y0 = (int)Math.Floor(Math.Min(run.FromY, run.ToY) + run.SlideY - reach);
+                int y1 = (int)Math.Ceiling(Math.Max(run.FromY, run.ToY) + run.SlideY + reach);
+                int z0 = (int)Math.Floor(Math.Min(run.FromZ, run.ToZ) + 1.0 + Eps) - 1;
+                int z1 = (int)Math.Ceiling(Math.Max(run.FromZ, run.ToZ) + 1.0 + run.Headroom) + 1;
+                for (int x = x0; x <= x1; x++) {
+                    double px = x + 0.5 - run.SlideX;
+                    double rx = px - ax;
+                    for (int y = y0; y <= y1; y++) {
+                        double py = y + 0.5 - run.SlideY;
+                        double ry = py - ay;
+                        double t = (rx * dx + ry * dy) * invLen2;
+                        if (t < 0 || t > 1) continue;
+                        double lateral = Math.Abs(rx * dy - ry * dx) * invLen;
+                        double gap = lateral > 0.5 ? lateral - 0.5 : 0.0;
+                        if (gap >= half - ReachEps) continue;
+                        double h = az + dzRun * t;
+                        int czMin = Math.Max(z0, (int)Math.Floor(h + Eps) - 1);
+                        int czMax = Math.Min(z1, (int)Math.Ceiling(h + run.Headroom));
+                        for (int z = czMin; z <= czMax; z++) {
+                            if (z + 1 <= h + Eps || z >= h + run.Headroom) continue;
+                            var key = new StationCellKey(x, y, z);
+                            if (kill.Contains(key)) continue;
+                            if (preRemoved != null && preRemoved.Contains(key)) continue;
+                            if (protect.Contains(key)) continue;
+                            var cell = index.GetCell(key);
+                            if (cell == null || !cell.IsSolid) continue;
+                            if (StationCellRules.IsWallBlock(cell.Tags)) continue;
+                            kill.Add(key);
+                            var col = (x, y);
+                            if (!opened.TryGetValue(col, out var top) || z > top) opened[col] = z;
+                        }
+                    }
                 }
-                if (!reached) continue;
-                kill.Add(cell.Key);
-                string column = cell.X + "," + cell.Y;
-                if (!opened.TryGetValue(column, out var top) || cell.Z > top) opened[column] = cell.Z;
             }
             if (kill.Count == 0) return writes;
             foreach (var key in kill) writes.Add(StationCellWrite.Drop(key));
             // The lowest solid left above each opening is the shaft's ceiling.
-            var ceiling = new Dictionary<string, StationCellRecord>();
-            foreach (var cell in index.Document.Cells) {
-                if (cell == null || !cell.IsSolid || kill.Contains(cell.Key)) continue;
-                if (preRemoved != null && preRemoved.Contains(cell.Key)) continue;
-                if (!opened.TryGetValue(cell.X + "," + cell.Y, out var openedZ)) continue;
-                if (cell.Z <= openedZ) continue;
-                ceiling.TryGetValue(cell.X + "," + cell.Y, out var held);
-                if (held == null || cell.Z < held.Z) ceiling[cell.X + "," + cell.Y] = cell;
-            }
-            foreach (var cell in ceiling.Values) {
-                bool tagged = false;
-                foreach (var tag in cell.Tags) if (string.Equals(tag, OpeningCeiling, StringComparison.Ordinal)) tagged = true;
-                if (tagged) continue;
-                writes.Add(StationCellWrite.AddTags(cell.Key, new[] { OpeningCeiling }));
+            int maxZ = index.Bounds.MaxZ;
+            foreach (var pair in opened) {
+                int cx = pair.Key.X, cy = pair.Key.Y;
+                for (int z = pair.Value + 1; z <= maxZ; z++) {
+                    var key = new StationCellKey(cx, cy, z);
+                    if (kill.Contains(key)) continue;
+                    if (preRemoved != null && preRemoved.Contains(key)) continue;
+                    var cell = index.GetCell(key);
+                    if (cell == null || !cell.IsSolid) continue;
+                    bool tagged = false;
+                    foreach (var tag in cell.Tags) if (string.Equals(tag, OpeningCeiling, StringComparison.Ordinal)) { tagged = true; break; }
+                    if (!tagged) writes.Add(StationCellWrite.AddTags(key, new[] { OpeningCeiling }));
+                    break;
+                }
             }
             return writes;
         }
@@ -304,7 +343,7 @@ namespace Metro.Build {
                 if (preRemoved.Contains(write.Key)) continue;
                 patch.Writes.Add(write);
             }
-            foreach (var write in Carve(index, new[] { candidateRecord }, excludeModuleId: original.Id, preRemoved: preRemoved)) {
+            foreach (var write in Carve(index, new[] { candidateRecord }, excludeModuleId: original.Id, preRemoved: preRemoved, onlyExtraRuns: true)) {
                 patch.Writes.Add(write);
             }
             return patch;

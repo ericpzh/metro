@@ -115,11 +115,14 @@ npm run build:unity:msix -- [--version 1.0.0.0] [--dev-sign]
   folding and final-sequence position validation. Any `baseRevision` gap or invalid delta
   triggers an automatic `station.resync`; file export calls
   `stationBridge.readCommittedDocument()` (`station.save { includeDocument: true }` on demand).
-- **Correlated `request` & side channels:** `stationBridge.request<TPayload>` matches
-  non-commit `ack`/`reject` replies by `id` (cancelling cleanly on session change or timeout
-  without touching `snapshot.revision`) for `stats.history`, `graphics.get`/`graphics.set`,
-  `benchmark.*`, `station.save`, and `edit.cancel`. High-frequency `kind: "camera"` poses and
-  `kind: "audio"` cues/ambience bypass the snapshot reducer entirely.
+- **Correlated `request`, immediate `ack` edit-state folding & side channels:**
+  `stationBridge.request<TPayload>` matches non-commit `ack`/`reject` replies by
+  `id` (cancelling cleanly on session change or timeout without touching
+  `snapshot.revision`) for `stats.history`, `graphics.get`/`graphics.set`,
+  `benchmark.*`, `station.save`, and `edit.cancel`; `reduce()` folds `payload.edit`
+  immediately on `kind === "ack"` so Move/Select/Eyedropper UI adoption does not
+  wait for the next 10 Hz `state` heartbeat. High-frequency `kind: "camera"` poses
+  and `kind: "audio"` cues/ambience bypass the snapshot reducer entirely.
 - **One React tree & one overlay canvas:** `mountUnityUI` tears down any prior `activeShell`
   before mounting; `StationDesktopUiPresenter` owns the single `StationDesktopUiCanvas`
   (`DestroyOtherCanvases`, `OverlayCanvasCount()`).

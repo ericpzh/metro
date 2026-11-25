@@ -216,6 +216,22 @@ namespace Metro.App {
                 TouchedColumns.Add(PackColumn(c.X, c.Y));
             }
 
+            TouchedCeilingColumns = new HashSet<long>(TouchedColumns);
+            for (int i = 0; i < delta.RemovedModules.Count; i++) {
+                var id = delta.RemovedModules[i];
+                if (prevIndex != null && prevIndex.TryGetModule(id, out var oldMod) && oldMod != null) {
+                    AddCeilingSupportColumns(oldMod, TouchedCeilingColumns);
+                }
+            }
+            for (int i = 0; i < delta.ChangedModules.Count; i++) {
+                var mod = delta.ChangedModules[i];
+                if (mod == null) continue;
+                if (prevIndex != null && prevIndex.TryGetModule(mod.Id, out var prevMod) && prevMod != null) {
+                    AddCeilingSupportColumns(prevMod, TouchedCeilingColumns);
+                }
+                AddCeilingSupportColumns(mod, TouchedCeilingColumns);
+            }
+
             CityChanged = !string.Equals(prevDoc?.City ?? "", nextDoc?.City ?? "", StringComparison.Ordinal);
             NameChanged = !string.Equals(prevDoc?.Name ?? "", nextDoc?.Name ?? "", StringComparison.Ordinal) ||
                           !string.Equals(prevDoc?.NameEn ?? "", nextDoc?.NameEn ?? "", StringComparison.Ordinal);
@@ -282,6 +298,24 @@ namespace Metro.App {
             }
         }
 
+        static void AddCeilingSupportColumns(StationModuleRecord module, HashSet<long> columns) {
+            if (module == null || columns == null) return;
+            if (string.Equals(module.Type, "track", StringComparison.Ordinal)) {
+                if (module.Config.Bool("tunnel")) return;
+                var cells = StationFootprints.TrackCells(module);
+                for (int i = 0; i < cells.Length; i++) {
+                    columns.Add(PackColumn((int)Math.Round(cells[i].X), (int)Math.Round(cells[i].Y)));
+                }
+                return;
+            }
+            if (string.Equals(module.Type, "hanger", StringComparison.Ordinal)) {
+                var cells = StationCeilingMounts.HangerCells(module.Facts);
+                for (int i = 0; i < cells.Length; i++) {
+                    columns.Add(PackColumn(cells[i].X, cells[i].Y));
+                }
+            }
+        }
+
         public StationWorldView World { get; }
         public StationDocument PrevDocument { get; }
         public StationIndex PrevIndex { get; }
@@ -290,12 +324,14 @@ namespace Metro.App {
         public StationIndexDelta Delta { get; }
         public Transform StagingRoot { get; }
         public bool CellsChanged { get; }
+        public bool CeilingSupportChanged => TouchedCeilingColumns.Count > 0;
         public bool CityChanged { get; }
         public bool NameChanged { get; }
         public bool LineStructureChanged { get; }
         public HashSet<string> VisualChangedLineIds { get; }
         public HashSet<string> TouchedModuleIds { get; }
         public HashSet<long> TouchedColumns { get; }
+        public HashSet<long> TouchedCeilingColumns { get; }
         public List<StationDiagnostic> Diagnostics { get; } = new List<StationDiagnostic>();
 
         public static long PackColumn(int x, int y) => ((long)(x + 32768) << 20) | (uint)(y + 32768);

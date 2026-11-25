@@ -42,6 +42,7 @@ import { STOREY_HEIGHT } from '../../sim/constants.ts';
 import { makeSignBoards, normalizeSignLayout, signBoardsOf, signMountSpec, DEFAULT_SIGN_MOUNT, type SignBoardsDraft, type SignLineSource, type SignMount } from '../../sim/sign.ts';
 import type { BenchVariant, BillboardVariant, CalligraphyAxis, CalligraphyStyle, DoorVariant, ExitBays, GateDoor, GlassVariant, LineMapVariant, Module, StairStyle, StationData, Vec3i } from '../../sim/types.ts';
 import type { TactileVariant } from '../../sim/floorDecor.ts';
+import { registerDocumentCache } from '../../sim/documentCaches.ts';
 import { cellKey } from './Cells.ts';
 import type { StationState } from './State.ts';
 
@@ -643,6 +644,16 @@ function needsPoster(mod: Module): boolean {
   return (mod.type === 'billboard' || mod.type === 'tv' || mod.type === 'busstop') && mod.cfg.poster === undefined;
 }
 
+/** Assign a deterministic campaign poster to one ad screen if it lacks one. */
+function withAssignedPoster(mod: Module): Module {
+  if (!needsPoster(mod)) return mod;
+  const poster = randomAdSlug(mod);
+  if (mod.type === 'billboard') return { ...mod, cfg: { ...mod.cfg, poster } };
+  if (mod.type === 'busstop') return { ...mod, cfg: { ...mod.cfg, poster } };
+  if (mod.type === 'tv') return { ...mod, cfg: { ...mod.cfg, poster } };
+  return mod;
+}
+
 /**
  * Give every ad screen without one its placed poster: 广告牌 and 电视 print one
  * real campaign each, rolled when the piece is committed and then frozen. A
@@ -656,13 +667,9 @@ function needsPoster(mod: Module): boolean {
 export function assignAdPosters(modules: readonly Module[]): Module[] {
   let changed = false;
   const out = modules.map((mod): Module => {
-    if (!needsPoster(mod)) return mod;
-    changed = true;
-    const poster = randomAdSlug(mod);
-    if (mod.type === 'billboard') return { ...mod, cfg: { ...mod.cfg, poster } };
-    if (mod.type === 'busstop') return { ...mod, cfg: { ...mod.cfg, poster } };
-    if (mod.type === 'tv') return { ...mod, cfg: { ...mod.cfg, poster } };
-    return mod;
+    const next = withAssignedPoster(mod);
+    if (next !== mod) changed = true;
+    return next;
   });
   return changed ? out : [...modules];
 }
@@ -726,7 +733,7 @@ export function ensureSignLayouts(modules: readonly Module[], lines: SignLineSou
  * so one click hangs one campaign for good.
  */
 export function addEquipment(state: StationState, mod: Module): StationState {
-  const modules = assignAdPosters([...state.modules, mod]);
+  const modules = [...state.modules, withAssignedPoster(mod)];
   const isRamp = mod.type === 'escalator' || mod.type === 'stair' || mod.type === 'lift';
   if (!isRamp || (mod.type === 'stair' && mod.cfg.block)) return { ...state, modules };
   // Carving compacts this array and replaces newly tagged records; it never
@@ -874,11 +881,79 @@ export function moveEquipment(state: StationState, moved: Module): StationState 
   return moveRebuilds(moved) ? addEquipment(removeModule(state, moved.id), moved) : replaceEquipment(state, moved);
 }
 
+const idMaxCache = new WeakMap<readonly Module[], { len: number; maxSuffix: number }>();
+let lastIdCache: { modules: readonly Module[]; len: number; maxSuffix: number } | null = null;
+
+function numericSuffix(id: string): number {
+  const dash = id.lastIndexOf('-');
+  if (dash < 0 || dash === id.length - 1) return 0;
+  let value = 0;
+  for (let i = dash + 1; i < id.length; i++) {
+    const d = id.charCodeAt(i) - 48;
+    if (d < 0 || d > 9) return 0;
+    value = value * 10 + d;
+  }
+  return value;
+}
+
+function maxNumericSuffix(modules: readonly Module[]): number {
+  const cached = idMaxCache.get(modules);
+  if (cached) {
+    if (modules.length === cached.len) return cached.maxSuffix;
+    if (modules.length > cached.len) {
+      let maxSuffix = cached.maxSuffix;
+      for (let i = cached.len; i < modules.length; i++) {
+        const n = numericSuffix(modules[i].id);
+        if (n > maxSuffix) maxSuffix = n;
+      }
+      cached.len = modules.length;
+      cached.maxSuffix = maxSuffix;
+      if (lastIdCache?.modules === modules) {
+        lastIdCache.len = cached.len;
+        lastIdCache.maxSuffix = maxSuffix;
+      }
+      return maxSuffix;
+    }
+  }
+  if (lastIdCache && modules.length >= lastIdCache.len && modules.length - lastIdCache.len <= 64) {
+    const prev = lastIdCache.modules;
+    let samePrefix = true;
+    for (let i = 0; i < lastIdCache.len; i++) {
+      if (modules[i] !== prev[i]) { samePrefix = false; break; }
+    }
+    if (samePrefix) {
+      let maxSuffix = lastIdCache.maxSuffix;
+      for (let i = lastIdCache.len; i < modules.length; i++) {
+        const n = numericSuffix(modules[i].id);
+        if (n > maxSuffix) maxSuffix = n;
+      }
+      const entry = { len: modules.length, maxSuffix };
+      idMaxCache.set(modules, entry);
+      lastIdCache = { modules, len: entry.len, maxSuffix };
+      return maxSuffix;
+    }
+  }
+  let maxSuffix = 0;
+  for (let i = 0; i < modules.length; i++) {
+    const n = numericSuffix(modules[i].id);
+    if (n > maxSuffix) maxSuffix = n;
+  }
+  const entry = { len: modules.length, maxSuffix };
+  idMaxCache.set(modules, entry);
+  lastIdCache = { modules, len: entry.len, maxSuffix };
+  return maxSuffix;
+}
+
+registerDocumentCache((_cells, modules, _liveCells, liveModules) => {
+  if (modules !== liveModules) {
+    idMaxCache.delete(modules);
+    if (lastIdCache?.modules === modules) lastIdCache = null;
+  }
+});
+
 /** A free `${type}-n` id, so bulldozing then placing again never reuses one. */
 export function nextModuleId(modules: readonly Module[], type: string): string {
-  const taken = new Set(modules.map((m) => m.id));
-  let n = modules.length + 1;
-  while (taken.has(`${type}-${n}`)) n++;
+  const n = Math.max(modules.length + 1, maxNumericSuffix(modules) + 1);
   return `${type}-${n}`;
 }
 

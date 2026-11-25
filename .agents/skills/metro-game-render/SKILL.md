@@ -41,8 +41,8 @@ frame loop, and 14 domain systems under `render/scene/systems/`:
 
 | System | Responsibility |
 | --- | --- |
-| `ChunkSystem` | 16³ voxel meshing, four passes (`s` storey, `f` floating plates, `g` street ground, `c` ceilings), content-hashed mesh reuse, incremental local edits, platform PSD insets. |
-| `ModuleSystem` | Builds/retains placed module roots (`retainedModuleIds`, `canRetainPaintedModules`), owns `EquipmentBatches`, `SurfaceBatches`, `SourceGeometryDetail`, contact blobs, and selection/hover/collider boxes. |
+| `ChunkSystem` | 16³ voxel meshing, four passes (`s` storey, `f` floating plates, `g` street ground, `c` ceilings), content-hashed mesh reuse, incremental local dirty-chunk edits, platform PSD insets. |
+| `ModuleSystem` | Incrementally diffs/retains placed module roots via `moduleDependencies.ts` spatial index (`retainedModuleIds`, `canRetainPaintedModules`), owns incremental `EquipmentBatches`, `SurfaceBatches`, `SourceGeometryDetail`, contact blobs, and selection/hover/collider boxes. |
 | `GhostSystem` | Add/remove block ghosts (auto-growing box pool), face paint quads, translucent equipment/fence previews (`EquipmentPreview`, `PreviewMaterialCache`), and road node handles. |
 | `LevelSystem` | Storey slicing (`levelSlicing.ts`): active crisp, lower storeys 35% ghost, upper storeys hidden when active has built chunks, dense 20k-module neighbour bound, `hideWalls`/`hideGround`/`hideRoof`/`autoCeiling`, `hideUI`/`cutaway` straight opaque restore, Q/E view prewarm. |
 | `SectionSystem` | Cutaway (`section.ts`): one scene-lifetime `THREE.Plane` shared by reference across materials, interactive highlight sheet/hatch/arrow, and `SurfaceObject` traversal (meshes, `LineSegments`, points). |

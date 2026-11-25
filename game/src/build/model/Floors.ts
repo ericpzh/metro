@@ -1,10 +1,10 @@
 // Build model: floors — the 方块 patch and its automatic wall ring (§4.1).
 
 import { blockedCellsByLevel } from '../../sim/placement.ts';
-import { blockIndex } from '../../sim/blockIndex.ts';
+import { blockIndex, type BlockIndex } from '../../sim/blockIndex.ts';
 import { blockReason } from '../validation.ts';
 import { edgeCells, trackCells } from '../../sim/track.ts';
-import type { Cell, Module } from '../../sim/types.ts';
+import { packKey, type Cell, type Module } from '../../sim/types.ts';
 import { cellKey, hasTag, NEIGH4, removeCells } from './Cells.ts';
 import type { StationState } from './State.ts';
 import { AUTO_WALL, AUTO_WALL_H } from './Walls.ts';
@@ -119,114 +119,176 @@ export function plannedAutoWalls(
  * platform edge. Returns the same state when nothing changed, so a no-op stays
  * out of the undo stack.
  */
-export function syncAutoWalls(state: StationState, editedFloors?: ReadonlySet<number>): StationState {
+export function syncAutoWalls(state: StationState, editedFloors?: ReadonlySet<number>, baseIndex?: BlockIndex): StationState {
   // A floor gesture owns its wall courses. Imported stale rings on unrelated
   // storeys are not part of that edit. The explicit full sync still repairs all
   // levels; include overlapping floor ranges when deciding shared wall owners.
-  const edits=editedFloors?[...editedFloors]:null
-  const editsWall=(z:number)=>!edits||edits.some(floor=>z>floor&&z<=floor+state.storeyHeight)
-  const readsFloor=(z:number)=>!edits||edits.some(floor=>z<floor+state.storeyHeight&&floor<z+state.storeyHeight)
-  const solid = new Set<string>();
-  for (const c of state.cells) if (c.fill === 'solid') solid.add(cellKey(c.x, c.y, c.z));
-  // A dug bed reads as void in `cells`, but it is covered ground for the merge.
-  const covered = new Set(solid);
-  for (const k of trackFootprintKeys(state.modules)) covered.add(k);
-  // Screen-door cells stay unwalled even when they sit on the patch's edge.
-  const doors = platformDoorKeys(state.modules);
-  // The cells a piece of equipment holds, by level: the ring may no more rise
-  // through a 指示牌 or a 售票机 than the live ghost's may (`plannedAutoWalls`).
-  const occupiedAt = blockIndex(state.cells, state.modules);
+  const edits = editedFloors ? [...editedFloors] : null;
+  const editsWall = (z: number) => !edits || edits.some((floor) => z > floor && z <= floor + state.storeyHeight);
+  const readsFloor = (z: number) => !edits || edits.some((floor) => z < floor + state.storeyHeight && floor < z + state.storeyHeight);
   // Group the tracked floor by level: walls only answer a same-level edge.
   const byLevel = new Map<number, Array<[number, number]>>();
+  let hasExistingAutoWall = false;
   for (const c of state.cells) {
+    if (!hasExistingAutoWall && hasTag(c, AUTO_WALL) && editsWall(c.z)) hasExistingAutoWall = true;
     if (c.fill !== 'solid' || !hasTag(c, AUTO_FLOOR) || !readsFloor(c.z)) continue;
     const arr = byLevel.get(c.z);
     if (arr) arr.push([c.x, c.y]);
     else byLevel.set(c.z, [[c.x, c.y]]);
   }
+  if (byLevel.size === 0 && !hasExistingAutoWall) return state;
   const wanted = new Map<string, [number, number, number]>();
-  for (const [z, cells] of byLevel) {
-    const patch = new Set(cells.map(([x, y]) => `${x},${y}`));
-    // Bounding box padded by one, to bound the exterior flood.
-    let minX = Infinity;
-    let minY = Infinity;
-    let maxX = -Infinity;
-    let maxY = -Infinity;
-    for (const [x, y] of cells) {
-      if (x < minX) minX = x;
-      if (y < minY) minY = y;
-      if (x > maxX) maxX = x;
-      if (y > maxY) maxY = y;
-    }
-    minX--;
-    minY--;
-    maxX++;
-    maxY++;
-    // Flood void inward from the padded border, stopping at patch, covered
-    // ground (solid or a track footprint). Reached void is outside the surface;
-    // an unreached pocket is an interior hole, and earns no wall.
-    const seen = new Set<string>();
-    const stack: Array<[number, number]> = [];
-    const pushVoid = (x: number, y: number): void => {
-      if (x < minX || x > maxX || y < minY || y > maxY) return;
-      const k = `${x},${y}`;
-      if (seen.has(k) || patch.has(k) || covered.has(cellKey(x, y, z))) return;
-      seen.add(k);
-      stack.push([x, y]);
+  if (byLevel.size > 0) {
+    type LevelBox = {
+      minX: number;
+      maxX: number;
+      minY: number;
+      maxY: number;
+      key: (x: number, y: number) => number | string;
+      covered: Set<number | string>;
+      doors: Set<number | string>;
     };
-    for (let x = minX; x <= maxX; x++) {
-      pushVoid(x, minY);
-      pushVoid(x, maxY);
+    const boxes = new Map<number, LevelBox>();
+    let allMinX = Infinity, allMaxX = -Infinity, allMinY = Infinity, allMaxY = -Infinity;
+    for (const [z, cells] of byLevel) {
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const [x, y] of cells) {
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (x > maxX) maxX = x;
+        if (y > maxY) maxY = y;
+      }
+      minX--; minY--; maxX++; maxY++;
+      if (minX < allMinX) allMinX = minX;
+      if (maxX > allMaxX) allMaxX = maxX;
+      if (minY < allMinY) allMinY = minY;
+      if (maxY > allMaxY) allMaxY = maxY;
+      const canPack = Number.isInteger(minX) && Number.isInteger(maxX) && Number.isInteger(minY) && Number.isInteger(maxY) &&
+        minX >= -4095 && maxX <= 4094 && minY >= -4095 && maxY <= 4094;
+      boxes.set(z, {
+        minX,
+        maxX,
+        minY,
+        maxY,
+        key: canPack ? (x, y) => packKey(x, y, 0) : (x, y) => `${x},${y}`,
+        covered: new Set<number | string>(),
+        doors: new Set<number | string>(),
+      });
     }
-    for (let y = minY; y <= maxY; y++) {
-      pushVoid(minX, y);
-      pushVoid(maxX, y);
+    for (const c of state.cells) {
+      if (c.fill !== 'solid' || c.x < allMinX || c.x > allMaxX || c.y < allMinY || c.y > allMaxY) continue;
+      const box = boxes.get(c.z);
+      if (!box || c.x < box.minX || c.x > box.maxX || c.y < box.minY || c.y > box.maxY) continue;
+      box.covered.add(box.key(c.x, c.y));
     }
-    while (stack.length > 0) {
-      const [x, y] = stack.pop() as [number, number];
-      pushVoid(x + 1, y);
-      pushVoid(x - 1, y);
-      pushVoid(x, y + 1);
-      pushVoid(x, y - 1);
-    }
-    for (const [x, y] of cells) {
-      // A platform screen door stands on this cell: no auto wall may rise
-      // through it, even when the cell is also on the patch's outer edge.
-      if (doors.has(cellKey(x, y, z))) continue;
-      let edge = false;
-      for (const [dx, dy] of NEIGH4) {
-        if (seen.has(`${x + dx},${y + dy}`)) {
-          edge = true;
-          break;
+    // A dug bed reads as void in `cells`, but it is covered ground for the merge.
+    // Screen-door cells stay unwalled even when they sit on the patch's edge.
+    for (const m of state.modules) {
+      if (m.type === 'track') {
+        const box = boxes.get(m.z);
+        if (!box) continue;
+        for (const [x, y, z] of trackCells(m)) {
+          const tb = z === m.z ? box : boxes.get(z);
+          if (!tb || x < tb.minX || x > tb.maxX || y < tb.minY || y > tb.maxY) continue;
+          tb.covered.add(tb.key(x, y));
+        }
+      } else if (m.type === 'platform-edge') {
+        const box = boxes.get(m.z);
+        if (!box) continue;
+        for (const [x, y, z] of edgeCells(m)) {
+          const db = z === m.z ? box : boxes.get(z);
+          if (!db || x < db.minX || x > db.maxX || y < db.minY || y > db.maxY) continue;
+          db.doors.add(db.key(x, y));
         }
       }
-      if (!edge) continue;
-      for (let dz = 1; dz <= state.storeyHeight; dz++) {
-        // Never board up a reserved opening, and never rise through a piece of
-        // equipment: the ghost (`plannedAutoWalls`) leaves the same cells
-        // unwalled, and both ask the one rule set.
-        if (!blockReason(state.cells, state.modules, x, y, z + dz, occupiedAt).ok) continue;
-        wanted.set(cellKey(x, y, z + dz), [x, y, z + dz]);
+    }
+    // The cells a piece of equipment holds, by level: the ring may no more rise
+    // through a 指示牌 or a 售票机 than the live ghost's may (`plannedAutoWalls`).
+    const occupiedAt = baseIndex ?? blockIndex(state.cells, state.modules);
+    for (const [z, cells] of byLevel) {
+      const box = boxes.get(z)!;
+      const { minX, maxX, minY, maxY, key, covered, doors } = box;
+      const patch = new Set<number | string>();
+      for (const [x, y] of cells) patch.add(key(x, y));
+      // Flood void inward from the padded border, stopping at patch, covered
+      // ground (solid or a track footprint). Reached void is outside the surface;
+      // an unreached pocket is an interior hole, and earns no wall.
+      const seen = new Set<number | string>();
+      const stack: Array<[number, number]> = [];
+      const pushVoid = (x: number, y: number): void => {
+        if (x < minX || x > maxX || y < minY || y > maxY) return;
+        const k = key(x, y);
+        if (seen.has(k) || patch.has(k) || covered.has(k)) return;
+        seen.add(k);
+        stack.push([x, y]);
+      };
+      for (let x = minX; x <= maxX; x++) {
+        pushVoid(x, minY);
+        pushVoid(x, maxY);
+      }
+      for (let y = minY; y <= maxY; y++) {
+        pushVoid(minX, y);
+        pushVoid(maxX, y);
+      }
+      while (stack.length > 0) {
+        const [x, y] = stack.pop() as [number, number];
+        pushVoid(x + 1, y);
+        pushVoid(x - 1, y);
+        pushVoid(x, y + 1);
+        pushVoid(x, y - 1);
+      }
+      for (const [x, y] of cells) {
+        // A platform screen door stands on this cell: no auto wall may rise
+        // through it, even when the cell is also on the patch's outer edge.
+        if (doors.has(key(x, y))) continue;
+        let edge = false;
+        for (const [dx, dy] of NEIGH4) {
+          if (seen.has(key(x + dx, y + dy))) {
+            edge = true;
+            break;
+          }
+        }
+        if (!edge) continue;
+        for (let dz = 1; dz <= state.storeyHeight; dz++) {
+          // Never board up a reserved opening, and never rise through a piece of
+          // equipment: the ghost (`plannedAutoWalls`) leaves the same cells
+          // unwalled, and both ask the one rule set.
+          if (!blockReason(state.cells, state.modules, x, y, z + dz, occupiedAt).ok) continue;
+          wanted.set(cellKey(x, y, z + dz), [x, y, z + dz]);
+        }
       }
     }
   }
-  let changed = false;
-  const kept: Cell[] = [];
-  for (const c of state.cells) {
-    const k = cellKey(c.x, c.y, c.z);
-    if (hasTag(c, AUTO_WALL) && editsWall(c.z) && !wanted.has(k)) {
-      changed = true;
+  let wMinX = Infinity, wMaxX = -Infinity, wMinY = Infinity, wMaxY = -Infinity, wMinZ = Infinity, wMaxZ = -Infinity;
+  for (const [x, y, z] of wanted.values()) {
+    if (x < wMinX) wMinX = x;
+    if (x > wMaxX) wMaxX = x;
+    if (y < wMinY) wMinY = y;
+    if (y > wMaxY) wMaxY = y;
+    if (z < wMinZ) wMinZ = z;
+    if (z > wMaxZ) wMaxZ = z;
+  }
+  const hasWanted = wanted.size > 0;
+  const presentWanted = new Set<string>();
+  let kept: Cell[] | undefined;
+  for (let i = 0; i < state.cells.length; i++) {
+    const c = state.cells[i];
+    if (hasExistingAutoWall && hasTag(c, AUTO_WALL) && editsWall(c.z) && !wanted.has(cellKey(c.x, c.y, c.z))) {
+      if (!kept) kept = state.cells.slice(0, i);
       continue;
     }
-    kept.push(c);
+    if (kept) kept.push(c);
+    if (hasWanted && c.x >= wMinX && c.x <= wMaxX && c.y >= wMinY && c.y <= wMaxY && c.z >= wMinZ && c.z <= wMaxZ) {
+      const k = cellKey(c.x, c.y, c.z);
+      if (wanted.has(k)) presentWanted.add(k);
+    }
   }
-  const have = new Set(kept.map((c) => cellKey(c.x, c.y, c.z)));
   for (const [k, p] of wanted) {
-    if (have.has(k) || !editsWall(p[2])) continue;
+    if (presentWanted.has(k) || !editsWall(p[2])) continue;
+    if (!kept) kept = state.cells.slice();
     kept.push({ x: p[0], y: p[1], z: p[2], fill: 'solid', tags: [AUTO_WALL] });
-    changed = true;
   }
-  return changed ? { ...state, cells: kept } : state;
+  return kept ? { ...state, cells: kept } : state;
 }
 
 /**
@@ -244,33 +306,46 @@ export function syncAutoWalls(state: StationState, editedFloors?: ReadonlySet<nu
 export function addFloor(state: StationState, cells: Array<[number, number, number]>): StationState {
   // "Already there" is already **solid** — see `addCells`: a `void` record is the
   // street's own hole, and the drag that covers it fills it back.
-  const have = new Set(state.cells.filter((c) => c.fill === 'solid').map((c) => cellKey(c.x, c.y, c.z)));
-  const at = new Map<string, number>();
-  state.cells.forEach((c, i) => at.set(cellKey(c.x, c.y, c.z), i));
   const level = blockIndex(state.cells, state.modules);
+  const laidKeys = new Set<string>();
   const laid: Cell[] = [];
   for (const [x, y, z] of cells) {
     const k = cellKey(x, y, z);
-    if (have.has(k)) continue;
+    if (level.solid.has(k) || laidKeys.has(k)) continue;
     // The same rule set the brush and the live ghost ask: a floor drag carries on
     // around a reserved opening, a piece of equipment or a rail's dug bed rather
     // than pouring a block into any of them. The wall ring then wraps the whole
     // patch+track footprint (see `syncAutoWalls`).
     if (!blockReason(state.cells, state.modules, x, y, z, level).ok) continue;
-    have.add(k);
+    laidKeys.add(k);
     laid.push({ x, y, z, fill: 'solid', tags: [AUTO_FLOOR] });
   }
   if (laid.length === 0) return state;
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  for (const c of laid) {
+    if (c.x < minX) minX = c.x;
+    if (c.x > maxX) maxX = c.x;
+    if (c.y < minY) minY = c.y;
+    if (c.y > maxY) maxY = c.y;
+    if (c.z < minZ) minZ = c.z;
+    if (c.z > maxZ) maxZ = c.z;
+  }
+  const at = new Map<string, number>();
+  for (let i = 0; i < state.cells.length; i++) {
+    const c = state.cells[i];
+    if (c.x < minX || c.x > maxX || c.y < minY || c.y > maxY || c.z < minZ || c.z > maxZ) continue;
+    const k = cellKey(c.x, c.y, c.z);
+    if (laidKeys.has(k)) at.set(k, i);
+  }
   // One record per coordinate: a patch over a dug hole replaces the `void`, it does
   // not shadow it.
   const next = state.cells.slice();
-  const grown: Cell[] = [];
   for (const c of laid) {
     const hole = at.get(cellKey(c.x, c.y, c.z));
-    if (hole === undefined) grown.push(c);
+    if (hole === undefined) next.push(c);
     else next[hole] = c;
   }
-  return syncAutoWalls({ ...state, cells: [...next, ...grown] },new Set(laid.map(c=>c.z)));
+  return syncAutoWalls({ ...state, cells: next }, new Set(laid.map((c) => c.z)), level);
 }
 
 /**

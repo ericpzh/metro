@@ -221,8 +221,10 @@ namespace Metro.Build {
             resized.Depth = d;
             // The new bed must not meet another rail: a wider bed is a new footprint, not a move.
             var bed = StationRailRules.Cells(resized.X, resized.Y, resized.Z, w, d, resized.Rotation);
-            foreach (var module in index.Document.Modules) {
-                if (module == null || module.Type != "track" || string.Equals(module.Id, trackId, StringComparison.Ordinal)) continue;
+            var existingTracks = index.ModulesOfType("track");
+            for (int i = 0; i < existingTracks.Count; i++) {
+                var module = existingTracks[i];
+                if (module == null || string.Equals(module.Id, trackId, StringComparison.Ordinal)) continue;
                 foreach (var cell in bed) {
                     if (!StationRailRules.Covers(module, cell.X, cell.Y, cell.Z)) continue;
                     reason = "interference";
@@ -319,8 +321,10 @@ namespace Metro.Build {
             plan.Bed.AddRange(StationRailRules.Cells(originX, originY, z, width, depth, plan.Rotation));
             int headroom = StationRailRules.Headroom(line.Power, false, false, "");
             // 1. Another rail's bed is never shared: that is the reference's own overlap guard.
-            foreach (var module in index.Document.Modules) {
-                if (module == null || module.Type != "track") continue;
+            var existingTracks = index.ModulesOfType("track");
+            for (int t = 0; t < existingTracks.Count; t++) {
+                var module = existingTracks[t];
+                if (module == null) continue;
                 foreach (var cell in plan.Bed) {
                     if (!StationRailRules.Covers(module, cell.X, cell.Y, cell.Z)) continue;
                     plan.ColliderIds.Add(module.Id);
@@ -336,15 +340,25 @@ namespace Metro.Build {
                 }
             }
             // 3. The whole bed rests on floor: authored solid, an exit pad, or the street.
+            HashSet<(int X, int Y)> groundHolesAtZero = z == 0 ? CollectStaticGroundHoles(index) : null;
             foreach (var cell in plan.Bed) {
-                if (StationFootprints.IsSolidAt(index, cell.X, cell.Y, cell.Z)) continue;
+                var existingCell = index.GetCell(cell.X, cell.Y, cell.Z);
+                if (existingCell != null) {
+                    if (existingCell.IsSolid) continue;
+                    plan.Reason = "floor";
+                    return plan;
+                }
+                if (z == 0 && !groundHolesAtZero.Contains((cell.X, cell.Y))) continue;
                 plan.Reason = "floor";
                 return plan;
             }
             // 4. Interference: any placed piece whose reserved volume shares the track's space.
             var space = StationRailRules.SpaceBox(plan.Bed, z, headroom);
-            foreach (var module in index.Document.Modules) {
+            var allModules = index.Document.Modules;
+            for (int mIdx = 0; mIdx < allModules.Count; mIdx++) {
+                var module = allModules[mIdx];
                 if (module == null || module.Type == "track") continue;
+                if (!CouldOverlapSpaceXY(module, space)) continue;
                 // A hung fitting below the new bed hangs from its deck, so it never blocks it.
                 if (StationFootprints.IsCeilingHung(module) && module.Z < z) continue;
                 if (!StationFootprints.TryClearance(module, out var box, out _)) continue;
@@ -372,15 +386,98 @@ namespace Metro.Build {
                 plan.DigCells.Add(new StationCellKey(cell.X, cell.Y, cell.Z - 1));
             }
             // Anything anchored on a dug cell goes with the dig.
-            foreach (var module in index.Document.Modules) {
-                if (module == null) continue;
-                foreach (var cell in plan.DigCells) {
-                    if (module.X != cell.X || module.Y != cell.Y || module.Z != cell.Z) continue;
-                    plan.RemoveModuleIds.Add(module.Id);
-                    break;
+            CollectModulesOnDigCells(allModules, plan.DigCells, plan.RemoveModuleIds);
+            return plan;
+        }
+
+        static HashSet<(int X, int Y)> CollectStaticGroundHoles(StationIndex index) {
+            var holes = new HashSet<(int X, int Y)>();
+            var tracks = index.ModulesOfType("track");
+            for (int i = 0; i < tracks.Count; i++) {
+                var module = tracks[i];
+                if (module == null || module.Z != 0) continue;
+                var cfg = module.Config;
+                if (cfg.Bool("tunnel") || cfg.Bool("bridge")) continue;
+                foreach (var cell in StationFootprints.TrackCells(module)) {
+                    if (cell.Z == 0) holes.Add(((int)Math.Round(cell.X), (int)Math.Round(cell.Y)));
                 }
             }
-            return plan;
+            string[] runTypes = { "stair", "escalator", "walkway", "lift" };
+            for (int t = 0; t < runTypes.Length; t++) {
+                var runs = index.ModulesOfType(runTypes[t]);
+                for (int i = 0; i < runs.Count; i++) {
+                    var run = runs[i];
+                    if (run == null) continue;
+                    foreach (var cell in StationFootprints.Footprint(run)) {
+                        if (cell.Z == 0) holes.Add(((int)Math.Round(cell.X), (int)Math.Round(cell.Y)));
+                    }
+                }
+            }
+            var exits = index.ModulesOfType("exit");
+            for (int i = 0; i < exits.Count; i++) {
+                var module = exits[i];
+                if (module == null || module.Z != 0) continue;
+                var style = module.Config.Text("style");
+                if (style == "doorway" || style == "virtual") continue;
+                foreach (var cell in StationFootprints.ExitFootprint(module)) {
+                    if (cell.Z == 0) holes.Add(((int)Math.Round(cell.X), (int)Math.Round(cell.Y)));
+                }
+            }
+            return holes;
+        }
+
+        static bool CouldOverlapSpaceXY(StationModuleRecord module, StationBox space) {
+            if (module.From.HasValue || module.To.HasValue) {
+                double minX = module.X, maxX = module.X;
+                double minY = module.Y, maxY = module.Y;
+                if (module.From.HasValue) {
+                    var f = module.From.Value;
+                    if (f.X < minX) minX = f.X; if (f.X > maxX) maxX = f.X;
+                    if (f.Y < minY) minY = f.Y; if (f.Y > maxY) maxY = f.Y;
+                }
+                if (module.To.HasValue) {
+                    var t = module.To.Value;
+                    if (t.X < minX) minX = t.X; if (t.X > maxX) maxX = t.X;
+                    if (t.Y < minY) minY = t.Y; if (t.Y > maxY) maxY = t.Y;
+                }
+                const double margin = 10.0;
+                return maxX + margin >= space.X0 && minX - margin <= space.X1 &&
+                       maxY + margin >= space.Y0 && minY - margin <= space.Y1;
+            }
+            string type = module.Type;
+            if (type == "road" || type == "court" || type == "exit" || type == "roof" || type == "platform-edge") {
+                return true;
+            }
+            int span = Math.Max(Math.Max(module.Width, module.Depth), 1) + 8;
+            return module.X + span >= space.X0 && module.X - span <= space.X1 &&
+                   module.Y + span >= space.Y0 && module.Y - span <= space.Y1;
+        }
+
+        static void CollectModulesOnDigCells(
+            IReadOnlyList<StationModuleRecord> modules,
+            List<StationCellKey> digCells,
+            List<string> removeIds) {
+            if (digCells == null || digCells.Count == 0 || modules == null) return;
+            var digSet = new HashSet<StationCellKey>(digCells.Count);
+            int minX = int.MaxValue, maxX = int.MinValue;
+            int minY = int.MaxValue, maxY = int.MinValue;
+            int minZ = int.MaxValue, maxZ = int.MinValue;
+            for (int i = 0; i < digCells.Count; i++) {
+                var c = digCells[i];
+                digSet.Add(c);
+                if (c.X < minX) minX = c.X; if (c.X > maxX) maxX = c.X;
+                if (c.Y < minY) minY = c.Y; if (c.Y > maxY) maxY = c.Y;
+                if (c.Z < minZ) minZ = c.Z; if (c.Z > maxZ) maxZ = c.Z;
+            }
+            for (int i = 0; i < modules.Count; i++) {
+                var module = modules[i];
+                if (module == null) continue;
+                if (module.X < minX || module.X > maxX || module.Y < minY || module.Y > maxY ||
+                    module.Z < minZ || module.Z > maxZ) continue;
+                if (digSet.Contains(new StationCellKey(module.X, module.Y, module.Z))) {
+                    removeIds.Add(module.Id);
+                }
+            }
         }
 
         /// <summary>
@@ -468,9 +565,10 @@ namespace Metro.Build {
         /// <summary>`railModuleAt`: the track whose bed covers the coordinate.</summary>
         public static StationModuleRecord RailAt(StationIndex index, int x, int y, int z) {
             if (index == null) return null;
-            foreach (var module in index.Document.Modules) {
-                if (module == null || module.Type != "track") continue;
-                if (StationRailRules.Covers(module, x, y, z)) return module;
+            var tracks = index.ModulesOfType("track");
+            for (int i = 0; i < tracks.Count; i++) {
+                var module = tracks[i];
+                if (module != null && StationRailRules.Covers(module, x, y, z)) return module;
             }
             return null;
         }
@@ -494,8 +592,9 @@ namespace Metro.Build {
             plan.Rotation = track.Rotation;
             plan.Bed.AddRange(StationRailRules.Cells(track));
             plan.RemoveModuleIds.Add(track.Id);
-            foreach (var module in index.Document.Modules) {
-                if (module == null || string.Equals(module.Type, "track", StringComparison.Ordinal)) continue;
+            foreach (var refId in index.ReferrersOf(track.Id)) {
+                if (!index.TryGetModule(refId, out var module) || module == null) continue;
+                if (string.Equals(module.Type, "track", StringComparison.Ordinal)) continue;
                 if (!string.Equals(module.Config.Text("from"), track.Id, StringComparison.Ordinal)) continue;
                 plan.RemoveModuleIds.Add(module.Id);
             }
@@ -577,8 +676,10 @@ namespace Metro.Build {
             plan.Width = draft.Width; plan.Depth = draft.Depth;
             plan.Rotation = draft.Rotation;
             plan.Bed.AddRange(StationRailRules.Cells(draft.X, draft.Y, draft.Z, draft.Width, draft.Depth, draft.Rotation));
-            foreach (var module in index.Document.Modules) {
-                if (module == null || module.Type != "track") continue;
+            var existingTracks = index.ModulesOfType("track");
+            for (int t = 0; t < existingTracks.Count; t++) {
+                var module = existingTracks[t];
+                if (module == null) continue;
                 foreach (var cell in plan.Bed) {
                     if (!StationRailRules.Covers(module, cell.X, cell.Y, cell.Z)) continue;
                     plan.ColliderIds.Add(module.Id);
@@ -586,12 +687,15 @@ namespace Metro.Build {
                 }
             }
             if (plan.ColliderIds.Count > 0) { plan.Reason = "interference"; return plan; }
-            foreach (var module in index.Document.Modules) {
+            var space = StationRailRules.SpaceBox(plan.Bed, draft.Z,
+                StationRailRules.Headroom(draft.Text("power"), true, false, ""));
+            var allModules = index.Document.Modules;
+            for (int mIdx = 0; mIdx < allModules.Count; mIdx++) {
+                var module = allModules[mIdx];
                 if (module == null || module.Type == "track") continue;
+                if (!CouldOverlapSpaceXY(module, space)) continue;
                 if (StationFootprints.IsCeilingHung(module) && module.Z < draft.Z) continue;
                 if (!StationFootprints.TryClearance(module, out var box, out _)) continue;
-                var space = StationRailRules.SpaceBox(plan.Bed, draft.Z,
-                    StationRailRules.Headroom(draft.Text("power"), true, false, ""));
                 if (box.Overlaps(space)) plan.ColliderIds.Add(module.Id);
             }
             if (plan.ColliderIds.Count > 0) { plan.Reason = "interference"; return plan; }
@@ -600,14 +704,7 @@ namespace Metro.Build {
                 plan.DigCells.Add(cell);
                 plan.DigCells.Add(new StationCellKey(cell.X, cell.Y, cell.Z - 1));
             }
-            foreach (var module in index.Document.Modules) {
-                if (module == null) continue;
-                foreach (var cell in plan.DigCells) {
-                    if (module.X != cell.X || module.Y != cell.Y || module.Z != cell.Z) continue;
-                    plan.RemoveModuleIds.Add(module.Id);
-                    break;
-                }
-            }
+            CollectModulesOnDigCells(allModules, plan.DigCells, plan.RemoveModuleIds);
             return plan;
         }
     }

@@ -214,8 +214,23 @@ namespace Metro.App {
     sealed class AssemblyOwner : MonoBehaviour {
         List<Mesh> meshes = new List<Mesh>();
         public void Bind(List<Mesh> owned) => meshes = owned;
+        public void DetachMeshes(List<Mesh> target) {
+            if (meshes == null) return;
+            if (target != null) {
+                for (int i = 0; i < meshes.Count; i++) {
+                    if (meshes[i] != null) target.Add(meshes[i]);
+                }
+            }
+            meshes.Clear();
+        }
         void OnDestroy() {
-            foreach (var mesh in meshes) if (mesh) Destroy(mesh);
+            if (meshes == null) return;
+            foreach (var mesh in meshes) {
+                if (!mesh) continue;
+                if (Application.isPlaying) Destroy(mesh);
+                else DestroyImmediate(mesh);
+            }
+            meshes.Clear();
         }
     }
 }

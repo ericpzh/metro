@@ -60,7 +60,28 @@ export class ChunkSystem extends SceneSystem {
   private platformInsets = new Map<number, BlockInset>()
   private preparedInsets: readonly StationData['modules'][number][] | null = null
   private preparedRamps: readonly StationData['modules'][number][] | null = null
+  private preparedShopsModules: readonly StationData['modules'][number][] | null = null
+  private preparedShops: readonly StationData['modules'][number][] = []
+  private preparedHiddenModulesSource: readonly StationData['modules'][number][] | null = null
+  private preparedHiddenModules: readonly StationData['modules'][number][] = []
+  private localRemovedColumns: Array<[number, number]> | null = null
   private readonly details = new Map<THREE.Mesh, { near: THREE.BufferGeometry; raycast: THREE.Mesh['raycast'] }>()
+
+  private shopsFor(modules: readonly StationData['modules'][number][]): readonly StationData['modules'][number][] {
+    if (this.preparedShopsModules !== modules) {
+      this.preparedShopsModules = modules
+      this.preparedShops = modules.filter(m => m.type === 'shop')
+    }
+    return this.preparedShops
+  }
+
+  private hiddenModulesFor(modules: readonly StationData['modules'][number][]): readonly StationData['modules'][number][] {
+    if (this.preparedHiddenModulesSource !== modules) {
+      this.preparedHiddenModulesSource = modules
+      this.preparedHiddenModules = modules.filter(m => m.type === 'stair' || m.type === 'lift')
+    }
+    return this.preparedHiddenModules
+  }
 
   /** Shared chunk/outline geometry remains owned by the full mesh cache. */
   setGeometryDetail(mesh: THREE.Mesh, reduced: boolean): void {
@@ -138,6 +159,7 @@ export class ChunkSystem extends SceneSystem {
   chunkKeyCellVisits = 0
   meshedCellVisits = 0
   groundTemplateHits = 0
+  meshRevision = 0
   private readonly groundTemplates = new Map<string, ChunkGeometry>()
   /** Plain pavement repeats exactly between chunk columns. Prove the complete
    * mesher halo before sharing CPU geometry; holes, cuts and authored support
@@ -230,6 +252,7 @@ export class ChunkSystem extends SceneSystem {
     this.localChunks = null
     this.localLevels = null
     this.localBands = null
+    this.localRemovedColumns = null
     this.groundWindowOnly=false
     const previous=this.ctx.stationData
     if (previous && this.chunkCache.size && effective === this.effectiveCells && isBridgeModelEdit(previous, data)) {
@@ -247,54 +270,181 @@ export class ChunkSystem extends SceneSystem {
         hidden: this.ctx.hiddenCells, finishes: this.ctx.finishes, thin: this.ctx.thinSides,
         cuts: this.ctx.slopeCuts, fills: this.ctx.slopeFills, insets: this.platformInsets,
       } : null
-    const edit=previous && effective && localCellEdit(previous,data)
+    const edit = previous && effective && localCellEdit(previous, data)
     // A local block edit cannot alter cuts/hidden walls away from structural
-    // modules. Those edits still take the complete preparation path.
-    if(edit && new Set(edit.added.map(c=>packKey(c.x,c.y,c.z))).size===edit.added.length &&
-      ![...edit.removed,...edit.added].some(c=>(this.cellsByChunk.get(chunkColumn(c.x,c.y))?.get(packKey(c.x,c.y,c.z))?.length??0)>1) &&
-      ![...edit.removed,...edit.added].some(c=>c.finish?.top==='floor.track'||data.modules.some(m=>{
-      if(m.type!=='shop')return false
-      const box=moduleEnvelope(m)
-      return !box || c.z>=box.z0-1&&c.z<=box.z1+1&&c.x>=box.x0-3&&c.x<=box.x1+3&&c.y>=box.y0-3&&c.y<=box.y1+3
-    }))){
-      this.localChunks=new Set()
-      this.localLevels=new Set()
-      this.localBands=new Map()
-      for(const c of [...edit.removed,...edit.added])for(const [dx,dy]of classificationHalo)
-      {
-        const x=Math.floor((c.x+dx)/CHUNK)*CHUNK,y=Math.floor((c.y+dy)/CHUNK)*CHUNK
-        const column=chunkColumn(x,y)
-        this.localChunks.add(column);this.chunkOrigins.set(column,[x,y])
-        let bands=this.localBands.get(column)
-        if(!bands)this.localBands.set(column,bands=new Set())
-        for(let dz=-2;dz<=1;dz++)bands.add(storeyBand(c.z+dz,this.ctx.levelBase,this.ctx.storeyHeight))
+    // modules. Handles z === 0 authored transitions and bounded ground-window
+    // border-strip expansions/contractions without falling back to full remesh.
+    if (edit) {
+      const removedKeys = new Set<number>()
+      for (const c of edit.removed) removedKeys.add(packKey(c.x, c.y, c.z))
+      const addedKeys = new Set<number>()
+      let validLocal = true
+      for (const c of edit.added) {
+        const k = packKey(c.x, c.y, c.z)
+        if (addedKeys.has(k)) { validLocal = false; break }
+        addedKeys.add(k)
+        // Reject adding a duplicate authored record on top of an existing one.
+        if (!removedKeys.has(k) && !this.groundKeys.has(k) && this.cellsByChunk.get(chunkColumn(c.x, c.y))?.has(k)) {
+          validLocal = false; break
+        }
       }
-      for(const c of [...edit.removed,...edit.added])for(let dz=-2;dz<=1;dz++)this.localLevels.add(storeyBand(c.z+dz,this.ctx.levelBase,this.ctx.storeyHeight))
-      for(const c of edit.removed){const k=packKey(c.x,c.y,c.z);this.ctx.solid.delete(k);this.ctx.finishes.delete(k)}
-      // meshStation compares the old column floor with the new one. Keep the
-      // old value until then: clearing it here would widen every deletion to
-      // all vertical bands even when its supporting floor stays unchanged.
-      for(const c of edit.added)if(c.fill==='solid')this.ctx.solid.add(packKey(c.x,c.y,c.z))
-      for(const [k,v]of finishMapOf(edit.added))this.ctx.finishes.set(k,v)
-      for(const c of edit.removed)this.cellsByChunk.get(chunkColumn(c.x,c.y))?.delete(packKey(c.x,c.y,c.z))
-      for(const c of edit.added){
-        const column=chunkColumn(c.x,c.y)
-        let bucket=this.cellsByChunk.get(column)
-        if(!bucket)this.cellsByChunk.set(column,bucket=new Map())
-        bucket.set(packKey(c.x,c.y,c.z),[c])
+      if (validLocal) {
+        const shops = this.shopsFor(data.modules)
+        const checkCell = (c: Cell): boolean => {
+          if ((this.cellsByChunk.get(chunkColumn(c.x, c.y))?.get(packKey(c.x, c.y, c.z))?.length ?? 0) > 1) return false
+          if (c.finish?.top === 'floor.track') return false
+          for (const m of shops) {
+            const box = moduleEnvelope(m)
+            if (!box || (c.z >= box.z0 - 1 && c.z <= box.z1 + 1 && c.x >= box.x0 - 3 && c.x <= box.x1 + 3 && c.y >= box.y0 - 3 && c.y <= box.y1 + 3)) return false
+          }
+          return true
+        }
+        for (const c of edit.removed) if (!checkCell(c)) { validLocal = false; break }
+        if (validLocal) for (const c of edit.added) if (!checkCell(c)) { validLocal = false; break }
       }
-      for(const c of edit.removed)this.ctx.thinSides.delete(packKey(c.x,c.y,c.z))
-      for(const c of thinWallCells(edit.added,data.modules))this.ctx.thinSides.set(packKey(c.x,c.y,c.z),c.shape)
-      this.ctx.slopeFills=rampFillKeys(this.ctx.solid,this.ctx.slopeCuts)
-      // Turn landings and lift holes derive membership from the edited solids.
-      // Shop wall proxies stay untouched (nearby shop edits take the full path).
-      for(const m of data.modules){
-        const points=m.type==='stair'?stairTurnCells(m):m.type==='lift'?liftLevels(m).filter(z=>z>Math.min(m.from.z,m.to.z)).flatMap(z=>liftFootprintCells(m).map(([x,y])=>({x,y,z}))):[]
-        for(const c of points){if(!Number.isInteger(c.z))continue;const k=packKey(c.x,c.y,c.z);if(this.ctx.solid.has(k))this.ctx.hiddenCells.add(k);else this.ctx.hiddenCells.delete(k)}
+      const old = this.effectiveCells
+      const groundRemoved: Cell[] = []
+      const groundAdded: Cell[] = []
+      if (validLocal) {
+        validLocal = old.length >= previous!.cells.length && effective!.length >= data.cells.length &&
+          old.length - previous!.cells.length === this.groundKeys.size
+        if (validLocal) {
+          let i = previous!.cells.length, j = data.cells.length
+          let prevAx = -Infinity, prevAy = -Infinity, prevBx = -Infinity, prevBy = -Infinity
+          while (i < old.length && j < effective!.length) {
+            const a = old[i], b = effective![j]
+            if (a === b) {
+              if (a.z !== GROUND_Z || a.fill !== 'solid' || a.finish || a.tags || !(a.x > prevAx || (a.x === prevAx && a.y > prevAy))) { validLocal = false; break }
+              prevAx = prevBx = a.x; prevAy = prevBy = a.y
+              i++; j++
+              continue
+            }
+            if (a.z !== GROUND_Z || a.fill !== 'solid' || a.finish || a.tags || !(a.x > prevAx || (a.x === prevAx && a.y > prevAy)) ||
+                b.z !== GROUND_Z || b.fill !== 'solid' || b.finish || b.tags || !(b.x > prevBx || (b.x === prevBx && b.y > prevBy))) {
+              validLocal = false; break
+            }
+            if (a.x === b.x && a.y === b.y) {
+              prevAx = prevBx = a.x; prevAy = prevBy = a.y
+              i++; j++
+            } else if (a.x < b.x || (a.x === b.x && a.y < b.y)) {
+              groundRemoved.push(a); prevAx = a.x; prevAy = a.y; i++
+            } else {
+              if (addedKeys.has(packKey(b.x, b.y, b.z))) { validLocal = false; break }
+              groundAdded.push(b); prevBx = b.x; prevBy = b.y; j++
+            }
+          }
+          while (validLocal && i < old.length) {
+            const a = old[i++]
+            if (a.z !== GROUND_Z || a.fill !== 'solid' || a.finish || a.tags || !(a.x > prevAx || (a.x === prevAx && a.y > prevAy))) { validLocal = false; break }
+            groundRemoved.push(a); prevAx = a.x; prevAy = a.y
+          }
+          while (validLocal && j < effective!.length) {
+            const b = effective![j++]
+            if (b.z !== GROUND_Z || b.fill !== 'solid' || b.finish || b.tags || !(b.x > prevBx || (b.x === prevBx && b.y > prevBy)) || addedKeys.has(packKey(b.x, b.y, b.z))) { validLocal = false; break }
+            groundAdded.push(b); prevBx = b.x; prevBy = b.y
+          }
+        }
       }
-      this.effectiveCells=effective!
-      this.ctx.stationData=data
-      return
+      if (validLocal) {
+        const localChunks = new Set<number>()
+        const localLevels = new Set<number>()
+        const localBands = new Map<number, Set<number> | null>()
+        const localOrigins = new Map<number, [number, number]>()
+        const addAuthoredHalo = (c: Cell): void => {
+          for (let dz = -2; dz <= 1; dz++) localLevels.add(storeyBand(c.z + dz, this.ctx.levelBase, this.ctx.storeyHeight))
+          for (const [dx, dy] of classificationHalo) {
+            const x = Math.floor((c.x + dx) / CHUNK) * CHUNK, y = Math.floor((c.y + dy) / CHUNK) * CHUNK
+            const column = chunkColumn(x, y)
+            localChunks.add(column); localOrigins.set(column, [x, y])
+            let bands = localBands.get(column)
+            if (bands === undefined) localBands.set(column, bands = new Set())
+            if (bands) for (let dz = -2; dz <= 1; dz++) bands.add(storeyBand(c.z + dz, this.ctx.levelBase, this.ctx.storeyHeight))
+          }
+        }
+        for (const c of edit.removed) addAuthoredHalo(c)
+        for (const c of edit.added) addAuthoredHalo(c)
+        if (groundRemoved.length > 0 || groundAdded.length > 0) {
+          const groundBand = storeyBand(GROUND_Z, this.ctx.levelBase, this.ctx.storeyHeight)
+          localLevels.add(groundBand)
+          const addGroundHalo = (c: Cell): void => {
+            const cx0 = Math.floor((c.x - 2) / CHUNK) * CHUNK, cx1 = Math.floor((c.x + 2) / CHUNK) * CHUNK
+            const cy0 = Math.floor((c.y - 2) / CHUNK) * CHUNK, cy1 = Math.floor((c.y + 2) / CHUNK) * CHUNK
+            const addCol = (cx: number, cy: number): void => {
+              const column = chunkColumn(cx, cy)
+              localChunks.add(column); localOrigins.set(column, [cx, cy])
+              let bands = localBands.get(column)
+              if (bands === undefined) localBands.set(column, bands = new Set())
+              if (bands) bands.add(groundBand)
+            }
+            addCol(cx0, cy0)
+            if (cx1 !== cx0) addCol(cx1, cy0)
+            if (cy1 !== cy0) addCol(cx0, cy1)
+            if (cx1 !== cx0 && cy1 !== cy0) addCol(cx1, cy1)
+          }
+          for (const c of groundRemoved) addGroundHalo(c)
+          for (const c of groundAdded) addGroundHalo(c)
+        }
+        if (localChunks.size <= 256) {
+          this.localChunks = localChunks
+          this.localLevels = localLevels
+          this.localBands = localBands
+          for (const [col, origin] of localOrigins) this.chunkOrigins.set(col, origin)
+          const removedColumns: Array<[number, number]> = []
+          for (const c of groundRemoved) {
+            const k = packKey(c.x, c.y, c.z)
+            this.groundKeys.delete(k)
+            this.ctx.solid.delete(k)
+            this.cellsByChunk.get(chunkColumn(c.x, c.y))?.delete(k)
+            removedColumns.push([c.x, c.y])
+          }
+          for (const c of edit.removed) {
+            const k = packKey(c.x, c.y, c.z)
+            this.ctx.solid.delete(k)
+            this.ctx.finishes.delete(k)
+            this.ctx.thinSides.delete(k)
+            this.cellsByChunk.get(chunkColumn(c.x, c.y))?.delete(k)
+            removedColumns.push([c.x, c.y])
+          }
+          for (const c of groundAdded) {
+            const k = packKey(c.x, c.y, c.z)
+            this.groundKeys.add(k)
+            this.ctx.solid.add(k)
+            const column = chunkColumn(c.x, c.y)
+            let bucket = this.cellsByChunk.get(column)
+            if (!bucket) this.cellsByChunk.set(column, bucket = new Map())
+            bucket.set(k, [c])
+          }
+          // meshStation compares the old column floor with the new one. Keep the
+          // old value until then: clearing it here would widen every deletion to
+          // all vertical bands even when its supporting floor stays unchanged.
+          for (const c of edit.added) {
+            const k = packKey(c.x, c.y, c.z)
+            if (c.fill === 'solid') this.ctx.solid.add(k)
+            const column = chunkColumn(c.x, c.y)
+            let bucket = this.cellsByChunk.get(column)
+            if (!bucket) this.cellsByChunk.set(column, bucket = new Map())
+            bucket.set(k, [c])
+          }
+          for (const [k, v] of finishMapOf(edit.added)) this.ctx.finishes.set(k, v)
+          for (const c of thinWallCells(edit.added, data.modules)) this.ctx.thinSides.set(packKey(c.x, c.y, c.z), c.shape)
+          this.ctx.slopeFills = rampFillKeys(this.ctx.solid, this.ctx.slopeCuts)
+          // Turn landings and lift holes derive membership from the edited solids.
+          // Shop wall proxies stay untouched (nearby shop edits take the full path).
+          for (const m of this.hiddenModulesFor(data.modules)) {
+            const points = m.type === 'stair' ? stairTurnCells(m) : m.type === 'lift' ? liftLevels(m).filter(z => z > Math.min(m.from.z, m.to.z)).flatMap(z => liftFootprintCells(m).map(([x, y]) => ({ x, y, z }))) : []
+            for (const c of points) {
+              if (!Number.isInteger(c.z)) continue
+              const k = packKey(c.x, c.y, c.z)
+              if (this.ctx.solid.has(k)) this.ctx.hiddenCells.add(k)
+              else this.ctx.hiddenCells.delete(k)
+            }
+          }
+          if (removedColumns.length > 0) this.localRemovedColumns = removedColumns
+          this.effectiveCells = effective!
+          this.ctx.stationData = data
+          return
+        }
+      }
     }
     if (groundOnly) {
       // The caller proved unchanged authored cells, openings and structural
@@ -549,7 +699,7 @@ export class ChunkSystem extends SceneSystem {
     // Each of these builders' chunk inputs is completely represented by the
     // prepared maps above. Unknown module kinds retain the full hash path.
     const known = (m: typeof after.modules[number]): boolean =>
-      ['stair', 'escalator', 'walkway', 'track', 'pillar', 'platform-edge', 'psd-end', 'lift', 'exit', 'door', 'shelf', 'cubicle', 'sink', 'shop'].includes(m.type)
+      ['stair', 'escalator', 'walkway', 'track', 'pillar', 'platform-edge', 'psd-end', 'lift', 'exit', 'door', 'shelf', 'cubicle', 'sink', 'shop', 'checkout'].includes(m.type)
     const changes = changedModules(before, after)
     return changes.length > 0 && changes.every(known)
   }
@@ -563,6 +713,7 @@ export class ChunkSystem extends SceneSystem {
    * the generated street window), so the drawn ground is exactly the walked one.
    */
   meshStation(groundOnly = false): void {
+    this.meshRevision++
     this.retainedLevelMeshes.clear()
     const local=this.localChunks
     if(local)this.localMeshGeneration++
@@ -578,14 +729,22 @@ export class ChunkSystem extends SceneSystem {
         const [x,y]=this.chunkOrigins.get(key)!
         for(const [dx,dy]of columnHalo)buckets.add(chunkColumn(x+dx*CHUNK,y+dy*CHUNK))
       }
-      this.effectiveCells=[...buckets].flatMap(k=>[...(this.cellsByChunk.get(k)?.values()??[])].flat()).filter(c=>{
-        // A two-cell halo spans at most two 16 m chunks per axis. Its four
-        // corner chunks cover exactly the same columns as all 25 probes.
-        const x0=Math.floor((c.x-2)/CHUNK)*CHUNK,x1=Math.floor((c.x+2)/CHUNK)*CHUNK
-        const y0=Math.floor((c.y-2)/CHUNK)*CHUNK,y1=Math.floor((c.y+2)/CHUNK)*CHUNK
-        return local.has(chunkColumn(x0,y0))||local.has(chunkColumn(x0,y1))||
-          local.has(chunkColumn(x1,y0))||local.has(chunkColumn(x1,y1))
-      })
+      const subset: Cell[] = []
+      for (const k of buckets) {
+        const bucket = this.cellsByChunk.get(k)
+        if (!bucket) continue
+        for (const records of bucket.values()) {
+          for (const c of records) {
+            // A two-cell halo spans at most two 16 m chunks per axis. Its four
+            // corner chunks cover exactly the same columns as all 25 probes.
+            const x0 = Math.floor((c.x - 2) / CHUNK) * CHUNK, x1 = Math.floor((c.x + 2) / CHUNK) * CHUNK
+            const y0 = Math.floor((c.y - 2) / CHUNK) * CHUNK, y1 = Math.floor((c.y + 2) / CHUNK) * CHUNK
+            if (local.has(chunkColumn(x0, y0)) || local.has(chunkColumn(x0, y1)) ||
+              local.has(chunkColumn(x1, y0)) || local.has(chunkColumn(x1, y1))) subset.push(c)
+          }
+        }
+      }
+      this.effectiveCells = subset
     }
     this.chunkKeyCellVisits = 0
     const previousWindow = this.meshedGroundWindow
@@ -622,31 +781,71 @@ export class ChunkSystem extends SceneSystem {
     // nothing under it, so it is a plate hanging in space: it must stay on screen
     // even when its storey sits above the one being looked at. Anything with a
     // storey below it is that lower room's ceiling and goes with the cut.
-    const previousGround=local&&!this.groundWindowOnly?new Map(this.effectiveCells.map(c=>[`${c.x},${c.y}`,this.ctx.groundOf.get(`${c.x},${c.y}`)])):null
-    if(!this.groundWindowOnly){
-    if(!local)this.ctx.groundOf.clear()
-    else for(const c of this.effectiveCells)this.ctx.groundOf.delete(`${c.x},${c.y}`)
-    for (const c of this.effectiveCells) {
-      if (c.fill !== 'solid') continue
-      const band = storeyBand(c.z, this.ctx.levelBase, this.ctx.storeyHeight)
-      bandOfCell.set(packKey(c.x, c.y, c.z), band)
-      const col = `${c.x},${c.y}`
-      const prev = this.ctx.groundOf.get(col)
-      if (prev === undefined || band < prev) this.ctx.groundOf.set(col, band)
-    }
-    }
-    if(local&&previousGround)for(const c of this.effectiveCells)if(previousGround.get(`${c.x},${c.y}`)!==this.ctx.groundOf.get(`${c.x},${c.y}`)){
-      if(this.localBands){
-        // A changed lowest floor widens ownership only around that column.
-        // Distant edits on another storey must not form a station-wide product
-        // of every affected chunk and every affected level.
-        for(const [dx,dy]of classificationHalo){
-          const column=chunkColumn(c.x+dx,c.y+dy)
-          if(local.has(column))this.localBands.set(column,null)
+    const previousGround = local && !this.groundWindowOnly ? new Map<string, number | undefined>() : null
+    if (!this.groundWindowOnly) {
+      if (!local) this.ctx.groundOf.clear()
+      else {
+        if (this.localRemovedColumns) {
+          for (const [x, y] of this.localRemovedColumns) {
+            const col = `${x},${y}`
+            if (!previousGround!.has(col)) previousGround!.set(col, this.ctx.groundOf.get(col))
+            this.ctx.groundOf.delete(col)
+          }
         }
-      }else{
-        this.localLevels=null
-        break
+        for (const c of this.effectiveCells) {
+          const col = `${c.x},${c.y}`
+          if (!previousGround!.has(col)) previousGround!.set(col, this.ctx.groundOf.get(col))
+          this.ctx.groundOf.delete(col)
+        }
+      }
+      for (const c of this.effectiveCells) {
+        if (c.fill !== 'solid') continue
+        const band = storeyBand(c.z, this.ctx.levelBase, this.ctx.storeyHeight)
+        bandOfCell.set(packKey(c.x, c.y, c.z), band)
+        const col = `${c.x},${c.y}`
+        const prev = this.ctx.groundOf.get(col)
+        if (prev === undefined || band < prev) this.ctx.groundOf.set(col, band)
+      }
+    }
+    if (local && previousGround) {
+      const groundBand = storeyBand(GROUND_Z, this.ctx.levelBase, this.ctx.storeyHeight)
+      const belowGroundBand = storeyBand(GROUND_Z - 1, this.ctx.levelBase, this.ctx.storeyHeight)
+      const widenChangedColumn = (x: number, y: number, prevG: number | undefined, nextG: number | undefined): boolean => {
+        if (this.localBands) {
+          // A pure border-strip street column appearing or vanishing only
+          // affects the ground band (and z = -1 below it), not all storeys.
+          const pureGround = (prevG === undefined && nextG === groundBand) || (prevG === groundBand && nextG === undefined)
+          for (const [dx, dy] of classificationHalo) {
+            const column = chunkColumn(x + dx, y + dy)
+            if (!local.has(column)) continue
+            if (pureGround) {
+              const bands = this.localBands.get(column)
+              if (bands) { bands.add(groundBand); bands.add(belowGroundBand) }
+            } else {
+              this.localBands.set(column, null)
+            }
+          }
+          return true
+        }
+        this.localLevels = null
+        return false
+      }
+      let widenedAll = false
+      for (const c of this.effectiveCells) {
+        const col = `${c.x},${c.y}`
+        const prevG = previousGround.get(col), nextG = this.ctx.groundOf.get(col)
+        if (prevG !== nextG) {
+          if (!widenChangedColumn(c.x, c.y, prevG, nextG)) { widenedAll = true; break }
+        }
+      }
+      if (!widenedAll && this.localRemovedColumns) {
+        for (const [x, y] of this.localRemovedColumns) {
+          const col = `${x},${y}`
+          const prevG = previousGround.get(col), nextG = this.ctx.groundOf.get(col)
+          if (prevG !== nextG) {
+            if (!widenChangedColumn(x, y, prevG, nextG)) break
+          }
+        }
       }
     }
     // Ceilings have an independently hideable pass. Keep every adjacent ordinary
@@ -1135,10 +1334,16 @@ export class ChunkSystem extends SceneSystem {
     this.localChunks=null
     this.localLevels=null
     this.localBands=null
+    this.localRemovedColumns=null
+    this.preparedShopsModules=null
+    this.preparedShops=[]
+    this.preparedHiddenModulesSource=null
+    this.preparedHiddenModules=[]
     this.groundTemplates.clear()
     this.ceilingKeys.clear()
     this.groundWindowOnly=false
     this.retainedLevelMeshes.clear()
+    this.meshRevision++
     this.effectiveCells=[]
   }
 

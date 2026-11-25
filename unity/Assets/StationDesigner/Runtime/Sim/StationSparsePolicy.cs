@@ -191,25 +191,36 @@ namespace Metro.Sim {
 
     public sealed class StationStandingOccupancy {
         int[] counts;
+        int activeLength;
 
         public StationStandingOccupancy(int nodeCount) {
-            counts = new int[Math.Max(0, nodeCount)];
+            int n = Math.Max(0, nodeCount);
+            counts = new int[n > 0 ? n + 1024 : 0];
+            activeLength = n;
         }
 
         public void Resize(int nodeCount) {
             int n = Math.Max(0, nodeCount);
-            if (counts.Length != n) counts = new int[n];
-            else Array.Clear(counts, 0, counts.Length);
+            if (n > counts.Length) {
+                counts = new int[Math.Max(n + 1024, counts.Length + (counts.Length >> 2) + 1024)];
+            } else {
+                int clearLen = Math.Min(counts.Length, Math.Max(activeLength, n));
+                if (clearLen > 0) Array.Clear(counts, 0, clearLen);
+            }
+            activeLength = n;
         }
 
-        public void Clear() => Array.Clear(counts, 0, counts.Length);
+        public void Clear() {
+            int clearLen = Math.Min(counts.Length, activeLength);
+            if (clearLen > 0) Array.Clear(counts, 0, clearLen);
+        }
 
         public void Add(int node) {
-            if ((uint)node < (uint)counts.Length) counts[node]++;
+            if ((uint)node < (uint)activeLength) counts[node]++;
         }
 
         public int OtherBodiesOn(int node, int selfNode) {
-            if ((uint)node >= (uint)counts.Length) return 0;
+            if ((uint)node >= (uint)activeLength) return 0;
             int c = counts[node] - (node == selfNode ? 1 : 0);
             return c > 0 ? c : 0;
         }
@@ -223,27 +234,64 @@ namespace Metro.Sim {
         }
 
         int[] nodeCounts;
+        int activeLength;
         readonly Dictionary<int, AgentClaim> byAgent = new Dictionary<int, AgentClaim>();
         readonly List<int> expireScratch = new List<int>();
 
         public StationSoftClaimTable(int nodeCount) {
-            nodeCounts = new int[Math.Max(0, nodeCount)];
+            int n = Math.Max(0, nodeCount);
+            nodeCounts = new int[n > 0 ? n + 1024 : 0];
+            activeLength = n;
         }
 
         public int ActiveCount => byAgent.Count;
 
         public void Resize(int nodeCount) {
-            nodeCounts = new int[Math.Max(0, nodeCount)];
+            int n = Math.Max(0, nodeCount);
+            if (n > nodeCounts.Length) {
+                nodeCounts = new int[Math.Max(n + 1024, nodeCounts.Length + (nodeCounts.Length >> 2) + 1024)];
+            } else if (byAgent.Count > 0) {
+                foreach (var kv in byAgent) {
+                    var c = kv.Value;
+                    if ((uint)c.N0 < (uint)nodeCounts.Length) nodeCounts[c.N0] = 0;
+                    if ((uint)c.N1 < (uint)nodeCounts.Length) nodeCounts[c.N1] = 0;
+                }
+            }
+            activeLength = n;
             byAgent.Clear();
         }
 
         public void Clear() {
-            Array.Clear(nodeCounts, 0, nodeCounts.Length);
-            byAgent.Clear();
+            if (byAgent.Count > 0) {
+                foreach (var kv in byAgent) {
+                    var c = kv.Value;
+                    if ((uint)c.N0 < (uint)nodeCounts.Length) nodeCounts[c.N0] = 0;
+                    if ((uint)c.N1 < (uint)nodeCounts.Length) nodeCounts[c.N1] = 0;
+                }
+                byAgent.Clear();
+            }
         }
 
         public void Remap(int newNodeCount, Func<int, int> mapOldToNew) {
-            var nextCounts = new int[Math.Max(0, newNodeCount)];
+            int n = Math.Max(0, newNodeCount);
+            if (byAgent.Count == 0) {
+                if (n > nodeCounts.Length) {
+                    nodeCounts = new int[Math.Max(n + 1024, nodeCounts.Length + (nodeCounts.Length >> 2) + 1024)];
+                }
+                activeLength = n;
+                return;
+            }
+            int[] targetCounts;
+            if (n > nodeCounts.Length) {
+                targetCounts = new int[Math.Max(n + 1024, nodeCounts.Length + (nodeCounts.Length >> 2) + 1024)];
+            } else {
+                targetCounts = nodeCounts;
+                foreach (var kv in byAgent) {
+                    var c = kv.Value;
+                    if ((uint)c.N0 < (uint)targetCounts.Length) targetCounts[c.N0] = 0;
+                    if ((uint)c.N1 < (uint)targetCounts.Length) targetCounts[c.N1] = 0;
+                }
+            }
             expireScratch.Clear();
             var updates = new List<(int id, AgentClaim claim)>(byAgent.Count);
             foreach (var kv in byAgent) {
@@ -257,13 +305,14 @@ namespace Metro.Sim {
                 if (m1 == m0) m1 = -1;
                 c.N0 = m0;
                 c.N1 = m1;
-                if ((uint)m0 < (uint)nextCounts.Length) nextCounts[m0]++;
-                if ((uint)m1 < (uint)nextCounts.Length) nextCounts[m1]++;
+                if ((uint)m0 < (uint)n) targetCounts[m0]++;
+                if ((uint)m1 < (uint)n) targetCounts[m1]++;
                 updates.Add((kv.Key, c));
             }
             for (int i = 0; i < expireScratch.Count; i++) byAgent.Remove(expireScratch[i]);
             for (int i = 0; i < updates.Count; i++) byAgent[updates[i].id] = updates[i].claim;
-            nodeCounts = nextCounts;
+            nodeCounts = targetCounts;
+            activeLength = n;
         }
 
         public void Expire(int currentTick) {
@@ -278,22 +327,22 @@ namespace Metro.Sim {
 
         public void Release(int agentId) {
             if (!byAgent.TryGetValue(agentId, out var old)) return;
-            if ((uint)old.N0 < (uint)nodeCounts.Length && nodeCounts[old.N0] > 0) nodeCounts[old.N0]--;
-            if ((uint)old.N1 < (uint)nodeCounts.Length && nodeCounts[old.N1] > 0) nodeCounts[old.N1]--;
+            if ((uint)old.N0 < (uint)activeLength && nodeCounts[old.N0] > 0) nodeCounts[old.N0]--;
+            if ((uint)old.N1 < (uint)activeLength && nodeCounts[old.N1] > 0) nodeCounts[old.N1]--;
             byAgent.Remove(agentId);
         }
 
         public void Refresh(int agentId, int step0, int step1, int currentTick, int ttl = StationSparsePolicy.ClaimTtlTicks) {
-            int n0 = (uint)step0 < (uint)nodeCounts.Length ? step0 : -1;
-            int n1 = StationSparsePolicy.ClaimSteps >= 2 && (uint)step1 < (uint)nodeCounts.Length && step1 != n0 ? step1 : -1;
+            int n0 = (uint)step0 < (uint)activeLength ? step0 : -1;
+            int n1 = StationSparsePolicy.ClaimSteps >= 2 && (uint)step1 < (uint)activeLength && step1 != n0 ? step1 : -1;
             if (byAgent.TryGetValue(agentId, out var old)) {
                 if (old.N0 == n0 && old.N1 == n1) {
                     old.ExpiresTick = currentTick + ttl;
                     byAgent[agentId] = old;
                     return;
                 }
-                if ((uint)old.N0 < (uint)nodeCounts.Length && nodeCounts[old.N0] > 0) nodeCounts[old.N0]--;
-                if ((uint)old.N1 < (uint)nodeCounts.Length && nodeCounts[old.N1] > 0) nodeCounts[old.N1]--;
+                if ((uint)old.N0 < (uint)activeLength && nodeCounts[old.N0] > 0) nodeCounts[old.N0]--;
+                if ((uint)old.N1 < (uint)activeLength && nodeCounts[old.N1] > 0) nodeCounts[old.N1]--;
                 if (n0 < 0 && n1 < 0) {
                     byAgent.Remove(agentId);
                     return;
@@ -313,7 +362,7 @@ namespace Metro.Sim {
         }
 
         public int CountOtherAgentsOn(int node, int agentId) {
-            if ((uint)node >= (uint)nodeCounts.Length) return 0;
+            if ((uint)node >= (uint)activeLength) return 0;
             int c = nodeCounts[node];
             if (byAgent.TryGetValue(agentId, out var own) && (own.N0 == node || own.N1 == node)) c--;
             return c > 0 ? c : 0;
