@@ -1,5 +1,6 @@
-import { trackModelInputs, pillarModelInputs, hangerModelInputs, ceilingModelInputs, surfaceModelInputs, nearbyOpening, roadModelInputs, rampCellModelInputs } from './structuralModelInputs.ts'
+import { trackModelInputs, pillarModelInputs, hangerModelInputs, boothModelInputs, ceilingModelInputs, surfaceModelInputs, nearbyOpening, roadModelInputs, rampCellModelInputs } from './structuralModelInputs.ts'
 import type { Cell, Module, StationData } from '../sim/types.ts'
+import { GROUND_Z } from '../sim/ground.ts'
 import { isEdgeDecor, edgeDecorCurtainShare, curtainCornerJoin, curtainDoorShare, moduleEnvelope, moduleFootprint, outdoorSurfaceLift, isOutdoorSurface, isCeilingHung } from '../sim/placement.ts'
 import { hangerSupports } from '../sim/hangers.ts'
 import { isSimInertDecorModule } from '../sim/decorInert.ts'
@@ -20,7 +21,7 @@ const EQUIPMENT_ONLY = new Set<Module['type']>([
 ])
 const STANDALONE = new Set<Module['type']>([
   'bench', 'tvm', 'vending', 'bin', 'extinguisher', 'shelf', 'desk', 'checkout', 'sink', 'urinal',
-  'court', 'ac-unit', 'electrical-cabinet', 'booth', 'roof', 'door', 'calligraphy', 'linemap',
+  'court', 'ac-unit', 'electrical-cabinet', 'roof', 'door', 'calligraphy', 'linemap',
   'billboard', 'busstop', 'floor-mark', 'traffic-light', 'rail-signal', 'shop', 'tree',
 ])
 const RAMPS = new Set<Module['type']>(['stair', 'escalator', 'walkway'])
@@ -137,7 +138,7 @@ export function translatedWalkwayIds(before:StationData,after:StationData):Set<s
 // These builders read module/metadata only. Changes to either fail closed below.
 const CELL_INDEPENDENT = new Set<Module['type']>([
   'sidewalk', 'lawn', 'tree', 'road', 'traffic-light', 'bench', 'fence', 'light', 'vent', 'bin', 'extinguisher', 'shelf', 'desk',
-  'cubicle', 'sink', 'urinal', 'checkout', 'booth', 'gate', 'platform-edge', 'billboard', 'tvm', 'vending',
+  'cubicle', 'sink', 'urinal', 'checkout', 'gate', 'platform-edge', 'billboard', 'tvm', 'vending',
   'door', 'glass', 'calligraphy', 'linemap', 'tactile', 'floor-mark',
   'court', 'ac-unit', 'electrical-cabinet', 'pillar', 'roof', 'exit', 'guidepost', 'busstop', 'psd-end', 'rail-signal',
 ])
@@ -175,6 +176,11 @@ function dependsOnCells(mod: Module, cells: readonly Cell[]): boolean {
   }
   if (CELL_INDEPENDENT.has(mod.type)) return false
   if (mod.type === 'shop') return changedInBox(cells,mod.x-1,mod.x+mod.w,mod.y-1,mod.y+mod.h)
+  if (mod.type === 'booth') {
+    if (mod.cfg.kind !== 'info') return false
+    return changedInBox(cells, mod.x, mod.x + mod.w - 1, mod.y, mod.y + mod.h - 1,
+      cell => cell.z === GROUND_Z || (cell.z >= mod.z + 3 && cell.z <= mod.z + 7))
+  }
   if (mod.type === 'stair' || mod.type === 'escalator' || mod.type === 'walkway' || mod.type === 'lift') {
     const box = moduleEnvelope(mod)
     if (!box || ![box.x0, box.x1, box.y0, box.y1].every(Number.isFinite)) return true
@@ -215,6 +221,7 @@ export function retainedModuleIds(before: StationData, after: StationData): Set<
     const aW = groundWindow(before.cells, before.modules), bW = groundWindow(after.cells, after.modules)
     const sameWindow = aW.x0 === bW.x0 && aW.x1 === bW.x1 && aW.y0 === bW.y0 && aW.y1 === bW.y1
     const unchangedRamp = (mod: Module): boolean => {
+      if (mod.type === 'booth') return equal(boothModelInputs(before, mod), boothModelInputs(after, mod))
       if (!sameWindow || (mod.type !== 'stair' && mod.type !== 'escalator')) return false
       const box = moduleEnvelope(mod)
       return !!box && [box.x0, box.x1, box.y0, box.y1, box.z0, box.z1].every(Number.isFinite) &&
@@ -260,7 +267,7 @@ function equipmentRetainedIds(before: StationData, after: StationData): Set<stri
   const types = new Set(changes.map(m => m.type))
   // A future module may introduce another dependency: declare it before reuse.
   const known = (m: Module): boolean => CELL_INDEPENDENT.has(m.type) || STANDALONE.has(m.type)
-    || ['track', 'stair', 'escalator', 'walkway', 'lift', 'hanger', 'clock', 'cctv', 'monitor', 'sign', 'tv'].includes(m.type)
+    || ['track', 'stair', 'escalator', 'walkway', 'lift', 'hanger', 'booth', 'clock', 'cctv', 'monitor', 'sign', 'tv'].includes(m.type)
   if (changes.some(m => !known(m))) return retained
   const cellChanges = changedCellRecords(before.cells, after.cells)
   // Flat belts change fence connections and exit run openings, but carve no
@@ -329,6 +336,7 @@ function equipmentRetainedIds(before: StationData, after: StationData): Set<stri
     if (mod.type === 'psd-end' && changes.some(m => m.id === mod.cfg.corner || m.id === mod.cfg.support)) continue
     if (mod.type === 'pillar' && types.has('track') && !equal(pillarModelInputs(before, mod), pillarModelInputs(after, mod))) continue
     if (mod.type === 'hanger' && mod.cfg.mount === 'roof' && types.has('roof') && !equal(hangerModelInputs(before, mod), hangerModelInputs(after, mod))) continue
+    if (mod.type === 'booth' && mod.cfg.kind === 'info' && (types.has('roof') || openingChanged) && !equal(boothModelInputs(before, mod), boothModelInputs(after, mod))) continue
     if ((RAMPS.has(mod.type) || mod.type === 'lift') && openingChanged && changes.some(m => isOpening(m) && nearbyOpening(mod, m))) continue
     if (mod.type === 'exit' && changes.some(m => isRamp(m) && nearbyOpening(mod, m))) continue
     if (mod.type === 'guidepost' && changes.some(m => m.id === mod.cfg.exitId)) continue
@@ -376,10 +384,10 @@ export function signBoardsOnlyChange(before: StationData, after: StationData): s
 }
 
 const KNOWN_MODULE_EXTRA = new Set<Module['type']>([
-  'track', 'stair', 'escalator', 'walkway', 'lift', 'hanger', 'clock', 'cctv', 'monitor', 'sign', 'tv',
+  'track', 'stair', 'escalator', 'walkway', 'lift', 'hanger', 'booth', 'clock', 'cctv', 'monitor', 'sign', 'tv',
 ])
 const CELL_DEPENDENT_TYPES: readonly Module['type'][] = [
-  'track', 'shop', 'stair', 'escalator', 'walkway', 'lift', 'sign', 'tv', 'clock', 'cctv', 'hanger', 'monitor',
+  'track', 'shop', 'stair', 'escalator', 'walkway', 'lift', 'sign', 'tv', 'clock', 'cctv', 'hanger', 'booth', 'monitor',
 ]
 function isKnownModuleType(type: Module['type']): boolean {
   return CELL_INDEPENDENT.has(type) || STANDALONE.has(type) || KNOWN_MODULE_EXTRA.has(type)
@@ -624,6 +632,13 @@ export function moduleEditDelta(
           !equal(hangerModelInputs(before, mod), hangerModelInputs(after, mod))) markRebuild(mod)
       }
     }
+    if (types.has('roof') || openingChanged) {
+      for (const mod of byType.get('booth') ?? []) {
+        if (changedIds.has(mod.id) || rebuildIds.has(mod.id)) continue
+        if (mod.type === 'booth' && mod.cfg.kind === 'info' &&
+          !equal(boothModelInputs(before, mod), boothModelInputs(after, mod))) markRebuild(mod)
+      }
+    }
   }
 
   // Shared by both ordinary and flat-belt-only edits:
@@ -697,6 +712,7 @@ export function cellEditInvalidatedModules(
   const aW = groundWindow(before.cells, before.modules), bW = groundWindow(after.cells, after.modules)
   const sameWindow = aW.x0 === bW.x0 && aW.x1 === bW.x1 && aW.y0 === bW.y0 && aW.y1 === bW.y1
   const unchangedRamp = (mod: Module): boolean => {
+    if (mod.type === 'booth') return equal(boothModelInputs(before, mod), boothModelInputs(after, mod))
     if (!sameWindow || (mod.type !== 'stair' && mod.type !== 'escalator')) return false
     const box = moduleEnvelope(mod)
     return !!box && [box.x0, box.x1, box.y0, box.y1, box.z0, box.z1].every(Number.isFinite) &&

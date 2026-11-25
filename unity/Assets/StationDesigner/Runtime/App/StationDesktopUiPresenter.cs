@@ -210,6 +210,11 @@ namespace Metro.App {
         double lastLeftClickTime = -10.0;
         Vector2 lastLeftClickPos;
         bool mouseWasInside;
+        volatile string desiredCursor = "default";
+        volatile float desiredCursorScale = 1f;
+        string appliedCursor = "default";
+        int appliedCursorSize = StationDesktopCursors.Size;
+        bool cursorHiddenByOverlay;
 
         public bool IsWorkerRunning => workerProcess != null && !workerProcess.HasExited;
         public bool IsWebReady => webReady;
@@ -304,6 +309,8 @@ namespace Metro.App {
             InputSystem.onEvent -= OnMouseButtonEvent;
             UnsubscribeKeyboardText();
             StopWorker();
+            ResetOverlayCursor();
+            if (activeInstance == this) StationDesktopCursors.DisposeCache();
             if (surfaceTexture != null) {
                 Destroy(surfaceTexture);
                 surfaceTexture = null;
@@ -318,6 +325,8 @@ namespace Metro.App {
         void OnApplicationQuit() {
             TryWriteStandaloneAutosave(boundHost, force: true);
             StopWorker();
+            ResetOverlayCursor();
+            StationDesktopCursors.DisposeCache();
         }
 
         void BuildCanvas() {
@@ -591,6 +600,7 @@ namespace Metro.App {
             if (surfaceImage != null && surfaceImage.enabled != showSurface) {
                 surfaceImage.enabled = showSurface;
             }
+            if (!showSurface) ResetOverlayCursor();
         }
 
         void TryBindAndStartWorker() {
@@ -651,6 +661,7 @@ namespace Metro.App {
                 ForwardMouseInput();
                 ForwardKeyboardButtons();
             }
+            ApplyOverlayCursor();
             UploadLatestSharedFrame();
             if (boundHost != null && IsStandaloneAutosaveInstallReady()) {
                 CompletePendingStandaloneAutosave(boundHost);
@@ -952,6 +963,8 @@ namespace Metro.App {
             lastUploadedSequence = 0;
             presentedFrames = 0;
             heldMouseButtons = 0;
+            desiredCursor = "default";
+            ResetOverlayCursor();
             Array.Clear(keyRepeatAt, 0, keyRepeatAt.Length);
             RefreshCanvasVisibility();
 
@@ -1279,6 +1292,49 @@ namespace Metro.App {
         [DllImport("user32.dll")]
         static extern bool SystemParametersInfo(uint action, uint parameter, out uint value, uint flags);
 
+        void ApplyOverlayCursor() {
+            bool overlayOwnsCursor =
+                webReady && activeClient != null && !smokeSuppressed && !SuppressPhysicalInput &&
+                mouseWasInside && Application.isFocused && surfaceImage != null && surfaceImage.enabled;
+            string next = overlayOwnsCursor ? StationDesktopCursors.NormalizeName(desiredCursor) : "default";
+            float scale = desiredCursorScale;
+            int nextSize = StationDesktopCursors.ResolvePixelSize(scale);
+            bool usesScaledTexture = !string.Equals(next, "default", StringComparison.Ordinal) &&
+                                     !string.Equals(next, "none", StringComparison.Ordinal);
+            if (string.Equals(next, appliedCursor, StringComparison.Ordinal) &&
+                (!usesScaledTexture || nextSize == appliedCursorSize)) return;
+            appliedCursor = next;
+            appliedCursorSize = nextSize;
+
+            if (string.Equals(next, "none", StringComparison.Ordinal)) {
+                Cursor.SetCursor(null, Vector2.zero, CursorMode.Auto);
+                Cursor.visible = false;
+                cursorHiddenByOverlay = true;
+                return;
+            }
+
+            if (cursorHiddenByOverlay) {
+                Cursor.visible = true;
+                cursorHiddenByOverlay = false;
+            }
+
+            if (StationDesktopCursors.TryGet(next, scale, out var texture, out var hotspot)) {
+                Cursor.SetCursor(texture, hotspot, CursorMode.Auto);
+            } else {
+                Cursor.SetCursor(null, Vector2.zero, CursorMode.Auto);
+            }
+        }
+
+        void ResetOverlayCursor() {
+            if (string.Equals(appliedCursor, "default", StringComparison.Ordinal) && !cursorHiddenByOverlay) return;
+            appliedCursor = "default";
+            if (cursorHiddenByOverlay) {
+                Cursor.visible = true;
+                cursorHiddenByOverlay = false;
+            }
+            Cursor.SetCursor(null, Vector2.zero, CursorMode.Auto);
+        }
+
         void OnApplicationFocus(bool focused) {
             if (focused) {
                 const uint getKeyboardSpeed = 0x000a;
@@ -1290,6 +1346,7 @@ namespace Metro.App {
                 return;
             }
 
+            ResetOverlayCursor();
             for (int i = 0; i < KeyBindings.Length; i++) {
                 if (keyRepeatAt[i] == 0) continue;
                 var binding = KeyBindings[i];
@@ -1580,6 +1637,11 @@ namespace Metro.App {
                     case "cmd": {
                         string cmd = (string)obj["json"];
                         if (!string.IsNullOrEmpty(cmd)) incomingCommands.Enqueue(cmd);
+                        break;
+                    }
+                    case "cursor": {
+                        desiredCursor = StationDesktopCursors.NormalizeName((string)obj["cursor"]);
+                        desiredCursorScale = (float?)obj["scale"] ?? 1f;
                         break;
                     }
                     case "log": {

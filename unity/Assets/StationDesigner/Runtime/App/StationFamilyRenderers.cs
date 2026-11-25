@@ -226,6 +226,7 @@ namespace Metro.App {
             var roleRoot = context.RoleRoot(Role);
             var grid = StationLevelGrid.FromDocument(context.Document.LevelBase, context.Document.StoreyHeight);
             var connections = StationFenceConnections.For(facts);
+            var surfaceLift = StationOutdoorSurfaceLift.ForIndex(context.Index);
             bool canInstance = SystemInfo.supportsInstancing;
 
             var candidates = new List<(ModuleFacts Module, RuntimeCatalogue.Entry Entry, string ViewKey, int Band, Matrix4x4 Matrix, StationBox DocBox, StationPrefabMeshTemplate Template)>();
@@ -239,7 +240,8 @@ namespace Metro.App {
                 if (canInstance) {
                     var visual = ModuleViews.Resolve(module, facts, context.Catalogue);
                     if (visual.HasModel && context.Catalogue.TryGet(visual.Key, out var entry) && entry.prefab != null &&
-                        OutdoorModuleViews.TryResolveStaticPose(module, entry, neighbours, out var pos, out var rot, out var scale) &&
+                        OutdoorModuleViews.TryResolveStaticPose(module, entry, neighbours, out var pos, out var rot, out var scale,
+                            surfaceLift.LiftOf(module)) &&
                         state.Templates.TryGetTemplate(entry.prefab, out var template)) {
                         int band = StationModuleLevels.Band(grid, module.Z);
                         var worldMatrix = Matrix4x4.TRS(pos, rot, scale);
@@ -303,7 +305,7 @@ namespace Metro.App {
 
             for (int i = 0; i < fallback.Count; i++) {
                 var (module, neighbours) = fallback[i];
-                BuildSingleOutdoor(context, state, roleRoot, facts, module, neighbours);
+                BuildSingleOutdoor(context, state, roleRoot, facts, module, neighbours, surfaceLift.LiftOf(module));
             }
         }
 
@@ -313,7 +315,8 @@ namespace Metro.App {
             Transform roleRoot,
             ModuleFacts[] station,
             ModuleFacts module,
-            OutdoorNeighbours neighbours) {
+            OutdoorNeighbours neighbours,
+            float lift) {
             var visual = ModuleViews.Resolve(module, station, context.Catalogue);
             if (!visual.HasModel) {
                 context.ReportUnresolved("outdoor", module.Type, module.Id,
@@ -326,7 +329,9 @@ namespace Metro.App {
             }
             var holder = new GameObject(string.IsNullOrEmpty(module.Id) ? "outdoor pivot" : module.Id + " pivot");
             holder.transform.SetParent(roleRoot, false);
-            holder.transform.SetPositionAndRotation(ModulePlacement.Position(module, entry), ModulePlacement.Rotation(module.Rotation));
+            var pos = ModulePlacement.Position(module, entry);
+            pos.y += lift;
+            holder.transform.SetPositionAndRotation(pos, ModulePlacement.Rotation(module.Rotation));
             var request = new OutdoorModuleRequest {
                 ModuleId = module.Id,
                 Type = module.Type,
@@ -446,11 +451,15 @@ namespace Metro.App {
 
             var removedIds = new HashSet<string>(StringComparer.Ordinal);
             var dirtyIds = new HashSet<string>(StringComparer.Ordinal);
+            HashSet<(int X, int Y, int Z)> touchedSurfaceCells = null;
             var delta = context.Delta;
 
             for (int i = 0; i < delta.RemovedModules.Count; i++) {
                 var id = delta.RemovedModules[i];
                 if (!context.PrevIndex.TryGetModule(id, out var oldMod) || oldMod == null) continue;
+                if (StationSurfaceRules.IsSurface(oldMod.Type)) {
+                    (touchedSurfaceCells ??= new HashSet<(int, int, int)>()).Add((oldMod.X, oldMod.Y, oldMod.Z));
+                }
                 if (OutdoorModuleViews.Owns(oldMod.Type)) removedIds.Add(id);
                 if (AffectsFenceConnectivity(oldMod.Type)) {
                     MarkAdjacentFences(state, oldMod, removedIds, dirtyIds, context.NextIndex);
@@ -459,11 +468,28 @@ namespace Metro.App {
             for (int i = 0; i < delta.ChangedModules.Count; i++) {
                 var mod = delta.ChangedModules[i];
                 if (mod == null) continue;
+                if (StationSurfaceRules.IsSurface(mod.Type)) {
+                    (touchedSurfaceCells ??= new HashSet<(int, int, int)>()).Add((mod.X, mod.Y, mod.Z));
+                    if (context.PrevIndex.TryGetModule(mod.Id, out var prevSurf) && prevSurf != null) {
+                        touchedSurfaceCells.Add((prevSurf.X, prevSurf.Y, prevSurf.Z));
+                    }
+                }
                 if (OutdoorModuleViews.Owns(mod.Type)) dirtyIds.Add(mod.Id);
                 if (AffectsFenceConnectivity(mod.Type)) {
                     MarkAdjacentFences(state, mod, removedIds, dirtyIds, context.NextIndex);
                     if (context.PrevIndex.TryGetModule(mod.Id, out var prevMod) && prevMod != null) {
                         MarkAdjacentFences(state, prevMod, removedIds, dirtyIds, context.NextIndex);
+                    }
+                }
+            }
+
+            if (touchedSurfaceCells != null && touchedSurfaceCells.Count > 0) {
+                foreach (var outdoorType in new[] { "fence", "tree" }) {
+                    var list = context.NextIndex.ModulesOfType(outdoorType);
+                    for (int i = 0; i < list.Count; i++) {
+                        var m = list[i];
+                        if (m == null || removedIds.Contains(m.Id) || dirtyIds.Contains(m.Id)) continue;
+                        if (touchedSurfaceCells.Contains((m.X, m.Y, m.Z))) dirtyIds.Add(m.Id);
                     }
                 }
             }
@@ -477,6 +503,7 @@ namespace Metro.App {
             }
 
             var grid = StationLevelGrid.FromDocument(context.NextDocument.LevelBase, context.NextDocument.StoreyHeight);
+            var surfaceLift = StationOutdoorSurfaceLift.ForIndex(context.NextIndex);
             var retiredIndividualIds = new HashSet<string>(StringComparer.Ordinal);
             var dirtyChunkSet = new HashSet<OutdoorChunkKey>();
             var removedFenceIds = new HashSet<string>(StringComparer.Ordinal);
@@ -525,7 +552,9 @@ namespace Metro.App {
                     }
                     var holder = new GameObject(string.IsNullOrEmpty(module.Id) ? "outdoor pivot" : module.Id + " pivot");
                     holder.transform.SetParent(context.StagingRoot, false);
-                    holder.transform.SetPositionAndRotation(ModulePlacement.Position(module, entry), ModulePlacement.Rotation(module.Rotation));
+                    var pos = ModulePlacement.Position(module, entry);
+                    pos.y += surfaceLift.LiftOf(module, record);
+                    holder.transform.SetPositionAndRotation(pos, ModulePlacement.Rotation(module.Rotation));
                     var request = new OutdoorModuleRequest {
                         ModuleId = module.Id,
                         Type = module.Type,
@@ -566,7 +595,8 @@ namespace Metro.App {
                         if (!dirtyChunkSet.Contains(ck)) continue;
                         if (!catalogue.TryGet(visual.Key, out var entry) || entry.prefab == null) continue;
                         var neighbours = OutdoorModuleViews.Neighbours(m, connections);
-                        if (!OutdoorModuleViews.TryResolveStaticPose(m, entry, neighbours, out var pos, out var rot, out var scale)) continue;
+                        if (!OutdoorModuleViews.TryResolveStaticPose(m, entry, neighbours, out var pos, out var rot, out var scale,
+                            surfaceLift.LiftOf(m))) continue;
                         if (!state.Templates.TryGetTemplate(entry.prefab, out var template)) continue;
                         var worldMatrix = Matrix4x4.TRS(pos, rot, scale);
                         if (!template.TryDocumentBounds(worldMatrix, out var docBox)) {

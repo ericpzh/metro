@@ -4,6 +4,7 @@ import type { Module, StationData } from '../sim/types.ts'
 import { thirdRailSide } from '../sim/track.ts'
 import { pillarSupportsBridge } from '../sim/structures.ts'
 import { hangerCells, hangerRoofZ } from '../sim/hangers.ts'
+import { boothHeaderHang } from '../sim/booths.ts'
 import { ceilingMountHeight, outdoorSurfaceHidden, moduleEnvelope } from '../sim/placement.ts'
 import { neighboringGantryPosts } from './models/pieces/TrackGantry.ts'
 import { roadInkIntervals, roadLayout } from '../sim/roads.ts'
@@ -56,6 +57,10 @@ export function pillarModelInputs(data: StationData, mod: Module): unknown {
 export function hangerModelInputs(data: StationData, mod: Extract<Module, { type: 'hanger' }>): unknown {
   const run = hangerCells(mod)
   return [run[0]!, run[run.length - 1]!].map(([x, y]) => hangerRoofZ(data.cells, data.modules, mod, x, y))
+}
+
+export function boothModelInputs(data: StationData, mod: Extract<Module, { type: 'booth' }>): unknown {
+  return boothHeaderHang(data.cells, data.modules, mod)
 }
 
 export function ceilingModelInputs(data: StationData, mod: Module): unknown {

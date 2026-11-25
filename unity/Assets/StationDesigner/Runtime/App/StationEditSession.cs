@@ -597,6 +597,7 @@ namespace Metro.App {
                 ["redoDepth"] = redos.Count,
                 ["canUndo"] = undos.Count > 0,
                 ["canRedo"] = redos.Count > 0,
+                ["sectionHot"] = StationSectionDrag.Hovered || StationSectionDrag.Current != null,
             };
             return edit;
         }

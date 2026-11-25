@@ -313,6 +313,13 @@ namespace Metro.App {
                 for (int i = 0; i < cells.Length; i++) {
                     columns.Add(PackColumn(cells[i].X, cells[i].Y));
                 }
+                return;
+            }
+            if (string.Equals(module.Type, "roof", StringComparison.Ordinal)) {
+                var cells = StationFootprints.TrackCells(module);
+                for (int i = 0; i < cells.Length; i++) {
+                    columns.Add(PackColumn((int)Math.Round(cells[i].X), (int)Math.Round(cells[i].Y)));
+                }
             }
         }
 

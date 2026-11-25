@@ -39,15 +39,20 @@ namespace Metro.View {
                 var light = StationFootprints.LightPlan(module.Rotation, module.Config);
                 local += new Vector3((float)light.OffsetX, 0, (float)light.OffsetY);
             }
-            return new Vector3(module.X + .5f + local.x, module.Z + offset.z, module.Y + .5f + local.z);
+            return new Vector3(module.X + .5f + local.x, (float)module.ExactZ + offset.z, module.Y + .5f + local.z);
         }
 
-        /// <summary>Canonical pivot plus the rotated run and document-dependent curtain clearance.</summary>
+        /// <summary>Canonical pivot plus rotated run, outdoor surface lift, and document-dependent curtain clearance.</summary>
         public static Vector3 Resolve(StationModuleRecord module, RuntimeCatalogue.Entry entry, StationIndex index) {
+            if (module == null) return Vector3.zero;
             var position = Position(module.Facts, entry) + StationCoordinates.Point(RunCentre(module.Facts));
-            if (index == null || !StationModulePlacement.IsEdgeDecor(module.Type)) return position;
-            foreach (var other in index.Document.Modules) {
-                if (other.Id == module.Id || other.Type != "glass" || !StationModulePlacement.EdgeDecorGlassShare(module, other)) continue;
+            if (index == null) return position;
+            position.y += StationOutdoorSurfaceLift.ForIndex(index).LiftOf(module);
+            if (!StationModulePlacement.IsEdgeDecor(module.Type)) return position;
+            var glass = index.ModulesOfType("glass");
+            for (int i = 0; i < glass.Count; i++) {
+                var other = glass[i];
+                if (other == null || other.Id == module.Id || !StationModulePlacement.EdgeDecorGlassShare(module, other)) continue;
                 StationFootprints.WallSide(module.Rotation, out var x, out var y);
                 return position + new Vector3(x * .15f, 0, y * .15f);
             }

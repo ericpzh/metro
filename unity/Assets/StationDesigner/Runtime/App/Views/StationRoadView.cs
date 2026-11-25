@@ -453,8 +453,7 @@ namespace Metro.App.Views {
                 for (double across = .4; across < roadWidth - .3; across += 1) {
                     Slab(white, record, across,
                         side.Axis ? along - record.Y : along - record.X,
-                        side.Axis ? .5 : StationRoadLayout.CrosswalkDepth,
-                        side.Axis ? StationRoadLayout.CrosswalkDepth : .5,
+                        .5, StationRoadLayout.CrosswalkDepth,
                         (float)record.Z + 1.045f, .012f);
                     comp.Crosswalks++;
                 }
@@ -490,7 +489,7 @@ namespace Metro.App.Views {
                 Slab(white, record,
                     stopAcross - (edge.Axis ? record.X : record.Y),
                     stop - (edge.Axis ? record.Y : record.X),
-                    edge.Axis ? stopWidth : .2, edge.Axis ? .2 : stopWidth,
+                    stopWidth, .2,
                     (float)record.Z + 1.045f, .012f);
                 comp.StopLines++;
                 double side = (edge.Axis ? record.X : record.Y) +

@@ -887,11 +887,12 @@ namespace Metro.Build {
                     // `w` and `panelH` are stored rather than derived on load.
                     string hand = family.Variant.Length > 0 ? family.Variant : "kai-h";
                     int dash = hand.LastIndexOf('-');
+                    string style = dash >= 0 ? hand.Substring(0, dash) : hand;
                     string axis = dash >= 0 ? hand.Substring(dash + 1) : "h";
                     var geometry = StationCalligraphy.For(index?.Document?.Name, axis);
                     candidate.Width = geometry.Cells;
                     candidate.PanelHeight = geometry.PanelH;
-                    candidate.Set("style", hand);
+                    candidate.Set("style", style);
                     candidate.Set("axis", axis);
                     break;
                 }

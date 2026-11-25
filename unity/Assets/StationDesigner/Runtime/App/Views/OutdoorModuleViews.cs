@@ -296,7 +296,8 @@ namespace Metro.App {
             OutdoorNeighbours neighbours,
             out Vector3 worldPos,
             out Quaternion worldRot,
-            out Vector3 worldScale) {
+            out Vector3 worldScale,
+            float lift = 0f) {
             worldPos = default;
             worldRot = Quaternion.identity;
             worldScale = Vector3.one;
@@ -313,6 +314,7 @@ namespace Metro.App {
             float yaw = SelectedYaw(req, out _, out _, out bool composeArms, out _);
             if (composeArms) return false;
             worldPos = ModulePlacement.Position(module, entry);
+            worldPos.y += lift;
             var holderRot = ModulePlacement.Rotation(module.Rotation);
             var offset = Quaternion.Euler(0f, Mathf.DeltaAngle(ModulePlacement.Yaw(module.Rotation), yaw), 0f);
             worldRot = holderRot * entry.prefab.transform.localRotation * offset;
@@ -339,6 +341,7 @@ namespace Metro.App {
             // RCA 15 §4: one connection index for the whole document, built once here and shared
             // by every fence in the pass (it answers fences, gate machine faces and rail landings).
             var connections = StationFenceConnections.For(station);
+            var surfaceLift = StationOutdoorSurfaceLift.ForFacts(station);
             int count = 0;
             for (int i = 0; i < station.Count; i++) {
                 var module = station[i];
@@ -358,7 +361,9 @@ namespace Metro.App {
                 }
                 var holder = new GameObject(string.IsNullOrEmpty(module.Id) ? "outdoor pivot" : module.Id + " pivot").transform;
                 holder.SetParent(parent, false);
-                holder.SetPositionAndRotation(ModulePlacement.Position(module, entry), ModulePlacement.Rotation(module.Rotation));
+                var pos = ModulePlacement.Position(module, entry);
+                pos.y += surfaceLift.LiftOf(module);
+                holder.SetPositionAndRotation(pos, ModulePlacement.Rotation(module.Rotation));
                 var request = new OutdoorModuleRequest {
                     ModuleId = module.Id,
                     Type = module.Type,

@@ -34,3 +34,27 @@ html.metro-overlay body:has(.explodedViewer[open]) .app { visibility: hidden !im
 .metro-measure-chip[hidden] {
   display: none;
 }
+
+/* Unity viewport cursor overrides: Select uses the normal OS arrow, and custom tool icons
+   scale with `--ui-scale` so they match the UI scale slider and high-DPI swapchains. */
+.viewport.selectCursor {
+  cursor: default;
+}
+.viewport.grab {
+  cursor: grab;
+}
+.viewport.grab:active {
+  cursor: grabbing;
+}
+.viewport.toolPointer {
+  cursor: none;
+}
+.viewport.explodedArrangeCanvas {
+  cursor: move;
+}
+.movePointer,
+.deletePointer,
+.pickerPointer {
+  width: calc(32px * var(--ui-scale, 1));
+  height: calc(32px * var(--ui-scale, 1));
+}

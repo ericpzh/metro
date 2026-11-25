@@ -616,7 +616,11 @@ namespace Metro.View {
         /// </summary>
         void BuildCatenary() {
             float w = Width, d = Depth;
-            float contact = StationRailGeometry.TrainContactWireZ(Scale);
+            // `CatenaryModel.ts`: `trainContactWireZ(trainScaleForStorey(mod.storeyHeight))`
+            // derives wire elevation from the 5 m storey profile (`0.98` -> `3.903 m`), never
+            // the promoted consist's `bakedScale` (which would push rigid clamps 4.6 cm above
+            // the 4.0 m ceiling slab).
+            float contact = StationRailGeometry.TrainContactWireZ(StationRailGeometry.DefaultScale);
             ContactWireZ = contact;
             int mastSide = ThirdRailSide == 0 ? -1 : ThirdRailSide;
             bool tunnel = CatenaryOptions != null && CatenaryOptions.Tunnel;

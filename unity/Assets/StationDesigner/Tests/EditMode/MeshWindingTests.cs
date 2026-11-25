@@ -153,29 +153,54 @@ namespace Metro.Tests {
             Assert.AreEqual(6, unique.Count, "six faces, six normals");
         }
 
-        [Test]
-        public void ABuiltBoothHasFlatOutwardFaces() {
+        [TestCase("ticket", false)]
+        [TestCase("info", false)]
+        [TestCase("info", true)]
+        public void ABuiltBoothHasFlatOutwardFaces(string kind, bool withCeiling) {
             var root = new GameObject("winding probe");
             var shader = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Unlit/Color");
             Assert.IsNotNull(shader, "the station shader is missing");
             var materials = new StationMaterials(shader);
             try {
+                var cells = new JArray();
+                if (withCeiling) {
+                    for (int cx = 0; cx < 3; cx++)
+                        for (int cy = 0; cy < 3; cy++)
+                            cells.Add(new JObject { ["x"] = cx, ["y"] = cy, ["z"] = 5, ["fill"] = "solid" });
+                }
+                var index = StationDocumentReader.Read(new JObject {
+                    ["format"] = StationDocumentReader.SaveFormat,
+                    ["formatVersion"] = StationDocumentReader.SupportedVersion,
+                    ["gameVersion"] = "0.2.0",
+                    ["savedAt"] = StationDocumentReader.FixedSavedAt,
+                    ["name"] = "booth-winding",
+                    ["nameEn"] = "Booth Winding",
+                    ["city"] = "guangzhou",
+                    ["seed"] = 1,
+                    ["levelBase"] = 0,
+                    ["storeyHeight"] = 5,
+                    ["static"] = new JObject {
+                        ["cells"] = cells,
+                        ["modules"] = new JArray(),
+                        ["lines"] = new JArray(),
+                    },
+                }.ToString(), StationSource.None).Index;
                 var module = ModuleFactsReader.Read(new JObject {
-                    ["id"] = "booth-winding", ["type"] = "booth",
+                    ["id"] = "booth-winding-" + kind, ["type"] = "booth",
                     ["x"] = 0, ["y"] = 0, ["z"] = 0, ["w"] = 3, ["h"] = 3, ["rot"] = 0,
-                    ["cfg"] = new JObject { ["kind"] = "ticket", ["stocked"] = true, ["front"] = 0 },
+                    ["cfg"] = new JObject { ["kind"] = kind, ["stocked"] = true, ["front"] = 0 },
                 });
-                Assert.IsTrue(BoothModuleViews.TryBuild(module, root.transform, materials, out var view, out _),
+                Assert.IsTrue(BoothModuleViews.TryBuild(module, root.transform, materials, out var view, out var note, 0f, index),
                     "the booth builds");
+                Assert.AreEqual("", note, "booth " + kind + " requires no geometry caveat");
                 int parts = 0;
                 foreach (var filter in view.GetComponentsInChildren<MeshFilter>(true)) {
                     var mesh = filter.sharedMesh;
                     if (!mesh) continue;
                     parts++;
-                    AssertFlatShading(mesh, "booth part " + filter.name);
-                    // The parts are separate boxes; each mesh batch may hold many of them, and a
-                    // closed union of correctly wound boxes always encloses positive volume.
-                    Assert.Greater(SignedVolume(mesh), 0f, "booth part " + filter.name + " winds outward");
+                    AssertFlatShading(mesh, "booth " + kind + " part " + filter.name);
+                    // The parts are closed boxes and extruded prisms; each mesh batch encloses positive volume.
+                    Assert.Greater(SignedVolume(mesh), 0f, "booth " + kind + " part " + filter.name + " winds outward");
                 }
                 Assert.Greater(parts, 0, "the booth draws geometry");
             } finally {

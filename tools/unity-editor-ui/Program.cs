@@ -1223,6 +1223,19 @@ internal sealed class OffscreenWebViewHost : NativeWindow, IDisposable {
             return;
         }
 
+        if (msg.StartsWith("__metro_cursor__:", StringComparison.Ordinal)) {
+            string payload = msg["__metro_cursor__:".Length..];
+            int sep = payload.IndexOf(':');
+            string cursor = sep >= 0 ? payload[..sep] : payload;
+            double scale = 1.0;
+            if (sep >= 0 && double.TryParse(payload[(sep + 1)..], NumberStyles.Float, CultureInfo.InvariantCulture, out double parsed) &&
+                double.IsFinite(parsed) && parsed > 0.0) {
+                scale = parsed;
+            }
+            _ = SendToUnityAsync(new { kind = "cursor", cursor, scale });
+            return;
+        }
+
         if (msg.StartsWith("__metro_js_error__:", StringComparison.Ordinal)) {
             _ = SendToUnityAsync(new { kind = "log", level = "error", message = msg["__metro_js_error__:".Length..] });
             return;
@@ -1792,7 +1805,51 @@ internal sealed class OffscreenWebViewHost : NativeWindow, IDisposable {
       });
 
       let dirtyQueued = false;
+      let lastCursorX = -1;
+      let lastCursorY = -1;
+      let lastSentCursor = 'default:1';
+      let cursorQueued = false;
+      const ALLOWED_CURSORS = new Set([
+        'default', 'none', 'crosshair', 'pointer', 'grab', 'grabbing',
+        'move', 'text', 'ew-resize', 'ns-resize', 'not-allowed'
+      ]);
+      const normalizeCursor = (raw, el) => {
+        if (ALLOWED_CURSORS.has(raw)) return raw;
+        if (raw === 'col-resize') return 'ew-resize';
+        if (raw === 'row-resize') return 'ns-resize';
+        if (raw === 'all-scroll') return 'move';
+        if (raw === 'auto' && el) {
+          const tag = el.tagName;
+          if (tag === 'TEXTAREA' || (tag === 'INPUT' && /^(text|search|url|tel|password|email|number)$/i.test(el.type || 'text')) || el.isContentEditable) {
+            return 'text';
+          }
+        }
+        return 'default';
+      };
+      const readUiScale = () => {
+        const raw = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--ui-scale'));
+        return Number.isFinite(raw) && raw > 0 ? Math.round(raw * 100) / 100 : 1;
+      };
+      const syncCursorNow = () => {
+        cursorQueued = false;
+        let next = 'default';
+        if (lastCursorX >= 0 && lastCursorY >= 0 && lastCursorX < innerWidth && lastCursorY < innerHeight) {
+          const el = document.elementFromPoint(lastCursorX, lastCursorY);
+          if (el) next = normalizeCursor(getComputedStyle(el).cursor, el);
+        }
+        const message = next + ':' + readUiScale();
+        if (message !== lastSentCursor) {
+          lastSentCursor = message;
+          try { window.chrome.webview.postMessage('__metro_cursor__:' + message); } catch {}
+        }
+      };
+      const scheduleCursorSync = () => {
+        if (cursorQueued) return;
+        cursorQueued = true;
+        requestAnimationFrame(syncCursorNow);
+      };
       const notifyDirty = () => {
+        scheduleCursorSync();
         if (dirtyQueued) return;
         dirtyQueued = true;
         requestAnimationFrame(() => {
@@ -1800,6 +1857,26 @@ internal sealed class OffscreenWebViewHost : NativeWindow, IDisposable {
           try { window.chrome.webview.postMessage('__metro_dirty__'); } catch {}
         });
       };
+      window.addEventListener('pointermove', (ev) => {
+        lastCursorX = ev.clientX;
+        lastCursorY = ev.clientY;
+        syncCursorNow();
+      }, true);
+      window.addEventListener('pointerdown', (ev) => {
+        lastCursorX = ev.clientX;
+        lastCursorY = ev.clientY;
+        scheduleCursorSync();
+      }, true);
+      window.addEventListener('pointerup', (ev) => {
+        lastCursorX = ev.clientX;
+        lastCursorY = ev.clientY;
+        scheduleCursorSync();
+      }, true);
+      document.addEventListener('mouseleave', () => {
+        lastCursorX = -1;
+        lastCursorY = -1;
+        syncCursorNow();
+      });
       new MutationObserver(notifyDirty).observe(document.documentElement, {
         subtree: true, childList: true, attributes: true, characterData: true
       });

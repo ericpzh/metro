@@ -38,13 +38,13 @@ namespace Metro.App.Views {
 
         /// <summary>Types drawn by `StationStreetModuleRenderer` (prefabs + the track run).</summary>
         static readonly HashSet<string> street = new HashSet<string>(StringComparer.Ordinal) {
-            "exit", "guidepost", "vent", "rail-signal", "track", "busstop",
+            "exit", "guidepost", "vent", "rail-signal", "traffic-light", "track", "busstop",
         };
 
         /// <summary>Types drawn by `StationEquipmentModuleRenderer` (one prefab instance each).</summary>
         static readonly HashSet<string> equipment = new HashSet<string>(StringComparer.Ordinal) {
             "light", "cctv", "desk", "extinguisher", "bin", "bench", "shelf",
-            "electrical-cabinet", "tvm", "sink", "vending", "checkout", "booth", "glass", "ac-unit", "court",
+            "electrical-cabinet", "tvm", "sink", "urinal", "vending", "checkout", "booth", "glass", "ac-unit", "court",
         };
 
         /// <summary>Types drawn by `StationDisplayModuleRenderer` (one prefab instance each).</summary>
@@ -145,6 +145,11 @@ namespace Metro.App.Views {
             /// outgoing world's disposal would destroy the palette the new world is drawing with.
             /// </summary>
             public StationMaterials Palette;
+            /// <summary>
+            /// Web-matched booth material set extracted from <see cref="RuntimeCatalogue"/> prefabs
+            /// plus owned fallback/unlit slots, cached once per world.
+            /// </summary>
+            public BoothModuleViews.BoothPalette BoothPalette;
         }
 
         protected readonly struct StagedCeilingMove {
@@ -359,12 +364,17 @@ namespace Metro.App.Views {
 
             var removedIds = new HashSet<string>(StringComparer.Ordinal);
             var dirtyIds = new HashSet<string>(StringComparer.Ordinal);
+            HashSet<(int X, int Y, int Z)> touchedSurfaceCells = null;
             var delta = context.Delta;
 
             for (int i = 0; i < delta.RemovedModules.Count; i++) {
                 var id = delta.RemovedModules[i];
+                if (!context.PrevIndex.TryGetModule(id, out var oldMod) || oldMod == null) continue;
+                if (StationSurfaceRules.IsSurface(oldMod.Type)) {
+                    (touchedSurfaceCells ??= new HashSet<(int, int, int)>()).Add((oldMod.X, oldMod.Y, oldMod.Z));
+                }
                 if (excludeIds != null && excludeIds.Contains(id)) continue;
-                if (!context.PrevIndex.TryGetModule(id, out var oldMod) || oldMod == null || !Owns(oldMod.Type)) continue;
+                if (!Owns(oldMod.Type)) continue;
                 if (!IsLocalPrefabSupported(oldMod.Type)) {
                     fallbackReason = "local-module-family:" + oldMod.Type;
                     return false;
@@ -373,7 +383,14 @@ namespace Metro.App.Views {
             }
             for (int i = 0; i < delta.ChangedModules.Count; i++) {
                 var mod = delta.ChangedModules[i];
-                if (mod == null || !Owns(mod.Type)) continue;
+                if (mod == null) continue;
+                if (StationSurfaceRules.IsSurface(mod.Type)) {
+                    (touchedSurfaceCells ??= new HashSet<(int, int, int)>()).Add((mod.X, mod.Y, mod.Z));
+                    if (context.PrevIndex.TryGetModule(mod.Id, out var prevSurf) && prevSurf != null) {
+                        touchedSurfaceCells.Add((prevSurf.X, prevSurf.Y, prevSurf.Z));
+                    }
+                }
+                if (!Owns(mod.Type)) continue;
                 if (excludeIds != null && excludeIds.Contains(mod.Id)) {
                     if (retireExcludedInState && state.ById.ContainsKey(mod.Id)) removedIds.Add(mod.Id);
                     continue;
@@ -383,6 +400,21 @@ namespace Metro.App.Views {
                     return false;
                 }
                 dirtyIds.Add(mod.Id);
+            }
+
+            if (touchedSurfaceCells != null && touchedSurfaceCells.Count > 0) {
+                foreach (var ownedType in StationModuleClaims.TypesOf(Group)) {
+                    if (!IsLocalPrefabSupported(ownedType)) continue;
+                    var list = context.NextIndex.ModulesOfType(ownedType);
+                    for (int i = 0; i < list.Count; i++) {
+                        var m = list[i];
+                        if (m == null || removedIds.Contains(m.Id) || dirtyIds.Contains(m.Id)) continue;
+                        if (excludeIds != null && excludeIds.Contains(m.Id)) continue;
+                        if (StationOutdoorSurfaceLift.OverlapsAnyCell(m.Facts, m, touchedSurfaceCells)) {
+                            dirtyIds.Add(m.Id);
+                        }
+                    }
+                }
             }
 
             ExpandLocalDirtyIds(context, state, removedIds, dirtyIds);
@@ -469,7 +501,7 @@ namespace Metro.App.Views {
                             LevelMin = levelMin, LevelMax = levelMax, LevelBands = bands,
                         };
                     } else if (module.Type == "court") {
-                        go.transform.SetPositionAndRotation(ModulePlacement.Position(module, entry), ModulePlacement.Rotation(module.Rotation));
+                        go.transform.SetPositionAndRotation(ModulePlacement.Resolve(modRecord, entry, context.NextIndex), ModulePlacement.Rotation(module.Rotation));
                         int band = StationModuleLevels.Band(grid, module.Z);
                         bool hasBounds = TryDocumentBounds(go.transform, context.World.Root, out var bounds);
                         built = new BuiltModule { ModuleId = module.Id, Type = module.Type, View = go, Key = visual.Key };
@@ -1741,6 +1773,7 @@ namespace Metro.App.Views {
                 var pivot = string.Equals(module.Type, "floor-mark", StringComparison.Ordinal)
                     ? FloorMarkPivot(module, entry)
                     : Pivot(module, entry);
+                pivot.y += StationOutdoorSurfaceLift.ForIndex(context.Index).LiftOf(module);
                 var placement = Matrix4x4.TRS(pivot, ModulePlacement.Rotation(module.Rotation), Vector3.one);
                 StationBox tileBox = default;
                 bool hasTileBox = !string.IsNullOrEmpty(module.Id) && TryDocumentBounds(placement, parts, out tileBox);
@@ -1962,6 +1995,7 @@ namespace Metro.App.Views {
                     removedSurfaceIds.Add(id);
                     if (cache.ModuleToChunk.TryGetValue(id, out var oldCk)) dirtyChunks.Add(oldCk);
                     else dirtyChunks.Add((ChunkCoord(oldMod.X), ChunkCoord(oldMod.Y)));
+                    if (StationSurfaceRules.IsSurface(oldMod.Type)) MarkTactileNeighbourChunks(dirtyChunks, oldMod);
                 }
                 if (AffectsTactile(oldMod.Type)) MarkTactileNeighbourChunks(dirtyChunks, oldMod);
                 if (IsRampType(oldMod.Type)) {
@@ -1994,6 +2028,7 @@ namespace Metro.App.Views {
                         addedOrUpdatedSurfaceByChunk[nextCk] = list = new List<string>(2);
                     }
                     list.Add(mod.Id);
+                    if (StationSurfaceRules.IsSurface(mod.Type)) MarkTactileNeighbourChunks(dirtyChunks, mod);
                 }
                 if (AffectsTactile(mod.Type)) MarkTactileNeighbourChunks(dirtyChunks, mod);
                 if (IsRampType(mod.Type)) {
@@ -2190,6 +2225,7 @@ namespace Metro.App.Views {
                     var pivot = string.Equals(module.Type, "floor-mark", StringComparison.Ordinal)
                         ? FloorMarkPivot(module, entry)
                         : Pivot(module, entry);
+                    pivot.y += StationOutdoorSurfaceLift.ForIndex(context.NextIndex).LiftOf(module);
                     var placement = Matrix4x4.TRS(pivot, ModulePlacement.Rotation(module.Rotation), Vector3.one);
                     StationBox tileBox = default;
                     bool hasTileBox = !string.IsNullOrEmpty(module.Id) && TryDocumentBounds(placement, parts, out tileBox);
@@ -2396,6 +2432,15 @@ namespace Metro.App.Views {
                 }
             }
             if (!any) return false;
+            if (max.x < min.x || max.y < min.y || max.z < min.z) return false;
+            // Planar floor decals (`floor-mark`) lie on a single elevation plane (`min.z == max.z`).
+            // Pad a degenerate Z plane by ±0.1 mm so `StationBox.IsEmpty` stays false for picking
+            // and bounds checks while preserving sub-millimetre accuracy.
+            if (max.z - min.z < 1e-4f) {
+                float mid = (min.z + max.z) * .5f;
+                min.z = mid - 1e-4f;
+                max.z = mid + 1e-4f;
+            }
             box = new StationBox(min.x, min.y, min.z, max.x, max.y, max.z);
             return !box.IsEmpty;
         }
@@ -2649,6 +2694,7 @@ namespace Metro.App.Views {
             var pivot = string.Equals(module.Type, "floor-mark", StringComparison.Ordinal)
                 ? FloorMarkPivot(module, entry)
                 : Pivot(module, entry);
+            pivot.y += StationOutdoorSurfaceLift.ForFacts(station).LiftOf(module);
             placement = Matrix4x4.TRS(pivot, ModulePlacement.Rotation(module.Rotation), Vector3.one);
             catalogueKey = visual.Key;
             return true;
@@ -3058,6 +3104,7 @@ namespace Metro.App.Views {
             HashSet<int> catenaryChangedLevels = null;
             List<StationRunPoint> touchedRunTops = null;
             HashSet<string> changedExitIds = null;
+            HashSet<(int X, int Y, int Z)> touchedSurfaceCells = null;
             var delta = context.Delta;
 
             void NoteCatenaryLevel(int z) => (catenaryChangedLevels ??= new HashSet<int>()).Add(z);
@@ -3097,6 +3144,10 @@ namespace Metro.App.Views {
             for (int i = 0; i < delta.RemovedModules.Count; i++) {
                 var id = delta.RemovedModules[i];
                 if (!context.PrevIndex.TryGetModule(id, out var oldMod) || oldMod == null) continue;
+                if (StationSurfaceRules.IsSurface(oldMod.Type)) {
+                    (touchedSurfaceCells ??= new HashSet<(int, int, int)>()).Add((oldMod.X, oldMod.Y, oldMod.Z));
+                    continue;
+                }
                 if (IsCustomStreet(oldMod.Type)) {
                     customRemovedIds.Add(id);
                     customHandledIds.Add(id);
@@ -3122,6 +3173,11 @@ namespace Metro.App.Views {
                 var mod = delta.ChangedModules[i];
                 if (mod == null) continue;
                 context.PrevIndex.TryGetModule(mod.Id, out var prevMod);
+                if (StationSurfaceRules.IsSurface(mod.Type)) {
+                    (touchedSurfaceCells ??= new HashSet<(int, int, int)>()).Add((mod.X, mod.Y, mod.Z));
+                    if (prevMod != null) touchedSurfaceCells.Add((prevMod.X, prevMod.Y, prevMod.Z));
+                    continue;
+                }
                 if (IsCustomStreet(mod.Type)) {
                     customDirtyIds.Add(mod.Id);
                     customHandledIds.Add(mod.Id);
@@ -3222,6 +3278,20 @@ namespace Metro.App.Views {
                             customDirtyIds.Add(ex.Id);
                             customHandledIds.Add(ex.Id);
                             break;
+                        }
+                    }
+                }
+            }
+
+            if (touchedSurfaceCells != null && touchedSurfaceCells.Count > 0) {
+                foreach (var streetType in new[] { "exit", "guidepost" }) {
+                    var list = context.NextIndex.ModulesOfType(streetType);
+                    for (int i = 0; i < list.Count; i++) {
+                        var m = list[i];
+                        if (m == null || customRemovedIds.Contains(m.Id) || customDirtyIds.Contains(m.Id)) continue;
+                        if (StationOutdoorSurfaceLift.OverlapsAnyCell(m.Facts, m, touchedSurfaceCells)) {
+                            customDirtyIds.Add(m.Id);
+                            customHandledIds.Add(m.Id);
                         }
                     }
                 }
@@ -4433,14 +4503,21 @@ namespace Metro.App.Views {
                 return true;
             }
 
+            var record = index != null ? index.GetModule(module.Id) : null;
             if (module.Type == "court") {
-                pos = ModulePlacement.Position(module, entry);
+                pos = record != null
+                    ? ModulePlacement.Resolve(record, entry, index)
+                    : ModulePlacement.Position(module, entry) +
+                      new Vector3(0f, StationOutdoorSurfaceLift.ForIndex(index).LiftOf(module), 0f);
                 rot = ModulePlacement.Rotation(module.Rotation);
                 band = StationModuleLevels.Band(grid, module.Z);
                 return true;
             }
 
-            pos = ModulePlacement.Resolve(index != null ? index.GetModule(module.Id) : null, entry, index);
+            pos = record != null
+                ? ModulePlacement.Resolve(record, entry, index)
+                : ModulePlacement.Position(module, entry) + StationCoordinates.Point(ModulePlacement.RunCentre(module)) +
+                  new Vector3(0f, StationOutdoorSurfaceLift.ForIndex(index).LiftOf(module), 0f);
             rot = ModulePlacement.Rotation(module.Rotation);
             band = StationModuleLevels.Band(grid, module.Z);
             return true;
@@ -4616,6 +4693,7 @@ namespace Metro.App.Views {
             var proceduralRemovedIds = new HashSet<string>(StringComparer.Ordinal);
             var proceduralDirtyIds = new HashSet<string>(StringComparer.Ordinal);
             HashSet<(int Z, int X, int Y)> touchedGlassCells = null;
+            HashSet<(int X, int Y, int Z)> touchedSurfaceCells = null;
             var updatedItemsByChunk = new Dictionary<EquipChunkKey, (StationPrefabMeshTemplate Template, List<StationStaticPrefabItem> Items)>();
 
             void AddUpdatedBatchedItem(EquipChunkKey ck, StationPrefabMeshTemplate template, StationStaticPrefabItem item) {
@@ -4638,6 +4716,10 @@ namespace Metro.App.Views {
             for (int i = 0; i < delta.RemovedModules.Count; i++) {
                 var id = delta.RemovedModules[i];
                 if (!context.PrevIndex.TryGetModule(id, out var oldMod) || oldMod == null) continue;
+                if (StationSurfaceRules.IsSurface(oldMod.Type)) {
+                    (touchedSurfaceCells ??= new HashSet<(int, int, int)>()).Add((oldMod.X, oldMod.Y, oldMod.Z));
+                    continue;
+                }
                 if (string.Equals(oldMod.Type, "door", StringComparison.Ordinal)) {
                     RecordGlassCells(oldMod, Mathf.Max(1, oldMod.Width));
                     continue;
@@ -4666,6 +4748,11 @@ namespace Metro.App.Views {
                 var mod = delta.ChangedModules[i];
                 if (mod == null) continue;
                 context.PrevIndex.TryGetModule(mod.Id, out var prevMod);
+                if (StationSurfaceRules.IsSurface(mod.Type)) {
+                    (touchedSurfaceCells ??= new HashSet<(int, int, int)>()).Add((mod.X, mod.Y, mod.Z));
+                    if (prevMod != null) touchedSurfaceCells.Add((prevMod.X, prevMod.Y, prevMod.Z));
+                    continue;
+                }
                 if (string.Equals(mod.Type, "door", StringComparison.Ordinal)) {
                     if (prevMod != null && string.Equals(prevMod.Type, "door", StringComparison.Ordinal)) {
                         RecordGlassCells(prevMod, Mathf.Max(1, prevMod.Width));
@@ -4767,6 +4854,61 @@ namespace Metro.App.Views {
                         if (!template.TryDocumentBounds(worldMatrix, out var docBox)) docBox = BoxOf(rec.Facts);
                         AddUpdatedBatchedItem(nextCk, template, new StationStaticPrefabItem(cid, worldMatrix, docBox));
                         newCeilingLinks.Add((cid, col));
+                    }
+                }
+            }
+
+            if (context.CeilingSupportChanged) {
+                var allBooths = context.NextIndex.ModulesOfType("booth");
+                for (int i = 0; i < allBooths.Count; i++) {
+                    var b = allBooths[i];
+                    if (b == null || proceduralRemovedIds.Contains(b.Id) || proceduralDirtyIds.Contains(b.Id)) continue;
+                    if (!string.Equals(b.Config.Text("kind"), "info", StringComparison.Ordinal)) continue;
+                    int x0 = b.X, x1 = b.X + Mathf.Max(1, b.Width) - 1;
+                    int y0 = b.Y, y1 = b.Y + Mathf.Max(1, b.Depth) - 1;
+                    if (context.TouchedCeilingColumns.Contains(StationLocalDeltaContext.PackColumn(x0, y0)) ||
+                        context.TouchedCeilingColumns.Contains(StationLocalDeltaContext.PackColumn(x1, y0)) ||
+                        context.TouchedCeilingColumns.Contains(StationLocalDeltaContext.PackColumn(x0, y1)) ||
+                        context.TouchedCeilingColumns.Contains(StationLocalDeltaContext.PackColumn(x1, y1))) {
+                        proceduralDirtyIds.Add(b.Id);
+                        batchedAffectedIds.Add(b.Id);
+                    }
+                }
+            }
+
+            if (touchedSurfaceCells != null && touchedSurfaceCells.Count > 0) {
+                foreach (var equipType in StationModuleClaims.TypesOf(Group)) {
+                    var list = context.NextIndex.ModulesOfType(equipType);
+                    for (int i = 0; i < list.Count; i++) {
+                        var rec = list[i];
+                        if (rec == null || batchedAffectedIds.Contains(rec.Id)) continue;
+                        if (!StationOutdoorSurfaceLift.OverlapsAnyCell(rec.Facts, rec, touchedSurfaceCells)) continue;
+                        if (!IsBatchableEquipment(rec.Type)) {
+                            proceduralDirtyIds.Add(rec.Id);
+                            batchedAffectedIds.Add(rec.Id);
+                            continue;
+                        }
+                        if (hasBatchedGroups && catalogue != null && batchCache.ModuleToChunk.TryGetValue(rec.Id, out var oldCk)) {
+                            if (!TryResolveStaticEquipmentPose(context.NextIndex, grid, nextMounts, storeyHeight, catalogue,
+                                    rec.Facts, out var entry, out var key, out var pos, out var rot, out int band, out _)) {
+                                hasUnbatchedChange = true;
+                                continue;
+                            }
+                            if (!batchCache.Templates.TryGetTemplate(entry.prefab, out var template)) {
+                                hasUnbatchedChange = true;
+                                continue;
+                            }
+                            var nextCk = new EquipChunkKey(band, EquipChunkCoord(rec.X), EquipChunkCoord(rec.Y), key);
+                            var worldMatrix = Matrix4x4.TRS(pos, rot, template.PrefabLocalScale);
+                            dirtyChunkSet.Add(oldCk);
+                            dirtyChunkSet.Add(nextCk);
+                            removedOrMovedIds.Add(rec.Id);
+                            batchedAffectedIds.Add(rec.Id);
+                            if (!template.TryDocumentBounds(worldMatrix, out var docBox)) docBox = BoxOf(rec.Facts);
+                            AddUpdatedBatchedItem(nextCk, template, new StationStaticPrefabItem(rec.Id, worldMatrix, docBox));
+                        } else {
+                            hasUnbatchedChange = true;
+                        }
                     }
                 }
             }
@@ -4882,7 +5024,9 @@ namespace Metro.App.Views {
             var go = UnityEngine.Object.Instantiate(entry.prefab, parent, false);
             StationRigidModelLods.Apply(go, entry.prefab.name);
             go.name = (string.IsNullOrEmpty(module.Id) ? "module" : module.Id) + " " + module.Type;
-            go.transform.SetPositionAndRotation(ModulePlacement.Position(module, entry), ModulePlacement.Rotation(module.Rotation));
+            go.transform.SetPositionAndRotation(
+                ModulePlacement.Resolve(context.Index != null ? context.Index.GetModule(module.Id) : null, entry, context.Index),
+                ModulePlacement.Rotation(module.Rotation));
             var grid = StationLevelGrid.FromDocument(context.Document.LevelBase, context.Document.StoreyHeight);
             int band = StationModuleLevels.Band(grid, module.Z);
             if (TryDocumentBounds(go.transform, context.Root, out var bounds)) {
@@ -4931,11 +5075,15 @@ namespace Metro.App.Views {
             var grid = StationLevelGrid.FromDocument(document.LevelBase, document.StoreyHeight);
             int band = StationModuleLevels.Band(grid, module.Z);
             var palette = shader != null ? Palette(shader, state) : null;
-            if (palette != null) {
+            var boothPalette = state.BoothPalette ?? (palette != null
+                ? (state.BoothPalette = BoothModuleViews.BoothPalette.FromCatalogue(catalogue, shader, palette, state.Materials))
+                : null);
+            if (boothPalette != null) {
                 GameObject generated = null;
                 string note = "";
                 try {
-                    BoothModuleViews.TryBuild(module, parent, palette, out generated, out note);
+                    BoothModuleViews.TryBuild(module, parent, boothPalette, out generated, out note,
+                        StationOutdoorSurfaceLift.ForIndex(index).LiftOf(module), index);
                 } catch (Exception error) {
                     generated = null;
                     note = error.GetType().Name + ": " + error.Message;
@@ -5065,8 +5213,9 @@ namespace Metro.App.Views {
                 out var centreX, out var centreY);
             root = new GameObject((string.IsNullOrEmpty(module.Id) ? "glass" : module.Id) + " glass");
             root.transform.SetParent(parent, false);
+            float lift = floorStanding ? StationOutdoorSurfaceLift.ForIndex(index).LiftOf(module, record) : 0f;
             root.transform.SetPositionAndRotation(
-                StationCoordinates.Point(new Vector3(module.X + .5f + (float)centreX, module.Y + .5f + (float)centreY, module.Z + 1f)),
+                StationCoordinates.Point(new Vector3(module.X + .5f + (float)centreX, module.Y + .5f + (float)centreY, (float)module.ExactZ + 1f + lift)),
                 ModulePlacement.Rotation(module.Rotation));
 
             var posts = new GlassParts();

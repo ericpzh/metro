@@ -46,6 +46,10 @@ public class StationModuleClaimsTests {
         // Tianhe Park's indoor sports enclosure uses `court` (`pickleball`, `badminton`, `divider`).
         Assert.AreEqual(StationModuleClaims.Equipment, StationModuleClaims.GroupOf("court"),
             "court is owned by the equipment renderer");
+        Assert.AreEqual(StationModuleClaims.Equipment, StationModuleClaims.GroupOf("urinal"),
+            "urinal is owned by the equipment renderer");
+        Assert.AreEqual(StationModuleClaims.Street, StationModuleClaims.GroupOf("traffic-light"),
+            "traffic-light is owned by the street renderer");
     }
 
     [Test]

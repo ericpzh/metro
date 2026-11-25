@@ -13,22 +13,43 @@ namespace Metro.App {
     /// </summary>
     sealed class GeometryKit {
         readonly Mesh cube;
-        readonly StationMaterials materials;
+        readonly Func<int, Material> resolveMaterial;
         readonly Transform root;
         readonly Dictionary<int, List<CombineInstance>> batches = new Dictionary<int, List<CombineInstance>>();
         Dictionary<int, List<int>> lastTiers;
         readonly List<Mesh> meshes = new List<Mesh>();
 
-        public GeometryKit(Transform parent, Mesh cube, StationMaterials materials) {
+        public GeometryKit(Transform parent, Mesh cube, StationMaterials materials)
+            : this(parent, cube, materials != null
+                ? (Func<int, Material>)(colour => materials[colour])
+                : throw new ArgumentNullException(nameof(materials))) { }
+
+        public GeometryKit(Transform parent, Mesh cube, Func<int, Material> resolveMaterial) {
             root = new GameObject("Assembly").transform;
             root.SetParent(parent, false);
             this.cube = cube ?? throw new ArgumentNullException(nameof(cube));
-            this.materials = materials ?? throw new ArgumentNullException(nameof(materials));
+            this.resolveMaterial = resolveMaterial ?? throw new ArgumentNullException(nameof(resolveMaterial));
         }
 
         public Transform Root => root;
 
-        public void Box(Vector3 centre, Vector3 size, int colour, Quaternion rotation = default, int lastTier = 2) {
+        public void Box(Vector3 centre, Vector3 size, int colour, Quaternion rotation = default, int lastTier = 2) =>
+            AddMesh(cube, Matrix4x4.TRS(centre, rotation == default ? Quaternion.identity : rotation, size), colour, lastTier);
+
+        /// <summary>A box in a local frame: `origin` plus `rotation * local`.</summary>
+        public void LocalBox(Vector3 origin, Quaternion rotation, Vector3 local, Vector3 size, int colour, int lastTier = 2) =>
+            Box(origin + rotation * local, size, colour, rotation, lastTier);
+
+        /// <summary>A custom unit mesh placed like <see cref="LocalBox"/>.</summary>
+        public void LocalBoxMesh(Vector3 origin, Quaternion rotation, Vector3 local, Vector3 size, Mesh mesh, int colour, int lastTier = 2) =>
+            AddMesh(mesh, Matrix4x4.TRS(origin + rotation * local, rotation == default ? Quaternion.identity : rotation, size), colour, lastTier);
+
+        /// <summary>A custom mesh already authored in canonical local space, transformed by `origin` and `rotation`.</summary>
+        public void LocalMesh(Vector3 origin, Quaternion rotation, Mesh mesh, int colour, int lastTier = 2) =>
+            AddMesh(mesh, Matrix4x4.TRS(origin, rotation == default ? Quaternion.identity : rotation, Vector3.one), colour, lastTier);
+
+        void AddMesh(Mesh mesh, Matrix4x4 transform, int colour, int lastTier) {
+            if (!mesh) throw new ArgumentNullException(nameof(mesh));
             if (!batches.TryGetValue(colour, out var parts)) batches.Add(colour, parts = new List<CombineInstance>());
             if (lastTier < 2) {
                 lastTiers ??= new Dictionary<int, List<int>>();
@@ -40,14 +61,10 @@ namespace Metro.App {
             }
             if (lastTiers != null && lastTiers.TryGetValue(colour, out var tiers)) tiers.Add(lastTier);
             parts.Add(new CombineInstance {
-                mesh = cube,
-                transform = Matrix4x4.TRS(centre, rotation == default ? Quaternion.identity : rotation, size),
+                mesh = mesh,
+                transform = transform,
             });
         }
-
-        /// <summary>A box in a local frame: `origin` plus `rotation * local`.</summary>
-        public void LocalBox(Vector3 origin, Quaternion rotation, Vector3 local, Vector3 size, int colour, int lastTier = 2) =>
-            Box(origin + rotation * local, size, colour, rotation, lastTier);
 
         public void Combine(string name) {
             foreach (var entry in batches) {
@@ -60,7 +77,7 @@ namespace Metro.App {
                 var part = new GameObject(name + " part", typeof(MeshFilter), typeof(MeshRenderer));
                 part.transform.SetParent(root, false);
                 part.GetComponent<MeshFilter>().sharedMesh = mesh;
-                part.GetComponent<MeshRenderer>().sharedMaterial = materials[entry.Key];
+                part.GetComponent<MeshRenderer>().sharedMaterial = resolveMaterial(entry.Key);
             }
             batches.Clear();
             lastTiers?.Clear();
@@ -80,7 +97,7 @@ namespace Metro.App {
             part.transform.SetPositionAndRotation(position, rotation);
             part.transform.localScale = size;
             part.GetComponent<MeshFilter>().sharedMesh = cube;
-            part.GetComponent<MeshRenderer>().sharedMaterial = materials[colour];
+            part.GetComponent<MeshRenderer>().sharedMaterial = resolveMaterial(colour);
             return part.transform;
         }
 

@@ -40,8 +40,8 @@ project layers in `tools/unity-parity/check-unity-compile.ps1`:
 | `Runtime/Sim/` (`Metro.Sim`) | `StationClock`, `SimulationScheduler`, `SimulationRng`, `StationWalkGraphBuilder`, `StationWalkGraphWorkspace`, `StationRoutePlanner`, `StationSparsePolicy`/`Topology`/`Router`, `StationSimulationSession`, `StationServiceRuntime`/`Doors`/`Frames`, `StationPassengerWalking`, `StationActivityStops`, `StationTrainPose`, `StationRoadTraffic`, `StationStatistics` |
 | `Runtime/Build/` (`Metro.Build`) | `StationDocument`, `StationRecordPages` (256-record pages), `StationIndex` (`TryCreateIncremental`), `ModuleFacts`, `StationFootprints`, `StationEditPlanning`, `StationCellEditPlanning`, `StationWallAim`, `StationCeilingAim`, `StationRampPlanning`/`Carve`, `StationStairSlides`, `StationLiftPlanning`, `StationFacilityPlanning`, `StationModuleRuns`, `StationLineDefaults`, `StationRoofPlanning`, `StationPillarPlanning`, `StationHangerPlanning`, `StationRailPlanning`, `StationTunnelShell`, `StationSurfacePlanning`, `StationZonePlanning`, `StationFinishEdits`, `StationSignEdits`/`Layouts`, `StationExitSnapping`, `StationPlatformDoorways`, `StationPsdEndRules`, `StationRoadDocument`/`Layout`/`Edits` |
 | `Runtime/Persistence/` (`Metro.Persistence`) | `StationSaveV1`, `StationSaveCandidate`, `StationDocumentReader`, `ModuleFactsReader`, `StationLocalEdit`, `StationHostEdits`, `StationCellEdits`, `StationModuleEdits`, `StationLiftEdits`, `StationRoadWrites`, `StationCellNormalization`, `StationDayRepair`, `StationGridRepair`, `StationLineRepair`, `StationSignRepair` |
-| `Runtime/View/` (`Metro.View`) | `StationCoordinates`, `ModulePlacement`, `ModuleViews`, `StationModuleLevels`, `StationCeilingMounts`, `StationOutdoorConnections`, `StationConnectionDependencies`, `StationPlatformInsets`, `StationRampOpenings`, `StationCellMesher`, `StationCellMeshWorkspace`, `StationVisibility`, `StationViewCommands`, `StationCameraState`/`Controller`, `StationRailGeometry`/`Meshes`, `StationExplodedLayoutPlan`/`Connections`, `StationMeshLodIndices`, `RuntimeCatalogue`, `TrainCatalogue`/`Consist`/`Formations`/`MeshLods`, `PassengerCatalogue`/`Anchor`/`Appearance` |
-| `Runtime/App/` (`Metro.App`) | `StationGameHost`, `StationLoadCoordinator`, `StationWorldView`, `StationCommandRouter`, `StationDesktopUiPresenter`, `StationBenchmarkRecorder`, `StationPlayerBenchmark`, `StationEditProfiling`, `StationBindingReport`, `StationTools`, `StationPointerRouter`, `StationScenePicker`, `StationEditSession`, `StationPlacementPreview`, `Station{Cell,Paint,Zone,Rail,Tunnel,Surface,Roof,Pillar,Lift,Road}Tool`, `StationRenderRig`, `StationSkySystem`, `StationSectionView`/`Drag`, `StationExplodedView`, `StationStatisticsFeature`, `StationGraphicsSettings`, `StationModelDetailConfiguration`, `StationFsrUpscaler`, `StationRigidModelLods`, `StationGlass`, `StationMaterials`, `GeometryKit`, `ModuleMotion`, `TrainDoorRig`, `StationFamilyRenderers` |
+| `Runtime/View/` (`Metro.View`) | `StationCoordinates`, `ModulePlacement`, `ModuleViews`, `StationModuleLevels`, `StationCeilingMounts`, `StationOutdoorSurfaceLift`, `StationOutdoorConnections`, `StationConnectionDependencies`, `StationPlatformInsets`, `StationRampOpenings`, `StationCellMesher`, `StationCellMeshWorkspace`, `StationVisibility`, `StationViewCommands`, `StationCameraState`/`Controller`, `StationRailGeometry`/`Meshes`, `StationExplodedLayoutPlan`/`Connections`, `StationMeshLodIndices`, `RuntimeCatalogue`, `TrainCatalogue`/`Consist`/`Formations`/`MeshLods`, `PassengerCatalogue`/`Anchor`/`Appearance` |
+| `Runtime/App/` (`Metro.App`) | `StationGameHost`, `StationLoadCoordinator`, `StationWorldView`, `StationCommandRouter`, `StationDesktopUiPresenter`, `StationDesktopCursors`, `StationBenchmarkRecorder`, `StationPlayerBenchmark`, `StationEditProfiling`, `StationBindingReport`, `StationTools`, `StationPointerRouter`, `StationScenePicker`, `StationEditSession`, `StationPlacementPreview`, `Station{Cell,Paint,Zone,Rail,Tunnel,Surface,Roof,Pillar,Lift,Road}Tool`, `StationRenderRig`, `StationSkySystem`, `StationSectionView`/`Drag`, `StationExplodedView`, `StationStatisticsFeature`, `StationGraphicsSettings`, `StationModelDetailConfiguration`, `StationFsrUpscaler`, `StationRigidModelLods`, `StationGlass`, `StationMaterials`, `GeometryKit`, `ModuleMotion`, `TrainDoorRig`, `StationFamilyRenderers` |
 | `Runtime/App/Views/` (`Metro.App`) | `StationCellView`, `StationFinishLibrary`, `StationModuleGroups`, `StationPrefabBatch`, `StationStructureModuleViews`, `StationContactShadows`, `BoothModuleViews`, `OutdoorModuleViews`, `VerticalModuleViews`, `OpeningModuleViews`, `PsdReturnTrim`, `TrainConsistViews`, `TrainLiveryBinder`, `PassengerCrowdView`, `SessionPassengerFeed`, `StationRoadView`, `RoadVehicleViews`, `StationExplodedTrayBuilder`, `StationGridRenderer`, `StationOverlayViews`, `StationZoneMap`, `StationSignView`/`TextureCache`, `StationExitArtwork`, `PsdHeaderArtwork`, `StationDisplayArtwork`, `StationDisplayTvArtwork`, `StationTvPlatePainter`/`Schedule`, `StationLineMapArtwork`, `StationClockArtwork`, `StationCalligraphyArtwork`/`FaceCache` |
 | `Editor/` (`Assembly-CSharp-Editor`) | `StationGameScene`, `StationLocalProfile`, `RuntimeCatalogue`, `TrainCatalogueBuilder`, `PassengerCatalogueBuilder`, `LocalPassengerInjection`, `StationMeshLodImporter`, `TrainMeshLodBaker`, `StationGraphicsProjectSettings`, `BuildWeb`, `BuildWindows`, `ImportAssets`, `StationGameSmoke`, `StationStoreyVisibilityProbe`, `StationBindingReportCommand`, `StationEditorReactOverlay`, `StationDesignerIcon.png` |
 | `Plugins/WebGL/` | `StationGame.jslib` (+ test-harness `.jslib` files; every exported function declares `<fn>__sig` with `'p'` on pointer args) |
@@ -53,7 +53,10 @@ project layers in `tools/unity-parity/check-unity-compile.ps1`:
 - **Single conversion point (`StationCoordinates.cs`):** Saved documents,
   `Metro.Sim`, and `Metro.Build` stay in document axes `(x, y, z)` (`StoreyHeight = 5`,
   `LevelMinSteps = -8`, `LevelMaxSteps = 6`; integer `Facts.Z` indexes storeys
-  while `Facts.ExactZ` keeps fractional wall-mounted heights).
+  while `Facts.ExactZ` keeps fractional wall-mounted/vertical heights preserved
+  across `ModulePlacement.Position`, `OpeningModuleViews.Pivot`,
+  `BoothModuleViews.Pivot`, `StationStructureModuleViews`, and
+  `StationModuleGroups.BuildWallGlassGeometry`).
   `StationCoordinates.Point(x, y, z)` maps `(x, y, z)` → Unity world `(x, z, y)`.
   Never add implicit `+0.5` or `+1` in raw `Point` conversions; use `CellCenter`
   and `FloorTop` explicitly.
@@ -66,12 +69,15 @@ project layers in `tools/unity-parity/check-unity-compile.ps1`:
   in holder space (`TryMeasureGateJambInHolder`), skip `ModulePlacement.RunCentre`
   on corner-pivoted `court-{pickleball,badminton,divider}` prefabs, and guard
   `MeshTopology.Lines` submeshes (`court-net-mesh`) before `GetTriangles(...)`.
-- **Flat-shaded outward winding (`GeometryKit.BoxFaces`):** Procedural boxes in
-  `BoothModuleViews`, `VerticalModuleViews`, `PsdReturnTrim`, and previews must
-  emit 24 per-face vertices via `BoxFaces.Append*` so triangles wind outward
-  under backface culling without smoothed corner normals (`MeshWindingTests`).
-  Camera snapshots map Unity `right`/`up`/`-forward` back to document axes for
-  React's `ViewCube`.
+- **Flat-shaded outward winding (`GeometryKit.BoxFaces` & `LocalMesh`):** Procedural
+  boxes and extruded profiles in `BoothModuleViews`, `VerticalModuleViews`,
+  `PsdReturnTrim`, and previews must emit 24 per-face vertices via `BoxFaces.Append*`
+  (or flat-shaded outward-wound custom meshes via `GeometryKit.LocalMesh` /
+  `LocalBoxMesh`, such as `BoothModuleViews.BuildProfilePrism` and `ScreenCube()` with
+  `1 - v` LCD UVs matching glTFast's flipped `ticket-booth.glb` `screen` texture) so
+  triangles wind outward under backface culling without smoothed corner normals
+  (`MeshWindingTests`). Camera snapshots map Unity `right`/`up`/`-forward` back to
+  document axes for React's `ViewCube`.
 
 ## Feature registration & per-world lifecycle
 
@@ -175,6 +181,7 @@ Generators write deterministic JSON oracles into
 | `export-station-documents.mjs [--check]` | Exports gitignored `Demos/{zoo,tanwei,tianhe}.metro.json` + `provenance.json` |
 | `record-crowd-routing.mjs` | `crowd-routing-oracle.json` (sparse + legacy routing parity) |
 | `record-edge-placement.mjs [--check]` | `edge-placement-oracle.json` (edge-decor placement & curtain clearance) |
+| `record-module-placement.mjs [--check] [--demos <out>]` | `module-placement-oracle.json` (1,022 exact transformed-vertex module bounds, `StationOutdoorSurfaceLift` 0.10 m paving lift, and optional full-demo audit across `zoo`/`tanwei`/`tianhe`) |
 | `record-auto-wall-edits.mjs [--check]` | `auto-wall-edits-oracle.json` (floor/auto-wall edit ownership) |
 | `record-station-coordinates.mjs` | `station-coordinates-oracle.json` |
 | `record-station-clock.mjs` | `station-clock-oracle.json` + `station-route-oracle.json` |

@@ -114,10 +114,17 @@ orchestration and [batching-and-lod.md](batching-and-lod.md) for LOD/batching ru
     builds continuous 2 m / 4 m café prep cabinets rather than tiled 1 m units.
     `CheckoutModel` / `ShopCounter` build 1–4 m counters. `OfficeChair.ts` is shared by
     `DeskModel` and `BenchModel` (`office-1`).
-  * `BoothModel` builds a closed box inward from outer edges with corner mullions;
-    `DoorModel` builds 1.99 m single/double steel/wood/glass doorways reused by
-    `RoomModel` and snapped into 4 m `GlassModel` curtain walls (leaving the lower
-    doorway section unglazed).
+  * `BoothModel` builds a closed box inward from outer edges with corner mullions
+    (`ticket`) or a single-shell white counter with a sloped accessible front dip
+    (`info`). Monitors use `sim/booths.ts` (`boothScreenPositions`) to seat flush on
+    solid flat counter spans without overhanging edges, glazing, or `info` dip
+    shoulders; `info` overhead canopies hang via 4 corner steel suspension rods and
+    ceiling plates only when all 4 corners find a ceiling within `3 m` above the
+    header (`boothHeaderHang`), and are omitted otherwise (`boothModelInputs` in
+    `structuralModelInputs.ts` + `moduleDependencies.ts` invalidate affected `info`
+    booths on cell/roof/opening edits). `DoorModel` builds 1.99 m single/double
+    steel/wood/glass doorways reused by `RoomModel` and snapped into 4 m `GlassModel`
+    curtain walls (leaving the lower doorway section unglazed).
   * `ClockModel` builds double-sided geometry dials (no numerals; back dial rotated π
     around world Z) with `ClockRig` pivots; `RailSignalModel` stands 1 m tall on a
     `floor.concrete` plinth/post with mutable Y/G/R aspects (top-to-bottom `+z` to `-z`,

@@ -52,7 +52,7 @@ Complete file-by-file ownership map of the Three.js rendering layer under `game/
 | `cellChanges.ts` | Order-preserving immutable cell-record diff (`changedCellRecords`), retaining duplicate authored records. |
 | `retainPaintedModules.ts` | `canRetainPaintedModules` fast path keeping module groups and rigs on unrelated top-face floor paints (excluding stair starts). |
 | `moduleDependencies.ts` | Declared model-input retention (`retainedModuleIds`, `isEquipmentContentEdit`, `isEquipmentModelEdit`, `isBridgeModelEdit`, `signBoardsOnlyChange`, `movedGuidepostIds`, `translatedWalkwayIds`, `sameModuleMetadata`). |
-| `structuralModelInputs.ts` | Derived input snapshots for cell/neighbour-sensitive builders (ramps, tracks/gantries, bridge piers, hangers, ceiling heights, outdoor surfaces, roads). |
+| `structuralModelInputs.ts` | Derived input snapshots for cell/neighbour-sensitive builders (ramps, tracks/gantries, bridge piers, hangers, ceiling heights, booths, outdoor surfaces, roads). |
 | `presentationEdit.ts` | `presentationKeepIds` and `signLineInk` separating station/line/city artwork repaints from structural rebuilds. |
 
 ## Batching, Instancing, LOD & Previews

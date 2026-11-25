@@ -1917,9 +1917,13 @@ namespace Metro.App {
         public static Vector3 Placement(Metro.Build.StationModuleRecord record) {
             if (record == null) return Vector3.zero;
             var placement = ModulePlacement.Position(record.Facts, new Vector3(.5f, .5f, 1f));
-            var offset = BoothOffset(record);
-            placement.x += offset.x;
-            placement.z += offset.y;
+            // `SignModel.ts`: `boothOffset` only applies to wall signs bound to a booth (`cfg.mount === 'wall' && cfg.boothId`).
+            if (string.Equals(record.Config.Text("mount"), "wall", StringComparison.Ordinal) &&
+                !string.IsNullOrEmpty(record.Config.Text("boothId"))) {
+                var offset = BoothOffset(record);
+                placement.x += offset.x;
+                placement.z += offset.y;
+            }
             return placement;
         }
 

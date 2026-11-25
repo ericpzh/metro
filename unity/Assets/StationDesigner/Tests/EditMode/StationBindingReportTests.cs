@@ -312,8 +312,8 @@ namespace Metro.EditModeTests {
 
         [Test]
         public void FallbackAndDeliberateNoViewStayDistinctOnATinyStation() {
-            // A tiny save: a gate a renderer refuses, and a type no renderer claims (a
-            // urinal is a real saved type with no owning renderer).
+            // A tiny save: a gate a renderer refuses, and a type no renderer claims (`shop` is a
+            // real saved room type with no standalone module renderer).
             var json = new JObject {
                 ["format"] = "metro-save",
                 ["formatVersion"] = 1,
@@ -327,7 +327,7 @@ namespace Metro.EditModeTests {
                     ["cells"] = new JArray { new JObject { ["x"] = 0, ["y"] = 0, ["z"] = 0, ["fill"] = "solid" } },
                     ["modules"] = new JArray {
                         new JObject { ["id"] = "gate-refused", ["type"] = "gate", ["x"] = 0, ["y"] = 0, ["z"] = 0, ["rot"] = 0, ["cfg"] = new JObject { ["dir"] = "both" } },
-                        new JObject { ["id"] = "urinal-1", ["type"] = "urinal", ["x"] = 1, ["y"] = 0, ["z"] = 0, ["rot"] = 0, ["cfg"] = new JObject() },
+                        new JObject { ["id"] = "shop-1", ["type"] = "shop", ["x"] = 1, ["y"] = 0, ["z"] = 0, ["rot"] = 0, ["w"] = 3, ["h"] = 3, ["cfg"] = new JObject() },
                     },
                     ["lines"] = new JArray(),
                 },
@@ -346,8 +346,8 @@ namespace Metro.EditModeTests {
                 var gate = probe.Rows.First(row => row.Id == "gate-refused");
                 Assert.AreEqual("fallback", gate.Status, "a renderer-owned type with an unresolved diagnostic is a fallback");
                 StringAssert.Contains("refused-on-purpose", gate.Note);
-                var urinal = probe.Rows.First(row => row.Id == "urinal-1");
-                Assert.AreEqual("no-view: no-renderer:urinal", urinal.Status, "an unclaimed type is a named gap, not a fallback");
+                var shop = probe.Rows.First(row => row.Id == "shop-1");
+                Assert.AreEqual("no-view: no-renderer:shop", shop.Status, "an unclaimed type is a named gap, not a fallback");
                 Assert.AreEqual(1, probe.Status.Fallback);
                 Assert.AreEqual(1, probe.Status.NoView);
                 Assert.AreEqual(0, probe.Status.Deliberate, "nothing here is deliberate");

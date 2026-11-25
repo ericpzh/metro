@@ -54,6 +54,56 @@ and per-model triangle counts, see
   rotates catalogue insets around cell centre, applies `EdgeDecorGlassShare`
   `0.15 m` curtain clearance once, and matches `edge-placement-oracle.json`
   (`node tools/unity-parity/record-edge-placement.mjs --check`).
+- **Booth parity & outdoor paving lift (`BoothModuleViews`, `StationOutdoorSurfaceLift`):**
+  - `BoothModuleViews` matches web `BoothModel.ts` / `sim/booths.ts`: `BoothPalette.FromCatalogue`
+    extracts asset-owned materials from `TicketBooth` (`binSteel`/`steel`/`darkSteel`/`glass`/`black`/`screen`),
+    `BenchSeat1` (`white`), and `ElectricalCabinet` (`gateRed`), minting only unlit
+    `booth-headlight` (`#fff6e2`); `info` counters extrude a merged single-shell
+    accessible sloped dip (`BuildProfilePrism`, preserving `LOD2 * 2 <= LOD0` with or
+    without a canopy); `ComputeScreenLayout` seats `ScreenCube()` monitors flush on
+    solid counter spans; and `TryResolveInfoHeaderHang` hangs the `info` overhead
+    canopy via 4 corner rods/plates only when all 4 corners find a ceiling within
+    `3 m` (omitting it otherwise). `StationWorldView.AddCeilingSupportColumns` tracks
+    `roof` columns, `StationEquipmentModuleRenderer.TryStageLocalDelta` refreshes
+    affected `info` booths on `CeilingSupportChanged`, and `StationPlacementPreview`
+    passes the live `StationIndex` so hover/room ghosts match placed booths
+    (`BoothModuleViewsTests`, `MeshWindingTests`).
+  - **Outdoor paving lift & full-catalogue placement parity (`StationOutdoorSurfaceLift`,
+    `StationModulePlacementParityTests`):**
+    - `StationOutdoorSurfaceLift` (`Height = 0.10 m`, `ConditionalWeakTable`-cached
+      per `StationIndex` / module list, ignoring exit head-house & ramp openings
+      and reading `hangerBoxes` for `hanger-post`) lifts eligible floor-standing
+      equipment, booths, fences, doors, gates, pillars, post hangers, virtual
+      exits, trees, and floor marks resting on intact `sidewalk`/`lawn` tiles
+      across `ModulePlacement`, `OpeningModuleViews`, `BoothModuleViews`,
+      `OutdoorModuleViews`, `StationFamilyRenderers`, `StationStructureModuleViews`,
+      `StationModuleGroups`, and `StationPlacementPreview`; local-delta edits that
+      add, remove, or alter `sidewalk`/`lawn` tiles invalidate affected renderers.
+    - **Doors & PSD returns (`OpeningModuleViews`):** 2-cell standing doors
+      (`door-{steel,wood,glass}-2`, implicit width resolved via
+      `StationModuleFamilies.DoorWidth`) apply `(run - 1) * 0.5 m` local X offset
+      alongside `edgeIn` in both committed views and previews; `psd-end` applies
+      the `toward` sign to `sillY`, reads corner `platform-edge`'s own `side`/`psd`
+      in `ParentHousing`, and builds trimmed half-height returns via
+      `PsdReturnTrim.Apply` for corner/offset ends.
+    - **Calligraphy, signs, claims, catenary & roads:** `StationCalligraphyArtwork`
+      uses `StationCalligraphy.VPanelW` (`0.98 m`), bottom-anchors planar ink to
+      `VBottom`/`HBottom` without mutating `sharedMesh`, wraps `pillarId` vertical
+      inscriptions onto a 32-segment `r = 0.493 m` cylindrical arc (tracked in
+      `OwnedMeshes`), and `StationEditPlanning` strips `-h`/`-v` when writing
+      `cfg.style`; `StationSignViews.Placement` applies `BoothOffset` only when
+      `mount == "wall" && !string.IsNullOrEmpty(boothId)`; `StationModuleClaims`
+      claims `"urinal"` (`equipment`) and `"traffic-light"` (`street`); planar
+      `floor-mark` pads degenerate Z bounds by `±0.1 mm` and previews add
+      `FloorMarkOffset`; `StationRailGeometry.PowerOf` accepts `"catenary"` and
+      `"overhead"`, and `StationRailMeshes.BuildCatenary` evaluates
+      `TrainContactWireZ` at `DefaultScale = 0.98`; `StationRoadView.Slab` handles
+      `!acrossX` transposition once without double-swapping E–W crosswalks/stop lines.
+    - Verified against `module-placement-oracle.json`
+      (`node tools/unity-parity/record-module-placement.mjs --check`, `1,022` exact
+      transformed-vertex cases plus `--demos` over `90,395` shipped demo modules)
+      by `StationModulePlacementParityTests` (committed geometry, preview ghosts,
+      GPU-instanced batches, and live local-delta sidewalk add/erase).
 - **Fence composition & integral escalator/walkway/stair receiver pillars
   (`StationOutdoorConnections`, `OutdoorModuleViews`, `VerticalModuleViews`):**
   Connected one-axis and two-axis fences (`glass`, `iron`, `gate`, `steel-blue`)

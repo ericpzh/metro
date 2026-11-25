@@ -315,12 +315,28 @@ namespace Metro.View {
 
         /// <summary>The authored power option (`third-rail`/`catenary`); "third-rail" when absent.</summary>
         public static string PowerOf(StationDocument document, ModuleFacts track) {
-            if (document != null && track != null) {
-                var lineId = track.Config.Text("line");
-                for (int i = 0; i < document.Lines.Count; i++) {
-                    var line = document.Lines[i];
-                    if (line == null || !string.Equals(line.Id, lineId, StringComparison.Ordinal)) continue;
-                    return string.Equals(line.Power, "overhead", StringComparison.OrdinalIgnoreCase) ? "catenary" : "third-rail";
+            if (track != null) {
+                // `TrackModel.ts` reads `mod.cfg.power === 'catenary'` directly; saved lines may also
+                // store either `"catenary"` or `"overhead"`, so honour explicit track power first and
+                // fall back to the line record when omitted.
+                var explicitPower = track.Config.Text("power");
+                if (string.Equals(explicitPower, "catenary", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(explicitPower, "overhead", StringComparison.OrdinalIgnoreCase)) {
+                    return "catenary";
+                }
+                if (string.Equals(explicitPower, "third-rail", StringComparison.OrdinalIgnoreCase)) {
+                    return "third-rail";
+                }
+                if (document != null) {
+                    var lineId = track.Config.Text("line");
+                    for (int i = 0; i < document.Lines.Count; i++) {
+                        var line = document.Lines[i];
+                        if (line == null || !string.Equals(line.Id, lineId, StringComparison.Ordinal)) continue;
+                        return string.Equals(line.Power, "overhead", StringComparison.OrdinalIgnoreCase) ||
+                               string.Equals(line.Power, "catenary", StringComparison.OrdinalIgnoreCase)
+                            ? "catenary"
+                            : "third-rail";
+                    }
                 }
             }
             return "third-rail";

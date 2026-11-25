@@ -107,6 +107,7 @@ TypeScript with zero external dependencies and zero DOM/Three/React imports (enf
 | `floorDecor.ts` | Floor equipment & stickers (`court`, `ac-unit`, `electrical-cabinet`, `tactile`, `floor-mark`): specs, bounds, `tactileArms`, screen-aligned `snapBoardingMark` / `realignSavedFloorMarks`. |
 | `benches.ts` | `BENCH_SPECS` (1 m / 2 m plain and backed variants) shared by builder, collision, activity stops, and renderer. |
 | `counters.ts` | `COUNTER_SPECS` (`checkout`/`generic`/`cafe`/`cafe-pastry`), 1–4 m lengths (`COUNTER_LENGTHS`), and `counterCells`. |
+| `booths.ts` | Booth monitor layout (`boothScreenPositions`, flush counter-seated spans clearing `info` accessible dips, glazing, and edges) and `info` overhead canopy ceiling-hang checks (`BOOTH_HEADER_BOTTOM`, `BOOTH_HEADER_TOP`, `BOOTH_HEADER_MAX_HANG = 3`, `boothSuspensionCorners`, `boothCeilingZ`, `boothHeaderHang`). |
 | `shelves.ts` | `SHELF_SPECS` (store/cooler/clothing/bakery/fruit/cafe/book/bag variants), `shelfWidth`, and `shelfCells`. |
 | `extinguishers.ts` | `EXTINGUISHER_SPECS` (`standard`/`compact`/`glass`, 1–2 cells) and `extinguisherCells`. |
 | `doors.ts` | Free-standing & room `DOOR_SPECS` (single/double × steel/wood/glass, 1.99 m height) and shared `DOOR_FRAME` hardware metrics. |

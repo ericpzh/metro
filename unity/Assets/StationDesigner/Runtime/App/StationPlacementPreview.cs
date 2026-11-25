@@ -831,7 +831,8 @@ namespace Metro.App {
                     Depth = area.Height,
                     Config = new ModuleConfig(cfg),
                 };
-                if (Views.BoothModuleViews.TryBuild(facts, transform, palette, out var view, out _) && view != null) {
+                float boothLift = StationOutdoorSurfaceLift.ForIndex(index).LiftOf(facts);
+                if (Views.BoothModuleViews.TryBuild(facts, transform, palette, out var view, out _, boothLift, index) && view != null) {
                     view.name = "ghost facility booth " + kind;
                     foreach (var renderer in view.GetComponentsInChildren<Renderer>(true)) {
                         if (renderer == null) continue;
@@ -1343,9 +1344,9 @@ namespace Metro.App {
                 var neighbours = OutdoorModuleViews.Neighbours(facts, conns);
                 if (OutdoorModuleViews.TryBuildFencePreview("ghost " + draft.Id + " fence",
                     draft.Text("variant"), draft.Rotation, neighbours, transform, material, out var fenceGo)) {
-                    fenceGo.transform.SetPositionAndRotation(
-                        StationCoordinates.FloorTop(draft.X, draft.Y, draft.Z),
-                        Quaternion.identity);
+                    var fencePos = StationCoordinates.FloorTop(draft.X, draft.Y, draft.Z);
+                    fencePos.y += StationOutdoorSurfaceLift.ForIndex(index).LiftOf(facts, record);
+                    fenceGo.transform.SetPositionAndRotation(fencePos, Quaternion.identity);
                     foreach (var renderer in fenceGo.GetComponentsInChildren<Renderer>(true)) {
                         if (renderer == null) continue;
                         renderer.forceMeshLod = 0;
@@ -1388,7 +1389,8 @@ namespace Metro.App {
             // rather than the fixed-size canonical prefab.
             if (string.Equals(draft.Type, "booth", StringComparison.Ordinal)) {
                 var palette = GhostBoothMaterials(ok);
-                if (palette != null && Views.BoothModuleViews.TryBuild(facts, transform, palette, out var boothGo, out _) &&
+                float boothLift = StationOutdoorSurfaceLift.ForIndex(index).LiftOf(facts, record);
+                if (palette != null && Views.BoothModuleViews.TryBuild(facts, transform, palette, out var boothGo, out _, boothLift, index) &&
                     boothGo != null) {
                     boothGo.name = "ghost " + draft.Id + " booth";
                     foreach (var renderer in boothGo.GetComponentsInChildren<Renderer>(true)) {
@@ -1455,6 +1457,9 @@ namespace Metro.App {
             var go = Instantiate(entry.prefab, transform, false);
             go.name = "ghost " + draft.Id + " " + draft.Type;
             var position = ModulePlacement.Resolve(record, entry, index);
+            if (string.Equals(draft.Type, "floor-mark", StringComparison.Ordinal)) {
+                position += Views.StationSurfaceModuleRenderer.FloorMarkOffset(facts);
+            }
             var rotation = ModulePlacement.Rotation(facts);
             if (string.Equals(draft.Type, "exit", StringComparison.Ordinal) &&
                 string.Equals(facts.Config.Text("style"), "doorway", StringComparison.Ordinal)) {
@@ -1472,7 +1477,9 @@ namespace Metro.App {
             }
             go.transform.SetPositionAndRotation(position, rotation);
             if (string.Equals(draft.Type, "calligraphy", StringComparison.Ordinal)) {
-                Views.StationCalligraphyArtwork.FitPreviewScale(go, facts, draft.PanelHeight);
+                var calMeshes = new List<Mesh>(1);
+                Views.StationCalligraphyArtwork.FitPreviewScale(go, facts, draft.PanelHeight, calMeshes);
+                if (calMeshes.Count > 0) TrackOwnedMeshes(calMeshes, target);
             }
             Material lineMaterial = null;
             foreach (var renderer in go.GetComponentsInChildren<Renderer>(true)) {

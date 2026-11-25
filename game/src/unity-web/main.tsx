@@ -5,8 +5,11 @@
 // The legacy Zoo slice keeps its own entry (`zooUi.tsx`) so the old
 // `ZooPlayable` scene and its recorded smoke stay reproducible during the
 // transition; `tools/unity-web/pack.mjs` attaches the entry for the built scene.
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createRoot } from 'react-dom/client'
+import { TfiHandDrag } from 'react-icons/tfi'
+import { TbBulldozer } from 'react-icons/tb'
+import { CgColorPicker } from 'react-icons/cg'
 import { App } from '../app/windows/AppShell.tsx'
 import { ViewCube } from '../app/ViewCube.tsx'
 import type { ViewCubeAdapter } from '../app/ViewCubeAdapter.ts'
@@ -17,13 +20,14 @@ import { msg } from '../sim/i18n.ts'
 import { measurePosition, measureText, wantsMeasure, type CellsPayload } from './pointerMeasure.ts'
 import { showGameLoading } from '../app/gameLoading.ts'
 import { getUiTheme, initUiTheme, subscribeUiTheme } from '../app/uiTheme.ts'
-import { initUiScale } from '../app/uiScale.ts'
+import { getUiScale, initUiScale } from '../app/uiScale.ts'
 import { demoStationForPath, gamePathFor } from '../app/demoRoute.ts'
 import type { StationHost } from '../app/windows/StationHost.tsx'
 import { openingLevel } from '../app/openingLevel.ts'
 import { parse } from '../persistence/save.ts'
 import { attachCanvasCameraGestures, attachViewStateBridge, createStationCameraPort, createUnityViewCubeAdapter } from './cameraAdapter.ts'
 import { attachCanvasToolPointer } from './pointerInput.ts'
+import { readSectionHot, syncViewportCanvasClasses, toolPointerPosition, type CustomToolCursor } from './viewportCursor.ts'
 import { createToolAdapter, rightClaimedByTool } from './toolAdapter.ts'
 import { noticeKey, noticeText, type BuildOutcome } from './editNotices.ts'
 import { UnityExplodedView } from './UnityExplodedView.tsx'
@@ -55,18 +59,123 @@ const text = (value: unknown): string | null => typeof value === 'string' && val
 
 function UnityViewport({ canvas, adapter }: { canvas: HTMLCanvasElement; adapter: ViewCubeAdapter }): React.ReactElement {
   const container = useRef<HTMLDivElement>(null)
+  const pointerHostRef = useRef<HTMLSpanElement>(null)
+  const lastPointerRef = useRef<{ clientX: number; clientY: number } | null>(null)
+  const tool = useStore(s => s.tool)
+  const sectionOn = useStore(s => s.cutaway && !s.hideSectionSurface)
+  const explodedView = useStore(s => s.explodedView)
+  const followAgentId = useStore(s => s.followAgentId)
+  const sectionHot = useSyncExternalStore(
+    stationBridge.subscribe,
+    () => readSectionHot(stationBridge.getSnapshot().state),
+  )
+  const [benchmarkActive, setBenchmarkActive] = useState(
+    () => typeof document !== 'undefined' && document.body?.dataset?.metroBenchmarkActive === 'true',
+  )
+  const [customCursor, setCustomCursor] = useState<CustomToolCursor | null>(null)
+
+  useEffect(() => {
+    const onBenchmarkMode = (event: Event): void => {
+      const detail = (event as CustomEvent<{ active?: boolean }>).detail
+      setBenchmarkActive(detail?.active === true || document.body?.dataset?.metroBenchmarkActive === 'true')
+    }
+    window.addEventListener('metro:benchmark-mode', onBenchmarkMode)
+    return () => { window.removeEventListener('metro:benchmark-mode', onBenchmarkMode) }
+  }, [])
+
   useEffect(() => {
     const stage = container.current
     if (!stage) return
-    canvas.className = 'viewport'
+    canvas.classList.add('viewport')
     stage.appendChild(canvas)
     return () => {
+      canvas.classList.remove('selectCursor', 'grab', 'toolPointer')
       const containerFallback = document.getElementById('unity-fullscreen-container')
       if (containerFallback) containerFallback.insertBefore(canvas, containerFallback.firstChild)
       else canvas.remove()
     }
   }, [canvas])
-  return <div className="unityViewport" ref={container}><ViewCube adapter={adapter} /></div>
+
+  useLayoutEffect(() => {
+    const next = syncViewportCanvasClasses(canvas, {
+      tool,
+      sectionOn,
+      sectionHot,
+      explodedView,
+      followAgentId,
+      benchmarkActive,
+    })
+    setCustomCursor(prev => (prev === next ? prev : next))
+  }, [canvas, tool, sectionOn, sectionHot, explodedView, followAgentId, benchmarkActive])
+
+  useLayoutEffect(() => {
+    const icon = pointerHostRef.current?.firstElementChild as HTMLElement | null
+    if (!icon) return
+    const pos = lastPointerRef.current
+    if (!pos || !customCursor) {
+      icon.style.display = 'none'
+      return
+    }
+    const rect = container.current?.getBoundingClientRect() ?? canvas.getBoundingClientRect()
+    const at = toolPointerPosition(pos.clientX, pos.clientY, rect, getUiScale())
+    icon.style.left = `${at.left}px`
+    icon.style.top = `${at.top}px`
+    icon.style.display = ''
+  }, [canvas, customCursor])
+
+  useEffect(() => {
+    const updateIcon = (clientX: number, clientY: number): void => {
+      lastPointerRef.current = { clientX, clientY }
+      const icon = pointerHostRef.current?.firstElementChild as HTMLElement | null
+      if (!icon) return
+      const rect = container.current?.getBoundingClientRect() ?? canvas.getBoundingClientRect()
+      const at = toolPointerPosition(clientX, clientY, rect, getUiScale())
+      icon.style.left = `${at.left}px`
+      icon.style.top = `${at.top}px`
+      icon.style.display = ''
+    }
+    const hideIcon = (): void => {
+      lastPointerRef.current = null
+      const icon = pointerHostRef.current?.firstElementChild as HTMLElement | null
+      if (icon) icon.style.display = 'none'
+    }
+    const onMove = (event: PointerEvent): void => {
+      if (event.pointerType === 'touch') { hideIcon(); return }
+      updateIcon(event.clientX, event.clientY)
+    }
+    const onLeave = (event: PointerEvent): void => {
+      if (event.pointerType === 'touch') return
+      try { if (canvas.hasPointerCapture?.(event.pointerId)) return } catch { /* ignore */ }
+      hideIcon()
+    }
+    canvas.addEventListener('pointermove', onMove, { passive: true })
+    canvas.addEventListener('pointerenter', onMove, { passive: true })
+    canvas.addEventListener('pointerdown', onMove, { passive: true })
+    canvas.addEventListener('pointerleave', onLeave, { passive: true })
+    return () => {
+      canvas.removeEventListener('pointermove', onMove)
+      canvas.removeEventListener('pointerenter', onMove)
+      canvas.removeEventListener('pointerdown', onMove)
+      canvas.removeEventListener('pointerleave', onLeave)
+    }
+  }, [canvas])
+
+  return (
+    <>
+      <div className="unityViewport" ref={container}><ViewCube adapter={adapter} /></div>
+      <span ref={pointerHostRef} style={{ display: 'contents' }} aria-hidden="true">
+        {customCursor === 'move' && (
+          <TfiHandDrag className="movePointer" aria-hidden="true" style={{ display: 'none' }} />
+        )}
+        {customCursor === 'delete' && (
+          <TbBulldozer className="deletePointer" aria-hidden="true" style={{ display: 'none' }} />
+        )}
+        {customCursor === 'pick' && (
+          <CgColorPicker className="pickerPointer" aria-hidden="true" style={{ display: 'none' }} />
+        )}
+      </span>
+    </>
+  )
 }
 
 function UnityApp({ canvas, host, adapter }: { canvas: HTMLCanvasElement; host: StationHost; adapter: ViewCubeAdapter }): React.ReactElement {

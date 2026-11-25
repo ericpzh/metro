@@ -710,11 +710,16 @@ namespace Metro.App.Views {
             var dirtyIds = new HashSet<string>(StringComparer.Ordinal);
             HashSet<long> dirtyRoofColumns = null;
             HashSet<long> dirtyBridgeColumns = null;
+            HashSet<(int X, int Y, int Z)> touchedSurfaceCells = null;
             var delta = context.Delta;
 
             for (int i = 0; i < delta.RemovedModules.Count; i++) {
                 var id = delta.RemovedModules[i];
                 if (!context.PrevIndex.TryGetModule(id, out var oldMod) || oldMod == null) continue;
+                if (StationSurfaceRules.IsSurface(oldMod.Type)) {
+                    (touchedSurfaceCells ??= new HashSet<(int, int, int)>()).Add((oldMod.X, oldMod.Y, oldMod.Z));
+                    continue;
+                }
                 if (string.Equals(oldMod.Type, "track", StringComparison.Ordinal) && oldMod.Config.Bool("bridge")) {
                     AddBridgeTrackColumns(oldMod, dirtyBridgeColumns ??= new HashSet<long>());
                     continue;
@@ -728,6 +733,13 @@ namespace Metro.App.Views {
             for (int i = 0; i < delta.ChangedModules.Count; i++) {
                 var mod = delta.ChangedModules[i];
                 if (mod == null) continue;
+                if (StationSurfaceRules.IsSurface(mod.Type)) {
+                    (touchedSurfaceCells ??= new HashSet<(int, int, int)>()).Add((mod.X, mod.Y, mod.Z));
+                    if (context.PrevIndex.TryGetModule(mod.Id, out var prevSurf) && prevSurf != null) {
+                        touchedSurfaceCells.Add((prevSurf.X, prevSurf.Y, prevSurf.Z));
+                    }
+                    continue;
+                }
                 if (string.Equals(mod.Type, "track", StringComparison.Ordinal)) {
                     if (mod.Config.Bool("bridge")) {
                         AddBridgeTrackColumns(mod, dirtyBridgeColumns ??= new HashSet<long>());
@@ -777,6 +789,19 @@ namespace Metro.App.Views {
                     foreach (var id in ids) {
                         if (!removedIds.Contains(id) && context.NextIndex.TryGetModule(id, out _)) {
                             dirtyIds.Add(id);
+                        }
+                    }
+                }
+            }
+
+            if (touchedSurfaceCells != null && touchedSurfaceCells.Count > 0) {
+                foreach (var structType in new[] { "pillar", "hanger" }) {
+                    var list = context.NextIndex.ModulesOfType(structType);
+                    for (int i = 0; i < list.Count; i++) {
+                        var m = list[i];
+                        if (m == null || removedIds.Contains(m.Id) || dirtyIds.Contains(m.Id)) continue;
+                        if (StationOutdoorSurfaceLift.OverlapsAnyCell(m.Facts, m, touchedSurfaceCells)) {
+                            dirtyIds.Add(m.Id);
                         }
                     }
                 }
@@ -832,8 +857,9 @@ namespace Metro.App.Views {
 
                     var root = new GameObject((string.IsNullOrEmpty(module.Id) ? kind : module.Id) + " " + kind);
                     root.transform.SetParent(context.StagingRoot, false);
+                    float lift = StationOutdoorSurfaceLift.ForIndex(context.NextIndex).LiftOf(module, record);
                     root.transform.SetPositionAndRotation(
-                        StationCoordinates.Point(new Vector3(module.X + .5f, module.Y + .5f, module.Z + 1f)),
+                        StationCoordinates.Point(new Vector3(module.X + .5f, module.Y + .5f, (float)module.ExactZ + 1f + lift)),
                         turn ? ModulePlacement.Rotation(module.Rotation) : Quaternion.identity);
                     var meshes = new List<Mesh>(4);
                     parts.Emit(root.transform, meshes, kind);
@@ -902,8 +928,9 @@ namespace Metro.App.Views {
             if (parts.Triangles == 0) return false;
             root = new GameObject("ghost " + (string.IsNullOrEmpty(module.Id) ? kind : module.Id) + " " + kind);
             root.transform.SetParent(parent, false);
+            float lift = StationOutdoorSurfaceLift.ForIndex(index).LiftOf(module);
             root.transform.SetPositionAndRotation(
-                StationCoordinates.Point(new Vector3(module.X + .5f, module.Y + .5f, module.Z + 1f)),
+                StationCoordinates.Point(new Vector3(module.X + .5f, module.Y + .5f, (float)module.ExactZ + 1f + lift)),
                 turn ? ModulePlacement.Rotation(module.Rotation) : Quaternion.identity);
             meshes = new List<Mesh>(4);
             parts.Emit(root.transform, meshes, kind);
@@ -1210,8 +1237,9 @@ namespace Metro.App.Views {
             var parent = context.RoleRoot(Role);
             var root = new GameObject((string.IsNullOrEmpty(module.Id) ? kind : module.Id) + " " + kind);
             root.transform.SetParent(parent, false);
+            float lift = StationOutdoorSurfaceLift.ForIndex(context.Index).LiftOf(module);
             root.transform.SetPositionAndRotation(
-                StationCoordinates.Point(new Vector3(module.X + .5f, module.Y + .5f, module.Z + 1f)),
+                StationCoordinates.Point(new Vector3(module.X + .5f, module.Y + .5f, (float)module.ExactZ + 1f + lift)),
                 turn ? ModulePlacement.Rotation(module.Rotation) : Quaternion.identity);
             parts.Emit(root.transform, state.Meshes, kind);
             state.Count++;

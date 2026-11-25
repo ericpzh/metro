@@ -1036,7 +1036,7 @@ namespace Metro.App {
         /// </summary>
         public static Vector3 Pivot(ModuleFacts module, Vector3 entryOffset, bool floorTop) {
             float rise = floorTop ? 1f : 0f;
-            var anchor = StationCoordinates.Point(new Vector3(module.X + .5f, module.Y + .5f, module.Z + rise));
+            var anchor = StationCoordinates.Point(new Vector3(module.X + .5f, module.Y + .5f, (float)module.ExactZ + rise));
             var localDocument = entryOffset - new Vector3(.5f, .5f, floorTop ? 1f : 0f);
             return anchor + ModulePlacement.Rotation(module.Rotation) * Local(localDocument.x, localDocument.y, localDocument.z);
         }
@@ -1098,6 +1098,8 @@ namespace Metro.App {
             public string UpTerminus, DownTerminus, UpTerminusEn, DownTerminusEn;
             public string UpNextStation, DownNextStation, UpNextStationEn, DownNextStationEn;
             public string StationName, StationNameEn;
+            public bool HasOutdoorLift;
+            public float OutdoorLift;
             public GameObject Prefab;
             public RuntimeCatalogue Catalogue;
         }
@@ -1127,6 +1129,8 @@ namespace Metro.App {
                 HasDepth = cfg.Has("depth"),
                 ConfigWidth = (float)cfg.Number("width", 0),
                 ConfigDepth = (float)cfg.Number("depth", 0),
+                HasOutdoorLift = index != null,
+                OutdoorLift = index != null ? StationOutdoorSurfaceLift.ForIndex(index).LiftOf(module) : 0f,
             };
             if (cfg.TryNumbers("offset", out var offset) && offset.Length >= 2) {
                 request.OffsetX = (float)offset[0];
@@ -1332,6 +1336,10 @@ namespace Metro.App {
             if (parent == null) return Fail(view, "no-parent");
             if (facts == null) return Fail(view, "no-facts");
             if (!Owns(request.Type)) return Fail(view, "unsupported-type:" + request.Type);
+            if (!request.HasOutdoorLift && station != null && station.Count > 0) {
+                request.HasOutdoorLift = true;
+                request.OutdoorLift = StationOutdoorSurfaceLift.ForFacts(station).LiftOf(facts);
+            }
             switch (view.Kind) {
                 case OpeningKind.PsdRun: return BuildRun(request, facts, catalogue, parent, paint, view);
                 case OpeningKind.PsdEnd:
@@ -1360,7 +1368,7 @@ namespace Metro.App {
             };
             if (string.Equals(request.Psd, "none", StringComparison.Ordinal)) {
                 // `buildPsd` still draws the platform's yellow safety line where the screen is absent (§5.9).
-                var bare = Holder(parent, request.ModuleId, facts, floorTop: false);
+                var bare = Holder(parent, request.ModuleId, facts, floorTop: false, lift: request.OutdoorLift);
                 if (bare == null) return Fail(view, "no-holder");
                 float bareLen = Mathf.Max(1f, request.Width);
                 float bareCx = -.5f + bareLen * .5f;
@@ -1386,7 +1394,7 @@ namespace Metro.App {
             // datum — the foundation then stood on the platform as a bar and the run no longer
             // met its own generated `psd-end` panels (which are placed at `mod.z`). The run is
             // generated in the source frame, so it hangs at the source datum.
-            var holder = Holder(parent, request.ModuleId, facts, floorTop: false);
+            var holder = Holder(parent, request.ModuleId, facts, floorTop: false, lift: request.OutdoorLift);
             if (holder == null) return Fail(view, "no-holder");
             view.Holder = holder;
             view.Run = layout;
@@ -1714,7 +1722,7 @@ namespace Metro.App {
             // its own `cfg.offset` verbatim (`PsdEndModel`). Both offsets act on the fittings,
             // never on the module's own pivot.
             var endOffset = PsdEndOffset(request.HasCorner, request.OffsetX, request.OffsetY);
-            var holder = Holder(parent, request.ModuleId, facts, floorTop: false);
+            var holder = Holder(parent, request.ModuleId, facts, floorTop: false, lift: request.OutdoorLift);
             if (holder == null) return Fail(view, "no-holder");
             view.Holder = holder;
 
@@ -1775,13 +1783,9 @@ namespace Metro.App {
                 return true;
             }
 
-            if (half && TryPrefab(request, catalogue, PsdEndPrefabKey, holder, view, out var halfInstance)) {
-                // `PsdEndModel`: `child.position.x += ox; child.position.y += oy` — the offset
-                // is along/across in the **source** frame, so the holder-local position is
-                // `Local(ox, oy, 0)`. (The previous `Local(ox, 0, oy)` put the across offset
-                // into the elevation.) The promoted frame's x may be mirrored; a corner end's
-                // ox is the only value this affects and no half-height corner exists in the
-                // shipped saves, so it is applied in the document's x and reported if it moves.
+            bool plainHalfPrefab = half && !request.HasCorner &&
+                Mathf.Abs(endOffset.x) <= 1e-4f && Mathf.Abs(endOffset.y) <= 1e-4f;
+            if (plainHalfPrefab && TryPrefab(request, catalogue, PsdEndPrefabKey, holder, view, out var halfInstance)) {
                 halfInstance.transform.localPosition = Local(endOffset.x, endOffset.y, 0f);
                 view.parts.Add(MeasurePart("psd-end-panel", OpeningPartRole.Other, halfInstance.transform, holder,
                     paint, OpeningColour.White));
@@ -1792,25 +1796,31 @@ namespace Metro.App {
             }
             if (half && view.Instance) { Discard(view.Instance); view.Instance = null; }
 
-            // Full height: the end assembly `PsdEndModel` builds at the saved span. The
-            // promoted `PsdEnd` is the half-height course, so it cannot serve here.
+            // Generated end assembly (`PsdEndModel` + `PsdModel.buildPsd`) at the saved span,
+            // trimmed against `ParentHousing` and clamped to tile bounds `[-0.5 .. +0.5]`.
+            // Handles all full-height ends AND half-height corner/offset ends whose span or
+            // tile-edge offset cannot be represented by the canonical 1 m `PsdEnd` prefab.
             var span = PsdEndSpan(endOffset.x);
             float ox = endOffset.x;
             float oy = endOffset.y;
             float x0 = span.x;
             float len = span.y - span.x;
             if (len <= .01f) return Fail(view, "empty-span");
-            // The screen faces the track: `side: right` mirrors the wall plane (a saved
-            // `side` the run honours, and the return shares the run's frame).
-            float wall = string.Equals(request.Side, "right", StringComparison.Ordinal) ? PsdWallOffset : -PsdWallOffset;
+            // The screen faces the track: `side: right` mirrors the wall plane and the sill reach
+            // (`PsdModel.ts:30-31, 94-98`: `toward = side === 'right' ? 1 : -1`,
+            // `sillY = yWall + toward * (sillTrackReach - PSD_BASE_DEPTH / 2) / 2`).
+            float toward = string.Equals(request.Side, "right", StringComparison.Ordinal) ? 1f : -1f;
+            float wall = toward * PsdWallOffset;
             const float z0 = 1f;
-            float doorH = PsdFullHeight - PsdDoorTopGap - PsdHeaderHeight;
+            float halfRailTop = PsdHalfHeight - .05f;
+            float doorH = half ? halfRailTop - .12f : PsdFullHeight - PsdDoorTopGap - PsdHeaderHeight;
             float glassMid = z0 + doorH * .5f;
             float cx = x0 + len * .5f;
-            float slideOffset = .07f;
-            float sillReach = slideOffset + .12f + .01f;
+            float fixedFrameDepth = half ? .10f : .14f;
+            float slideOffset = fixedFrameDepth * .5f;
+            float sillReach = slideOffset + (half ? .10f : .12f) + .01f;
             float sillDepth = PsdBaseDepth * .5f + sillReach;
-            float sillY = wall + (sillReach - PsdBaseDepth * .5f) * .5f;
+            float sillY = wall + toward * (sillReach - PsdBaseDepth * .5f) * .5f;
 
             var cavity = new OpeningBuilder(holder, paint);
             float shiftX = ox;
@@ -1821,27 +1831,39 @@ namespace Metro.App {
             cavity.Box(OpeningColour.Black, Local(cx + shiftX, sillY + shiftY, z0 - .01f), LocalSize(len, sillDepth, .02f));
             cavity.Part("psd-concrete-foundation", OpeningPartRole.Foundation);
             cavity.Box(OpeningColour.Concrete, Local(cx + shiftX, sillY + shiftY, z0 - .51f), LocalSize(len, sillDepth, .98f));
-            cavity.Part("psd-info-housing", OpeningPartRole.Fascia);
-            cavity.Box(OpeningColour.White, Local(cx + shiftX, wall + shiftY, z0 + doorH + PsdHeaderHeight * .5f),
-                LocalSize(len, .24f, PsdHeaderHeight));
-            cavity.Part("psd-fascia-cap", OpeningPartRole.Fascia);
-            cavity.Box(OpeningColour.Black, Local(cx + shiftX, wall + shiftY, z0 + PsdFullHeight - .025f),
-                LocalSize(len, .28f, .05f));
+            if (!half) {
+                cavity.Part("psd-info-housing", OpeningPartRole.Fascia);
+                cavity.Box(OpeningColour.White, Local(cx + shiftX, wall + shiftY, z0 + doorH + PsdHeaderHeight * .5f),
+                    LocalSize(len, .24f, PsdHeaderHeight));
+                cavity.Part("psd-fascia-cap", OpeningPartRole.Fascia);
+                cavity.Box(OpeningColour.Black, Local(cx + shiftX, wall + shiftY, z0 + PsdFullHeight - .025f),
+                    LocalSize(len, .28f, .05f));
+            }
             cavity.Part("psd-warning-strip", OpeningPartRole.Warning);
             cavity.Box(OpeningColour.Red, Local(cx + shiftX, wall + shiftY, z0 + .003f), LocalSize(len, .03f, .006f));
             cavity.Part("psd-fixed-glass", OpeningPartRole.Glass);
             cavity.Box(OpeningColour.Glass, Local(cx + shiftX, wall + shiftY, glassMid), LocalSize(len, .012f, doorH));
-            cavity.Part("psd-fixed-rail", OpeningPartRole.Frame);
-            cavity.Box(OpeningColour.Black, Local(cx + shiftX, wall + shiftY, z0 + .03f), LocalSize(len, .12f, .06f));
-            cavity.Box(OpeningColour.Black, Local(cx + shiftX, wall + shiftY, z0 + doorH - .03f),
-                LocalSize(len, .12f, .06f));
-            cavity.Part("psd-fixed-post", OpeningPartRole.Frame);
-            foreach (var post in new[] { x0 + .04f, x0 + len - .04f })
-                cavity.Box(OpeningColour.Black, Local(post + shiftX, wall + shiftY, glassMid), LocalSize(.08f, .14f, doorH));
+            if (half) {
+                cavity.Part("psd-fixed-rail", OpeningPartRole.Frame);
+                cavity.Box(OpeningColour.Black, Local(cx + shiftX, wall + shiftY, z0 + halfRailTop - .06f),
+                    LocalSize(len, .08f, .12f));
+                cavity.Part("psd-fixed-cap", OpeningPartRole.Fascia);
+                cavity.Box(OpeningColour.Black, Local(cx + shiftX, wall + shiftY, z0 + PsdHalfHeight - .025f),
+                    LocalSize(len, .10f, .05f));
+            } else {
+                cavity.Part("psd-fixed-rail", OpeningPartRole.Frame);
+                cavity.Box(OpeningColour.Black, Local(cx + shiftX, wall + shiftY, z0 + .03f), LocalSize(len, .12f, .06f));
+                cavity.Box(OpeningColour.Black, Local(cx + shiftX, wall + shiftY, z0 + doorH - .03f),
+                    LocalSize(len, .12f, .06f));
+                cavity.Part("psd-fixed-post", OpeningPartRole.Frame);
+                foreach (var post in new[] { x0 + .04f, x0 + len - .04f })
+                    cavity.Box(OpeningColour.Black, Local(post + shiftX, wall + shiftY, glassMid),
+                        LocalSize(.08f, fixedFrameDepth, doorH));
+            }
             cavity.Part("psd-section-pillar", OpeningPartRole.Frame);
             foreach (var pillar in new[] { x0 + .08f, x0 + len - .08f })
                 cavity.Box(OpeningColour.Black, Local(pillar + shiftX, wall + shiftY, glassMid),
-                    LocalSize(.16f, .14f, doorH));
+                    LocalSize(.16f, fixedFrameDepth, doorH));
             // 18 §3: the opaque return stops at its parent screen's housing, slice by slice,
             // while the fixed glass stays on the shared centreline. A continuation with no
             // resolvable parent is trimmed by its own box and tile bounds only, and says so.
@@ -1886,16 +1908,24 @@ namespace Metro.App {
                 }
             }
             if (corner == null) { note = "corner-not-found:" + request.Corner; return null; }
+            // `PsdEndModel.ts` builds the reference housing from the parent corner screen's own
+            // `cfg.side` and `cfg.psd`, not the return's (a return against a right-bank edge
+            // leaves its own `side` blank/left while the corner edge carries `side: "right"`).
+            var cornerSide = corner.Config.Text("side");
+            if (string.IsNullOrEmpty(cornerSide)) cornerSide = request.Side;
+            var cornerPsd = corner.Config.Text("psd");
+            if (string.IsNullOrEmpty(cornerPsd)) cornerPsd = request.Psd;
+            bool cornerHalf = string.Equals(cornerPsd, "half", StringComparison.Ordinal);
             var run = new PsdRunRequest {
                 ModuleId = corner.Id, X = corner.X, Y = corner.Y, Z = corner.Z,
                 Rotation = corner.Rotation, Width = Mathf.Max(1, corner.Width),
-                Side = request.Side, Psd = request.Psd, StoreyHeight = request.StoreyHeight,
+                Side = cornerSide, Psd = cornerPsd, StoreyHeight = request.StoreyHeight,
             };
             if (!TryPsdRun(run, out var layout, out var runDiagnostic)) {
                 note = "corner-layout:" + runDiagnostic;
                 return null;
             }
-            var profile = PsdReturnTrim.ProfileFromRun(layout, half);
+            var profile = PsdReturnTrim.ProfileFromRun(layout, cornerHalf);
             if (profile.Count == 0) { note = "corner-empty"; return null; }
             var cornerFrame = Matrix4x4.TRS(Pivot(corner, new Vector3(.5f, .5f, 0f), false),
                 ModulePlacement.Rotation(corner.Rotation), Vector3.one);
@@ -1972,7 +2002,7 @@ namespace Metro.App {
             if (!visual.HasModel) return Fail(view, "unresolved:" + (visual.Detail.Length > 0 ? visual.Detail : "no-view"));
             if (catalogue == null || !catalogue.TryGet(visual.Key, out var entry) || entry.prefab == null)
                 return Fail(view, "no-prefab:" + visual.Key);
-            var holder = Holder(parent, request.ModuleId, facts);
+            var holder = Holder(parent, request.ModuleId, facts, floorTop: true, lift: request.OutdoorLift);
             if (holder == null) return Fail(view, "no-holder");
             var instance = UnityEngine.Object.Instantiate(entry.prefab, holder, false);
             instance.name = request.ModuleId;
@@ -2414,10 +2444,13 @@ namespace Metro.App {
             if (catalogue == null || !catalogue.TryGet(visual.Key, out var entry) || entry.prefab == null)
                 return Fail(view, "no-prefab:" + visual.Key);
             // The doorway's line sits one frame half-depth inside the anchor cell's leading
-            // edge and turns with the piece (`DoorModel.buildStandingDoor` EDGE_IN).
+            // edge and centres its `run`-cell span along local +x (`DoorModel.ts` `EDGE_IN`
+            // and `(run - 1) / 2`), turning with the piece.
             float edgeIn = DoorPostDepth * .5f - .5f;
+            int run = Math.Max(facts.Width, StationModuleFamilies.DoorWidth(facts.Config.Text("variant")));
+            float runOffset = (run - 1f) * .5f;
             var holder = Holder(parent, request.ModuleId, facts, floorTop: true,
-                extraLocal: new Vector3(0f, 0f, edgeIn));
+                extraLocal: new Vector3(runOffset, 0f, edgeIn), lift: request.OutdoorLift);
             if (holder == null) return Fail(view, "no-holder");
             var instance = UnityEngine.Object.Instantiate(entry.prefab, holder, false);
             instance.name = request.ModuleId;
@@ -2467,7 +2500,7 @@ namespace Metro.App {
             if (catalogue == null || !catalogue.TryGet(key, out var entry) || entry.prefab == null)
                 return Fail(view, "no-prefab:" + key);
             bool standalone = string.Equals(values.Text("variant"), "toilet", StringComparison.Ordinal);
-            var holder = Holder(parent, request.ModuleId, facts);
+            var holder = Holder(parent, request.ModuleId, facts, floorTop: true, lift: request.OutdoorLift);
             if (holder == null) return Fail(view, "no-holder");
             var instance = UnityEngine.Object.Instantiate(entry.prefab, holder, false);
             instance.name = request.ModuleId;
@@ -2798,11 +2831,12 @@ namespace Metro.App {
         /* --------------------------------------------------------------- helpers */
 
         static Transform Holder(Transform parent, string moduleId, ModuleFacts facts, bool floorTop = true,
-            Vector3 extraLocal = default) {
+            Vector3 extraLocal = default, float lift = 0f) {
             if (parent == null || facts == null) return null;
             var holder = new GameObject(string.IsNullOrEmpty(moduleId) ? "opening pivot" : moduleId + " pivot").transform;
             holder.SetParent(parent, false);
             var pivot = Pivot(facts, new Vector3(.5f, .5f, floorTop ? 1f : 0f), floorTop);
+            pivot.y += lift;
             holder.SetPositionAndRotation(pivot + ModulePlacement.Rotation(facts.Rotation) * extraLocal,
                 ModulePlacement.Rotation(facts.Rotation));
             return holder;
@@ -3696,6 +3730,7 @@ namespace Metro.App {
             var retiredIds = new HashSet<string>(StringComparer.Ordinal);
             var dirtyIds = new HashSet<string>(StringComparer.Ordinal);
             List<(int X, int Y, int Z)> fenceTouchPoints = null;
+            HashSet<(int X, int Y, int Z)> touchedSurfaceCells = null;
             HashSet<string> changedOrRemovedEdgeIds = null;
             HashSet<string> changedOrRemovedTrackIds = null;
 
@@ -3710,6 +3745,9 @@ namespace Metro.App {
             for (int i = 0; i < delta.RemovedModules.Count; i++) {
                 var id = delta.RemovedModules[i];
                 if (!context.PrevIndex.TryGetModule(id, out var oldMod) || oldMod == null) continue;
+                if (StationSurfaceRules.IsSurface(oldMod.Type)) {
+                    (touchedSurfaceCells ??= new HashSet<(int, int, int)>()).Add((oldMod.X, oldMod.Y, oldMod.Z));
+                }
                 if (IsFenceConnectionType(oldMod.Type)) {
                     (fenceTouchPoints ??= new List<(int, int, int)>()).Add((oldMod.X, oldMod.Y, oldMod.Z));
                 }
@@ -3736,6 +3774,12 @@ namespace Metro.App {
             for (int i = 0; i < delta.ChangedModules.Count; i++) {
                 var mod = delta.ChangedModules[i];
                 if (mod == null) continue;
+                if (StationSurfaceRules.IsSurface(mod.Type)) {
+                    (touchedSurfaceCells ??= new HashSet<(int, int, int)>()).Add((mod.X, mod.Y, mod.Z));
+                    if (context.PrevIndex.TryGetModule(mod.Id, out var prevSurf) && prevSurf != null) {
+                        touchedSurfaceCells.Add((prevSurf.X, prevSurf.Y, prevSurf.Z));
+                    }
+                }
                 if (IsFenceConnectionType(mod.Type)) {
                     (fenceTouchPoints ??= new List<(int, int, int)>()).Add((mod.X, mod.Y, mod.Z));
                     if (context.PrevIndex.TryGetModule(mod.Id, out var prevMod) && prevMod != null) {
@@ -3851,6 +3895,21 @@ namespace Metro.App {
                         retiredIds.Add(end.Id);
                     }
                     dirtyIds.Add(end.Id);
+                }
+            }
+
+            // Floor-standing openings rise +0.10 m when standing on a sidewalk/lawn tile.
+            if (touchedSurfaceCells != null && touchedSurfaceCells.Count > 0) {
+                foreach (var openingType in new[] { "door", "gate", "cubicle", "psd-end", "platform-edge" }) {
+                    var list = context.NextIndex.ModulesOfType(openingType);
+                    for (int i = 0; i < list.Count; i++) {
+                        var m = list[i];
+                        if (m == null || dirtyIds.Contains(m.Id) || !IsLocalOpeningType(m.Type)) continue;
+                        if (StationOutdoorSurfaceLift.OverlapsAnyCell(m.Facts, m, touchedSurfaceCells)) {
+                            if (!state.ModuleToCoverChunk.ContainsKey(m.Id)) retiredIds.Add(m.Id);
+                            dirtyIds.Add(m.Id);
+                        }
+                    }
                 }
             }
 

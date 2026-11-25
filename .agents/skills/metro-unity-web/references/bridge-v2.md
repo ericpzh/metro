@@ -15,6 +15,7 @@ and the Unity bridge/presenter classes in `unity/Assets/StationDesigner/`.
 | `cameraAdapter.ts` | `createStationCameraPort`, `createUnityViewCubeAdapter` (rAF-coalesced `camera.orbit` & sequenced `onCameraPose`), `attachViewStateBridge` (`view.set`), and `attachCanvasCameraGestures` (middle orbit, unclaimed right pan, wheel zoom, build-button chord guard). |
 | `pointerButtons.ts` | Canonical DOM mouse button (`0`/`1`/`2`) to `MouseEvent.buttons` bit (`1`/`4`/`2`) table, `MOVE_BUTTON = -1` sentinel, `holdsButton`, `hasBuildChord`. |
 | `pointerInput.ts` | Canvas tool pointer stream (`pointer.down`, rAF-coalesced `pointer.move` suppressed during middle-drag orbit and unclaimed right-drag pan with middle-down hover rAF cancellation, `pointer.up`, `pointer.rightTap`, `pointer.cancel`, `pointer.leave`), build-button chord cancel, and full-swapchain coordinate normalization under `html.metro-overlay`. |
+| `viewportCursor.ts` | Web-parity viewport cursor resolver (`customToolCursorFor`, `readSectionHot`, `toolPointerPosition`, `syncViewportCanvasClasses`) toggling `#unity-canvas` `.grab` / `.toolPointer` classes and floating SVG `move`/`delete`/`pick` icons while yielding to Exploded View, eye view, benchmark mode, and section-cut handles (`unity/tests/viewport-cursor.test.mjs`). |
 | `pointerMeasure.ts` | Formats and positions the drag-size badge (`.metro-measure-chip`) from `state.edit.cells.measure` (`wantsMeasure`, `measureText`, `measurePosition`). |
 | `keyboardNavigation.ts` | Held `WASD` (`camera.panPlanarHeld`) and `Ctrl+Q/E` (`camera.panHeld`) with `Shift` boost; clears held state on blur, tab hide, dialog block, or unmount. |
 | `toolAdapter.ts` | Bidirectional sync between shared store tool/rail/paint/`currentBoards` (`signBoards`) settings and C# `tool.set` / `state.tool` (`applyingHostTool` echo guard, `rightClaimedByTool`). |
@@ -172,8 +173,10 @@ producing one stylesheet shared by the player and benchmark route.
   `.stage`/`#unity-canvas`/`.explodedViewer[data-ready="true"]` and sets
   `window.__metroDesktopOverlay = true` + `window.metroUnityAudioBase = '/audio/'`.
 - **Loopback TCP IPC & input forwarding:** JSON lines over `127.0.0.1` ephemeral port
-  (`connected`, `ready`, `cmd`, `bridge`, `resize`, `mouse`, `key`, `navigate`,
-  `capturePreview`, `previewCaptured`, `log`, `quit`).
+  (`connected`, `ready`, `cmd`, `bridge`, `resize`, `mouse`, `key`, `cursor`, `navigate`,
+  `capturePreview`, `previewCaptured`, `log`, `quit`). Offscreen CSS cursor changes
+  stream as `cursor` notifications to `StationDesktopUiPresenter`, which applies crisp
+  32×32 hardware textures via `StationDesktopCursors` (`StationDesktopCursorsTests`).
   - Mouse button edges capture InputSystem event coordinates (`OnMouseButtonEvent`) and
     deliver final drag motion before button-up; `mouseMoved` carries the active held button
     (`HeldButtonName` / `ResolveCdpMouseButton`) so Blink preserves native scrollbars, range

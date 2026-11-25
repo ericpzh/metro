@@ -102,7 +102,7 @@ namespace Metro.App.Views {
         /// <summary>`calligraphyPanelSize(axis, w, panelH)`, in metres.</summary>
         public static Vector2 PanelSize(string axis, float width, float panelHeight) {
             bool vertical = string.Equals(axis, "v", StringComparison.Ordinal);
-            return new Vector2(vertical ? .72f : Mathf.Max(.5f, width <= 0f ? 1f : width),
+            return new Vector2(vertical ? (float)StationCalligraphy.VPanelW : Mathf.Max(.5f, width <= 0f ? 1f : width),
                 Mathf.Max(.4f, panelHeight <= 0f ? 1.6f : panelHeight));
         }
 
@@ -206,6 +206,7 @@ namespace Metro.App.Views {
         public sealed class Scope : MonoBehaviour {
             public readonly List<string> Notes = new List<string>();
             public readonly Dictionary<string, Material> Materials = new Dictionary<string, Material>(StringComparer.Ordinal);
+            public readonly List<Mesh> OwnedMeshes = new List<Mesh>();
             public int Bound;
             public string LastError = "";
             /// <summary>The world this scope prints for; the reply path recaptures through it.</summary>
@@ -314,6 +315,10 @@ namespace Metro.App.Views {
                 if (!cacheOwnedTextures && texture) SafeDestroy(texture);
             }
             scope.Materials.Clear();
+            for (int i = 0; i < scope.OwnedMeshes.Count; i++) {
+                if (scope.OwnedMeshes[i]) SafeDestroy(scope.OwnedMeshes[i]);
+            }
+            scope.OwnedMeshes.Clear();
         }
 
         /// <summary>Route one `calligraphy.faceChunk` / `calligraphy.faceReady` into every live world.</summary>
@@ -414,7 +419,13 @@ namespace Metro.App.Views {
             var axis = module.Config.Text("axis");
             bool showEnglish = module.Config.Bool("showEnglish") || module.Config.Bool("nameEn");
             var panel = PanelSize(axis, module.Width, (float)PanelHeightOf(document, module, world ?? scope.World));
-            FitPlanarInkScale(renderer, panel);
+            bool pillarWrapped = !string.IsNullOrEmpty(module.Config.Text("pillarId")) &&
+                string.Equals(axis, "v", StringComparison.Ordinal);
+            if (pillarWrapped) {
+                ApplyPillarArcMesh(root, renderer, panel, scope.OwnedMeshes);
+            } else {
+                FitPlanarInkScale(root, renderer, axis, panel);
+            }
             MeasureInkOrientation(root, renderer, out bool mirrorU, out bool flipV);
             var contentKey = ContentKey(name, nameEn, showEnglish, style, axis, panel);
             var materialKey = BridgeKey(contentKey, mirrorU, flipV);
@@ -497,26 +508,35 @@ namespace Metro.App.Views {
         }
 
         /// <summary>
-        /// Scale any flat 4-vertex inscription plate under <paramref name="root"/> to match a
-        /// preview candidate's authored `w × panelH` without mutating the shared prefab mesh.
+        /// Scale any flat 4-vertex inscription plate under <paramref name="root"/> (or wrap a
+        /// vertical pillar-mounted inscription around the cylindrical shaft) to match a preview
+        /// candidate's authored `w × panelH` without mutating the shared prefab mesh.
         /// </summary>
-        internal static void FitPreviewScale(GameObject root, ModuleFacts module, double panelHeight) {
+        internal static void FitPreviewScale(GameObject root, ModuleFacts module, double panelHeight,
+            List<Mesh> ownedMeshes = null) {
             if (!root || module == null) return;
             var axis = string.Equals(module.Config.Text("axis"), "v", StringComparison.Ordinal) ? "v" : "h";
             var panel = PanelSize(axis, module.Width, (float)panelHeight);
+            bool pillarWrapped = !string.IsNullOrEmpty(module.Config.Text("pillarId")) &&
+                string.Equals(axis, "v", StringComparison.Ordinal);
             foreach (var renderer in root.GetComponentsInChildren<MeshRenderer>(true)) {
-                FitPlanarInkScale(renderer, panel);
+                if (pillarWrapped) {
+                    ApplyPillarArcMesh(root, renderer, panel, ownedMeshes);
+                } else {
+                    FitPlanarInkScale(root, renderer, axis, panel);
+                }
             }
         }
 
         /// <summary>
         /// Scale a flat 4-vertex inscription plate's transform when its module's `w × panelH`
         /// differs from the promoted prefab's baked dimensions (e.g. a 4 m Zoo wall inscription
-        /// sharing the 5 m `calligraphy-wei-h` prefab), while leaving `filter.sharedMesh`, its UVs
-        /// and its local bounds completely untouched. Curved pillar bands (`vertexCount > 4`) keep
-        /// their authored arc.
+        /// sharing the 5 m `calligraphy-wei-h` prefab, or a 2 m vertical panel sharing the 2.6 m
+        /// prefab) and anchor its bottom edge to `calligraphyBottom(axis)` (`0.4 m` vertical,
+        /// `1.2 m` horizontal), while leaving `filter.sharedMesh`, its UVs and its local bounds
+        /// completely untouched. Curved pillar bands (`vertexCount > 4`) keep their authored arc.
         /// </summary>
-        static void FitPlanarInkScale(MeshRenderer renderer, Vector2 panel) {
+        static void FitPlanarInkScale(GameObject root, MeshRenderer renderer, string axis, Vector2 panel) {
             if (!renderer) return;
             var filter = renderer.GetComponent<MeshFilter>();
             var mesh = filter != null ? filter.sharedMesh : null;
@@ -528,6 +548,85 @@ namespace Metro.App.Views {
             float sy = (current.y < 0f ? -1f : 1f) * (panel.y / size.y);
             float sz = current.z == 0f ? 1f : (current.z < 0f ? -1f : 1f);
             renderer.transform.localScale = new Vector3(sx, sy, sz);
+            if (!root) return;
+            // Anchor the bottom edge to `calligraphyBottom(axis)` above floor top (`root.transform`
+            // sits at `(x+0.5, y+0.5, z+1)`). Scaling a prefab whose quad was baked at a taller
+            // height keeps its baked midpoint, shifting the bottom edge upward by `(bakedH - panelH)/2`.
+            float expectedBottom = string.Equals(axis, "v", StringComparison.Ordinal)
+                ? (float)StationCalligraphy.VBottom
+                : (float)StationCalligraphy.HBottom;
+            var local = mesh.bounds;
+            float minY = float.MaxValue;
+            for (int c = 0; c < 8; c++) {
+                var corner = new Vector3(
+                    (c & 1) == 0 ? local.min.x : local.max.x,
+                    (c & 2) == 0 ? local.min.y : local.max.y,
+                    (c & 4) == 0 ? local.min.z : local.max.z);
+                var inRoot = root.transform.InverseTransformPoint(renderer.transform.TransformPoint(corner));
+                if (inRoot.y < minY) minY = inRoot.y;
+            }
+            float deltaY = expectedBottom - minY;
+            if (Mathf.Abs(deltaY) > 1e-4f) {
+                renderer.transform.position += root.transform.up * deltaY;
+            }
+        }
+
+        /// <summary>
+        /// Build the cylindrical pillar-wrapped vertical inscription mesh matching
+        /// `CalligraphyModel.ts` (`radius = 0.493`, `segments = 32`, `x = -sin(a)*r`, `y = cos(a)*r`,
+        /// `z = [0.4, 0.4 + panel.h]`) in `root`-local Unity axes `(docX, docZ, docY)`.
+        /// </summary>
+        static void ApplyPillarArcMesh(GameObject root, MeshRenderer renderer, Vector2 panel, List<Mesh> ownedMeshes) {
+            if (!root || !renderer) return;
+            var filter = renderer.GetComponent<MeshFilter>();
+            if (!filter) return;
+            const float radius = .493f;
+            const int segments = 32;
+            float z0 = (float)StationCalligraphy.VBottom;
+            float z1 = z0 + panel.y;
+            var vertices = new Vector3[(segments + 1) * 2];
+            var normals = new Vector3[(segments + 1) * 2];
+            var uvs = new Vector2[(segments + 1) * 2];
+            var triangles = new int[segments * 6];
+            for (int i = 0; i <= segments; i++) {
+                float u = (float)i / segments;
+                float angle = (u - .5f) * panel.x / radius;
+                float nx = -Mathf.Sin(angle);
+                float nz = Mathf.Cos(angle);
+                float x = nx * radius;
+                float z = nz * radius;
+                int v = i * 2;
+                vertices[v] = new Vector3(x, z0, z);
+                vertices[v + 1] = new Vector3(x, z1, z);
+                var normal = new Vector3(nx, 0f, nz);
+                normals[v] = normal;
+                normals[v + 1] = normal;
+                uvs[v] = new Vector2(u, 0f);
+                uvs[v + 1] = new Vector2(u, 1f);
+                if (i < segments) {
+                    int t = i * 6;
+                    triangles[t] = v;
+                    triangles[t + 1] = v + 1;
+                    triangles[t + 2] = v + 2;
+                    triangles[t + 3] = v + 1;
+                    triangles[t + 4] = v + 3;
+                    triangles[t + 5] = v + 2;
+                }
+            }
+            var arcMesh = new Mesh { name = "calligraphy pillar arc" };
+            arcMesh.vertices = vertices;
+            arcMesh.normals = normals;
+            arcMesh.uv = uvs;
+            arcMesh.triangles = triangles;
+            arcMesh.RecalculateBounds();
+            // Reset the ink node to `root`'s frame so the generated root-local arc carries no
+            // residual glTFast flip/offset from the flat wall prefab.
+            renderer.transform.SetParent(root.transform, false);
+            renderer.transform.localPosition = Vector3.zero;
+            renderer.transform.localRotation = Quaternion.identity;
+            renderer.transform.localScale = Vector3.one;
+            filter.sharedMesh = arcMesh;
+            ownedMeshes?.Add(arcMesh);
         }
 
         /// <summary>
