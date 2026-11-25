@@ -868,8 +868,63 @@ namespace Metro.App.Views {
             }
         }
 
+        /* ------------------------------------------------------------- preview */
+
+        /// <summary>
+        /// Build a placement/move/extension ghost for `pillar`, `roof`, or `hanger` through the
+        /// exact same geometry builders the live station renderer uses — so a thick pillar is a
+        /// round cylinder with collars, a slim pillar sits at its 9-spot offset, a roof bay keeps
+        /// its authored width/depth/truss/canopy/plateSnap shape, and a hanger stretches its rods
+        /// to the ceiling backing above.
+        /// </summary>
+        public static bool TryBuildPreview(ModuleFacts module, StationIndex index, Transform parent,
+            Material ghostMaterial, out GameObject root, out List<Mesh> meshes) {
+            root = null;
+            meshes = null;
+            if (module == null || parent == null || ghostMaterial == null) return false;
+            StructureParts parts;
+            string kind;
+            bool turn = true;
+            if (string.Equals(module.Type, "pillar", StringComparison.Ordinal)) {
+                kind = "pillar";
+                parts = BuildPillarPartsCore(module, index, null, ghostMaterial, ghostMaterial, out bool thick, out _, out _);
+                turn = thick;
+            } else if (string.Equals(module.Type, "roof", StringComparison.Ordinal)) {
+                kind = "roof";
+                parts = BuildRoofPartsCore(module, ghostMaterial, ghostMaterial, out _, out _, out _);
+            } else if (string.Equals(module.Type, "hanger", StringComparison.Ordinal)) {
+                kind = "hanger";
+                var backing = new HangerBackingIndex(index, index?.Document?.Cells, null);
+                parts = BuildHangerPartsCore(module, backing, ghostMaterial, out _);
+            } else {
+                return false;
+            }
+            if (parts.Triangles == 0) return false;
+            root = new GameObject("ghost " + (string.IsNullOrEmpty(module.Id) ? kind : module.Id) + " " + kind);
+            root.transform.SetParent(parent, false);
+            root.transform.SetPositionAndRotation(
+                StationCoordinates.Point(new Vector3(module.X + .5f, module.Y + .5f, module.Z + 1f)),
+                turn ? ModulePlacement.Rotation(module.Rotation) : Quaternion.identity);
+            meshes = new List<Mesh>(4);
+            parts.Emit(root.transform, meshes, kind);
+            foreach (var r in root.GetComponentsInChildren<Renderer>(true)) {
+                if (r == null) continue;
+                r.forceMeshLod = 0;
+                r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                r.receiveShadows = false;
+            }
+            return meshes.Count > 0;
+        }
+
         StructureParts BuildHangerParts(ModuleFacts module, HangerBackingIndex backing, Shader shader, WorldState state,
             StationMaterials palette, Action<string, string, string, string> reportUnresolved, out string endpointSummary) {
+            var steel = palette != null ? palette[StationMaterials.Steel] : null;
+            if (!steel) steel = FinishMaterial(shader, state, StationStructureGeometry.DefaultRoofFinish, reportUnresolved);
+            return BuildHangerPartsCore(module, backing, steel, out endpointSummary);
+        }
+
+        static StructureParts BuildHangerPartsCore(ModuleFacts module, HangerBackingIndex backing,
+            Material steel, out string endpointSummary) {
             var parts = new StructureParts();
             int width = Math.Max(1, module.Width);
             string mount = module.Config.Text("mount");
@@ -877,8 +932,6 @@ namespace Metro.App.Views {
             bool isPost = string.Equals(mount, "post", StringComparison.Ordinal);
             float barTop = isRoof ? StationStructureGeometry.HangerBarTop : StationStructureGeometry.HangerPostBarTop;
             float centre = (width - 1) * .5f;
-            var steel = palette != null ? palette[StationMaterials.Steel] : null;
-            if (!steel) steel = FinishMaterial(shader, state, StationStructureGeometry.DefaultRoofFinish, reportUnresolved);
 
             parts.Box(steel,
                 new Vector3(centre, 0f, barTop - StationStructureGeometry.HangerBarDepth * .5f),
@@ -936,15 +989,21 @@ namespace Metro.App.Views {
         StructureParts BuildRoofParts(ModuleFacts module, Shader shader, WorldState state, StationMaterials palette,
             Action<string, string, string, string> reportUnresolved,
             out string variant, out string finishId, out float length, out float width) {
-            var parts = new StructureParts();
-            length = Math.Max(1, module.Width);
-            width = Math.Max(1, module.Depth);
-            variant = module.Config.Text("variant");
             finishId = module.Config.Text("finish");
             if (finishId.Length == 0) finishId = StationStructureGeometry.DefaultRoofFinish;
             var sheet = FinishMaterial(shader, state, finishId, reportUnresolved);
             if (!sheet && palette != null) sheet = palette[StationMaterials.Platform];
             var steel = palette != null ? palette[StationMaterials.Steel] : null;
+            if (!steel) steel = sheet;
+            return BuildRoofPartsCore(module, sheet, steel, out variant, out length, out width);
+        }
+
+        static StructureParts BuildRoofPartsCore(ModuleFacts module, Material sheet, Material steel,
+            out string variant, out float length, out float width) {
+            var parts = new StructureParts();
+            length = Math.Max(1, module.Width);
+            width = Math.Max(1, module.Depth);
+            variant = module.Config.Text("variant");
             if (!steel) steel = sheet;
 
             // The source's local frame: `x` along the run, `y` across, `z` up. `centreX` and
@@ -1055,6 +1114,21 @@ namespace Metro.App.Views {
             Shader shader, WorldState state, StationMaterials palette,
             Action<string, string, string, string> reportUnresolved,
             out bool thick, out float h, out ModuleFacts bridge, out string finishId) {
+            bool isThick = module.Config.Text("size") == "thick";
+            finishId = module.Config.Text("finish");
+            if (finishId.Length == 0) finishId = StationStructureGeometry.DefaultRoofFinish;
+            var shaftMaterial = isThick
+                ? FinishMaterial(shader, state, finishId, reportUnresolved) ?? (palette != null ? palette[StationMaterials.Platform] : null)
+                : palette != null ? palette[StationMaterials.Dark] : null;
+            var collarMaterial = palette != null ? palette[StationMaterials.Steel] : shaftMaterial;
+            if (!shaftMaterial) shaftMaterial = collarMaterial;
+            if (!collarMaterial) collarMaterial = shaftMaterial;
+            return BuildPillarPartsCore(module, index, station, shaftMaterial, collarMaterial, out thick, out h, out bridge);
+        }
+
+        static StructureParts BuildPillarPartsCore(ModuleFacts module, StationIndex index, IReadOnlyList<ModuleFacts> station,
+            Material shaftMaterial, Material collarMaterial,
+            out bool thick, out float h, out ModuleFacts bridge) {
             var parts = new StructureParts();
             thick = module.Config.Text("size") == "thick";
             float w = StationStructureGeometry.PillarWidth(module);
@@ -1067,12 +1141,6 @@ namespace Metro.App.Views {
                 ? bridge.Z - StationStructureGeometry.BridgeDeckDepth - module.Z - 1f
                 : StationStructureGeometry.PillarHeight(module);
             if (h < .1f) h = .1f;
-            finishId = module.Config.Text("finish");
-            if (finishId.Length == 0) finishId = StationStructureGeometry.DefaultRoofFinish;
-            var shaftMaterial = thick
-                ? FinishMaterial(shader, state, finishId, reportUnresolved) ?? (palette != null ? palette[StationMaterials.Platform] : null)
-                : palette != null ? palette[StationMaterials.Dark] : null;
-            var collarMaterial = palette != null ? palette[StationMaterials.Steel] : shaftMaterial;
             if (!shaftMaterial) shaftMaterial = collarMaterial;
             if (!collarMaterial) collarMaterial = shaftMaterial;
             // The group's own origin is the cell centre at the pillar's floor top; a 细柱's

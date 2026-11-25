@@ -497,6 +497,19 @@ namespace Metro.App.Views {
         }
 
         /// <summary>
+        /// Scale any flat 4-vertex inscription plate under <paramref name="root"/> to match a
+        /// preview candidate's authored `w × panelH` without mutating the shared prefab mesh.
+        /// </summary>
+        internal static void FitPreviewScale(GameObject root, ModuleFacts module, double panelHeight) {
+            if (!root || module == null) return;
+            var axis = string.Equals(module.Config.Text("axis"), "v", StringComparison.Ordinal) ? "v" : "h";
+            var panel = PanelSize(axis, module.Width, (float)panelHeight);
+            foreach (var renderer in root.GetComponentsInChildren<MeshRenderer>(true)) {
+                FitPlanarInkScale(renderer, panel);
+            }
+        }
+
+        /// <summary>
         /// Scale a flat 4-vertex inscription plate's transform when its module's `w × panelH`
         /// differs from the promoted prefab's baked dimensions (e.g. a 4 m Zoo wall inscription
         /// sharing the 5 m `calligraphy-wei-h` prefab), while leaving `filter.sharedMesh`, its UVs

@@ -54,6 +54,20 @@ and per-model triangle counts, see
   rotates catalogue insets around cell centre, applies `EdgeDecorGlassShare`
   `0.15 m` curtain clearance once, and matches `edge-placement-oracle.json`
   (`node tools/unity-parity/record-edge-placement.mjs --check`).
+- **Fence composition & integral escalator/walkway/stair receiver pillars
+  (`StationOutdoorConnections`, `OutdoorModuleViews`, `VerticalModuleViews`):**
+  Connected one-axis and two-axis fences (`glass`, `iron`, `gate`, `steel-blue`)
+  compose directly from `FenceArms` without doubled end posts. Fare gates seal
+  via `SealExtension` (`0.012 m` machine `-x`, `0.50 m` doorless `±y`), whereas
+  escalators, walkways, and stairs (both promoted prefabs and procedural builds)
+  emit an integral brushed-steel receiver pillar (`fence-pillar`, `1.015 m` or
+  `2.015 m` for `steel-blue`) via `BuildBandFencePillars` / `BuildStairFencePillars`
+  on each fenced lateral landing edge—including pit-walled stairs whose inclined
+  flight handrail is suppressed—so fences stop strictly at `±0.50 m`
+  (`PillarSides`) with glass and clamps bolted flush into the pillar and zero
+  handrail clipping. `VerticalModuleRenderer.TryStageLocalDelta` (`FenceSearchEnvelope`)
+  and `OutdoorModuleRenderer.MarkAdjacentFences` keep pillars and adjacent fences
+  synchronized on live local edits (`StationFenceAndDragPlacementTests`).
 
 ## 2. Pointer picking, previews & highlights
 
@@ -108,6 +122,19 @@ and per-model triangle counts, see
     cancelling shared quarter-patch faces and rendering with the section-aware
     depth-biased `Metro/Station Highlight` (`Resources/StationHighlight.shader`,
     `Offset -1, -1`). Verified with `metro-unity.ps1 test -Graphics -TestFilter StationHighlightRetentionTests`.
+  - Drag placement (`StationModuleRuns.SupportsDragPlacement`), real-shape
+    ghosts, and unified deletion highlights: line-capable equipment, decor,
+    wall/ceiling, pillar, and fence palettes support press-and-drag placement
+    with `lineSpacing` and right-drag line removal, clearing selection on
+    placement/right-click so newly placed modules never keep a blue highlight.
+    `StationPlacementPreview` builds real 3D model/procedural shapes for
+    structures, vertical runs, openings, tracks/bridges, calligraphy, booths,
+    signs, and live-composed fences (`TryBuildFencePreview` + adjacent live
+    recomposition) instead of `1×1×1` blue cell cubes; every delete path shares
+    one translucent red surface overlay (`edit remove fill`) + padded red
+    wireframe (`edit cell blocker`) with no stray floor cursor square
+    (`StationFenceAndDragPlacementTests`, `StationPreviewShapeParityTests`,
+    `StationDeletePreviewParityTests`).
 
 ## 3. Unified visibility, cutaway shaders & section dragging
 

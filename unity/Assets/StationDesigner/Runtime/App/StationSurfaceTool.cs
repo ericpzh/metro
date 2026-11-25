@@ -17,6 +17,8 @@ namespace Metro.App {
         public readonly List<StationCellKey> Refused = new List<StationCellKey>();
         /// <summary>The covered cells that already read that way.</summary>
         public readonly List<StationCellKey> Skipped = new List<StationCellKey>();
+        /// <summary>Placed surface module ids the erase gesture would remove.</summary>
+        public readonly List<string> RemoveModuleIds = new List<string>();
         public StationCellKey Anchor;
         /// <summary>`sidewalk` or `lawn`.</summary>
         public string Type = "";
@@ -89,16 +91,30 @@ namespace Metro.App {
             StationEditSession.Surface = null;
         }
 
+        static bool TrySurfaceCell(StationSceneHit hit, out StationCellKey cell) {
+            cell = default;
+            if (hit == null) return false;
+            if (hit.HasModule && hit.ModuleWins && hit.Module != null &&
+                StationSurfaceRules.IsSurface(hit.Module.Type)) {
+                cell = new StationCellKey(hit.Module.X, hit.Module.Y, hit.Module.Z);
+                return true;
+            }
+            if (hit.HasCell) {
+                cell = hit.CellKey;
+                return true;
+            }
+            return false;
+        }
+
         /// <summary>Arm a tile gesture from one press, or say why the press paves nothing.</summary>
         public static bool Begin(StationGameHost host, StationSceneHit hit, StationPointerEvent pointer,
             int button, out string reason) {
             reason = null;
             var world = StationCellTool.World(host);
             if (world == null) { reason = "no-session"; return false; }
-            if (hit == null || !hit.HasCell) { reason = "no-cell"; return false; }
+            if (!TrySurfaceCell(hit, out var cell)) { reason = "no-cell"; return false; }
             var type = ArmedType();
             if (type.Length == 0) { reason = "no-tile"; return false; }
-            var cell = hit.CellKey;
             bool erase = button == 2;
             if (erase) {
                 // The tile brush's secondary press only takes **its own** finish up: a 人行道
@@ -134,15 +150,16 @@ namespace Metro.App {
             if (world == null) return;
             if (gesture == null) {
                 var type = ArmedType();
-                if (type.Length == 0 || hit == null || !hit.HasCell) { preview = new StationSurfacePreview(); return; }
-                var plan = StationSurfacePlanner.Plan(host.Index, world, new[] { hit.CellKey }, type, 0, false);
-                preview = PreviewOf(plan, hit.CellKey);
+                if (type.Length == 0 || !TrySurfaceCell(hit, out var hoverCell)) { preview = new StationSurfacePreview(); return; }
+                var plan = StationSurfacePlanner.Plan(host.Index, world, new[] { hoverCell }, type, 0, false);
+                preview = PreviewOf(plan, hoverCell);
                 StationEditSession.Surface = preview;
                 return;
             }
-            var cells = gesture.Anchor == hit.CellKey
+            if (!TrySurfaceCell(hit, out var aimCell)) return;
+            var cells = gesture.Anchor == aimCell
                 ? new List<StationCellKey> { gesture.Anchor }
-                : StationCellPlanner.RectCells(gesture.Anchor, hit.CellKey, gesture.Anchor.Z, false);
+                : StationCellPlanner.RectCells(gesture.Anchor, aimCell, gesture.Anchor.Z, false);
             var dragged = StationSurfacePlanner.Plan(host.Index, world, cells, gesture.Type, gesture.Rotation, gesture.Erase);
             preview = PreviewOf(dragged, gesture.Anchor);
             StationEditSession.Surface = preview;
@@ -167,7 +184,7 @@ namespace Metro.App {
                 reason = "stale-revision";
                 return false;
             }
-            var target = hit != null && hit.HasCell ? hit.CellKey : current.Anchor;
+            var target = TrySurfaceCell(hit, out var releaseCell) ? releaseCell : current.Anchor;
             var cells = target == current.Anchor
                 ? new List<StationCellKey> { current.Anchor }
                 : StationCellPlanner.RectCells(current.Anchor, target, current.Anchor.Z, false);
@@ -220,6 +237,7 @@ namespace Metro.App {
             preview.Cells.AddRange(plan.Accepted);
             preview.Refused.AddRange(plan.Refused);
             preview.Skipped.AddRange(plan.Skipped);
+            preview.RemoveModuleIds.AddRange(plan.RemoveModuleIds);
             return preview;
         }
     }

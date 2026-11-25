@@ -56,6 +56,12 @@ namespace Metro.Build {
             "road", "bridge", "track", "lift", "sidewalk", "lawn", "psd-end-cover",
         };
 
+        /// <summary>Types excluded from generic right-drag line delete (`sim/lineDeletion.ts`).</summary>
+        static readonly HashSet<string> LineDeleteExcluded = new HashSet<string>(StringComparer.Ordinal) {
+            "shop", "booth", "retail", "track", "platform-edge", "exit", "stair",
+            "escalator", "walkway", "lift", "roof", "road", "tactile", "sidewalk", "lawn",
+        };
+
         /// <summary>Clamp a raw <c>lineSpacing</c> setting onto the 0..6 ladder (`sim/lineSpacing.ts`).</summary>
         public static int ClampSpacing(int value) => value < 0 ? 0 : value > MaxLineSpacing ? MaxLineSpacing : value;
 
@@ -63,15 +69,46 @@ namespace Metro.Build {
         public static bool IsLineType(string type) => !string.IsNullOrEmpty(type) && LineFamilies.Contains(type);
 
         /// <summary>
-        /// True when the armed palette id is a run family. The palette id is what the shell sends
-        /// (`tool.set.settings.moduleType`), so this is the one question the gesture needs before
-        /// there is a candidate.
+        /// True when the armed palette id is a legacy continuous run family (`fence`, `tactile`,
+        /// `floor-mark`, `court-divider`). For the full set of draggable palettes (matching Web
+        /// `supportsLinePlacement`), see <see cref="SupportsDragPlacement"/>.
         /// </summary>
         public static bool IsLinePalette(string paletteId) {
             if (string.IsNullOrEmpty(paletteId)) return false;
             if (string.Equals(paletteId, "court-divider", StringComparison.Ordinal)) return true;
             return StationModuleFamilies.TryParse(paletteId, "", 0, out var family) && IsLineType(family.Type);
         }
+
+        /// <summary>
+        /// True when a palette id supports press-and-drag line placement and right-drag line
+        /// removal in the equipment tool (every creatable <see cref="SupportsLineSpacing"/> palette
+        /// plus continuous <see cref="IsLinePalette"/> runs such as tactile paths).
+        /// </summary>
+        public static bool SupportsDragPlacement(string paletteId) {
+            if (string.IsNullOrEmpty(paletteId)) return false;
+            if (!SupportsLineSpacing(paletteId) && !IsLinePalette(paletteId)) return false;
+            return StationModuleFamilies.TryParse(paletteId, "", 0, out _);
+        }
+
+        /// <summary>
+        /// True for run families whose right-drag erase removes only matching type/variant records
+        /// (`fence*`, `noise-barrier*`, `tactile*`, `court-divider`). All other draggable equipment
+        /// palettes use generic loose-equipment line removal (<see cref="IsLineDeletable"/>).
+        /// </summary>
+        public static bool IsVariantMatchedRun(string paletteId) {
+            if (string.IsNullOrEmpty(paletteId)) return false;
+            if (string.Equals(paletteId, "court-divider", StringComparison.Ordinal)) return true;
+            return paletteId == "fence" || paletteId.StartsWith("fence-", StringComparison.Ordinal) ||
+                   paletteId == "noise-barrier" || paletteId.StartsWith("noise-barrier-", StringComparison.Ordinal) ||
+                   paletteId == "tactile" || paletteId.StartsWith("tactile-", StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Port of <c>sim/lineDeletion.ts:isLineDeletable</c>: loose equipment and decor pieces
+        /// that a right-drag line delete may lift in one undoable commit.
+        /// </summary>
+        public static bool IsLineDeletable(StationModuleRecord module) =>
+            module != null && !string.IsNullOrEmpty(module.Type) && !LineDeleteExcluded.Contains(module.Type);
 
         /// <summary>
         /// True when a palette id accepts the <c>lineSpacing</c> setting (`catalog.ts:supportsLinePlacement`).
@@ -180,14 +217,23 @@ namespace Metro.Build {
         /// Computes the aligned rotation, anchor pitch (<c>baseSpan + lineSpacing</c> for supported
         /// families, 1 for unspaced families like tactile), and exact anchor list.
         /// </summary>
+        static bool IsSlimPillarPalette(string paletteId) =>
+            string.Equals(paletteId, "pillar", StringComparison.Ordinal) ||
+            string.Equals(paletteId, "pillar-slim", StringComparison.Ordinal);
+
+        static int NormalizeTemplateRotation(string paletteId, int rotation) =>
+            IsSlimPillarPalette(paletteId)
+                ? ((rotation % 9) + 9) % 9
+                : StationFootprints.NormRot(rotation);
+
         public static List<StationCellKey> RunSlots(StationIndex index, StationPlacementRequest template,
             StationCellKey anchor, StationCellKey target, bool dragging, bool remove,
             out int effectiveRotation, out int step) {
-            int baseRot = template != null ? StationFootprints.NormRot(template.Rotation) : 0;
+            string paletteId = template != null ? template.ToolType ?? "" : "";
+            int baseRot = template != null ? NormalizeTemplateRotation(paletteId, template.Rotation) : 0;
             effectiveRotation = baseRot;
             step = 1;
             if (!dragging) return new List<StationCellKey> { anchor };
-            string paletteId = template != null ? template.ToolType ?? "" : "";
             int axis = LineAxis(anchor, target);
             if (!SupportsLineSpacing(paletteId)) {
                 return LineCells(anchor, target, anchor.Z);
@@ -199,14 +245,19 @@ namespace Metro.Build {
             StationEditDraft probe = null;
             if (index != null && template != null) {
                 var probeReq = CloneForCell(template, probeCell, baseRot);
+                probeReq.SkipPsdCornerSnap = true;
                 probeReq.Id = "run-probe";
                 probe = StationModulePlacement.Resolve(index, probeReq).Candidate;
             }
             int spanX = probe != null ? LineSpan(probe, 0) : 1;
             int spanY = probe != null ? LineSpan(probe, 1) : 1;
-            effectiveRotation = LineRunRotation(baseRot, axis, spanX, spanY);
+            // Wall-mounted pieces keep their wall-facing rotation; slim pillars keep their 0..8 spot.
+            effectiveRotation = StationModuleFamilies.IsWallPalette(paletteId) || IsSlimPillarPalette(paletteId)
+                ? baseRot
+                : LineRunRotation(baseRot, axis, spanX, spanY);
             if (effectiveRotation != baseRot && index != null && template != null) {
                 var alignedReq = CloneForCell(template, probeCell, effectiveRotation);
+                alignedReq.SkipPsdCornerSnap = true;
                 alignedReq.Id = "run-probe-aligned";
                 var aligned = StationModulePlacement.Resolve(index, alignedReq).Candidate;
                 if (aligned != null) probe = aligned;
@@ -234,13 +285,64 @@ namespace Metro.Build {
             StationCellKey anchor, StationCellKey target, bool dragging, bool remove) {
             var cells = RunSlots(index, template, anchor, target, dragging, remove, out var rot, out var step);
             var effectiveTemplate = template;
-            if (!remove && template != null && rot != template.Rotation) {
-                effectiveTemplate = CloneTemplateWithRotation(template, rot);
+            if (!remove && template != null && (rot != template.Rotation || (dragging && !template.SkipPsdCornerSnap))) {
+                effectiveTemplate = CloneTemplateWithRotation(template, rot, skipPsdCornerSnap: dragging);
             }
             var plan = PlanAdd(index, effectiveTemplate, null, cells, remove);
             plan.EffectiveRotation = rot;
             plan.Step = step;
             return plan;
+        }
+
+        /// <summary>
+        /// Generic right-drag line delete for loose equipment/decor (`EquipmentTool.lineRemoveModules`):
+        /// collects the pressed module (when line-deletable) plus every <see cref="IsLineDeletable"/>
+        /// module on <paramref name="anchor"/>'s storey whose footprint covers any cell on the line.
+        /// </summary>
+        public static StationModuleRunPlan PlanGenericRemove(StationIndex index, StationCellKey anchor,
+            StationCellKey target, bool dragging, string initialRemoveId = "") {
+            var plan = new StationModuleRunPlan { Kind = "remove", Step = 1 };
+            if (index == null) { plan.Reason = "no-document"; return plan; }
+            var cells = dragging ? LineCells(anchor, target, anchor.Z) : new List<StationCellKey> { anchor };
+            if (cells.Count > MaxRunCells) { plan.Reason = "over-limit"; return plan; }
+            var cellSet = new HashSet<(int X, int Y)>();
+            for (int i = 0; i < cells.Count; i++) cellSet.Add((cells[i].X, cells[i].Y));
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            if (!string.IsNullOrEmpty(initialRemoveId) &&
+                index.TryGetModule(initialRemoveId, out var first) &&
+                IsLineDeletable(first)) {
+                seen.Add(first.Id);
+                plan.RemoveIds.Add(first.Id);
+            }
+            foreach (var module in index.Document.Modules) {
+                if (module == null || seen.Contains(module.Id)) continue;
+                if (module.Z != anchor.Z || !IsLineDeletable(module)) continue;
+                if (!CoversAnyCell(module, cellSet)) continue;
+                seen.Add(module.Id);
+                plan.RemoveIds.Add(module.Id);
+            }
+            for (int i = 0; i < cells.Count; i++) {
+                var cell = cells[i];
+                bool covered = false;
+                for (int r = 0; r < plan.RemoveIds.Count; r++) {
+                    if (index.TryGetModule(plan.RemoveIds[r], out var mod) && CoversCell(mod, cell.X, cell.Y)) {
+                        covered = true;
+                        break;
+                    }
+                }
+                if (covered) plan.AcceptedCells.Add(cell);
+                else plan.Blocked.Add(cell);
+            }
+            return plan;
+        }
+
+        static bool CoversAnyCell(StationModuleRecord module, HashSet<(int X, int Y)> cells) {
+            if (cells.Contains((module.X, module.Y))) return true;
+            var footprint = StationFootprints.Footprint(module);
+            for (int i = 0; i < footprint.Length; i++) {
+                if (cells.Contains(((int)Math.Round(footprint[i].X), (int)Math.Round(footprint[i].Y)))) return true;
+            }
+            return false;
         }
 
         /// <summary>
@@ -252,7 +354,7 @@ namespace Metro.Build {
             StationModuleRecord carried, IReadOnlyList<StationCellKey> cells, bool remove) {
             var plan = new StationModuleRunPlan {
                 Kind = remove ? "remove" : "add",
-                EffectiveRotation = template != null ? StationFootprints.NormRot(template.Rotation) : 0,
+                EffectiveRotation = template != null ? NormalizeTemplateRotation(template.ToolType, template.Rotation) : 0,
             };
             if (index == null || template == null) { plan.Reason = "no-document"; return plan; }
             if (cells == null || cells.Count == 0) { plan.Reason = "no-cells"; return plan; }
@@ -298,6 +400,7 @@ namespace Metro.Build {
                 // The batch allocates its own ids: the committed index does not yet hold the
                 // pieces this run is about to add, so `NextId` alone would collide inside it.
                 placement.Candidate.Id = request.Id;
+                StationAdPosters.RollFor(placement.Candidate);
                 plan.Accepted.Add(placement.Candidate);
                 plan.AcceptedCells.Add(cell);
             }
@@ -380,7 +483,8 @@ namespace Metro.Build {
             return check;
         }
 
-        static StationPlacementRequest CloneTemplateWithRotation(StationPlacementRequest template, int rotation) =>
+        static StationPlacementRequest CloneTemplateWithRotation(StationPlacementRequest template, int rotation,
+            bool skipPsdCornerSnap = false) =>
             new StationPlacementRequest {
                 ToolType = template.ToolType,
                 Variant = template.Variant,
@@ -395,11 +499,37 @@ namespace Metro.Build {
                 LightPosition = template.LightPosition,
                 TargetModuleId = template.TargetModuleId,
                 ModulePoint = template.ModulePoint,
+                SignFrontJson = template.SignFrontJson,
+                SignBackJson = template.SignBackJson,
+                GateDoor = template.GateDoor,
+                LiftStyle = template.LiftStyle,
+                GuideExitId = template.GuideExitId,
+                PsdEndHeight = template.PsdEndHeight,
+                SkipPsdCornerSnap = template.SkipPsdCornerSnap || skipPsdCornerSnap,
+                HasWallLine = template.HasWallLine,
+                WallCourse = template.WallCourse,
+                WallNormalX = template.WallNormalX,
+                WallNormalY = template.WallNormalY,
                 Hit = template.Hit,
             };
 
         static StationPlacementRequest CloneForCell(StationPlacementRequest template, StationCellKey cell, int rotation) {
-            var point = new StationPoint(cell.X + 0.5, cell.Y + 0.5, cell.Z + 1);
+            StationPlacementHit hit;
+            StationPoint point;
+            if (template.HasWallLine && StationModuleFamilies.IsWallPalette(template.ToolType)) {
+                int wx = cell.X + template.WallNormalX;
+                int wy = cell.Y + template.WallNormalY;
+                int wz = template.WallCourse;
+                point = new StationPoint(cell.X + 0.5, cell.Y + 0.5, wz + 0.5);
+                hit = new StationPlacementHit(wx, wy, wz, cell.X, cell.Y, wz, true,
+                    point, wz, new StationPoint(-template.WallNormalX, -template.WallNormalY, 0));
+            } else {
+                point = new StationPoint(cell.X + 0.5, cell.Y + 0.5, cell.Z + 1);
+                // A run cell uses the air-above-floor convention (`moduleZ + 1`), matching the
+                // wall brush and ceiling underside lookup (`StandCell` -> `cell.Z - 1`, `from = cell.Z`).
+                hit = new StationPlacementHit(cell.X, cell.Y, cell.Z - 1, cell.X, cell.Y, cell.Z, true,
+                    point, cell.Z, new StationPoint(0, 0, 1));
+            }
             return new StationPlacementRequest {
                 ToolType = template.ToolType,
                 Variant = template.Variant,
@@ -414,12 +544,18 @@ namespace Metro.Build {
                 LightPosition = template.LightPosition,
                 TargetModuleId = "",
                 ModulePoint = point,
-                // A run cell is the **air** the panel goes into, and the resolver reads a placement
-                // hit the way the picker hands it over: the block under the piece (`Cell`) plus the
-                // cell it steps into (`Place`). The run families are all floor-standing, so the
-                // block below the run cell is the floor the panel stands on.
-                Hit = new StationPlacementHit(cell.X, cell.Y, cell.Z - 1, cell.X, cell.Y, cell.Z, true,
-                    point, cell.Z, new StationPoint(0, 0, 1)),
+                SignFrontJson = template.SignFrontJson,
+                SignBackJson = template.SignBackJson,
+                GateDoor = template.GateDoor,
+                LiftStyle = template.LiftStyle,
+                GuideExitId = template.GuideExitId,
+                PsdEndHeight = template.PsdEndHeight,
+                SkipPsdCornerSnap = template.SkipPsdCornerSnap,
+                HasWallLine = template.HasWallLine,
+                WallCourse = template.WallCourse,
+                WallNormalX = template.WallNormalX,
+                WallNormalY = template.WallNormalY,
+                Hit = hit,
             };
         }
 

@@ -648,7 +648,8 @@ namespace Metro.App.Views {
             var root = new GameObject("road-edit-preview").transform;
             root.SetParent(transform, false);
             previewRoot = root;
-            var material = preview.Valid ? previewAdd : previewDelete;
+            bool isDelete = preview.IsDelete || !string.IsNullOrEmpty(preview.SourceId);
+            var material = preview.Valid && !isDelete ? previewAdd : previewDelete;
             var data = new MeshData();
             var record = preview.Candidate;
             var layout = StationRoadLayout.Layout(record);

@@ -926,53 +926,56 @@ public class StationOutdoorConnectionTests {
     }
 
     [Test]
-    public void OneAxisFenceResidualIsExactlyThePromotedEndPosts() {
-        // Documented residual (plan 16 §2 is about the *first* divergent stage; the tactile
-        // sign fix is that stage). A one-axis cell still draws the promoted isolated panel,
-        // whose two end posts the source does not draw on a straight run (and draws only one
-        // of on a run end). The fixture records the source's own triangle counts, so the
-        // residual is pinned exactly: if someone composes these panels later, this fails.
+    public void OneAxisFencesComposeToExactSourceGeometryWithSealExtensions() {
+        // Connected one-axis fences now compose directly from `FenceArms` + seal extensions (no
+        // residual doubled end posts at cell seams), while the two isolated panels keep their
+        // promoted isolated prefab.
         var catalogue = ConnectionCatalogue;
-        var prefabTriangles = new Dictionary<string, int>(StringComparer.Ordinal) {
+        var isolatedTriangles = new Dictionary<string, int>(StringComparer.Ordinal) {
             ["fence"] = 360, ["fence-iron"] = 768, ["fence-gate"] = 432, ["fence-steel-blue"] = 1668,
         };
-        var postTriangles = new Dictionary<string, int>(StringComparer.Ordinal) {
-            ["fence"] = 84, ["fence-iron"] = 96, ["fence-gate"] = 0, // a gate draws its posts on every reached side
-        };
-        int pinned = 0;
+        int composed = 0, isolated = 0, sealedOneAxis = 0;
         foreach (JObject record in (JArray)ConnectionOracle["zoo"]["fences"]) {
             var arms = (JObject)record["arms"];
             bool junction = Number(arms["x1"]) > Number(arms["x0"]) && Number(arms["y1"]) > Number(arms["y0"]);
             if (junction) continue;
             var module = Find((string)record["id"]);
+            var neighbours = OutdoorModuleViews.Neighbours(module, zooFacts);
             var view = BuildOutdoor(module, zooFacts, catalogue, out var holder);
             try {
-                Assert.AreEqual(0, view.ComposedArms, module.Id + " is a one-axis cell");
                 var key = ModuleViews.Resolve(module, zooFacts, catalogue).Key;
-                Assert.IsTrue(prefabTriangles.ContainsKey(key), module.Id + " has an unmeasured prefab key " + key);
-                int caps = ((bool)arms["capE"] ? 1 : 0) + ((bool)arms["capW"] ? 1 : 0) +
-                    ((bool)arms["capN"] ? 1 : 0) + ((bool)arms["capS"] ? 1 : 0);
-                bool alongX = Number(arms["x1"]) > Number(arms["x0"]);
-                // The source draws an end post per cap (glass/iron) or per reached side (a
-                // gate, whose posts are independent of the cap flags); the promoted isolated
-                // panel always draws two.
-                int sourcePosts = key == "fence-gate" ? (alongX ? 2 : 2) : caps;
-                int source = (int)record["sourceGeometry"]["triangles"];
-                Assert.AreEqual(prefabTriangles[key], view.TriangleCount, module.Id + " is still the promoted " + key + " panel");
-                Assert.AreEqual(source + (2 - sourcePosts) * postTriangles[key], view.TriangleCount,
-                    module.Id + ": the port must differ from the source by exactly the promoted end posts");
-                // The promoted panel runs along the arm axis (its own extent, not the source's
-                // rail span: the end posts make it 1.03 m where the source run is 1.00 m).
-                float panelLong = key == "fence-iron" ? 1.0f : 1.03f;
-                Assert.AreEqual(panelLong, alongX ? view.Bounds.size.x : view.Bounds.size.z, .02f,
-                    module.Id + " panel long axis follows its arm axis");
-                pinned++;
+                Assert.IsTrue(isolatedTriangles.ContainsKey(key), module.Id + " has an unmeasured prefab key " + key);
+                if (neighbours.Degree == 0) {
+                    Assert.AreEqual(0, view.ComposedArms, module.Id + " is isolated and keeps the promoted panel");
+                    Assert.AreEqual(isolatedTriangles[key], view.TriangleCount, module.Id + " isolated triangle count");
+                    isolated++;
+                } else {
+                    Assert.AreEqual(1, view.ComposedArms, module.Id + " connected one-axis fence must compose");
+                    int source = (int)record["sourceGeometry"]["triangles"];
+                    Assert.AreEqual(source, view.TriangleCount,
+                        module.Id + ": composed one-axis fence must match source triangles with zero residual end posts");
+                    var expectedBounds = SealedOracleBounds((JArray)record["sourceGeometry"]["bounds"], neighbours);
+                    AssertWorldBounds(view.Bounds, expectedBounds, module.Id);
+                    if (neighbours.HasSeal || neighbours.HasPillar) sealedOneAxis++;
+                    composed++;
+                }
             } finally {
                 UnityEngine.Object.DestroyImmediate(holder);
             }
         }
-        Assert.AreEqual(197, pinned, "197 of 213 Zoo fences are one-axis cells under the full index");
+        Assert.AreEqual(OneAxisRuns, composed, "all 195 connected one-axis Zoo fences are composed");
+        Assert.AreEqual(IsolatedPanels, isolated, "the 2 isolated Zoo fences keep the promoted prefab");
+        Assert.Greater(sealedOneAxis, 0, "Zoo contains one-axis fences meeting gates or integral rail-landing pillars");
     }
+
+    static JArray SealedOracleBounds(JArray sourceBounds, OutdoorNeighbours neighbours) =>
+        new JArray(
+            Number(sourceBounds[0]) - neighbours.SealWest,
+            Number(sourceBounds[1]) - neighbours.SealSouth,
+            Number(sourceBounds[2]),
+            Number(sourceBounds[3]) + neighbours.SealEast,
+            Number(sourceBounds[4]) + neighbours.SealNorth,
+            Number(sourceBounds[5]));
 
     // -------------------------------------------------------- tactile masks
 
@@ -1109,12 +1112,13 @@ public class StationOutdoorConnectionTests {
             var arms = (JObject)record["arms"];
             if (!(Number(arms["x1"]) > Number(arms["x0"]) && Number(arms["y1"]) > Number(arms["y0"]))) continue;
             var module = Find((string)record["id"]);
+            var neighbours = OutdoorModuleViews.Neighbours(module, zooFacts);
             var view = BuildOutdoor(module, zooFacts, catalogue, out var holder);
             try {
                 Assert.AreEqual(2, view.ComposedArms, module.Id + " composes both arms");
                 Assert.AreEqual((int)record["sourceGeometry"]["triangles"], view.TriangleCount,
                     module.Id + " composes the source's own triangle count");
-                AssertWorldBounds(view.Bounds, (JArray)record["sourceGeometry"]["bounds"], module.Id);
+                AssertWorldBounds(view.Bounds, SealedOracleBounds((JArray)record["sourceGeometry"]["bounds"], neighbours), module.Id);
                 junctions++;
             } finally {
                 UnityEngine.Object.DestroyImmediate(holder);

@@ -30,8 +30,21 @@ namespace Metro.App {
     public struct OutdoorNeighbours {
         public bool Known;
         public bool East, West, North, South;
+        /// <summary>
+        /// Extra arm reach past ±0.5 m to seal against an inset neighbour (gate machine cabinet or
+        /// doorless gate interior barrier). Zero for fence-to-fence and for escalator, walkway, and
+        /// stair landings (which provide an integral steel receiver pillar flush at the cell boundary).
+        /// </summary>
+        public float SealEast, SealWest, SealNorth, SealSouth;
+        /// <summary>
+        /// True when that side abuts an escalator, walkway, or stair landing's integral steel pillar
+        /// at ±0.5 m, so the fence's glass and clamps bolt flush to the cell edge.
+        /// </summary>
+        public bool PillarEast, PillarWest, PillarNorth, PillarSouth;
 
         public int Degree => (East ? 1 : 0) + (West ? 1 : 0) + (North ? 1 : 0) + (South ? 1 : 0);
+        public bool HasSeal => SealEast > 1e-4f || SealWest > 1e-4f || SealNorth > 1e-4f || SealSouth > 1e-4f;
+        public bool HasPillar => PillarEast || PillarWest || PillarNorth || PillarSouth;
     }
 
     /// <summary>
@@ -246,6 +259,20 @@ namespace Metro.App {
         public static OutdoorNeighbours Neighbours(ModuleFacts module, IReadOnlyList<ModuleFacts> station) =>
             Neighbours(module, station == null ? StationFenceConnections.Empty : StationFenceConnections.For(station));
 
+        /// <summary>True for the noise-barrier variants, which keep their saved orientation and prefab.</summary>
+        public static bool IsNoiseBarrier(string variant, string viewKey = null) {
+            switch (variant ?? "") {
+                case "bridge-railing":
+                case "sound-barrier":
+                case "sound-barrier-half":
+                case "noise-barrier":
+                case "noise-barrier-half":
+                case "noise-barrier-railing":
+                    return true;
+            }
+            return !string.IsNullOrEmpty(viewKey) && viewKey.StartsWith("noise-barrier", StringComparison.Ordinal);
+        }
+
         /// <summary>The same question against an index the caller already built once for the document.</summary>
         public static OutdoorNeighbours Neighbours(ModuleFacts module, StationFenceConnections index) {
             var neighbours = new OutdoorNeighbours { Known = false };
@@ -253,13 +280,15 @@ namespace Metro.App {
             neighbours.Known = true;
             if (!string.Equals(module.Type, "fence", StringComparison.Ordinal)) return neighbours;
             index.Sides(module, out neighbours.East, out neighbours.West, out neighbours.North, out neighbours.South);
+            index.SealExtensions(module, out neighbours.SealEast, out neighbours.SealWest, out neighbours.SealNorth, out neighbours.SealSouth);
+            index.PillarSides(module, out neighbours.PillarEast, out neighbours.PillarWest, out neighbours.PillarNorth, out neighbours.PillarSouth);
             return neighbours;
         }
 
         /// <summary>
-        /// Resolve the exact world-space pose of a straight prefab outdoor module (fence panel or
-        /// tree) without instantiating its prefab. Returns false for two-axis fence junctions that
-        /// require arm composition or invalid entries so the caller falls back to <see cref="TryBuild"/>.
+        /// Resolve the exact world-space pose of a straight prefab outdoor module (isolated fence
+        /// panel, noise barrier, or tree) without instantiating its prefab. Returns false for
+        /// connected fences that compose continuous/sealed arms so the caller uses <see cref="TryBuild"/>.
         /// </summary>
         public static bool TryResolveStaticPose(
             ModuleFacts module,
@@ -276,6 +305,8 @@ namespace Metro.App {
             var req = new OutdoorModuleRequest {
                 ModuleId = module.Id,
                 Type = module.Type,
+                ViewKey = entry.key ?? "",
+                Variant = module.Config.Text("variant"),
                 Rotation = module.Rotation,
                 Neighbours = neighbours,
             };
@@ -439,17 +470,20 @@ namespace Metro.App {
                 return Fail(view, onlyPrimitives ? "primitive-placeholder:" + request.ViewKey : "prefab-has-no-meshes:" + request.ViewKey);
             }
 
-            // RCA 15 §4: a two-axis junction draws one half panel per computed arm around a single
-            // centre post instead of the isolated one-metre panel. The panel was instantiated first
-            // because composition is gated on **measuring** it: an export whose panel is not the
-            // one-metre run the arms are clipped to keeps the panel and says so by name.
+            // Compose connected fences (1-axis runs/ends AND 2-axis L/T/+ junctions) directly from
+            // `FenceArms` + neighbor seal extensions so connected ends drop duplicate end posts and
+            // seal flush into adjacent escalators, walkways, stairs, and fare gates.
             if (composeArms) {
                 if (TryComposeFenceArms(request, instance, out var composed, out var composedRenderers, out var count, out var failure)) {
                     Discard(instance);
                     instance = composed;
                     transform = instance.transform;
                     transform.localPosition = Vector3.zero;
-                    transform.localRotation = authored * offset;
+                    // Composed arms are authored directly in the document cell frame (x = east, z = north),
+                    // so cancel any saved parent rotation on the holder.
+                    transform.localRotation = request.Placement == OutdoorPlacement.ParentPlaced
+                        ? Quaternion.Euler(0f, -ModulePlacement.Yaw(request.Rotation), 0f)
+                        : Quaternion.identity;
                     renderers = composedRenderers;
                     view.ComposedArms = count;
                     panelExtent = true;
@@ -489,20 +523,9 @@ namespace Metro.App {
         }
 
         /// <summary>
-        /// Compose the arms `FenceArms` computes for an L, T or + junction, per RCA 15 §4: one
-        /// half panel from the cell centre to each connected edge and **one** centre post, which is
-        /// exactly `drawFence` with the junction's (empty) cap set. The promoted prefab is the
-        /// isolated one-metre panel — a full span with an end post each end — so it cannot drop a
-        /// cap or grow a second arm; drawing the arms from the source's own numbers is the only
-        /// faithful composition.
-        ///
-        /// Composition is gated on **measuring** the promoted panel: the source's panel is a
-        /// one-metre run (x), one metre tall (y) and a few centimetres thick (z), so an export
-        /// whose extents disagree keeps the promoted panel and reports
-        /// `fence-arms-unmeasured:<w>x<h>x<d>` rather than clipping something else. Only the
-        /// `glass` variant is composed (the source's `drawFence` numbers this file ports); an
-        /// `iron`, `gate`, `steel-blue` or `noise-barrier` junction keeps its panel and reports
-        /// `fence-arms-uncomposed:variant:<v>`.
+        /// Compose the arms `FenceArms` computes for any connected fence (straight run, run end,
+        /// or L/T/+ junction) across `glass`, `iron`, `gate`, and `steel-blue`, extending any arm
+        /// that meets an inset balustrade/rail/barrier so the joint is physically sealed.
         /// </summary>
         static bool TryComposeFenceArms(OutdoorModuleRequest request, GameObject panel, out GameObject composed,
             out Renderer[] renderers, out int armCount, out string failure) {
@@ -510,8 +533,8 @@ namespace Metro.App {
             renderers = null;
             armCount = 0;
             failure = "";
-            var variant = request.Variant ?? "";
-            if (variant.Length > 0 && !string.Equals(variant, "glass", StringComparison.Ordinal)) {
+            var variant = string.IsNullOrEmpty(request.Variant) ? "glass" : request.Variant;
+            if (variant != "glass" && variant != "iron" && variant != "gate" && variant != "steel-blue") {
                 failure = "fence-arms-uncomposed:variant:" + variant;
                 return false;
             }
@@ -520,42 +543,159 @@ namespace Metro.App {
                 return false;
             }
             var size = bounds.size;
-            if (Mathf.Abs(size.x - 1f) > .06f || Mathf.Abs(size.y - 1f) > .12f || size.z > .3f) {
+            float expectedHeight = variant == "steel-blue" ? 2f : 1f;
+            float maxThickness = variant == "iron" ? 0.45f : 0.3f;
+            if (Mathf.Abs(size.x - 1f) > .08f || Mathf.Abs(size.y - expectedHeight) > .15f || size.z > maxThickness) {
                 failure = "fence-arms-unmeasured:" + Size(size.x) + "x" + Size(size.y) + "x" + Size(size.z);
                 return false;
             }
-            if (! TryExtractFenceMaterials(panel, out var steel, out var glass)) {
-                failure = "fence-arms-unmaterialised:" + (steel == null ? "steel" : "") + (glass == null ? (steel == null ? "+glass" : "glass") : "");
-                return false;
+            Material steel = null, glass = null, darkSteel = null, blueSteel = null;
+            if (variant == "glass" || variant == "gate") {
+                if (!TryExtractFenceMaterials(panel, out steel, out glass)) {
+                    failure = "fence-arms-unmaterialised:" + (steel == null ? "steel" : "") + (glass == null ? (steel == null ? "+glass" : "glass") : "");
+                    return false;
+                }
+                if (variant == "gate") {
+                    darkSteel = ExtractNamedMaterial(panel, "darkSteel") ?? steel;
+                }
+            } else if (variant == "iron") {
+                steel = ExtractNamedMaterial(panel, "steel") ?? FirstMaterial(panel);
+                if (steel == null) { failure = "fence-arms-unmaterialised:steel"; return false; }
+            } else if (variant == "steel-blue") {
+                blueSteel = FirstMaterial(panel);
+                if (blueSteel == null) { failure = "fence-arms-unmaterialised:steel-blue"; return false; }
             }
 
-            var arms = FenceArms(request.Rotation, request.Neighbours);
+            var root = BuildComposedFenceObject(
+                string.IsNullOrEmpty(request.ModuleId) ? "fence arms" : request.ModuleId,
+                variant, request.Rotation, request.Neighbours, panel.transform.parent,
+                steel, glass, darkSteel, blueSteel, out armCount);
+            if (root == null) {
+                failure = "fence-arms-empty";
+                return false;
+            }
+            composed = root;
+            renderers = root.GetComponentsInChildren<Renderer>(true);
+            return true;
+        }
+
+        /// <summary>
+        /// Build a composed fence mesh tree for a live placement or drag preview using one shared
+        /// ghost material (no prefab instantiation required when previewing).
+        /// </summary>
+        public static bool TryBuildFencePreview(string moduleId, string variant, int rotation,
+            OutdoorNeighbours neighbours, Transform parent, Material ghostMaterial, out GameObject root) {
+            root = null;
+            if (parent == null || ghostMaterial == null) return false;
+            var normalized = string.IsNullOrEmpty(variant) ? "glass" : variant;
+            if (normalized != "glass" && normalized != "iron" && normalized != "gate" && normalized != "steel-blue") {
+                return false;
+            }
+            root = BuildComposedFenceObject(
+                string.IsNullOrEmpty(moduleId) ? "ghost fence" : moduleId,
+                normalized, rotation, neighbours, parent,
+                ghostMaterial, ghostMaterial, ghostMaterial, ghostMaterial, out _);
+            return root != null;
+        }
+
+        static GameObject BuildComposedFenceObject(string name, string variant, int rotation,
+            OutdoorNeighbours neighbours, Transform parent,
+            Material steel, Material glass, Material darkSteel, Material blueSteel, out int armCount) {
+            armCount = 0;
+            var arms = FenceArms(rotation, neighbours);
+            float sealW = neighbours.West ? neighbours.SealWest : 0f;
+            float sealE = neighbours.East ? neighbours.SealEast : 0f;
+            float sealS = neighbours.South ? neighbours.SealSouth : 0f;
+            float sealN = neighbours.North ? neighbours.SealNorth : 0f;
+            float x0 = arms.X0 - sealW;
+            float x1 = arms.X1 + sealE;
+            float y0 = arms.Y0 - sealS;
+            float y1 = arms.Y1 + sealN;
+
+            var root = new GameObject(name);
+            root.transform.SetParent(parent, false);
+
+            if (variant == "steel-blue") {
+                var verts = new List<Vector3>();
+                var tris = new List<int>();
+                if (arms.RunsAlongX) { AppendBlueSteelRail(verts, tris, x0, x1, false); armCount++; }
+                if (arms.RunsAlongY) { AppendBlueSteelRail(verts, tris, y0, y1, true); armCount++; }
+                AppendBlueSteelPost(verts, tris, 0f, 0f);
+                if (arms.CapEast) AppendBlueSteelPost(verts, tris, .46f, 0f);
+                if (arms.CapWest) AppendBlueSteelPost(verts, tris, -.46f, 0f);
+                if (arms.CapNorth) AppendBlueSteelPost(verts, tris, 0f, .46f);
+                if (arms.CapSouth) AppendBlueSteelPost(verts, tris, 0f, -.46f);
+                AddPart(root.transform, "fence arms steel-blue", verts, tris, blueSteel);
+                return root;
+            }
+
             var steelVertices = new List<Vector3>();
             var steelTriangles = new List<int>();
             var glassVertices = new List<Vector3>();
             var glassTriangles = new List<int>();
+            var darkVertices = new List<Vector3>();
+            var darkTriangles = new List<int>();
+
+            if (variant == "iron") {
+                bool onlyY = !arms.RunsAlongX && arms.RunsAlongY;
+                if (arms.RunsAlongX) { AppendIronRail(steelVertices, steelTriangles, x0, x1, false); armCount++; }
+                if (arms.RunsAlongY) { AppendIronRail(steelVertices, steelTriangles, y0, y1, true); armCount++; }
+                AppendIronPost(steelVertices, steelTriangles, 0f, 0f, onlyY);
+                if (arms.CapEast) AppendIronPost(steelVertices, steelTriangles, .46f, 0f, false);
+                if (arms.CapWest) AppendIronPost(steelVertices, steelTriangles, -.46f, 0f, false);
+                if (arms.CapNorth) AppendIronPost(steelVertices, steelTriangles, 0f, .46f, true);
+                if (arms.CapSouth) AppendIronPost(steelVertices, steelTriangles, 0f, -.46f, true);
+                AddPart(root.transform, "fence arms iron", steelVertices, steelTriangles, steel);
+                return root;
+            }
+
+            bool isGate = variant == "gate";
+            bool flushW = neighbours.West && neighbours.PillarWest;
+            bool flushE = neighbours.East && neighbours.PillarEast;
+            bool flushS = neighbours.South && neighbours.PillarSouth;
+            bool flushN = neighbours.North && neighbours.PillarNorth;
             if (arms.RunsAlongX) {
-                AppendFenceRail(steelVertices, steelTriangles, glassVertices, glassTriangles, arms.X0, arms.X1, false);
+                if (isGate) AppendGateRail(steelVertices, steelTriangles, glassVertices, glassTriangles, darkVertices, darkTriangles, x0, x1, false, sealW > 1e-4f, sealE > 1e-4f, flushW, flushE);
+                else AppendFenceRail(steelVertices, steelTriangles, glassVertices, glassTriangles, x0, x1, false, sealW > 1e-4f, sealE > 1e-4f, flushW, flushE);
                 armCount++;
             }
             if (arms.RunsAlongY) {
-                AppendFenceRail(steelVertices, steelTriangles, glassVertices, glassTriangles, arms.Y0, arms.Y1, true);
+                if (isGate) AppendGateRail(steelVertices, steelTriangles, glassVertices, glassTriangles, darkVertices, darkTriangles, y0, y1, true, sealS > 1e-4f, sealN > 1e-4f, flushS, flushN);
+                else AppendFenceRail(steelVertices, steelTriangles, glassVertices, glassTriangles, y0, y1, true, sealS > 1e-4f, sealN > 1e-4f, flushS, flushN);
                 armCount++;
             }
-            AppendFencePost(steelVertices, steelTriangles, 0f, 0f);
-            // A junction never caps (`fenceArms` caps only degree 0/1), but the rule is the source's.
-            if (arms.CapEast) AppendFencePost(steelVertices, steelTriangles, .46f, 0f);
-            if (arms.CapWest) AppendFencePost(steelVertices, steelTriangles, -.46f, 0f);
-            if (arms.CapNorth) AppendFencePost(steelVertices, steelTriangles, 0f, .46f);
-            if (arms.CapSouth) AppendFencePost(steelVertices, steelTriangles, 0f, -.46f);
+            if (!isGate) AppendFencePost(steelVertices, steelTriangles, 0f, 0f);
+            if (arms.CapEast || (isGate && arms.X1 > 0f)) AppendFencePost(steelVertices, steelTriangles, .46f, 0f);
+            if (arms.CapWest || (isGate && arms.X0 < 0f)) AppendFencePost(steelVertices, steelTriangles, -.46f, 0f);
+            if (arms.CapNorth || (isGate && arms.Y1 > 0f)) AppendFencePost(steelVertices, steelTriangles, 0f, .46f);
+            if (arms.CapSouth || (isGate && arms.Y0 < 0f)) AppendFencePost(steelVertices, steelTriangles, 0f, -.46f);
 
-            var root = new GameObject(string.IsNullOrEmpty(request.ModuleId) ? "fence junction" : request.ModuleId);
-            root.transform.SetParent(panel.transform.parent, false);
             AddPart(root.transform, "fence arms steel", steelVertices, steelTriangles, steel);
             AddPart(root.transform, "fence arms glass", glassVertices, glassTriangles, glass);
-            composed = root;
-            renderers = root.GetComponentsInChildren<Renderer>(true);
-            return true;
+            if (darkVertices.Count > 0) AddPart(root.transform, "fence arms latch", darkVertices, darkTriangles, darkSteel ?? steel);
+            return root;
+        }
+
+        static Material ExtractNamedMaterial(GameObject prefab, string targetName) {
+            if (!prefab) return null;
+            foreach (var renderer in prefab.GetComponentsInChildren<MeshRenderer>(true)) {
+                foreach (var material in renderer.sharedMaterials) {
+                    if (!material) continue;
+                    if (string.Equals(MaterialBaseName(material.name), targetName, StringComparison.OrdinalIgnoreCase))
+                        return material;
+                }
+            }
+            return null;
+        }
+
+        static Material FirstMaterial(GameObject prefab) {
+            if (!prefab) return null;
+            foreach (var renderer in prefab.GetComponentsInChildren<MeshRenderer>(true)) {
+                foreach (var material in renderer.sharedMaterials) {
+                    if (material != null) return material;
+                }
+            }
+            return null;
         }
 
         /// <summary>Strip Unity's ` (Instance)` / importer suffix from a material name.</summary>
@@ -591,20 +731,25 @@ namespace Metro.App {
         /// machine's jamb to the cell edge.
         /// </summary>
         public static void AppendFenceRail(List<Vector3> steelVertices, List<int> steelTriangles,
-            List<Vector3> glassVertices, List<int> glassTriangles, float a, float b, bool alongY) {
+            List<Vector3> glassVertices, List<int> glassTriangles, float a, float b, bool alongY,
+            bool sealLo = false, bool sealHi = false, bool flushLo = false, bool flushHi = false) {
             float lo = Mathf.Min(a, b), hi = Mathf.Max(a, b);
             float length = hi - lo;
             if (length <= 1e-6f) return;
-            float mid = (lo + hi) * .5f;
             AppendTube(steelVertices, steelTriangles,
                 alongY ? new Vector3(0f, .97f, lo) : new Vector3(lo, .97f, 0f),
                 alongY ? new Vector3(0f, .97f, hi) : new Vector3(hi, .97f, 0f), .029f);
-            float glassLength = length - .012f;
+            float glassLo = (sealLo || flushLo) ? lo : lo + .006f;
+            float glassHi = (sealHi || flushHi) ? hi : hi - .006f;
+            float glassLength = Mathf.Max(.01f, glassHi - glassLo);
+            float glassMid = (glassLo + glassHi) * .5f;
             BoxFaces.AppendAxisAligned(glassVertices, glassTriangles,
-                alongY ? new Vector3(0f, .5f, mid) : new Vector3(mid, .5f, 0f),
+                alongY ? new Vector3(0f, .5f, glassMid) : new Vector3(glassMid, .5f, 0f),
                 alongY ? new Vector3(.012f, .78f, glassLength) : new Vector3(glassLength, .78f, .012f));
+            float clampLo = flushLo ? lo + .0275f : (sealLo ? Mathf.Max(lo, -.5f) + .045f : lo + .045f);
+            float clampHi = flushHi ? hi - .0275f : (sealHi ? Mathf.Min(hi, .5f) - .045f : hi - .045f);
             for (int end = 0; end < 2; end++) {
-                float at = end == 0 ? lo + .045f : hi - .045f;
+                float at = end == 0 ? clampLo : clampHi;
                 for (int step = 0; step < 2; step++) {
                     float z = step == 0 ? .18f : .78f;
                     BoxFaces.AppendAxisAligned(steelVertices, steelTriangles,
@@ -612,6 +757,108 @@ namespace Metro.App {
                         alongY ? new Vector3(.044f, .032f, .055f) : new Vector3(.055f, .032f, .044f));
                 }
             }
+        }
+
+        static void AppendGateRail(List<Vector3> steelVertices, List<int> steelTriangles,
+            List<Vector3> glassVertices, List<int> glassTriangles,
+            List<Vector3> darkVertices, List<int> darkTriangles,
+            float a, float b, bool alongY, bool sealLo, bool sealHi, bool flushLo = false, bool flushHi = false) {
+            float lo = Mathf.Min(a, b), hi = Mathf.Max(a, b);
+            float length = hi - lo;
+            if (length <= 1e-6f) return;
+            AppendTube(steelVertices, steelTriangles,
+                alongY ? new Vector3(0f, .97f, lo) : new Vector3(lo, .97f, 0f),
+                alongY ? new Vector3(0f, .97f, hi) : new Vector3(hi, .97f, 0f), .029f);
+            float glassLo = (sealLo || flushLo) ? lo : lo + .006f;
+            float glassHi = (sealHi || flushHi) ? hi : hi - .006f;
+            float glassLength = Mathf.Max(.01f, glassHi - glassLo);
+            float glassMid = (glassLo + glassHi) * .5f;
+            BoxFaces.AppendAxisAligned(glassVertices, glassTriangles,
+                alongY ? new Vector3(0f, .545f, glassMid) : new Vector3(glassMid, .545f, 0f),
+                alongY ? new Vector3(.012f, .69f, glassLength) : new Vector3(glassLength, .69f, .012f));
+            float clampLo = flushLo ? lo + .0275f : (sealLo ? Mathf.Max(lo, -.5f) + .045f : lo + .045f);
+            float clampHi = flushHi ? hi - .0275f : (sealHi ? Mathf.Min(hi, .5f) - .045f : hi - .045f);
+            for (int end = 0; end < 2; end++) {
+                float at = end == 0 ? clampLo : clampHi;
+                for (int step = 0; step < 2; step++) {
+                    float z = step == 0 ? .27f : .78f;
+                    BoxFaces.AppendAxisAligned(steelVertices, steelTriangles,
+                        alongY ? new Vector3(0f, z, at) : new Vector3(at, z, 0f),
+                        alongY ? new Vector3(.044f, .032f, .055f) : new Vector3(.055f, .032f, .044f));
+                }
+            }
+            AppendTube(steelVertices, steelTriangles,
+                alongY ? new Vector3(0f, .2f, lo + .04f) : new Vector3(lo + .04f, .2f, 0f),
+                alongY ? new Vector3(0f, .2f, hi - .04f) : new Vector3(hi - .04f, .2f, 0f), .018f);
+            foreach (float hz in new[] { .3f, .77f }) {
+                AppendTube(steelVertices, steelTriangles,
+                    alongY ? new Vector3(0f, hz - .045f, clampLo) : new Vector3(clampLo, hz - .045f, 0f),
+                    alongY ? new Vector3(0f, hz + .045f, clampLo) : new Vector3(clampLo, hz + .045f, 0f), .038f);
+            }
+            float latchAt = clampHi - .045f;
+            BoxFaces.AppendAxisAligned(darkVertices, darkTriangles,
+                alongY ? new Vector3(0f, .76f, latchAt) : new Vector3(latchAt, .76f, 0f),
+                alongY ? new Vector3(.065f, .035f, .1f) : new Vector3(.1f, .035f, .065f));
+        }
+
+        static void AppendIronRail(List<Vector3> vertices, List<int> triangles, float a, float b, bool alongY) {
+            float lo = Mathf.Min(a, b), hi = Mathf.Max(a, b);
+            float length = hi - lo;
+            if (length <= 1e-6f) return;
+            AppendTube(vertices, triangles,
+                alongY ? new Vector3(0f, .97f, lo) : new Vector3(lo, .97f, 0f),
+                alongY ? new Vector3(0f, .97f, hi) : new Vector3(hi, .97f, 0f), .029f);
+            AppendTube(vertices, triangles,
+                alongY ? new Vector3(0f, .13f, lo) : new Vector3(lo, .13f, 0f),
+                alongY ? new Vector3(0f, .13f, hi) : new Vector3(hi, .13f, 0f), .019f);
+            int count = Mathf.Max(1, Mathf.RoundToInt(length / .125f));
+            for (int i = 0; i < count; i++) {
+                float s = lo + (i + .5f) * length / count;
+                AppendTube(vertices, triangles,
+                    alongY ? new Vector3(0f, .13f, s) : new Vector3(s, .13f, 0f),
+                    alongY ? new Vector3(0f, .945f, s) : new Vector3(s, .945f, 0f), .012f);
+            }
+        }
+
+        static void AppendIronPost(List<Vector3> vertices, List<int> triangles, float x, float y, bool alongY) {
+            AppendTube(vertices, triangles, new Vector3(x, .035f, y), new Vector3(x, .97f, y), .024f);
+            AppendTube(vertices, triangles,
+                new Vector3(x - (alongY ? .18f : 0f), .035f, y - (alongY ? 0f : .18f)),
+                new Vector3(x + (alongY ? .18f : 0f), .035f, y + (alongY ? 0f : .18f)), .022f);
+        }
+
+        static void AppendBlueSteelRail(List<Vector3> vertices, List<int> triangles, float a, float b, bool alongY) {
+            float lo = Mathf.Min(a, b), hi = Mathf.Max(a, b);
+            float length = hi - lo;
+            if (length <= 1e-6f) return;
+            foreach (float z in new[] { .06f, .72f, 1.975f }) {
+                AppendTube(vertices, triangles,
+                    alongY ? new Vector3(0f, z, lo) : new Vector3(lo, z, 0f),
+                    alongY ? new Vector3(0f, z, hi) : new Vector3(hi, z, 0f), .025f);
+            }
+            float mid = (lo + hi) * .5f;
+            BoxFaces.AppendAxisAligned(vertices, triangles,
+                alongY ? new Vector3(0f, .39f, mid) : new Vector3(mid, .39f, 0f),
+                alongY ? new Vector3(.018f, .6f, length) : new Vector3(length, .6f, .018f));
+            const float bottom = .75f, top = 1.95f;
+            for (int slopeSign = -1; slopeSign <= 1; slopeSign += 2) {
+                float slope = slopeSign;
+                for (float intercept = bottom - hi - 2f; intercept <= top + hi + 2f; intercept += .14f) {
+                    float segLo = Mathf.Max(lo + .006f, slope > 0f ? bottom - intercept : intercept - top);
+                    float segHi = Mathf.Min(hi - .006f, slope > 0f ? top - intercept : intercept - bottom);
+                    if (segHi - segLo < .001f) continue;
+                    float yLo = slope * segLo + intercept;
+                    float yHi = slope * segHi + intercept;
+                    AppendTube(vertices, triangles,
+                        alongY ? new Vector3(0f, yLo, segLo) : new Vector3(segLo, yLo, 0f),
+                        alongY ? new Vector3(0f, yHi, segHi) : new Vector3(segHi, yHi, 0f), .004f, 6);
+                }
+            }
+        }
+
+        static void AppendBlueSteelPost(List<Vector3> vertices, List<int> triangles, float x, float y) {
+            BoxFaces.AppendAxisAligned(vertices, triangles, new Vector3(x, 1f, y), new Vector3(.045f, 2f, .045f));
+            BoxFaces.AppendAxisAligned(vertices, triangles, new Vector3(x, .015f, y), new Vector3(.08f, .03f, .08f));
         }
 
         /// <summary>One post of `fencePost`: the floor shoe, the upright tube and its two clamps.</summary>
@@ -714,6 +961,7 @@ namespace Metro.App {
             source = OutdoorYawSource.SavedRotation;
             float saved = ModulePlacement.Yaw(request.Rotation);
             if (!string.Equals(request.Type, "fence", StringComparison.Ordinal)) return saved;
+            if (IsNoiseBarrier(request.Variant, request.ViewKey)) return saved;
             if (!request.Neighbours.Known) {
                 caveat = "neighbours-unknown:saved-turn";
                 panelExtent = false;
@@ -725,16 +973,15 @@ namespace Metro.App {
                 panelExtent = false;
                 return saved;
             }
+            if (request.Neighbours.Degree == 0) return saved;
+            // Every connected fence (1-axis straight runs / run ends and 2-axis L/T/+ junctions)
+            // composes its computed arms directly in the cell frame so connected sides drop
+            // redundant end posts and seal cleanly against inset escalators/stairs/gates.
+            composeArms = true;
             if (x && y) {
-                // RCA 15 §4: an L, T or + is composed from the computed arms (`TryComposeFenceArms`)
-                // — one centre post and a half span per arm — so its geometry is drawn in the cell
-                // frame and no panel rotation applies. Whether the composition was allowed is
-                // decided after measuring the prefab, and the outcome is reported by name.
-                composeArms = true;
                 panelExtent = false;
                 return 0f;
             }
-            if (request.Neighbours.Degree == 0) return saved;
             source = OutdoorYawSource.ArmAxis;
             return x ? 0f : -90f;
         }

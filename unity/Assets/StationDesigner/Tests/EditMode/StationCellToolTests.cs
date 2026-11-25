@@ -567,7 +567,8 @@ namespace Metro.EditModeTests {
             Assert.IsTrue(StationModuleRuns.IsLinePalette("fence"));
             Assert.IsTrue(StationModuleRuns.IsLinePalette("tactile-guide"));
             Assert.IsTrue(StationModuleRuns.IsLinePalette("floor-mark-boarding"));
-            Assert.IsFalse(StationModuleRuns.IsLinePalette("bench-steel-1"), "a bench is press-to-place");
+            Assert.IsFalse(StationModuleRuns.IsLinePalette("bench-steel-1"), "bench is not a legacy continuous run family");
+            Assert.IsTrue(StationModuleRuns.SupportsDragPlacement("bench-steel-1"), "bench supports drag line placement");
 
             StationToolSelection.TrySelect("module", out _, out _);
             StationToolSelection.ApplySettings(new JObject { ["moduleType"] = "fence", ["rotation"] = 0 });

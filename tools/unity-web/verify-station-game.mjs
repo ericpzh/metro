@@ -4197,7 +4197,7 @@ async function runStationEditingCase() {
     if (!placed) problems.push('the committed document has no bench at the probed cell')
     else {
       const state = await editState()
-      if (state?.selectionKey !== placed.id) problems.push('the committed bench is not the selection')
+      if (state?.selectionKey) problems.push('a newly placed bench must not be auto-selected: ' + state.selectionKey)
       // Diagnostic: can the scene picker see the newly placed bench at all after the
       // commit rebuilt the world?
       try {
@@ -4234,8 +4234,8 @@ async function runStationEditingCase() {
       await sleep(150)
       if (await revision() !== before) problems.push('a hover preview changed the document revision')
       const trace = await page.evaluate('window.__metroStationBridge.getSnapshot().state.edit.trace ?? []')
-      if (!trace.some(entry => entry.type === 'pointer.down' && entry.committed)) {
-        problems.push('the interaction trace has no committed pointer.down')
+      if (!trace.some(entry => (entry.type === 'pointer.up' || entry.type === 'pointer.down') && entry.committed)) {
+        problems.push('the interaction trace has no committed pointer placement')
       }
       if (trace.some(entry => entry.type === 'pointer.move' && entry.committed)) {
         problems.push('a hover move committed a revision')

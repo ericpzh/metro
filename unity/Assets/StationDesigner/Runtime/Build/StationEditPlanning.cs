@@ -264,6 +264,21 @@ namespace Metro.Build {
         public string SignFrontJson = "";
         /// <summary>Optional composed back board JSON array for a fresh 指示牌 (`currentBoards.back`).</summary>
         public string SignBackJson = "";
+        /// <summary>Fare gate door mode (`lane` | `fence`, `gateDoor`).</summary>
+        public string GateDoor = "";
+        /// <summary>Lift cabin wall style (`steel` | `glass`, `liftStyle`).</summary>
+        public string LiftStyle = "";
+        /// <summary>Optional exit id carried by a fresh guidepost (`guideExitId`).</summary>
+        public string GuideExitId = "";
+        /// <summary>PSD end panel height (`half` | `full`, `psdEndHeight`).</summary>
+        public string PsdEndHeight = "";
+        /// <summary>When true, a dragged <c>psd-end</c> row lays plain grid panels instead of folding onto one corner.</summary>
+        public bool SkipPsdCornerSnap;
+        /// <summary>Wall-line press metadata captured when dragging a wall-mounted run along a wall face.</summary>
+        public bool HasWallLine;
+        public int WallCourse;
+        public int WallNormalX;
+        public int WallNormalY;
     }
 
     /// <summary>One immutable answer: the candidate, its support, its collisions and a stable reason code.</summary>
@@ -829,10 +844,15 @@ namespace Metro.Build {
                     if (family.Variant == "rectangular" && request.LightPosition.HasValue)
                         candidate.Set(request.LightPosition.Value, "position");
                     break;
-                case "gate":
+                case "gate": {
                     candidate.Set("dir", "both");
-                    candidate.Set("door", "lane");
+                    string gateDoor = string.Equals(request.GateDoor, "fence", StringComparison.Ordinal) ? "fence" : "lane";
+                    candidate.Set("door", gateDoor);
                     candidate.Set("variant", family.Variant);
+                    break;
+                }
+                case "guidepost":
+                    if (!string.IsNullOrEmpty(request.GuideExitId)) candidate.Set("exitId", request.GuideExitId);
                     break;
                 case "extinguisher":
                 case "cubicle":
@@ -947,13 +967,14 @@ namespace Metro.Build {
                     break;
                 }
                 case "psd-end":
-                    // `createModule`'s psd-end branch: `psd: half` for the end panel, and
-                    // `psd: full` + `variant: cover` for the corner cover.
+                    // `createModule`'s psd-end branch: `psd: half` for the end panel (or `full` when
+                    // armed via `psdEndHeight`), and `psd: full` + `variant: cover` for the corner cover.
                     if (string.Equals(family.Variant, "cover", StringComparison.Ordinal)) {
                         candidate.Set("psd", "full");
                         candidate.Set("variant", "cover");
                     } else {
-                        candidate.Set("psd", "half");
+                        string psdHeight = string.Equals(request.PsdEndHeight, "full", StringComparison.Ordinal) ? "full" : "half";
+                        candidate.Set("psd", psdHeight);
                     }
                     break;
                 case "stair-block": {
@@ -977,6 +998,10 @@ namespace Metro.Build {
                     candidate.To = new StationPoint(candidate.X, candidate.Y, candidate.Z + interval);
                     candidate.SetJson("rises", "[" + interval.ToString(System.Globalization.CultureInfo.InvariantCulture) + "]");
                     if (request.LiftSizeLarge) candidate.Set(3, "size");
+                    if (string.Equals(request.LiftStyle, "steel", StringComparison.Ordinal) ||
+                        string.Equals(request.LiftStyle, "glass", StringComparison.Ordinal)) {
+                        candidate.Set("style", request.LiftStyle);
+                    }
                     break;
                 }
                 case "walkway": {
@@ -998,11 +1023,12 @@ namespace Metro.Build {
             }
             // The 站台门 end panel seats itself on the nearest screen endpoint (or on the
             // glass plane a neighbouring panel holds) before the verdict runs; its cover stacks
-            // on the full-height support under the click.
+            // on the full-height support under the click. Multi-cell drags opt out of corner
+            // snap so the row lays metre-grid panels instead of folding onto one corner.
             if (string.Equals(candidate.Type, "psd-end", StringComparison.Ordinal)) {
                 if (string.Equals(candidate.Text("variant"), "cover", StringComparison.Ordinal))
                     StationPsdEndRules.TrySnapCover(index, candidate, request.TargetModuleId);
-                else
+                else if (!request.SkipPsdCornerSnap)
                     StationPsdEndRules.TrySnap(index, candidate);
             }
             if (!string.Equals(candidate.Type, "hanger", StringComparison.Ordinal) &&
@@ -1252,7 +1278,11 @@ namespace Metro.Build {
                 reason = "unsupported-mount";
                 return null;
             }
-            int rot = StationFootprints.NormRot(request.Rotation);
+            bool slimPillar = string.Equals(source.Type, "pillar", StringComparison.Ordinal) &&
+                              !string.Equals(source.Config.Text("size"), "thick", StringComparison.Ordinal);
+            int rot = slimPillar
+                ? ((request.Rotation % 9) + 9) % 9
+                : StationFootprints.NormRot(request.Rotation);
             var draft = DraftOf(source);
             if (source.Type == "light" && source.Config.Text("variant") == "rectangular" && request.LightPosition.HasValue)
                 draft.Set(request.LightPosition.Value, "position");

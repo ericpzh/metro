@@ -24,6 +24,8 @@ namespace Metro.App {
         public readonly int DocumentRevision;
         /// <summary>The client's `performance.now()` at the event, in ms; −1 when absent.</summary>
         public readonly double TimeMs;
+        /// <summary>Browser `PointerEvent.pointerType` (`mouse`, `touch`, `pen`, or empty).</summary>
+        public readonly string PointerType;
 
         StationPointerEvent(JObject payload) {
             Width = (float)Number(payload, "w", 0);
@@ -37,21 +39,24 @@ namespace Metro.App {
             ToolGeneration = (int)Number(payload, "toolGeneration", -1);
             DocumentRevision = (int)Number(payload, "documentRevision", -1);
             TimeMs = Number(payload, "time", -1);
+            PointerType = payload["pointerType"] != null && payload["pointerType"].Type == JTokenType.String
+                ? (string)payload["pointerType"] : "";
         }
 
         /// <summary>A synthetic event for a test or a re-aimed cached pointer.</summary>
         public static StationPointerEvent Synthetic(float x, float y, float width, float height,
-            int button = 0, int modifiers = 0, double timeMs = -1, int pointerId = -1, int buttons = -1) {
+            int button = 0, int modifiers = 0, double timeMs = -1, int pointerId = -1, int buttons = -1,
+            string pointerType = "") {
             int mask = buttons >= 0 ? buttons : button == 0 ? 1 : button == 1 ? 4 : button == 2 ? 2 : 0;
             return new StationPointerEvent(x, y, width <= 0 ? 1f : width, height <= 0 ? 1f : height,
-                button, modifiers, timeMs, pointerId, -1, -1, mask);
+                button, modifiers, timeMs, pointerId, -1, -1, mask, pointerType ?? "");
         }
 
         StationPointerEvent(float x, float y, float width, float height, int button, int modifiers,
-            double timeMs, int pointerId, int toolGeneration, int documentRevision, int buttons) {
+            double timeMs, int pointerId, int toolGeneration, int documentRevision, int buttons, string pointerType) {
             X = x; Y = y; Width = width; Height = height; Button = button; Modifiers = modifiers;
             TimeMs = timeMs; PointerId = pointerId; ToolGeneration = toolGeneration;
-            DocumentRevision = documentRevision; Buttons = buttons;
+            DocumentRevision = documentRevision; Buttons = buttons; PointerType = pointerType ?? "";
         }
 
         public static int LastClientDocumentRevision { get; private set; } = -1;
@@ -260,12 +265,13 @@ namespace Metro.App {
             string.Equals(StationToolSelection.Setting("moduleType"), "road", StringComparison.Ordinal);
 
         /// <summary>
-        /// True while the armed 设备 palette is a **run** family (a dragged line of panels,
-        /// plan 27 §5). It rides the same gesture owner and preview as the cell tools.
+        /// True while the armed 设备 palette supports press-and-drag line placement (every loose
+        /// equipment/decor palette under `supportsLinePlacement` plus continuous runs like fences
+        /// and tactile paths). It rides the deferred gesture owner and draws 3D model/fence previews.
         /// </summary>
         static bool ModuleRunArmed() =>
             string.Equals(StationToolSelection.Active, "module", StringComparison.Ordinal) &&
-            StationModuleRuns.IsLinePalette(StationToolSelection.Setting("moduleType"));
+            StationModuleRuns.SupportsDragPlacement(StationToolSelection.Setting("moduleType"));
 
         /// <summary>
         /// True when a pointer event needs the active storey's horizontal work plane evaluated
@@ -389,8 +395,13 @@ namespace Metro.App {
                 ForgetPress();
                 bool committed = false;
                 if (StationRoadTool.HasGesture) {
+                    bool wasRoadRemove = StationRoadTool.IsRemoving;
                     if (staleTool || staleRevision) {
                         StationRoadTool.Cancel();
+                        if (wasRoadRemove) {
+                            editHost.Preview?.ClearGhost();
+                            editHost.Preview?.ClearCells();
+                        }
                         reason = staleTool ? "stale-tool" : "stale-revision";
                     } else if (camera != null) {
                         var releaseHit = StationEditScene.PickRay(host, host.Coordinator?.World, camera, ray,
@@ -400,6 +411,10 @@ namespace Metro.App {
                             editHost.Bind(host);
                         } else if (!string.IsNullOrEmpty(reason) && code == null) {
                             reply["reason"] = reason;
+                        }
+                        if (wasRoadRemove) {
+                            editHost.Preview?.ClearGhost();
+                            editHost.Preview?.ClearCells();
                         }
                     }
                 } else if (StationPaintTool.HasGesture) {
@@ -439,6 +454,7 @@ namespace Metro.App {
                 } else if (StationSurfaceTool.HasGesture) {
                     if (staleTool || staleRevision) {
                         StationSurfaceTool.Cancel();
+                        editHost.Preview?.ClearCells();
                         reason = staleTool ? "stale-tool" : "stale-revision";
                     } else if (camera != null) {
                         var releaseHit = StationEditScene.PickRay(host, host.Coordinator?.World, camera, ray,
@@ -447,15 +463,19 @@ namespace Metro.App {
                         if (committed) {
                             editHost.Bind(host);
                             AfterCommit(host, editHost, "");
-                        } else if (!string.IsNullOrEmpty(reason) && code == null) {
-                            reply["reason"] = reason;
+                        } else {
+                            editHost.Preview?.ClearCells();
+                            if (!string.IsNullOrEmpty(reason) && code == null) reply["reason"] = reason;
                         }
                     }
                 } else if (StationRoofTool.HasGesture) {
                     // A 屋顶 area/bay gesture commits on the release (`TileEquipmentTool.onUp`):
                     // the batch the ghost drew is the batch one revision lays.
+                    bool wasRoofRemove = StationRoofTool.IsRemoving;
                     if (staleTool || staleRevision) {
                         StationRoofTool.Cancel();
+                        editHost.Preview?.ClearGhost();
+                        editHost.Preview?.ClearCells();
                         reason = staleTool ? "stale-tool" : "stale-revision";
                     } else if (camera != null) {
                         var releaseHit = StationEditScene.PickRay(host, host.Coordinator?.World, camera, ray,
@@ -466,15 +486,23 @@ namespace Metro.App {
                             AfterCommit(host, editHost, "");
                         } else {
                             if (!string.IsNullOrEmpty(reason) && code == null) reply["reason"] = reason;
-                            // A refused release leaves the batch drawn, so the player can see what
-                            // the refusal is about; a cancel drops it.
-                            editHost.EnsureBound(host);
-                            editHost.Preview?.ShowModules(StationRoofTool.Accepted, StationRoofTool.Refused);
+                            if (wasRoofRemove) {
+                                editHost.Preview?.ClearGhost();
+                                editHost.Preview?.ClearCells();
+                            } else {
+                                // A refused release leaves the batch drawn, so the player can see what
+                                // the refusal is about; a cancel drops it.
+                                DrawRoofPreview(host, editHost);
+                            }
                         }
                     }
                 } else if (StationCellTool.HasGesture) {
+                    bool wasModuleRun = StationCellTool.Gesture.Kind == StationCellGestureKind.ModuleRun;
+                    bool wasRemove = StationCellTool.Gesture.Remove;
                     if (staleTool || staleRevision) {
                         StationCellTool.Cancel();
+                        editHost.Preview?.ClearGhost();
+                        editHost.Preview?.ClearCells();
                         reason = staleTool ? "stale-tool" : "stale-revision";
                     } else if (camera != null) {
                         // The release aims the plane its press aimed: a float block's release
@@ -485,11 +513,25 @@ namespace Metro.App {
                         if (committed) {
                             editHost.Bind(host);
                             AfterCommit(host, editHost, "");
-                        } else if (code != null) {
-                            reply["reason"] = reason ?? code;
+                            if (wasRemove ||
+                                (string.Equals(StationEditSession.SelectionKind, "module", StringComparison.Ordinal) &&
+                                 !string.IsNullOrEmpty(StationEditSession.SelectionKey) &&
+                                 !host.Index.TryGetModule(StationEditSession.SelectionKey, out _))) {
+                                StationEditSession.ClearSelection();
+                                ClearSelectionHighlight(editHost);
+                            }
+                            editHost.Preview?.ClearGhost();
+                            editHost.Preview?.ClearCells();
+                        } else {
+                            if (code != null || !string.IsNullOrEmpty(reason)) reply["reason"] = reason ?? code;
+                            if (wasModuleRun) {
+                                editHost.Preview?.ClearGhost();
+                                editHost.Preview?.ClearCells();
+                            }
                         }
                         _ = releaseContext;
                     }
+                    if (wasModuleRun && StationEditSession.HasPointer) host.RequestHoverRefresh();
                 }
                 if (IsCellTool(tool)) {
                     // A committed cell press leaves the pointer over the cell it just built. The
@@ -674,13 +716,122 @@ namespace Metro.App {
             StationEditScene.ResolveView(host, out _, out _, out _, out var visibility);
             if (visibility != null && visibility.State.HideUi) {
                 editHost.Preview?.ClearCells();
+                editHost.Preview?.ClearGhost();
                 StationEditSession.Ghost = null;
                 return;
             }
             editHost.EnsureBound(host);
-            editHost.Preview?.ShowCells(StationCellTool.Preview);
+            var preview = StationCellTool.Preview;
+            if (preview != null && string.Equals(preview.Kind, "run", StringComparison.Ordinal)) {
+                if (StationCellTool.HasGesture && !StationCellTool.Gesture.Dragging &&
+                    !StationCellTool.Gesture.Remove && StationCellTool.Gesture.SingleClickPlan != null) {
+                    editHost.Preview?.Show(StationCellTool.Gesture.SingleClickPlan);
+                    StationEditSession.Ghost = editHost.Preview != null && !editHost.Preview.UiHidden
+                        ? editHost.Preview.Summary("module")
+                        : null;
+                    return;
+                }
+                if (preview.RunPlan != null || preview.OverLimit) {
+                    editHost.Preview?.ShowModuleRun(preview.RunPlan, preview.CursorFloor, preview.ShowCursor,
+                        preview.OverLimit, preview.Check.Blocked);
+                    StationEditSession.Ghost = editHost.Preview != null && !editHost.Preview.UiHidden
+                        ? editHost.Preview.Summary("modules")
+                        : null;
+                    return;
+                }
+            }
+            editHost.Preview?.ClearGhost();
+            editHost.Preview?.ShowCells(preview);
             StationEditSession.Ghost = editHost.Preview != null && !editHost.Preview.UiHidden
                 ? editHost.Preview.Summary("cells")
+                : null;
+        }
+
+        /// <summary>
+        /// Draw the active roof preview: blue/refused ghosts when adding, or the unified red
+        /// surface overlay + red wireframe box when removing via right-click or Delete tool.
+        /// </summary>
+        static void DrawRoofPreview(StationGameHost host, StationEditHost editHost) {
+            if (editHost == null) return;
+            StationEditScene.ResolveView(host, out _, out _, out _, out var visibility);
+            if (visibility != null && visibility.State.HideUi) {
+                editHost.Preview?.ClearCells();
+                editHost.Preview?.ClearGhost();
+                StationEditSession.Ghost = null;
+                return;
+            }
+            editHost.EnsureBound(host);
+            if (StationRoofTool.IsRemoving) {
+                var ids = new List<string>(StationRoofTool.Accepted.Count);
+                for (int i = 0; i < StationRoofTool.Accepted.Count; i++) {
+                    var id = StationRoofTool.Accepted[i]?.Candidate?.Id;
+                    if (!string.IsNullOrEmpty(id)) ids.Add(id);
+                }
+                editHost.Preview?.ShowModuleRemove(ids, "roof");
+            } else {
+                editHost.Preview?.ShowModules(StationRoofTool.Accepted, StationRoofTool.Refused);
+            }
+            StationEditSession.Ghost = editHost.Preview != null && !editHost.Preview.UiHidden
+                ? editHost.Preview.Summary("roof")
+                : null;
+        }
+
+        static bool TryPreviewRoadDelete(StationGameHost host, StationSceneHit hit, out RoadEditPreview roadPreview) {
+            roadPreview = null;
+            if (host == null || !host.IsLoaded || hit == null || !hit.HasModule || hit.Module == null) return false;
+            var point = hit.HasCell ? hit.Cell.Point : hit.ModulePoint;
+            var request = new RoadEditRequest {
+                mode = "delete",
+                z = hit.Module.Z,
+                from = new[] { point.X, point.Y },
+                to = new[] { point.X, point.Y },
+                pickedId = hit.Module.Id,
+                expectedRevision = -1,
+            };
+            return StationRoadEditService.TryPreview(host, request, out roadPreview, out _) &&
+                   roadPreview != null && roadPreview.Valid && roadPreview.Candidate != null;
+        }
+
+        /// <summary>
+        /// Draw a road deletion preview using the unified red surface overlay + wireframe box:
+        /// unsplit roads highlight the authored road meshes directly, while split segments
+        /// highlight the exact segment rectangle that releasing will remove.
+        /// </summary>
+        static void DrawRoadDeletePreview(StationGameHost host, StationEditHost editHost, RoadEditPreview roadPreview) {
+            if (editHost == null) return;
+            StationEditScene.ResolveView(host, out _, out _, out _, out var visibility);
+            if (visibility != null && visibility.State.HideUi) {
+                editHost.Preview?.ClearCells();
+                editHost.Preview?.ClearGhost();
+                StationEditSession.Ghost = null;
+                return;
+            }
+            editHost.EnsureBound(host);
+            if (roadPreview == null || !roadPreview.Valid || roadPreview.Candidate == null) {
+                editHost.Preview?.ClearGhost();
+                editHost.Preview?.ClearCells();
+                StationEditSession.Ghost = null;
+                return;
+            }
+            bool wholeAuthored = !string.IsNullOrEmpty(roadPreview.SourceId) &&
+                string.Equals(roadPreview.Candidate.Id, roadPreview.SourceId, StringComparison.Ordinal) &&
+                host != null && host.Index != null &&
+                host.Index.TryGetModule(roadPreview.SourceId, out var authored) &&
+                authored != null &&
+                authored.X == roadPreview.Candidate.X &&
+                authored.Y == roadPreview.Candidate.Y &&
+                authored.Width == roadPreview.Candidate.W &&
+                authored.Depth == roadPreview.Candidate.D;
+            if (wholeAuthored) {
+                editHost.Preview?.ShowModuleRemove(new[] { roadPreview.SourceId }, "road");
+            } else {
+                var r = roadPreview.Candidate;
+                var box = new StationBox(r.X, r.Y, r.Z + 1.0,
+                    r.X + Math.Max(1, r.W), r.Y + Math.Max(1, r.D), r.Z + 1.07);
+                editHost.Preview?.ShowBoxRemove(box, "road");
+            }
+            StationEditSession.Ghost = editHost.Preview != null && !editHost.Preview.UiHidden
+                ? editHost.Preview.Summary("road")
                 : null;
         }
 
@@ -707,6 +858,12 @@ namespace Metro.App {
             StationRoofTool.Cancel();
             StationPillarTool.Cancel();
             if (StationEditSession.HasCarried) CancelMove(host, editHost);
+            var active = StationToolSelection.Active;
+            if (!string.Equals(active, "select", StringComparison.Ordinal) &&
+                !string.Equals(active, "move", StringComparison.Ordinal)) {
+                StationEditSession.ClearSelection();
+                ClearSelectionHighlight(editHost);
+            }
             ClearPlan(host, editHost);
         }
 
@@ -804,6 +961,7 @@ namespace Metro.App {
                         return true;
                     }
                     StationRoadTool.Publish();
+                    DrawRoadDeletePreview(host, editHost, StationRoadTool.Preview);
                     reply["road"] = StationEditSession.ToJson()["road"];
                     return true;
                 }
@@ -816,8 +974,7 @@ namespace Metro.App {
                         return true;
                     }
                     StationRoofTool.Publish();
-                    editHost.EnsureBound(host);
-                    editHost.Preview?.ShowModules(StationRoofTool.Accepted, StationRoofTool.Refused);
+                    DrawRoofPreview(host, editHost);
                     return true;
                 }
                 case "tactile":
@@ -886,23 +1043,77 @@ namespace Metro.App {
                 if (!string.IsNullOrEmpty(reason)) reply["reason"] = reason;
                 return;
             }
+            if (string.Equals(tool, "module", StringComparison.Ordinal) && StationPillarTool.IsArmed() &&
+                pointer.Button == 0) {
+                // Pressing over an existing post extends it in place; pressing empty floor falls
+                // through to `ModuleRunArmed()` so pillars can also be dragged in a row.
+                int revisionBeforePillar = host.CurrentRevision;
+                if (StationPillarTool.Begin(host, hit, pointer, 0, out code, out reason)) {
+                    if (!string.IsNullOrEmpty(reason)) reply["reason"] = reason;
+                    if (host.CurrentRevision != revisionBeforePillar) {
+                        editHost.Bind(host);
+                        AfterCommit(host, editHost, "");
+                    }
+                    reply["edit"] = StationEditSession.ToJson();
+                    return;
+                }
+            }
             if (string.Equals(tool, "module", StringComparison.Ordinal) && ModuleRunArmed() &&
                 (pointer.Button == 0 || pointer.Button == 2)) {
-                // A run family (围栏 / 盲道 / floor mark) drags a line rather than placing one
-                // panel per press (`EquipmentTool.beginLineAdd`).
-                if (StationCellTool.Begin(host, hit, tool, pointer.Button, pointer, out reason)) {
+                var moduleType = StationToolSelection.Setting("moduleType");
+                if (pointer.Button == 2) {
+                    if (!StationModuleRuns.IsVariantMatchedRun(moduleType) &&
+                        hit.HasModule && hit.ModuleWins && !StationModuleRuns.IsLineDeletable(hit.Module)) {
+                        Delete(host, editHost, hit, reply, out code, out reason);
+                        return;
+                    }
+                    if (StationCellTool.BeginModuleRun(host, hit, pointer, 2, null, null, out reason)) {
+                        StationCellTool.Publish();
+                        DrawCells(host, editHost);
+                        reply["cells"] = StationCellTool.Preview.ToJson();
+                        return;
+                    }
+                    if (!string.IsNullOrEmpty(reason)) reply["reason"] = reason;
+                    return;
+                }
+                if (string.Equals(pointer.PointerType, "touch", StringComparison.Ordinal) &&
+                    !StationModuleRuns.IsLinePalette(moduleType)) {
+                    Place(host, editHost, world, ray, pickContext, hit, reply, out code, out reason);
+                    return;
+                }
+                var template = RequestFor(world, ray, pickContext, hit, null, 0);
+                bool canSkipFloor = StationModuleFamilies.IsWallPalette(template.ToolType) ||
+                                    StationCeilingAim.IsCeilingPiece(template.ToolType);
+                bool hasFloor = template.Hit.HasCell && (template.Hit.Solid ||
+                    (host.Index != null && StationFootprints.IsExitFloorAt(host.Index, template.Hit.X, template.Hit.Y, template.Hit.Z)));
+                if (!canSkipFloor && !hasFloor) {
+                    var refused = StationModulePlacement.Resolve(host.Index, template);
+                    StationEditSession.Plan = refused;
+                    editHost.EnsureBound(host);
+                    editHost.Preview?.Show(refused);
+                    reason = !string.IsNullOrEmpty(refused?.Reason) ? refused.Reason : "floor";
+                    reply["reason"] = reason;
+                    return;
+                }
+                var singlePlan = StationModulePlacement.Resolve(host.Index, template);
+                if (StationCellTool.BeginModuleRun(host, hit, pointer, 0, template, singlePlan, out reason)) {
+                    StationEditSession.Plan = singlePlan;
                     StationCellTool.Publish();
                     DrawCells(host, editHost);
                     reply["cells"] = StationCellTool.Preview.ToJson();
                     return;
                 }
+                if (!string.IsNullOrEmpty(reason)) reply["reason"] = reason;
+                return;
             }
             if (string.Equals(tool, "module", StringComparison.Ordinal) && RoadArmed() &&
                 (pointer.Button == 0 || pointer.Button == 2)) {
                 // The 道路 stroke drags a centreline between nodes (`RoadTool.begin`); its ghost is
-                // the road preview the `road.preview` command already draws.
+                // the road preview the `road.preview` command already draws, while right-click
+                // removal uses the unified red surface + outline preview.
                 if (StationRoadTool.Begin(host, hit, pointer, pointer.Button, out reason)) {
                     StationRoadTool.Publish();
+                    if (StationRoadTool.IsRemoving) DrawRoadDeletePreview(host, editHost, StationRoadTool.Preview);
                     reply["road"] = StationEditSession.ToJson()["road"];
                     return;
                 }
@@ -914,6 +1125,7 @@ namespace Metro.App {
                 bool armed = StationSurfaceTool.Begin(host, hit, pointer, pointer.Button, out reason);
                 if (!armed && !string.IsNullOrEmpty(reason)) reply["reason"] = reason;
                 StationSurfaceTool.Publish();
+                editHost.EnsureBound(host);
                 editHost.Preview?.ShowSurface(StationSurfaceTool.Preview);
                 reply["surface"] = StationEditSession.Surface != null ? StationEditSession.Surface.ToJson() : null;
                 return;
@@ -942,7 +1154,7 @@ namespace Metro.App {
                     return;
                 }
                 editHost.Bind(host);
-                AfterCommit(host, editHost, StationTunnelTool.Preview?.Track?.Id ?? "");
+                AfterCommit(host, editHost, "");
                 return;
             }
             if (string.Equals(tool, "module", StringComparison.Ordinal) && StationLiftTool.IsArmed() &&
@@ -1044,8 +1256,7 @@ namespace Metro.App {
                             return;
                         }
                         StationRoofTool.Publish();
-                        editHost.EnsureBound(host);
-                        editHost.Preview?.ShowModules(StationRoofTool.Accepted, StationRoofTool.Refused);
+                        DrawRoofPreview(host, editHost);
                         return;
                     }
                     if (StationPillarTool.IsArmed()) {
@@ -1059,6 +1270,10 @@ namespace Metro.App {
                             reply["edit"] = StationEditSession.ToJson();
                             return;
                         }
+                    }
+                    if (pointer.Button == 2) {
+                        Delete(host, editHost, hit, reply, out code, out reason);
+                        return;
                     }
                     Place(host, editHost, world, ray, pickContext, hit, reply, out code, out reason);
                     return;
@@ -1135,9 +1350,23 @@ namespace Metro.App {
                 return;
             }
             if (string.Equals(tool, "module", StringComparison.Ordinal) && ModuleRunArmed()) {
-                if (StationCellTool.Begin(host, hit, tool, 2, pointer, out reason)) {
-                    StationCellTool.Finish(host, hit, pointer, out code, out reason);
+                var moduleType = StationToolSelection.Setting("moduleType");
+                if (!StationModuleRuns.IsVariantMatchedRun(moduleType) &&
+                    hit.HasModule && hit.ModuleWins && !StationModuleRuns.IsLineDeletable(hit.Module)) {
+                    Delete(host, editHost, hit, reply, out code, out reason);
+                    return;
+                }
+                if (StationCellTool.BeginModuleRun(host, hit, pointer, 2, null, null, out reason)) {
+                    bool removed = StationCellTool.Finish(host, hit, pointer, out code, out reason);
                     StationCellTool.Publish();
+                    if (removed) {
+                        editHost.Bind(host);
+                        AfterCommit(host, editHost, "");
+                        StationEditSession.ClearSelection();
+                        ClearSelectionHighlight(editHost);
+                    }
+                    editHost.Preview?.ClearGhost();
+                    editHost.Preview?.ClearCells();
                     if (!string.IsNullOrEmpty(reason) && code == null) reply["reason"] = reason;
                     return;
                 }
@@ -1156,6 +1385,11 @@ namespace Metro.App {
                     return;
                 }
                 if (!string.IsNullOrEmpty(reason)) reply["reason"] = reason;
+                return;
+            }
+            if (string.Equals(tool, "module", StringComparison.Ordinal) &&
+                hit.TargetKind == StationSceneTargetKind.Module) {
+                Delete(host, editHost, hit, reply, out code, out reason);
                 return;
             }
             ClearPlan(host, editHost);
@@ -1188,6 +1422,7 @@ namespace Metro.App {
             if (StationRoadTool.HasGesture) {
                 StationRoadTool.Aim(host, hit, pointer);
                 StationRoadTool.Publish();
+                if (StationRoadTool.IsRemoving) DrawRoadDeletePreview(host, editHost, StationRoadTool.Preview);
                 reply["road"] = StationEditSession.ToJson()["road"];
                 return;
             }
@@ -1223,6 +1458,7 @@ namespace Metro.App {
                 // one tile under it and says so when the outdoor rules turn that cell away.
                 StationSurfaceTool.Aim(host, hit, pointer);
                 StationSurfaceTool.Publish();
+                editHost.EnsureBound(host);
                 editHost.Preview?.ClearGhost();
                 editHost.Preview?.ShowSurface(StationSurfaceTool.Preview);
                 reply["surface"] = StationEditSession.Surface != null ? StationEditSession.Surface.ToJson() : null;
@@ -1243,11 +1479,7 @@ namespace Metro.App {
                 // remove/add plan through the whole drag (plan 30 §2).
                 StationRoofTool.AimAt(host, hit, ray, pointer);
                 StationRoofTool.Publish();
-                editHost.EnsureBound(host);
-                editHost.Preview?.ShowModules(StationRoofTool.Accepted, StationRoofTool.Refused);
-                StationEditSession.Ghost = editHost.Preview != null && !editHost.Preview.UiHidden
-                    ? editHost.Preview.Summary("roof")
-                    : null;
+                DrawRoofPreview(host, editHost);
                 return;
             }
             if (StationCellTool.HasGesture) {
@@ -1266,7 +1498,14 @@ namespace Metro.App {
                 // that a correctly positioned ghost appears before any click.
                 StationCellTool.Aim(host, hit, pointer);
                 StationCellTool.Publish();
-                DrawCells(host, editHost);
+                if (string.Equals(tool, "delete", StringComparison.Ordinal) &&
+                    hit.HasModule && hit.ModuleWins &&
+                    string.Equals(hit.Module.Type, "road", StringComparison.Ordinal) &&
+                    TryPreviewRoadDelete(host, hit, out var roadHover)) {
+                    DrawRoadDeletePreview(host, editHost, roadHover);
+                } else {
+                    DrawCells(host, editHost);
+                }
                 reply["cells"] = StationCellTool.Preview.ToJson();
                 return;
             }
@@ -1274,24 +1513,21 @@ namespace Metro.App {
                 // The 屋顶 tiles are area/bay gestures, not one piece per press (plan 28 §3).
                 StationRoofTool.AimAt(host, hit, ray, pointer);
                 StationRoofTool.Publish();
-                editHost.EnsureBound(host);
-                editHost.Preview?.ShowModules(StationRoofTool.Accepted, StationRoofTool.Refused);
-                StationEditSession.Ghost = editHost.Preview != null && !editHost.Preview.UiHidden
-                    ? editHost.Preview.Summary("roof")
-                    : null;
+                DrawRoofPreview(host, editHost);
                 return;
             }
             if (string.Equals(tool, "module", StringComparison.Ordinal) && StationPillarTool.IsArmed()) {
-                // A 支柱 on an existing post grows that post (plan 28 §3); the ghost is the grown
-                // shaft, so the press commits exactly the height the player was shown.
-                StationPillarTool.Aim(host, hit, pointer);
-                StationPillarTool.Publish();
-                editHost.EnsureBound(host);
-                editHost.Preview?.ShowModules(StationPillarTool.Accepted, StationPillarTool.Refused);
-                StationEditSession.Ghost = editHost.Preview != null && !editHost.Preview.UiHidden
-                    ? editHost.Preview.Summary("pillar")
-                    : null;
-                return;
+                // A 支柱 on an existing post grows that post (plan 28 §3); on empty floor, fall
+                // through to `Hover` so fresh pillar placement still previews its ghost.
+                if (StationPillarTool.Aim(host, hit, pointer)) {
+                    StationPillarTool.Publish();
+                    editHost.EnsureBound(host);
+                    editHost.Preview?.ShowModules(StationPillarTool.Accepted, StationPillarTool.Refused);
+                    StationEditSession.Ghost = editHost.Preview != null && !editHost.Preview.UiHidden
+                        ? editHost.Preview.Summary("pillar")
+                        : null;
+                    return;
+                }
             }
             if (tool == "module") {
                 Hover(host, editHost, world, ray, pickContext, hit);
@@ -1396,14 +1632,14 @@ namespace Metro.App {
                     reason = code;
                     return;
                 }
-                AfterCommit(host, editHost, plan.Candidate.Id);
+                AfterCommit(host, editHost, "");
                 return;
             }
             if (!StationEditSession.TryApply(host, StationModuleEditMode.Add, plan.Candidate, null, "place", null, out _, out code)) {
                 reason = code;
                 return;
             }
-            AfterCommit(host, editHost, plan.Candidate.Id);
+            AfterCommit(host, editHost, "");
         }
 
         static StationPlacementRequest RequestFor(StationWorldView world, Ray ray,
@@ -1508,6 +1744,13 @@ namespace Metro.App {
                  string.Equals(toolType, "sign-ceiling", StringComparison.Ordinal) ||
                  string.Equals(toolType, "sign-wall", StringComparison.Ordinal))) {
                 ApplySignBoardsSetting(request, StationToolSelection.Setting("signBoards"));
+            }
+            if (carried == null) {
+                request.LineSpacing = StationModuleRuns.ClampSpacing(StationToolSelection.SettingInt("lineSpacing", 0));
+                request.GateDoor = StationToolSelection.Setting("gateDoor");
+                request.LiftStyle = StationToolSelection.Setting("liftStyle");
+                request.GuideExitId = StationToolSelection.Setting("guideExitId");
+                request.PsdEndHeight = StationToolSelection.Setting("psdEndHeight");
             }
             return request;
         }
@@ -1887,9 +2130,13 @@ namespace Metro.App {
             StationEditSession.Plan = null;
         }
 
-        /// <summary>Turn the carried piece one quarter turn.</summary>
+        /// <summary>Turn the carried piece one quarter turn (or step a slim pillar's 9 in-cell spots).</summary>
         public static bool RotateCarried(StationGameHost host, int delta) {
             if (host?.Index == null || !host.Index.TryGetModule(StationEditSession.CarriedId, out var module)) return false;
+            if (module.Type == "pillar" && !string.Equals(module.Config.Text("size"), "thick", StringComparison.Ordinal)) {
+                StationEditSession.CarriedRotation = ((StationEditSession.CarriedRotation + delta) % 9 + 9) % 9;
+                return true;
+            }
             int turn = StationFootprints.NormRot(StationEditSession.CarriedRotation + delta);
             if (module.Type != "light") StationEditSession.CarriedRotation = turn;
             else if (module.Config.Text("variant") != "circular") StationEditSession.CarriedRotation = turn % 2;
@@ -1956,6 +2203,9 @@ namespace Metro.App {
             if (!string.IsNullOrEmpty(selectId) && host.Index.TryGetModule(selectId, out var module)) {
                 StationEditSession.SelectModule(module);
                 editHost.Preview?.Select(module);
+            } else {
+                StationEditSession.ClearSelection();
+                ClearSelectionHighlight(editHost);
             }
         }
 

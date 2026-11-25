@@ -370,11 +370,15 @@ namespace Metro.View {
         readonly Dictionary<long, List<ModuleFacts>> fences;
         readonly Dictionary<long, List<ModuleFacts>> gates;
         readonly HashSet<long> landings;
+        readonly Dictionary<long, byte> pillarSides;
+
+        const byte PillarPosX = 1, PillarNegX = 2, PillarPosY = 4, PillarNegY = 8;
 
         StationFenceConnections(IReadOnlyList<ModuleFacts> modules) {
             fences = new Dictionary<long, List<ModuleFacts>>();
             gates = new Dictionary<long, List<ModuleFacts>>();
             landings = new HashSet<long>();
+            pillarSides = new Dictionary<long, byte>();
             if (modules == null) return;
             for (int i = 0; i < modules.Count; i++) {
                 var m = modules[i];
@@ -392,8 +396,7 @@ namespace Metro.View {
                         break;
                     case "escalator":
                     case "walkway":
-                        foreach (var point in StationRunGeometry.EscalatorLandings(m))
-                            if (point.IsCell) landings.Add(Key((int)Math.Round(point.X), (int)Math.Round(point.Y), (int)Math.Round(point.Z)));
+                        AddEscalatorLandings(m);
                         break;
                 }
             }
@@ -480,6 +483,93 @@ namespace Metro.View {
             south = Connects(fence.X, fence.Y - 1, fence.Z, 0, 1);
         }
 
+        /// <summary>
+        /// Extra arm reach past the cell edge (±0.5 m) needed to physically seal a fence against an
+        /// inset neighbour at `(x, y, z)` approached from `(dx, dy)` (the vector from neighbour to
+        /// fence):
+        /// * Fare gate machine `-x` face is flush at −0.50 m (0.012 m seals glass trim); a doorless
+        ///   gate's front/back (`±y`) barrier sits along `y = 0` (0.50 m inward from the cell edge).
+        /// * Escalator, walkway, and stair landings provide an integral vertical steel pillar flush
+        ///   at the cell boundary (±0.50 m), so fences stop at ±0.50 m (0 m extension) and bolt
+        ///   flush against the pillar instead of extending past the cell edge.
+        /// * Another fence meets flush at the shared cell edge (0 m).
+        /// </summary>
+        public float SealExtension(int x, int y, int z, int dx, int dy, string excludeId = null) {
+            long k = Key(x, y, z);
+            if (fences.TryGetValue(k, out var at)) {
+                for (int i = 0; i < at.Count; i++) if (Kept(at[i], excludeId)) return 0f;
+            }
+            float best = 0f;
+            if (gates.TryGetValue(k, out var gateList)) {
+                for (int i = 0; i < gateList.Count; i++) {
+                    var gate = gateList[i];
+                    if (!Kept(gate, excludeId) || !GateSolidFaces(gate, dx, dy)) continue;
+                    StationFootprints.RotateLocal(-gate.Rotation, dx, dy, out var lx, out var ly);
+                    float reach = 0f;
+                    if (Math.Abs(lx + 1) < 0.5) reach = 0.012f;
+                    else if (Math.Abs(ly) > 0.5 && !GateHasLane(gate)) reach = 0.50f;
+                    if (reach > best) best = reach;
+                }
+            }
+            return best;
+        }
+
+        /// <summary>Per-side sealing reach past ±0.5 m for one fence cell.</summary>
+        public void SealExtensions(ModuleFacts fence, out float east, out float west, out float north, out float south) {
+            east = west = north = south = 0f;
+            if (fence == null) return;
+            east = SealExtension(fence.X + 1, fence.Y, fence.Z, -1, 0);
+            west = SealExtension(fence.X - 1, fence.Y, fence.Z, 1, 0);
+            north = SealExtension(fence.X, fence.Y + 1, fence.Z, 0, -1);
+            south = SealExtension(fence.X, fence.Y - 1, fence.Z, 0, 1);
+        }
+
+        /// <summary>
+        /// True when `(x, y, z)` is an escalator, walkway, or stair landing whose outer lateral
+        /// edge faces `(dx, dy)` (toward the adjacent fence), so that landing draws a vertical steel
+        /// pillar flush at the cell edge and the fence should seat its glass and clamps flush against it.
+        /// </summary>
+        public bool HasPillarSeam(int x, int y, int z, int dx, int dy) {
+            if (!pillarSides.TryGetValue(Key(x, y, z), out var mask) || mask == 0) return false;
+            if (dx > 0) return (mask & PillarPosX) != 0;
+            if (dx < 0) return (mask & PillarNegX) != 0;
+            if (dy > 0) return (mask & PillarPosY) != 0;
+            if (dy < 0) return (mask & PillarNegY) != 0;
+            return false;
+        }
+
+        /// <summary>Per-side flags indicating which sides of a fence abut an escalator/walkway/stair pillar.</summary>
+        public void PillarSides(ModuleFacts fence, out bool east, out bool west, out bool north, out bool south) {
+            east = west = north = south = false;
+            if (fence == null) return;
+            east = HasPillarSeam(fence.X + 1, fence.Y, fence.Z, -1, 0);
+            west = HasPillarSeam(fence.X - 1, fence.Y, fence.Z, 1, 0);
+            north = HasPillarSeam(fence.X, fence.Y + 1, fence.Z, 0, -1);
+            south = HasPillarSeam(fence.X, fence.Y - 1, fence.Z, 0, 1);
+        }
+
+        /// <summary>
+        /// Build a lightweight connection index layered with transient preview fences (for hover
+        /// and drag previews without copying or mutating the committed document).
+        /// </summary>
+        public StationFenceConnections WithPreviewFences(IReadOnlyList<ModuleFacts> extraFences) {
+            if (extraFences == null || extraFences.Count == 0) return this;
+            var merged = new StationFenceConnections(this, extraFences);
+            return merged;
+        }
+
+        StationFenceConnections(StationFenceConnections baseIndex, IReadOnlyList<ModuleFacts> extraFences) {
+            fences = new Dictionary<long, List<ModuleFacts>>(baseIndex.fences.Count + extraFences.Count);
+            foreach (var pair in baseIndex.fences) fences[pair.Key] = new List<ModuleFacts>(pair.Value);
+            gates = baseIndex.gates;
+            landings = baseIndex.landings;
+            pillarSides = baseIndex.pillarSides;
+            for (int i = 0; i < extraFences.Count; i++) {
+                var m = extraFences[i];
+                if (m != null && string.Equals(m.Type, "fence", StringComparison.Ordinal)) Add(fences, m);
+            }
+        }
+
         /// <summary>Port of `gateHasLane` / `gateDoorOf`: only a working lane gate is open on one
         /// side; a fence (`fence`, or the old `none`) machine is solid all round.</summary>
         public static bool GateHasLane(ModuleFacts gate) {
@@ -533,17 +623,77 @@ namespace Metro.View {
             }
         }
 
+        void AddEscalatorLandings(ModuleFacts ramp) {
+            var points = StationRunGeometry.EscalatorLandings(ramp);
+            if (points.Count == 0) return;
+            StationRunGeometry.EscalatorRun(ramp, out var runFrom, out var runTo);
+            double runDx = runTo.X - runFrom.X;
+            double runDy = runTo.Y - runFrom.Y;
+            bool hasAxis = Math.Abs(runDx) > 1e-6 || Math.Abs(runDy) > 1e-6;
+            bool acrossX = Math.Abs(runDx) < Math.Abs(runDy);
+            int minCoord = int.MaxValue, maxCoord = int.MinValue;
+            if (hasAxis) {
+                for (int i = 0; i < points.Count; i++) {
+                    var pt = points[i];
+                    if (!pt.IsCell) continue;
+                    int c = (int)Math.Round(acrossX ? pt.X : pt.Y);
+                    if (c < minCoord) minCoord = c;
+                    if (c > maxCoord) maxCoord = c;
+                }
+            }
+            for (int i = 0; i < points.Count; i++) {
+                var point = points[i];
+                if (!point.IsCell) continue;
+                int x = (int)Math.Round(point.X), y = (int)Math.Round(point.Y), z = (int)Math.Round(point.Z);
+                long k = Key(x, y, z);
+                landings.Add(k);
+                if (!hasAxis) continue;
+                int coord = acrossX ? x : y;
+                byte mask = 0;
+                if (coord == minCoord) mask |= acrossX ? PillarNegX : PillarNegY;
+                if (coord == maxCoord) mask |= acrossX ? PillarPosX : PillarPosY;
+                if (mask != 0) {
+                    pillarSides.TryGetValue(k, out var existing);
+                    pillarSides[k] = (byte)(existing | mask);
+                }
+            }
+        }
+
         void AddBand(StationRunPoint point, StationRunPoint slide, bool acrossX, double width) {
             if (acrossX) {
                 double centre = point.X + .5 + slide.X;
                 int lo = (int)Math.Floor(centre - width / 2 + 1e-9);
                 int hi = (int)Math.Ceiling(centre + width / 2 - 1e-9) - 1;
-                for (int x = lo; x <= hi; x++) AddLanding(new StationRunPoint(x, point.Y, point.Z));
+                for (int x = lo; x <= hi; x++) {
+                    var cell = new StationRunPoint(x, point.Y, point.Z);
+                    AddLanding(cell);
+                    if (!cell.IsCell) continue;
+                    byte mask = 0;
+                    if (x == lo) mask |= PillarNegX;
+                    if (x == hi) mask |= PillarPosX;
+                    if (mask != 0) {
+                        long k = Key((int)Math.Round(cell.X), (int)Math.Round(cell.Y), (int)Math.Round(cell.Z));
+                        pillarSides.TryGetValue(k, out var existing);
+                        pillarSides[k] = (byte)(existing | mask);
+                    }
+                }
             } else {
                 double centre = point.Y + .5 + slide.Y;
                 int lo = (int)Math.Floor(centre - width / 2 + 1e-9);
                 int hi = (int)Math.Ceiling(centre + width / 2 - 1e-9) - 1;
-                for (int y = lo; y <= hi; y++) AddLanding(new StationRunPoint(point.X, y, point.Z));
+                for (int y = lo; y <= hi; y++) {
+                    var cell = new StationRunPoint(point.X, y, point.Z);
+                    AddLanding(cell);
+                    if (!cell.IsCell) continue;
+                    byte mask = 0;
+                    if (y == lo) mask |= PillarNegY;
+                    if (y == hi) mask |= PillarPosY;
+                    if (mask != 0) {
+                        long k = Key((int)Math.Round(cell.X), (int)Math.Round(cell.Y), (int)Math.Round(cell.Z));
+                        pillarSides.TryGetValue(k, out var existing);
+                        pillarSides[k] = (byte)(existing | mask);
+                    }
+                }
             }
         }
 

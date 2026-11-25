@@ -46,13 +46,17 @@ namespace Metro.App {
         readonly List<GameObject> cellOwned = new List<GameObject>();
         readonly List<Restorable> hidden = new List<Restorable>();
         readonly List<RestorableInstanced> hiddenInstanced = new List<RestorableInstanced>();
+        readonly List<Restorable> previewHidden = new List<Restorable>();
+        readonly List<RestorableInstanced> previewHiddenInstanced = new List<RestorableInstanced>();
         readonly List<GameObject> selectedOwned = new List<GameObject>();
         readonly List<GameObject> hoverOwned = new List<GameObject>();
+        readonly List<Mesh> previewMeshes = new List<Mesh>();
+        readonly List<Mesh> cellPreviewMeshes = new List<Mesh>();
         sealed class SurfaceLink { public string Id; public MeshRenderer Source; public GameObject Overlay; }
         readonly List<SurfaceLink> surfaceLinks = new List<SurfaceLink>();
         readonly List<Mesh> overlayMeshes = new List<Mesh>();
         string selectedId = "", hoveredId = "", carriedId = "";
-        Material selectedFill, hoverFill;
+        Material selectedFill, hoverFill, removeFill;
         public string SelectedId => selectedId;
         public string HoveredId => hoveredId;
         GameObject eraseBatch;
@@ -68,6 +72,8 @@ namespace Metro.App {
         Material badMaterial;
         Material okLineMaterial;
         Material badLineMaterial;
+        Material trackOkMaterial;
+        Material trackBadMaterial;
         Material signOkFaceTemplate;
         Material signBadFaceTemplate;
         Material selectMaterial;
@@ -138,8 +144,149 @@ namespace Metro.App {
                 ClearCells();
                 if (!bound || plan?.Candidate == null || IsUiHidden()) return;
                 var colour = plan.Ok ? new Color(0.09f, 0.55f, 1f, 0.55f) : new Color(1f, 0.27f, 0.2f, 0.55f);
-                if (!TryBuildPrefabGhost(plan.Candidate, colour)) BuildBoxGhost(plan.Candidate, colour);
+                StationFenceConnections fenceConns = null;
+                if (plan.Ok && IsComposableFenceDraft(plan.Candidate)) {
+                    var draftFacts = StationModulePlacement.ToRecord(plan.Candidate).Facts;
+                    fenceConns = StationFenceConnections.ForDocument(index.Document).WithPreviewFences(new[] { draftFacts });
+                    RebuildAdjacentFencesForPreview(new[] { draftFacts }, fenceConns);
+                }
+                if (!TryBuildPrefabGhost(plan.Candidate, colour, fenceConns)) BuildBoxGhost(plan.Candidate, colour);
+                if (!plan.Ok) {
+                    foreach (var id in plan.ColliderIds) {
+                        if (!TryBlockerBounds(id, out var blocker)) continue;
+                        BuildLineBox(blocker, RefusalOutlineMaterial(), owned);
+                    }
+                }
                 StationEditSession.Ghost = Summary("module");
+            } finally {
+                ReleaseSignBindings(previousBindings);
+            }
+        }
+
+        /// <summary>
+        /// Draw a **dragged module or fence run** without emitting full 1×1×1 blue cell cubes:
+        /// * Add runs draw only translucent 3D models (or live-composed, sealed fence runs plus
+        ///   re-composed adjacent committed fences), red markers ONLY on blocked cells, red
+        ///   outlines around blocking pieces, and the flat floor cursor ring (omitted on wall and
+        ///   ceiling mounts).
+        /// * Remove runs highlight the targeted placed modules in red (surface overlay + outline).
+        /// </summary>
+        public void ShowModuleRun(
+            StationModuleRunPlan runPlan,
+            StationCellKey cursorFloor,
+            bool showCursor,
+            bool overLimit = false,
+            IReadOnlyList<StationCellKey> overLimitCells = null) {
+            var previousBindings = DetachSignBindings();
+            try {
+                ClearGhostObjects();
+                ClearCells();
+                if (!bound || runPlan == null || IsUiHidden()) return;
+                if (overLimit) {
+                    var red = CellMaterial(false, new Color(1f, 0.27f, 0.2f, 0.42f));
+                    if (overLimitCells != null) {
+                        int limit = Math.Min(overLimitCells.Count, 256);
+                        for (int i = 0; i < limit; i++) {
+                            BuildBox(CellBounds(overLimitCells[i], StationCellShape.Full), red, cellOwned);
+                        }
+                    }
+                    if (showCursor) BuildLineBox(CursorBounds(cursorFloor), CursorMaterial(false), cellOwned);
+                    StationEditSession.Ghost = Summary("modules");
+                    return;
+                }
+                if (string.Equals(runPlan.Kind, "remove", StringComparison.Ordinal)) {
+                    var seen = new HashSet<string>(StringComparer.Ordinal);
+                    for (int i = 0; i < runPlan.RemoveIds.Count; i++) {
+                        var id = runPlan.RemoveIds[i];
+                        if (string.IsNullOrEmpty(id) || !seen.Add(id)) continue;
+                        BuildModuleRemoveHighlight(id, owned);
+                    }
+                    if (showCursor) BuildLineBox(CursorBounds(cursorFloor), CursorMaterial(false), cellOwned);
+                    StationEditSession.Ghost = Summary("modules");
+                    return;
+                }
+
+                var okColour = new Color(0.09f, 0.55f, 1f, 0.55f);
+                List<ModuleFacts> previewFences = null;
+                for (int i = 0; i < runPlan.Accepted.Count; i++) {
+                    var draft = runPlan.Accepted[i];
+                    if (IsComposableFenceDraft(draft)) {
+                        previewFences ??= new List<ModuleFacts>(runPlan.Accepted.Count);
+                        previewFences.Add(StationModulePlacement.ToRecord(draft).Facts);
+                    }
+                }
+                StationFenceConnections mergedFences = null;
+                if (previewFences != null && previewFences.Count > 0) {
+                    mergedFences = StationFenceConnections.ForDocument(index.Document).WithPreviewFences(previewFences);
+                    RebuildAdjacentFencesForPreview(previewFences, mergedFences);
+                }
+
+                for (int i = 0; i < runPlan.Accepted.Count; i++) {
+                    var draft = runPlan.Accepted[i];
+                    if (draft == null) continue;
+                    if (!TryBuildPrefabGhost(draft, okColour, mergedFences)) BuildBoxGhost(draft, okColour);
+                }
+
+                if (runPlan.Blocked.Count > 0) {
+                    var red = CellMaterial(false, new Color(1f, 0.27f, 0.2f, 0.42f));
+                    for (int i = 0; i < runPlan.Blocked.Count; i++) {
+                        BuildBox(CellBounds(runPlan.Blocked[i], StationCellShape.Full), red, cellOwned);
+                    }
+                }
+                for (int i = 0; i < runPlan.ColliderIds.Count; i++) {
+                    if (TryBlockerBounds(runPlan.ColliderIds[i], out var blocker)) {
+                        BuildLineBox(blocker, RefusalOutlineMaterial(), cellOwned);
+                    }
+                }
+                if (showCursor) {
+                    bool cursorOk = runPlan.Blocked.Count == 0 && runPlan.Accepted.Count > 0;
+                    BuildLineBox(CursorBounds(cursorFloor), CursorMaterial(cursorOk), cellOwned);
+                }
+                StationEditSession.Ghost = Summary("modules");
+            } finally {
+                ReleaseSignBindings(previousBindings);
+            }
+        }
+
+        /// <summary>
+        /// Highlight placed modules targeted for deletion using the single shared removal style
+        /// (translucent red surface overlay + padded red wireframe bounding box, with no floor
+        /// cursor square underneath) used by right-click removal.
+        /// </summary>
+        public void ShowModuleRemove(IReadOnlyList<string> moduleIds, string summaryKind = "modules") {
+            var previousBindings = DetachSignBindings();
+            try {
+                ClearGhostObjects();
+                ClearCells();
+                if (!bound || moduleIds == null || IsUiHidden()) return;
+                var seen = new HashSet<string>(StringComparer.Ordinal);
+                for (int i = 0; i < moduleIds.Count; i++) {
+                    var id = moduleIds[i];
+                    if (string.IsNullOrEmpty(id) || !seen.Add(id)) continue;
+                    BuildModuleRemoveHighlight(id, owned);
+                }
+                StationEditSession.Ghost = Summary(summaryKind);
+            } finally {
+                ReleaseSignBindings(previousBindings);
+            }
+        }
+
+        /// <summary>
+        /// Highlight a document-space sub-region targeted for deletion (such as one split segment
+        /// of a multi-segment road) with the same translucent red fill and padded red wireframe box.
+        /// </summary>
+        public void ShowBoxRemove(StationBox documentBox, string summaryKind = "modules") {
+            var previousBindings = DetachSignBindings();
+            try {
+                ClearGhostObjects();
+                ClearCells();
+                if (!bound || documentBox.IsEmpty || IsUiHidden()) return;
+                var worldBox = WorldFromDocument(documentBox);
+                BuildBox(worldBox, RemoveFillMaterial(), owned);
+                var padded = worldBox;
+                padded.Expand(SelectionPad * 2f);
+                BuildLineBox(padded, RefusalOutlineMaterial(), owned);
+                StationEditSession.Ghost = Summary(summaryKind);
             } finally {
                 ReleaseSignBindings(previousBindings);
             }
@@ -189,10 +336,125 @@ namespace Metro.App {
         }
 
         void ClearGhostObjects() {
+            RestorePreviewHidden();
             previewSigns.Clear();
-            foreach (var go in owned) Destroy(go);
-            owned.Clear();
+            ClearLayer(owned);
+            for (int i = 0; i < previewMeshes.Count; i++) Destroy(previewMeshes[i]);
+            previewMeshes.Clear();
             StationEditSession.Ghost = null;
+        }
+
+        void TrackOwnedMeshes(GameObject root, List<GameObject> into = null) {
+            if (root == null) return;
+            var sink = ReferenceEquals(into, cellOwned) ? cellPreviewMeshes : previewMeshes;
+            foreach (var filter in root.GetComponentsInChildren<MeshFilter>(true)) {
+                if (filter != null && filter.sharedMesh != null) sink.Add(filter.sharedMesh);
+            }
+        }
+
+        void TrackOwnedMeshes(List<Mesh> meshes, List<GameObject> into = null) {
+            if (meshes == null || meshes.Count == 0) return;
+            var sink = ReferenceEquals(into, cellOwned) ? cellPreviewMeshes : previewMeshes;
+            for (int i = 0; i < meshes.Count; i++) {
+                if (meshes[i] != null) sink.Add(meshes[i]);
+            }
+        }
+
+        void RestorePreviewHidden() {
+            for (int i = 0; i < previewHidden.Count; i++) {
+                var entry = previewHidden[i];
+                if (entry.View != null) entry.View.SetActive(entry.Active);
+            }
+            previewHidden.Clear();
+            for (int i = 0; i < previewHiddenInstanced.Count; i++) {
+                var entry = previewHiddenInstanced[i];
+                if (entry.Batch != null) entry.Batch.UnhideSource(entry.SourceIndex);
+            }
+            previewHiddenInstanced.Clear();
+        }
+
+        void HidePreviewModule(StationWorldView world, string moduleId) {
+            if (world == null || string.IsNullOrEmpty(moduleId)) return;
+            foreach (var record in world.Records) {
+                if (record?.View == null) continue;
+                if (string.Equals(record.ModuleId, moduleId, StringComparison.Ordinal)) {
+                    previewHidden.Add(new Restorable { View = record.View, Active = record.View.activeSelf });
+                    record.View.SetActive(false);
+                } else if (record.SourceIds != null && record.SourceIds.Length > 0) {
+                    int sourceIndex = Array.IndexOf(record.SourceIds, moduleId);
+                    if (sourceIndex < 0) continue;
+                    var batches = record.View.GetComponentsInChildren<Views.StationInstancedSurfaceBatch>(true);
+                    for (int b = 0; b < batches.Length; b++) {
+                        var batch = batches[b];
+                        if (batch == null) continue;
+                        batch.HideSource(sourceIndex);
+                        previewHiddenInstanced.Add(new RestorableInstanced(batch, sourceIndex));
+                    }
+                }
+            }
+        }
+
+        static bool IsComposableFenceDraft(StationEditDraft draft) =>
+            draft != null &&
+            string.Equals(draft.Type, "fence", StringComparison.Ordinal) &&
+            !OutdoorModuleViews.IsNoiseBarrier(draft.Text("variant"));
+
+        /// <summary>
+        /// Live-recompose committed fences immediately adjacent to the previewed fence run so
+        /// existing run ends drop their caps and form clean corners before release (`GhostSystem.setFencePreview`).
+        /// Originals are hidden only for the lifetime of the preview and restored on cancel/commit.
+        /// </summary>
+        void RebuildAdjacentFencesForPreview(IReadOnlyList<ModuleFacts> previewFences, StationFenceConnections merged) {
+            if (index == null || previewFences == null || previewFences.Count == 0 || merged == null) return;
+            var world = CurrentWorld();
+            if (world == null || world.Catalogue == null) return;
+            var baseConns = StationFenceConnections.ForDocument(index.Document);
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            int[,] steps = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
+            for (int i = 0; i < previewFences.Count; i++) {
+                var pf = previewFences[i];
+                for (int s = 0; s < 4; s++) {
+                    var neighbours = baseConns.FencesAt(pf.X + steps[s, 0], pf.Y + steps[s, 1], pf.Z);
+                    for (int j = 0; j < neighbours.Count; j++) {
+                        var adj = neighbours[j];
+                        if (adj == null || string.IsNullOrEmpty(adj.Id) || !seen.Add(adj.Id)) continue;
+                        if (OutdoorModuleViews.IsNoiseBarrier(adj.Config.Text("variant"))) continue;
+                        if (string.Equals(adj.Id, carriedId, StringComparison.Ordinal)) continue;
+                        var key = OutdoorModuleViews.ExpectedKey("fence", adj.Config.Text("variant")) ?? OutdoorModuleViews.GlassFenceKey;
+                        if (!world.Catalogue.TryGet(key, out var entry) || entry.prefab == null) continue;
+                        HidePreviewModule(world, adj.Id);
+                        var holder = new GameObject("preview adj fence " + adj.Id);
+                        holder.transform.SetParent(transform, false);
+                        holder.transform.SetPositionAndRotation(
+                            ModulePlacement.Position(adj, entry),
+                            ModulePlacement.Rotation(adj.Rotation));
+                        var req = new OutdoorModuleRequest {
+                            ModuleId = adj.Id,
+                            Type = "fence",
+                            ViewKey = key,
+                            Variant = adj.Config.Text("variant"),
+                            X = adj.X, Y = adj.Y, Z = adj.Z,
+                            Rotation = adj.Rotation,
+                            Width = 1, Depth = 1,
+                            Prefab = entry.prefab,
+                            Catalogue = world.Catalogue,
+                            Placement = OutdoorPlacement.ParentPlaced,
+                            Neighbours = OutdoorModuleViews.Neighbours(adj, merged),
+                        };
+                        if (OutdoorModuleViews.TryBuild(req, holder.transform, null, out var built) && built.Instance != null) {
+                            foreach (var r in built.Instance.GetComponentsInChildren<Renderer>(true)) {
+                                if (r == null) continue;
+                                r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                                r.receiveShadows = false;
+                            }
+                            if (built.ComposedArms > 0) TrackOwnedMeshes(built.Instance);
+                            owned.Add(holder);
+                        } else {
+                            Destroy(holder);
+                        }
+                    }
+                }
+            }
         }
 
         List<StationSignViewBinding> DetachSignBindings() {
@@ -254,17 +516,29 @@ namespace Metro.App {
                 if (!TryBlockerBounds(id, out var bounds)) continue;
                 BuildLineBox(bounds, RefusalOutlineMaterial(), cellOwned);
             }
-            // A delete gesture's pending pieces: the whole drawn body is boxed, not a cell.
-            foreach (var id in preview.ModuleIds) {
-                if (!TryBlockerBounds(id, out var bounds)) continue;
-                BuildLineBox(bounds, RefusalOutlineMaterial(), cellOwned);
+            // A delete/erase gesture's pending pieces: the exact same red surface overlay +
+            // padded red wireframe bounding box used by right-click module removal.
+            if (preview.ModuleIds.Count > 0) {
+                var seen = new HashSet<string>(StringComparer.Ordinal);
+                for (int i = 0; i < preview.ModuleIds.Count; i++) {
+                    var id = preview.ModuleIds[i];
+                    if (string.IsNullOrEmpty(id) || !seen.Add(id)) continue;
+                    BuildModuleRemoveHighlight(id, cellOwned);
+                }
             }
             // The reference's pointer ring (`grid.setCursor`): one flat square outline on the
             // cell under the pointer, cyan when the release would take it and red when not.
-            // Without it the ghost floats with nothing saying which cell the click addresses.
-            bool cursorOk = !preview.OverLimit && !removing && preview.Check.Blocked.Count == 0 &&
-                            (preview.Check.Accepted.Count > 0 || preview.Check.Ignored.Count > 0);
-            BuildLineBox(CursorBounds(preview.Cursor), CursorMaterial(cursorOk), cellOwned);
+            // Omitted when removing placed modules alone (matching right-click module removal
+            // and `DeleteTool.ts:scene.setCursor(null)`), so no floor square sits under the piece.
+            bool hasCellTargets = preview.RemovedCells.Count > 0 ||
+                                  preview.Check.Accepted.Count > 0 ||
+                                  preview.Check.Blocked.Count > 0 ||
+                                  preview.AutoWalls.Count > 0;
+            if (!(removing && preview.ModuleIds.Count > 0 && !hasCellTargets)) {
+                bool cursorOk = !preview.OverLimit && !removing && preview.Check.Blocked.Count == 0 &&
+                                (preview.Check.Accepted.Count > 0 || preview.Check.Ignored.Count > 0);
+                BuildLineBox(CursorBounds(preview.Cursor), CursorMaterial(cursorOk), cellOwned);
+            }
             StationEditSession.Ghost = Summary("cells");
         }
 
@@ -291,8 +565,9 @@ namespace Metro.App {
         /// <summary>Drop the cell ghost (pointer leave, a tool change, a commit).</summary>
         public void ClearCells() {
             if (eraseBatch != null) eraseBatch.SetActive(false);
-            foreach (var go in cellOwned) Destroy(go);
-            cellOwned.Clear();
+            ClearLayer(cellOwned);
+            for (int i = 0; i < cellPreviewMeshes.Count; i++) Destroy(cellPreviewMeshes[i]);
+            cellPreviewMeshes.Clear();
             StationEditSession.Ghost = null;
         }
 
@@ -435,6 +710,7 @@ namespace Metro.App {
                         renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
                         renderer.receiveShadows = false;
                     }
+                    TrackOwnedMeshes(view, owned);
                     owned.Add(view);
                     return;
                 }
@@ -467,22 +743,27 @@ namespace Metro.App {
         }
 
         /// <summary>
-        /// The 站台 rail piece (plan 27 §6): the bed the press would dig, drawn as one box at
-        /// the track's own level, in the shared blue when the run is legal and red when it is
-        /// refused. The pieces in the way are boxed beside it, so an `interference` says which.
+        /// The 站台 / 隧道 / 桥梁 rail piece (plan 27 §6): draws the real <see cref="RailRunGeometry"/>
+        /// track/bridge/tunnel mesh at the run's elevation (falling back to cell boxes only when no
+        /// track candidate exists), plus every derived bridge pier as its real round pillar mesh,
+        /// and red outlines around any blocking pieces.
         /// </summary>
         public void ShowRail(StationRailPlan plan, IReadOnlyList<StationEditDraft> piers = null) {
             ClearCells();
-            if (!bound || plan == null || plan.Bed.Count == 0 || IsUiHidden()) return;
-            var colour = plan.Ok ? new Color(0.09f, 0.55f, 1f, 0.4f) : new Color(1f, 0.27f, 0.2f, 0.42f);
-            var material = CellMaterial(plan.Ok, colour);
-            foreach (var cell in plan.Bed) BuildBox(CellBounds(cell, StationCellShape.Full), material, cellOwned);
+            if (!bound || plan == null || (plan.Bed.Count == 0 && plan.Track == null) || IsUiHidden()) return;
+            var colour = plan.Ok ? new Color(0.09f, 0.55f, 1f, 0.55f) : new Color(1f, 0.27f, 0.2f, 0.55f);
+            bool builtTrack = plan.Track != null && TryBuildPrefabGhost(plan.Track, colour, null, cellOwned);
+            if (!builtTrack) {
+                var boxColour = plan.Ok ? new Color(0.09f, 0.55f, 1f, 0.4f) : new Color(1f, 0.27f, 0.2f, 0.42f);
+                var material = CellMaterial(plan.Ok, boxColour);
+                foreach (var cell in plan.Bed) BuildBox(CellBounds(cell, StationCellShape.Full), material, cellOwned);
+            }
             // A bridge's piers are part of the run the press builds, so they are part of the
-            // ghost: the deck alone would promise a span with nothing holding it up (plan 28 §3c).
+            // ghost as real round pillar meshes (plan 28 §3c).
             if (piers != null) {
                 foreach (var pier in piers) {
                     if (pier == null) continue;
-                    BuildBoxGhost(pier, colour, cellOwned);
+                    if (!TryBuildPrefabGhost(pier, colour, null, cellOwned)) BuildBoxGhost(pier, colour, cellOwned);
                 }
             }
             foreach (var id in plan.ColliderIds) {
@@ -500,17 +781,52 @@ namespace Metro.App {
         public void ShowSurface(StationSurfacePreview preview) {
             ClearCells();
             if (!bound || preview == null || IsUiHidden()) return;
+            if (preview.Erase) {
+                ClearGhostObjects();
+                var seen = new HashSet<string>(StringComparer.Ordinal);
+                bool highlightedModule = false;
+                if (preview.RemoveModuleIds.Count > 0) {
+                    for (int i = 0; i < preview.RemoveModuleIds.Count; i++) {
+                        var id = preview.RemoveModuleIds[i];
+                        if (string.IsNullOrEmpty(id) || !seen.Add(id)) continue;
+                        BuildModuleRemoveHighlight(id, cellOwned);
+                        highlightedModule = true;
+                    }
+                } else if (preview.Cells.Count > 0 && index != null) {
+                    for (int i = 0; i < preview.Cells.Count; i++) {
+                        var cell = preview.Cells[i];
+                        var held = StationSurfacePlanner.ModuleAt(index, cell.X, cell.Y, cell.Z);
+                        if (held == null || !seen.Add(held.Id)) continue;
+                        BuildModuleRemoveHighlight(held.Id, cellOwned);
+                        highlightedModule = true;
+                    }
+                }
+                if (highlightedModule) {
+                    StationEditSession.Ghost = Summary("surface");
+                    return;
+                }
+            }
             if (preview.Cells.Count > 0) {
                 int rgb = StationSurfaceTool.ColourFor(preview.Type, preview.Erase);
                 var colour = new Color(((rgb >> 16) & 0xFF) / 255f, ((rgb >> 8) & 0xFF) / 255f, (rgb & 0xFF) / 255f, 0.5f);
                 var material = CellMaterial(!preview.Erase, colour);
-                foreach (var cell in preview.Cells) BuildBox(FaceBounds(cell, StationFace.Top), material, cellOwned);
+                foreach (var cell in preview.Cells) BuildBox(SurfaceTileBounds(cell), material, cellOwned);
             }
             if (preview.Refused.Count > 0) {
                 var red = CellMaterial(false, new Color(1f, 0.27f, 0.2f, 0.42f));
-                foreach (var cell in preview.Refused) BuildBox(FaceBounds(cell, StationFace.Top), red, cellOwned);
+                foreach (var cell in preview.Refused) BuildBox(SurfaceTileBounds(cell), red, cellOwned);
             }
             StationEditSession.Ghost = Summary("surface");
+        }
+
+        /// <summary>An outdoor paving tile's authored 10 cm slab standing on top of the floor cell.</summary>
+        static Bounds SurfaceTileBounds(StationCellKey cell) {
+            var a = StationCoordinates.Point(new Vector3(cell.X, cell.Y, cell.Z + 1f));
+            var b = StationCoordinates.Point(new Vector3(cell.X + 1f, cell.Y + 1f,
+                cell.Z + 1f + (float)StationFootprints.OutdoorSurfaceHeight));
+            var min = Vector3.Min(a, b);
+            var max = Vector3.Max(a, b);
+            return new Bounds((min + max) * 0.5f, max - min);
         }
 
         /// <summary>A 2 cm slab standing just proud of one cell face, in document axes.</summary>
@@ -617,12 +933,27 @@ namespace Metro.App {
             return material;
         }
 
+        Material RemoveFillMaterial() {
+            if (removeFill != null) return removeFill;
+            removeFill = CreateUnlitTransparent("edit remove fill", new Color(1f, 0x30 / 255f, 0x30 / 255f, .36f));
+            return removeFill;
+        }
+
+        void BuildModuleRemoveHighlight(string id, List<GameObject> into) {
+            if (string.IsNullOrEmpty(id)) return;
+            BuildSurfaceOverlay(id, into, RemoveFillMaterial());
+            if (TryBlockerBounds(id, out var bounds)) {
+                BuildLineBox(bounds, RefusalOutlineMaterial(), into);
+            }
+        }
+
         void ClearLayer(List<GameObject> layer) {
             foreach (var go in layer) {
                 if (go != null) {
                     go.SetActive(false);
-                    var mesh = go.GetComponent<MeshFilter>()?.sharedMesh;
-                    if (mesh != null && overlayMeshes.Remove(mesh)) Destroy(mesh);
+                    if (go.TryGetComponent<MeshFilter>(out var mf) && mf.sharedMesh != null && overlayMeshes.Remove(mf.sharedMesh)) {
+                        Destroy(mf.sharedMesh);
+                    }
                 }
                 Destroy(go);
             }
@@ -703,10 +1034,14 @@ namespace Metro.App {
             var point = StationCameraSpace.ToWorld(visibility.Section.Point);
             var plane = new Vector4(normal.x, normal.y, normal.z, -Vector3.Dot(normal, point));
             ApplyClip(selectedFill, visibility.SectionClipping, plane); ApplyClip(hoverFill, visibility.SectionClipping, plane);
+            ApplyClip(removeFill, visibility.SectionClipping, plane);
+            ApplyClip(blockerOutlineMaterial, visibility.SectionClipping, plane);
             ApplyClip(cellOkMaterial, visibility.SectionClipping, plane); ApplyClip(cellBadMaterial, visibility.SectionClipping, plane);
             ApplyClip(cellRingMaterial, visibility.SectionClipping, plane);
             ApplyClip(zoneMaterial, visibility.SectionClipping, plane);
             ApplyClip(eraseMaterial, visibility.SectionClipping, plane);
+            ApplyClip(trackOkMaterial, visibility.SectionClipping, plane);
+            ApplyClip(trackBadMaterial, visibility.SectionClipping, plane);
             for (int i = 0; i < previewSigns.Count; i++) {
                 var signView = previewSigns[i];
                 if (signView == null) continue;
@@ -820,6 +1155,7 @@ namespace Metro.App {
             foreach (var mesh in overlayMeshes) Destroy(mesh);
             if (selectedFill) Destroy(selectedFill);
             if (hoverFill) Destroy(hoverFill);
+            if (removeFill) Destroy(removeFill);
             if (eraseMesh != null) Destroy(eraseMesh);
             if (eraseBatch != null) Destroy(eraseBatch);
             if (boxMesh != null) Destroy(boxMesh);
@@ -831,6 +1167,8 @@ namespace Metro.App {
             if (badMaterial != null) Destroy(badMaterial);
             if (okLineMaterial != null) Destroy(okLineMaterial);
             if (badLineMaterial != null) Destroy(badLineMaterial);
+            if (trackOkMaterial != null) Destroy(trackOkMaterial);
+            if (trackBadMaterial != null) Destroy(trackBadMaterial);
             if (signOkFaceTemplate != null) Destroy(signOkFaceTemplate);
             if (signBadFaceTemplate != null) Destroy(signBadFaceTemplate);
             if (selectMaterial != null) Destroy(selectMaterial);
@@ -859,32 +1197,154 @@ namespace Metro.App {
             return host != null ? host.Coordinator?.World : null;
         }
 
-        bool TryBuildPrefabGhost(StationEditDraft draft, Color colour) {
-            if (index == null) return false;
+        bool TryBuildPrefabGhost(StationEditDraft draft, Color colour, StationFenceConnections fenceConnections = null,
+            List<GameObject> into = null) {
+            if (index == null || draft == null) return false;
+            var target = into ?? owned;
             if (string.Equals(draft.Type, "sign", StringComparison.Ordinal)) {
-                return TryBuildSignGhost(draft, colour);
+                return TryBuildSignGhost(draft, colour, target);
             }
-            var host = UnityEngine.Object.FindAnyObjectByType<StationGameHost>();
-            var world = host != null ? host.Coordinator?.World : null;
-            if (world?.Catalogue == null) return false;
-            // Plan 22 §2: a 玻璃板's housing is a rotated **edge strip**, not the promoted panel's
-            // centre pivot, so the generic prefab ghost stood 0.45 m off the plane the curtain (and
-            // the door fitted into it) is drawn on. The clearance box is that strip, for a
-            // floor-standing panel as well as for wall cladding.
-            if (string.Equals(draft.Type, "glass", StringComparison.Ordinal)) return false;
+            bool ok = colour.r < 0.5f;
+            var material = Tinted(ok, colour);
             var record = StationModulePlacement.ToRecord(draft);
             var facts = record.Facts;
+
+            if (IsComposableFenceDraft(draft)) {
+                var conns = fenceConnections ?? StationFenceConnections.ForDocument(index.Document);
+                var neighbours = OutdoorModuleViews.Neighbours(facts, conns);
+                if (OutdoorModuleViews.TryBuildFencePreview("ghost " + draft.Id + " fence",
+                    draft.Text("variant"), draft.Rotation, neighbours, transform, material, out var fenceGo)) {
+                    fenceGo.transform.SetPositionAndRotation(
+                        StationCoordinates.FloorTop(draft.X, draft.Y, draft.Z),
+                        Quaternion.identity);
+                    foreach (var renderer in fenceGo.GetComponentsInChildren<Renderer>(true)) {
+                        if (renderer == null) continue;
+                        renderer.forceMeshLod = 0;
+                        renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                        renderer.receiveShadows = false;
+                    }
+                    TrackOwnedMeshes(fenceGo, target);
+                    target.Add(fenceGo);
+                    return true;
+                }
+            }
+
+            // Structure families (`pillar`, `roof`, `hanger`) are procedurally generated from
+            // their saved dimensions/config by `StationStructureModuleRenderer`: reuse the exact
+            // same builder so round thick pillars, 9-spot slim pillars, truss/canopy/plateSnap
+            // roofs, and variable-width ceiling hangers always preview with their true shape.
+            if (string.Equals(draft.Type, "pillar", StringComparison.Ordinal) ||
+                string.Equals(draft.Type, "roof", StringComparison.Ordinal) ||
+                string.Equals(draft.Type, "hanger", StringComparison.Ordinal)) {
+                if (Views.StationStructureModuleRenderer.TryBuildPreview(facts, index, transform, material,
+                        out var structGo, out var structMeshes)) {
+                    TrackOwnedMeshes(structMeshes, target);
+                    target.Add(structGo);
+                    return true;
+                }
+            }
+
+            // Glass walls and floor-standing curtain walls are procedurally built with their
+            // exact leading-edge offset, corner joins, door cutouts, and `curtainHeight`.
+            if (string.Equals(draft.Type, "glass", StringComparison.Ordinal)) {
+                if (Views.StationEquipmentModuleRenderer.TryBuildGlassPreview(record, index, transform, material,
+                        out var glassGo, out var glassMeshes)) {
+                    TrackOwnedMeshes(glassMeshes, target);
+                    target.Add(glassGo);
+                    return true;
+                }
+            }
+
+            // Dimension-aware booths (`Move` and single-module preview) use `BoothModuleViews`
+            // rather than the fixed-size canonical prefab.
+            if (string.Equals(draft.Type, "booth", StringComparison.Ordinal)) {
+                var palette = GhostBoothMaterials(ok);
+                if (palette != null && Views.BoothModuleViews.TryBuild(facts, transform, palette, out var boothGo, out _) &&
+                    boothGo != null) {
+                    boothGo.name = "ghost " + draft.Id + " booth";
+                    foreach (var renderer in boothGo.GetComponentsInChildren<Renderer>(true)) {
+                        if (renderer == null) continue;
+                        renderer.forceMeshLod = 0;
+                        renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                        renderer.receiveShadows = false;
+                    }
+                    TrackOwnedMeshes(boothGo, target);
+                    target.Add(boothGo);
+                    return true;
+                }
+            }
+
+            var host = UnityEngine.Object.FindAnyObjectByType<StationGameHost>();
+            var world = host != null ? host.Coordinator?.World : null;
+
+            // Vertical circulation (`stair`, `stair-block`, `escalator`, `walkway`, `lift`) is
+            // generated from authored endpoints, flights, widths, and rises.
+            if (string.Equals(draft.Type, "stair", StringComparison.Ordinal) ||
+                string.Equals(draft.Type, "escalator", StringComparison.Ordinal) ||
+                string.Equals(draft.Type, "walkway", StringComparison.Ordinal) ||
+                string.Equals(draft.Type, "lift", StringComparison.Ordinal)) {
+                if (Views.VerticalModuleViews.TryBuildPreview(record, index, world?.Catalogue, transform, material,
+                        out var vertGo, out var vertMeshes)) {
+                    TrackOwnedMeshes(vertMeshes, target);
+                    target.Add(vertGo);
+                    return true;
+                }
+            }
+
+            // Track runs (platform rails, bored tunnels, and bridges with decks/barriers/catenary)
+            // reuse `RailRunGeometry.Build`. Ground/tunnel beds sit inside un-dug floor cells so
+            // they use a depth-ignored highlight material; elevated bridges use the standard Lit ghost.
+            if (string.Equals(draft.Type, "track", StringComparison.Ordinal)) {
+                var trackMat = facts.Config.Bool("bridge") ? material : TintedTrack(ok, colour);
+                if (Views.StationStreetModuleRenderer.TryBuildTrackPreview(index.Document, index,
+                        world?.TrainCatalogue, facts, transform, trackMat, out var trackGo, out var trackMeshes)) {
+                    TrackOwnedMeshes(trackMeshes, target);
+                    target.Add(trackGo);
+                    return true;
+                }
+            }
+
+            // Openings (`psd-end` half/full/cover, `door` with leading-edge offset, `gate` with
+            // doorless fence panel, `platform-edge`) reuse `OpeningModuleViews.TryBuildPreview`.
+            if (string.Equals(draft.Type, "psd-end", StringComparison.Ordinal) ||
+                string.Equals(draft.Type, "door", StringComparison.Ordinal) ||
+                string.Equals(draft.Type, "gate", StringComparison.Ordinal) ||
+                string.Equals(draft.Type, "platform-edge", StringComparison.Ordinal)) {
+                if (OpeningModuleViews.TryBuildPreview(record, index, world?.Catalogue, transform, material,
+                        out var openGo, out var openMeshes)) {
+                    TrackOwnedMeshes(openMeshes, target);
+                    target.Add(openGo);
+                    return true;
+                }
+            }
+
+            if (world?.Catalogue == null) return false;
             var station = StationFacts(index);
             var visual = ModuleViews.Resolve(facts, station, world.Catalogue);
             if (visual.Kind == ModuleViewKind.None || !visual.HasModel) return false;
             if (!world.Catalogue.TryGet(visual.Key, out var entry) || entry.prefab == null) return false;
             var go = Instantiate(entry.prefab, transform, false);
             go.name = "ghost " + draft.Id + " " + draft.Type;
-            go.transform.SetPositionAndRotation(
-                ModulePlacement.Resolve(record, entry, index),
-                ModulePlacement.Rotation(facts));
-            bool ok = colour.r < 0.5f;
-            var material = Tinted(ok, colour);
+            var position = ModulePlacement.Resolve(record, entry, index);
+            var rotation = ModulePlacement.Rotation(facts);
+            if (string.Equals(draft.Type, "exit", StringComparison.Ordinal) &&
+                string.Equals(facts.Config.Text("style"), "doorway", StringComparison.Ordinal)) {
+                double mountZ = facts.Config.Number("mountZ", facts.Z + 1);
+                position.y += (float)(mountZ - (facts.Z + 1));
+            } else if (!string.Equals(draft.Type, "hanger", StringComparison.Ordinal) &&
+                       StationFootprints.IsCeilingHung(facts) &&
+                       OpeningModuleViews.MeshBoundsIn(entry.prefab.transform, entry.prefab.transform, out var prefabBounds)) {
+                int storeyHeight = index.Document != null && index.Document.StoreyHeight > 0
+                    ? index.Document.StoreyHeight
+                    : (int)StationFootprints.StoreyHeight;
+                var ceilingMounts = StationCeilingMounts.ForIndex(index);
+                var mount = ceilingMounts.Resolve(facts, StationCeilingMounts.FallbackFor(facts, storeyHeight));
+                position.y = (float)mount.Underside - prefabBounds.max.y;
+            }
+            go.transform.SetPositionAndRotation(position, rotation);
+            if (string.Equals(draft.Type, "calligraphy", StringComparison.Ordinal)) {
+                Views.StationCalligraphyArtwork.FitPreviewScale(go, facts, draft.PanelHeight);
+            }
             Material lineMaterial = null;
             foreach (var renderer in go.GetComponentsInChildren<Renderer>(true)) {
                 if (renderer == null) continue;
@@ -902,7 +1362,7 @@ namespace Metro.App {
                 renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
                 renderer.receiveShadows = false;
             }
-            owned.Add(go);
+            target.Add(go);
             return true;
         }
 
@@ -911,7 +1371,7 @@ namespace Metro.App {
         /// exact ceiling/hanger/wall/booth height and width <see cref="StationSignRenderer"/> will
         /// commit to, and prints its real front/back boards via <see cref="StationSignTextureCache"/>.
         /// </summary>
-        bool TryBuildSignGhost(StationEditDraft draft, Color colour) {
+        bool TryBuildSignGhost(StationEditDraft draft, Color colour, List<GameObject> into = null) {
             var record = StationModulePlacement.ToRecord(draft);
             var mountKind = StationSignMounts.Of(record.Config.Text("mount"));
             bool hung = StationSignMounts.Hung(mountKind);
@@ -965,7 +1425,7 @@ namespace Metro.App {
                 }
             }
             previewSigns.Add(view);
-            owned.Add(view.gameObject);
+            (into ?? owned).Add(view.gameObject);
             return true;
         }
 
@@ -1260,9 +1720,10 @@ namespace Metro.App {
             return TrySelectionBounds(world, FindModule(moduleId), out bounds);
         }
 
-        static StationModuleRecord FindModule(string moduleId) {
+        StationModuleRecord FindModule(string moduleId) {
             var host = UnityEngine.Object.FindAnyObjectByType<StationGameHost>();
-            return host != null && host.Index != null ? host.Index.GetModule(moduleId) : null;
+            if (host != null && host.Index != null) return host.Index.GetModule(moduleId);
+            return index != null ? index.GetModule(moduleId) : null;
         }
 
         /// <summary>The one accepted (blue) or refused (red) ghost material, cached per preview.</summary>
@@ -1275,6 +1736,18 @@ namespace Metro.App {
                     new Color(colour.r, colour.g, colour.b, 1f), colour.a, 0.25f, 0f, doubleSided: true)
                 : new Material(Shader.Find("Sprites/Default")) { name = ok ? "edit ghost" : "edit refusal" };
             if (ok) okMaterial = material; else badMaterial = material;
+            return material;
+        }
+
+        /// <summary>Depth-ignored translucent ghost material for non-bridge tracks sitting inside un-dug floor cells.</summary>
+        Material TintedTrack(bool ok, Color colour) {
+            if (ok && trackOkMaterial != null) return trackOkMaterial;
+            if (!ok && trackBadMaterial != null) return trackBadMaterial;
+            var fill = new Color(colour.r, colour.g, colour.b, 0.42f);
+            var material = CreateUnlitTransparent(ok ? "edit track ghost" : "edit track refusal", fill);
+            if (material.HasProperty("_ZTest")) material.SetFloat("_ZTest", (float)UnityEngine.Rendering.CompareFunction.Always);
+            material.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent + 2;
+            if (ok) trackOkMaterial = material; else trackBadMaterial = material;
             return material;
         }
 

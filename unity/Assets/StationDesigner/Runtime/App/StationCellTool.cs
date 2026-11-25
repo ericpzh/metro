@@ -32,6 +32,12 @@ namespace Metro.App {
         public int Length = 1, Width = 1;
         /// <summary>The cell the pointer ring marks.</summary>
         public StationCellKey Cursor;
+        /// <summary>For a <c>run</c> preview, the resolved module/fence run plan drawn as 3D ghosts.</summary>
+        public StationModuleRunPlan RunPlan;
+        /// <summary>For a <c>run</c> preview, the floor block whose top carries the flat cursor ring.</summary>
+        public StationCellKey CursorFloor;
+        /// <summary>Whether the flat floor cursor ring should draw (false on wall/ceiling runs).</summary>
+        public bool ShowCursor = true;
 
         public bool HasPlan => Kind.Length > 0;
         public bool Valid => HasPlan && !OverLimit && Check.Blocked.Count == 0;
@@ -99,10 +105,20 @@ namespace Metro.App {
         public readonly List<string> ModuleIds = new List<string>();
         /// <summary>
         /// The pressed run's own template for a 删除 **line erase** (a 盲道 path, a 围栏 run,
-        /// a 场地分隔): the arm's palette settings are not the pressed piece's family, so the
-        /// template is frozen from the piece the press took (plan 30 §2).
+        /// a 场地分隔) or a dragged equipment run (`BeginModuleRun`).
         /// </summary>
         public StationPlacementRequest Run;
+        /// <summary>For a non-dragged single click on a draggable equipment palette, the exact hover/click plan.</summary>
+        public StationPlacementPlan SingleClickPlan;
+        /// <summary>True when <see cref="PressCell"/> tracks the raw hit cell for wall/ceiling line translation.</summary>
+        public bool HasPressCell;
+        public StationCellKey PressCell;
+        /// <summary>True when a right-drag equipment remove sweeps all <see cref="StationModuleRuns.IsLineDeletable"/> pieces.</summary>
+        public bool GenericLineRemove;
+        /// <summary>The specific line-deletable module pointed at when the right-drag began.</summary>
+        public string LineRemoveId = "";
+        /// <summary>Whether the flat floor cursor ring should draw during this run gesture.</summary>
+        public bool ShowCursor = true;
         /// <summary>The previous aim in canvas pixels, for the sampled screen path (plan 30 §2).</summary>
         public float LastAimX, LastAimY;
         public bool HasLastAim;
@@ -112,11 +128,13 @@ namespace Metro.App {
         public bool Dragging;
         public int Revision;
         public int ToolGeneration;
+        public int SettingsGeneration;
 
         internal StationCellPreview PlannedCells;
         internal StationCellEditWorld PlannedWorld;
         internal StationCellKey PlannedTarget;
         internal bool PlannedDragging, PlannedShift;
+        internal int PlannedSettingsGeneration;
 
         public bool IsCut => !Shape.IsFull;
         public bool HasModules => ModuleIds.Count > 0;
@@ -310,22 +328,34 @@ namespace Metro.App {
             var cellAnchor = AnchorFor(hit, remove, !remove);
             if (!cellAnchor.HasValue) { reason = "no-cell"; return false; }
             if (string.Equals(tool, "module", StringComparison.Ordinal) &&
-                StationModuleRuns.IsLinePalette(StationToolSelection.Setting("moduleType"))) {
-                // A run family (围栏 / 盲道 / floor mark) lays a dragged line of panels instead
-                // of one piece per press (`EquipmentTool.beginLineAdd`).
+                StationModuleRuns.SupportsDragPlacement(StationToolSelection.Setting("moduleType"))) {
+                // Backward-compatible entry point for direct callers/tests: builds a run gesture
+                // from the active palette settings without requiring a prebuilt template.
+                var paletteId = StationToolSelection.Setting("moduleType");
+                bool genericRemove = remove && !StationModuleRuns.IsVariantMatchedRun(paletteId);
+                string lineRemoveId = genericRemove && hit != null && hit.HasModule && hit.ModuleWins &&
+                    StationModuleRuns.IsLineDeletable(hit.Module) ? hit.Module.Id : "";
+                var anchor = remove && hit != null && hit.HasModule && hit.ModuleWins
+                    ? new StationCellKey(hit.Module.X, hit.Module.Y, hit.Module.Z)
+                    : cellAnchor.Value;
                 gesture = new StationCellGesture {
                     Kind = StationCellGestureKind.ModuleRun,
                     Tool = tool,
                     Button = button,
                     Remove = remove,
-                    Anchor = cellAnchor.Value,
-                    Target = cellAnchor.Value,
+                    GenericLineRemove = genericRemove,
+                    LineRemoveId = lineRemoveId,
+                    ShowCursor = !remove && !StationModuleFamilies.IsWallPalette(paletteId) &&
+                        !StationCeilingAim.IsCeilingPiece(paletteId),
+                    Anchor = anchor,
+                    Target = anchor,
                     PressX = pointer.X,
                     PressY = pointer.Y,
                     PressTimeMs = pointer.TimeMs,
                     Shift = (pointer.Modifiers & StationPointerModifiers.Shift) != 0,
                     Revision = host.CurrentRevision,
                     ToolGeneration = StationToolSelection.Generation,
+                    SettingsGeneration = StationToolSelection.SettingsGeneration,
                 };
                 Aim(host, hit, pointer, true);
                 return true;
@@ -353,12 +383,132 @@ namespace Metro.App {
         }
 
         /// <summary>
-        /// The whole cell one hit names, from the **nearest drawn surface**: a placed module
-        /// that wins the pick (paving, a track deck, a cabinet) names its own face exactly as
-        /// `render/pickCell.ts:pickCells` does, so the paver in the report anchors one cell
-        /// above the paver's own drawn top instead of at the ground behind it. A cell surface
-        /// keeps its authored cell and face step.
+        /// Arm a dragged equipment/decor line placement or line removal (`EquipmentTool.beginLineAdd`
+        /// / `beginLineRemove`). Preserves the exact single-click <paramref name="singleClickPlan"/>
+        /// until the press becomes a deliberate drag, captures wall-face course metadata for wall
+        /// mounts, and translates floor/wall drag targets via `lineTargetFrom`.
         /// </summary>
+        public static bool BeginModuleRun(StationGameHost host, StationSceneHit hit, StationPointerEvent pointer,
+            int button, StationPlacementRequest template, StationPlacementPlan singleClickPlan, out string reason) {
+            reason = null;
+            var worldRef = World(host);
+            if (worldRef == null) { reason = "no-session"; return false; }
+            bool remove = button == 2;
+            string paletteId = template != null && !string.IsNullOrEmpty(template.ToolType)
+                ? template.ToolType
+                : StationToolSelection.Setting("moduleType");
+            if (remove) {
+                bool variantMatched = StationModuleRuns.IsVariantMatchedRun(paletteId);
+                var rawHit = CellOf(hit, false);
+                var pointed = hit != null && hit.HasModule && hit.ModuleWins ? hit.Module : null;
+                if (variantMatched) {
+                    var eraseAnchor = pointed != null
+                        ? new StationCellKey(pointed.X, pointed.Y, pointed.Z)
+                        : AnchorFor(hit, true, false);
+                    if (!eraseAnchor.HasValue) { reason = "no-cell"; return false; }
+                    gesture = new StationCellGesture {
+                        Kind = StationCellGestureKind.ModuleRun,
+                        Tool = "module",
+                        Button = button,
+                        Remove = true,
+                        GenericLineRemove = false,
+                        ShowCursor = false,
+                        Anchor = eraseAnchor.Value,
+                        Target = eraseAnchor.Value,
+                        HasPressCell = rawHit.HasValue,
+                        PressCell = rawHit.HasValue ? new StationCellKey(rawHit.Value.X, rawHit.Value.Y, rawHit.Value.Z) : eraseAnchor.Value,
+                        PressX = pointer.X,
+                        PressY = pointer.Y,
+                        PressTimeMs = pointer.TimeMs,
+                        Shift = (pointer.Modifiers & StationPointerModifiers.Shift) != 0,
+                        Revision = host.CurrentRevision,
+                        ToolGeneration = StationToolSelection.Generation,
+                        SettingsGeneration = StationToolSelection.SettingsGeneration,
+                    };
+                    Aim(host, hit, pointer, true);
+                    return true;
+                }
+                if (pointed == null && !rawHit.HasValue) { reason = "no-cell"; return false; }
+                var anchor = pointed != null
+                    ? new StationCellKey(pointed.X, pointed.Y, pointed.Z)
+                    : new StationCellKey(rawHit.Value.X, rawHit.Value.Y, rawHit.Value.Z);
+                var pressCell = rawHit.HasValue
+                    ? new StationCellKey(rawHit.Value.X, rawHit.Value.Y, rawHit.Value.Z)
+                    : anchor;
+                gesture = new StationCellGesture {
+                    Kind = StationCellGestureKind.ModuleRun,
+                    Tool = "module",
+                    Button = button,
+                    Remove = true,
+                    GenericLineRemove = true,
+                    LineRemoveId = pointed != null && StationModuleRuns.IsLineDeletable(pointed) ? pointed.Id : "",
+                    ShowCursor = false,
+                    Anchor = anchor,
+                    Target = anchor,
+                    HasPressCell = true,
+                    PressCell = pressCell,
+                    PressX = pointer.X,
+                    PressY = pointer.Y,
+                    PressTimeMs = pointer.TimeMs,
+                    Shift = (pointer.Modifiers & StationPointerModifiers.Shift) != 0,
+                    Revision = host.CurrentRevision,
+                    ToolGeneration = StationToolSelection.Generation,
+                    SettingsGeneration = StationToolSelection.SettingsGeneration,
+                };
+                Aim(host, hit, pointer, true);
+                return true;
+            }
+
+            if (template == null || !template.Hit.HasCell) { reason = "no-cell"; return false; }
+            bool wall = StationModuleFamilies.IsWallPalette(paletteId);
+            bool ceiling = StationCeilingAim.IsCeilingPiece(paletteId);
+            var aim = StationModulePlacement.AimCell(host.Index, template);
+            int ax = (int)Math.Round(aim.X), ay = (int)Math.Round(aim.Y), az = (int)Math.Round(aim.Z);
+            // Capture wall course and backing normal when pressing directly on a wall face.
+            if (wall && (template.Hit.X != template.Hit.PlaceX || template.Hit.Y != template.Hit.PlaceY)) {
+                template.HasWallLine = true;
+                template.WallCourse = template.Hit.Z;
+                template.WallNormalX = template.Hit.X - template.Hit.PlaceX;
+                template.WallNormalY = template.Hit.Y - template.Hit.PlaceY;
+            }
+            var addAnchor = new StationCellKey(ax, ay, az + 1);
+            var pressHit = new StationCellKey(template.Hit.X, template.Hit.Y, template.Hit.Z);
+            gesture = new StationCellGesture {
+                Kind = StationCellGestureKind.ModuleRun,
+                Tool = "module",
+                Button = button,
+                Remove = false,
+                Run = template,
+                SingleClickPlan = singleClickPlan,
+                ShowCursor = !wall && !ceiling,
+                Anchor = addAnchor,
+                Target = addAnchor,
+                HasPressCell = true,
+                PressCell = pressHit,
+                PressX = pointer.X,
+                PressY = pointer.Y,
+                PressTimeMs = pointer.TimeMs,
+                Shift = (pointer.Modifiers & StationPointerModifiers.Shift) != 0,
+                Revision = host.CurrentRevision,
+                ToolGeneration = StationToolSelection.Generation,
+                SettingsGeneration = StationToolSelection.SettingsGeneration,
+            };
+            Aim(host, hit, pointer, true);
+            return true;
+        }
+
+        static StationCellKey? ModuleRunTargetFor(StationCellGesture current, StationSceneHit hit) {
+            if (hit == null) return null;
+            if (current.HasPressCell) {
+                var raw = CellOf(hit, !current.Remove && WantsWorkPlane(current.Tool));
+                if (!raw.HasValue) return null;
+                int dx = raw.Value.X - current.PressCell.X;
+                int dy = raw.Value.Y - current.PressCell.Y;
+                return new StationCellKey(current.Anchor.X + dx, current.Anchor.Y + dy, current.Anchor.Z);
+            }
+            return AnchorFor(hit, current.Remove, WantsWorkPlane(current.Tool));
+        }
+
         /// <summary>
         /// Arm a 删除 **line erase** on a run family the reference deletes as a line
         /// (`DeleteTool`'s fence/divider trail and `TactileTool`'s erase), instead of the
@@ -374,15 +524,18 @@ namespace Metro.App {
             if (hit == null || !hit.HasModule || !hit.ModuleWins) { reason = "no-cell"; return false; }
             var template = RunTemplateFor(hit.Module, out reason);
             if (template == null) return false;
-            var cell = AnchorFor(hit, true);
-            if (!cell.HasValue) { reason = "no-cell"; return false; }
+            var anchor = new StationCellKey(hit.Module.X, hit.Module.Y, hit.Module.Z);
+            var rawHit = CellOf(hit, false);
             gesture = new StationCellGesture {
                 Kind = StationCellGestureKind.ModuleRun,
                 Tool = "delete",
                 Button = pointer.Button,
                 Remove = true,
-                Anchor = cell.Value,
-                Target = cell.Value,
+                ShowCursor = false,
+                Anchor = anchor,
+                Target = anchor,
+                HasPressCell = rawHit.HasValue,
+                PressCell = rawHit.HasValue ? new StationCellKey(rawHit.Value.X, rawHit.Value.Y, rawHit.Value.Z) : anchor,
                 Run = template,
                 PressX = pointer.X,
                 PressY = pointer.Y,
@@ -495,7 +648,11 @@ namespace Metro.App {
             if (worldRef == null) return;
             if (gesture == null) {
                 var settings = StationCellToolSettings.Read();
-                var cell = AnchorFor(hit, false, WantsWorkPlane(StationToolSelection.Active));
+                bool isDelete = string.Equals(StationToolSelection.Active, "delete", StringComparison.Ordinal);
+                var cell = AnchorFor(hit, isDelete, WantsWorkPlane(StationToolSelection.Active));
+                if (!cell.HasValue && isDelete && hit != null && hit.HasModule && hit.ModuleWins) {
+                    cell = new StationCellKey(hit.Module.X, hit.Module.Y, hit.Module.Z);
+                }
                 if (cell.HasValue) {
                     hasHover = true;
                     hoverCell = cell.Value;
@@ -546,7 +703,7 @@ namespace Metro.App {
                     SweepScreenPath(host, worldRef, gesture, pointer);
                 }
             } else if (gesture.Kind == StationCellGestureKind.ModuleRun) {
-                var runAim = AnchorFor(hit, gesture.Remove, WantsWorkPlane(gesture.Tool));
+                var runAim = ModuleRunTargetFor(gesture, hit);
                 if (runAim.HasValue) gesture.Target = runAim.Value;
             } else {
                 var cell = AnchorFor(hit, gesture.Remove, WantsWorkPlane(gesture.Tool));
@@ -701,7 +858,10 @@ namespace Metro.App {
             if (string.Equals(tool, "delete", StringComparison.Ordinal)) {
                 if (hit != null && hit.HasModule && hit.ModuleWins) {
                     var previewOut = new StationCellPreview { Kind = "delete", Cursor = hoverCell };
-                    previewOut.ModuleIds.Add(hit.Module.Id);
+                    foreach (var id in StationModuleTeardown.Expand(worldRef.Index, new[] { hit.Module.Id })) {
+                        if (worldRef.Index.TryGetModule(id, out _)) previewOut.ModuleIds.Add(id);
+                    }
+                    if (previewOut.ModuleIds.Count == 0) previewOut.ModuleIds.Add(hit.Module.Id);
                     return previewOut;
                 }
                 var erase = new StationCellPreview { Kind = "erase", Cursor = hoverCell };
@@ -729,7 +889,8 @@ namespace Metro.App {
             using var sample = StationEditProfiling.Measure("StationEdit.CellPlan");
             if (current.PlannedCells != null && current.PlannedWorld == worldRef &&
                 current.PlannedTarget.Equals(current.Target) && current.PlannedDragging == current.Dragging &&
-                current.PlannedShift == current.Shift) return current.PlannedCells;
+                current.PlannedShift == current.Shift &&
+                current.PlannedSettingsGeneration == StationToolSelection.SettingsGeneration) return current.PlannedCells;
 
             var plan = PlanCandidates(worldRef, current);
             if (plan.OverLimit) return plan;
@@ -759,6 +920,7 @@ namespace Metro.App {
                 current.PlannedTarget = current.Target;
                 current.PlannedDragging = current.Dragging;
                 current.PlannedShift = current.Shift;
+                current.PlannedSettingsGeneration = StationToolSelection.SettingsGeneration;
             }
             return plan;
         }
@@ -930,20 +1092,88 @@ namespace Metro.App {
         }
 
         /// <summary>
-        /// The run tools' plan (plan 27 §5): the straight line of panels the release would lay
-        /// (or lift), each cell resolved by the one candidate resolver — so a panel that meets a
-        /// 闸机 or a reserved opening is refused by the same rules a single placement is.
+        /// The run tools' plan (plan 27 §5): the straight line of panels/equipment the release
+        /// would lay (or lift), each cell resolved by the one candidate resolver — so a panel that
+        /// meets a 闸机 or a reserved opening is refused by the same rules a single placement is.
         /// </summary>
         static StationCellPreview PlanModuleRun(StationCellEditWorld worldRef, StationCellGesture current,
             StationCellKey cursor) {
             var anchor = current.Anchor;
             var target = current.Target;
-            var template = current.Remove && current.Run != null ? current.Run : RunTemplate();
+            if (current.Remove && current.GenericLineRemove) {
+                var removePlan = StationModuleRuns.PlanGenericRemove(worldRef.Index, anchor, target,
+                    current.Dragging, current.LineRemoveId);
+                var removePreview = new StationCellPreview {
+                    Kind = "run",
+                    Cursor = cursor,
+                    CursorFloor = cursor,
+                    ShowCursor = current.ShowCursor,
+                    RunPlan = removePlan,
+                    Length = current.Dragging ? Math.Abs(target.X - anchor.X) + 1 : 1,
+                    Width = current.Dragging ? Math.Abs(target.Y - anchor.Y) + 1 : 1,
+                };
+                if (string.Equals(removePlan.Reason, "over-limit", StringComparison.Ordinal)) {
+                    removePreview.Notice = "over-limit";
+                    removePreview.OverLimit = true;
+                    return removePreview;
+                }
+                var removePatch = new StationCellPatch();
+                foreach (var id in StationModuleTeardown.Expand(worldRef.Index, removePlan.RemoveIds)) {
+                    if (!worldRef.Index.TryGetModule(id, out _)) continue;
+                    if (removePatch.RemoveModuleIds.Contains(id)) continue;
+                    removePatch.RemoveModuleIds.Add(id);
+                    if (!removePlan.RemoveIds.Contains(id)) removePlan.RemoveIds.Add(id);
+                    removePatch.Changed++;
+                }
+                removePreview.Check = StationModuleRuns.ToCheck(removePlan);
+                removePreview.ModuleIds.AddRange(removePlan.RemoveIds);
+                removePreview.Patch = removePatch;
+                return removePreview;
+            }
+            if (!current.Remove && !current.Dragging && current.SingleClickPlan != null &&
+                current.SettingsGeneration == StationToolSelection.SettingsGeneration) {
+                var single = current.SingleClickPlan;
+                var singlePlan = new StationModuleRunPlan {
+                    Kind = "add",
+                    EffectiveRotation = single.Candidate != null ? single.Candidate.Rotation : 0,
+                    Step = 1,
+                    Reason = single.Reason ?? "",
+                };
+                if (single.Ok && single.Candidate != null) {
+                    var draft = single.Candidate.Clone();
+                    draft.Id = StationModulePlacement.NextId(worldRef.Index, draft.Type);
+                    StationAdPosters.RollFor(draft);
+                    singlePlan.Accepted.Add(draft);
+                    singlePlan.AcceptedCells.Add(anchor);
+                } else {
+                    singlePlan.Blocked.Add(anchor);
+                    singlePlan.ColliderIds.AddRange(single.ColliderIds);
+                }
+                var singlePreview = new StationCellPreview {
+                    Kind = "run",
+                    Cursor = anchor,
+                    CursorFloor = new StationCellKey(anchor.X, anchor.Y, anchor.Z - 1),
+                    ShowCursor = current.ShowCursor,
+                    RunPlan = singlePlan,
+                    Check = StationModuleRuns.ToCheck(singlePlan),
+                    Patch = StationModuleRuns.ToPatch(singlePlan),
+                    Length = 1,
+                    Width = 1,
+                };
+                return singlePreview;
+            }
+            var template = ResolveRunTemplate(current);
             var line = StationModuleRuns.RunSlots(worldRef.Index, template, anchor, target, current.Dragging,
                 current.Remove, out _, out _);
+            var lastSlot = line.Count > 0 ? line[line.Count - 1] : cursor;
+            var cursorFloor = current.Remove
+                ? new StationCellKey(lastSlot.X, lastSlot.Y, lastSlot.Z)
+                : new StationCellKey(lastSlot.X, lastSlot.Y, lastSlot.Z - 1);
             var previewOut = new StationCellPreview {
                 Kind = "run",
                 Cursor = cursor,
+                CursorFloor = cursorFloor,
+                ShowCursor = current.ShowCursor,
                 Length = current.Dragging ? Math.Abs(target.X - anchor.X) + 1 : 1,
                 Width = current.Dragging ? Math.Abs(target.Y - anchor.Y) + 1 : 1,
             };
@@ -955,6 +1185,7 @@ namespace Metro.App {
                 return previewOut;
             }
             var plan = StationModuleRuns.PlanRun(worldRef.Index, template, anchor, target, current.Dragging, current.Remove);
+            previewOut.RunPlan = plan;
             previewOut.Check = StationModuleRuns.ToCheck(plan);
             var patch = StationModuleRuns.ToPatch(plan);
             previewOut.Patch = patch;
@@ -968,6 +1199,18 @@ namespace Metro.App {
             return previewOut;
         }
 
+        static StationPlacementRequest ResolveRunTemplate(StationCellGesture current) {
+            if (current.Remove && current.Run != null) return current.Run;
+            if (current.Run != null) {
+                // Keep wall-face anchor metadata from press while following live R / lineSpacing edits.
+                var live = current.Run;
+                if (!live.HasWallLine) live.Rotation = StationToolSelection.SettingInt("rotation", live.Rotation);
+                live.LineSpacing = StationModuleRuns.ClampSpacing(StationToolSelection.SettingInt("lineSpacing", live.LineSpacing));
+                return live;
+            }
+            return RunTemplate();
+        }
+
         /// <summary>The armed run's settings as one placement template (its hit is per cell).</summary>
         static StationPlacementRequest RunTemplate() => new StationPlacementRequest {
             ToolType = StationToolSelection.Setting("moduleType"),
@@ -977,6 +1220,12 @@ namespace Metro.App {
             LineId = StationToolSelection.Setting("lineId"),
             CurtainHeight = StationToolSelection.SettingInt("curtainHeight", 4),
             LineSpacing = StationModuleRuns.ClampSpacing(StationToolSelection.SettingInt("lineSpacing", 0)),
+            PillarLength = StationToolSelection.SettingInt("pillarLength", StationPillarPlanning.DefaultLength),
+            LightPosition = StationToolSelection.SettingInt("lightPosition", 0),
+            GateDoor = StationToolSelection.Setting("gateDoor"),
+            LiftStyle = StationToolSelection.Setting("liftStyle"),
+            GuideExitId = StationToolSelection.Setting("guideExitId"),
+            PsdEndHeight = StationToolSelection.Setting("psdEndHeight"),
         };
 
         /// <summary>The 删除 tool's plan: the pieces it takes, or the blocks it digs.</summary>
@@ -984,7 +1233,10 @@ namespace Metro.App {
             StationCellKey cursor) {
             if (current.HasModules) {
                 var previewOut = new StationCellPreview { Kind = "delete", Cursor = cursor };
-                previewOut.ModuleIds.AddRange(current.ModuleIds);
+                foreach (var id in StationModuleTeardown.Expand(worldRef.Index, current.ModuleIds)) {
+                    if (worldRef.Index.TryGetModule(id, out _)) previewOut.ModuleIds.Add(id);
+                }
+                if (previewOut.ModuleIds.Count == 0) previewOut.ModuleIds.AddRange(current.ModuleIds);
                 return previewOut;
             }
             var anchor = current.Anchor;
@@ -1119,7 +1371,7 @@ namespace Metro.App {
                     var deleteAim = AnchorFor(hit, true);
                     if (deleteAim.HasValue) current.Target = deleteAim.Value;
                 } else if (current.Kind == StationCellGestureKind.ModuleRun) {
-                    var runAim = AnchorFor(hit, current.Remove, WantsWorkPlane(current.Tool));
+                    var runAim = ModuleRunTargetFor(current, hit);
                     if (runAim.HasValue) current.Target = runAim.Value;
                 }
             }
@@ -1147,7 +1399,7 @@ namespace Metro.App {
                     return false;
                 }
             } else if (current.Kind == StationCellGestureKind.ModuleRun) {
-                var runTemplate = current.Remove && current.Run != null ? current.Run : RunTemplate();
+                var runTemplate = ResolveRunTemplate(current);
                 var runPlan = StationModuleRuns.PlanRun(worldRef.Index, runTemplate,
                     current.Anchor, current.Target, current.Dragging, current.Remove);
                 patch = StationModuleRuns.ToPatch(runPlan);

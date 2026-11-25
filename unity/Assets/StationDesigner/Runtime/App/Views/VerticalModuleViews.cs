@@ -697,6 +697,108 @@ namespace Metro.App.Views {
             }
         }
 
+        /// <summary>
+        /// Build a placement/move ghost for `stair` (flights and `stair-block`), `escalator`,
+        /// `walkway`, or `lift` through the exact same geometry builder the live station renderer
+        /// commits — materializing phase-0 escalator/walkway steps into one mesh so the preview
+        /// never needs the live instanced step drawer and never falls back to a plain box.
+        /// </summary>
+        public static bool TryBuildPreview(
+            StationModuleRecord record, StationIndex index, RuntimeCatalogue catalogue,
+            Transform parent, Material ghostMaterial, out GameObject root, out List<Mesh> meshes) {
+            root = null;
+            meshes = null;
+            if (record?.Facts == null || parent == null || ghostMaterial == null) return false;
+            var type = record.Type;
+            if (type != "stair" && type != "escalator" && type != "walkway" && type != "lift") return false;
+            Func<int, int, int, bool> solid = (x, y, z) =>
+                index != null && index.GetCell(x, y, z) is StationCellRecord cell && cell.IsSolid;
+            Func<int, int, int, string> cellFinish = (x, y, z) => {
+                var cell = index?.GetCell(x, y, z);
+                return cell != null && cell.FinishTop.Length > 0 ? cell.FinishTop : null;
+            };
+            List<ModuleFacts> neighbours = null;
+            if (index?.Document?.Modules != null) {
+                var mods = index.Document.Modules;
+                neighbours = new List<ModuleFacts>(32);
+                for (int i = 0; i < mods.Count; i++) {
+                    var m = mods[i];
+                    if (m == null || string.Equals(m.Id, record.Id, StringComparison.Ordinal)) continue;
+                    if (m.Type == "stair" || m.Type == "escalator" || m.Type == "walkway" || m.Type == "lift" ||
+                        m.Type == "exit" || m.Type == "fence") {
+                        neighbours.Add(m.Facts);
+                    }
+                }
+            }
+            GameObject prefab = null;
+            string prefabKey = null;
+            if (catalogue != null) {
+                var visual = ModuleViews.Resolve(record.Facts, Array.Empty<ModuleFacts>(), catalogue);
+                if (visual.HasModel && catalogue.TryGet(visual.Key, out var entry) && entry != null) {
+                    prefab = entry.prefab;
+                    prefabKey = visual.Key;
+                }
+            }
+            var request = VerticalModuleRequest.FromFacts(
+                record.Facts, prefab, prefabKey, solid,
+                _ => ghostMaterial, _ => ghostMaterial, cellFinish, neighbours);
+            if (!TryBuild(request, parent, out var view, null) || view?.Root == null) return false;
+            MaterializeBandStepsForPreview(view, ghostMaterial);
+            root = view.Root.gameObject;
+            root.name = "ghost " + (string.IsNullOrEmpty(record.Id) ? type : record.Id) + " " + type;
+            foreach (var r in root.GetComponentsInChildren<Renderer>(true)) {
+                if (r == null) continue;
+                r.forceMeshLod = 0;
+                int count = Mathf.Max(1, r.sharedMaterials.Length);
+                var mats = new Material[count];
+                for (int i = 0; i < count; i++) mats[i] = ghostMaterial;
+                r.sharedMaterials = mats;
+                r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                r.receiveShadows = false;
+            }
+            meshes = new List<Mesh>(view.Meshes);
+            view.Meshes.Clear();
+            return true;
+        }
+
+        static void MaterializeBandStepsForPreview(VerticalModuleView view, Material ghostMaterial) {
+            if (view?.BandGroup == null || view.StepLocalPositions == null || view.BandTreadMesh == null) return;
+            var combines = new List<CombineInstance>(view.StepLocalPositions.Length * 2);
+            var rot = view.BandStepLocalRotation;
+            var treadMesh = view.BandTreadMesh;
+            var riserMesh = view.BandRiserMesh;
+            for (int i = 0; i < view.StepLocalPositions.Length; i++) {
+                if (!view.StepVisible[i]) continue;
+                var pos = view.StepLocalPositions[i];
+                var treadMtx = Matrix4x4.TRS(pos, rot, Vector3.one);
+                for (int sub = 0; sub < treadMesh.subMeshCount; sub++) {
+                    combines.Add(new CombineInstance { mesh = treadMesh, subMeshIndex = sub, transform = treadMtx });
+                }
+                float sy = view.StepRiserScales[i];
+                if (riserMesh != null && sy > 1e-5f) {
+                    var riserMtx = Matrix4x4.TRS(pos, rot, new Vector3(1f, sy, 1f));
+                    for (int sub = 0; sub < riserMesh.subMeshCount; sub++) {
+                        combines.Add(new CombineInstance { mesh = riserMesh, subMeshIndex = sub, transform = riserMtx });
+                    }
+                }
+            }
+            if (combines.Count == 0) return;
+            var baked = new Mesh {
+                name = "ghost escalator band",
+                indexFormat = UnityEngine.Rendering.IndexFormat.UInt32,
+            };
+            baked.CombineMeshes(combines.ToArray(), true, true);
+            baked.RecalculateBounds();
+            view.Meshes.Add(baked);
+            var filter = view.BandGroup.GetComponent<MeshFilter>();
+            if (filter != null) filter.sharedMesh = baked;
+            var renderer = view.BandGroup.GetComponent<MeshRenderer>();
+            if (renderer != null) {
+                renderer.sharedMaterials = new[] { ghostMaterial };
+                renderer.enabled = true;
+            }
+        }
+
         /// <summary>Destroy an object in the mode that supports it: DestroyImmediate in the editor, Destroy in play mode.</summary>
         internal static void DestroyObject(UnityEngine.Object target) {
             if (!target) return;
@@ -1197,6 +1299,9 @@ namespace Metro.App.Views {
                 view.Root = context.Root;
                 view.UsedPrefab = true;
                 view.PrefabKey = request.PrefabKey ?? "stair-straight";
+                if (request.Neighbours != null) {
+                    BuildStairFencePillars(context, view, flights, specs, treadWidth, pivot, instance);
+                }
                 RegisterStairAnchors(view, specs, flights, pivot);
                 context.LevelMin = Mathf.FloorToInt(Mathf.Min(flights[0].From.z, flights[0].To.z));
                 context.LevelMax = Mathf.CeilToInt(Mathf.Max(flights[0].From.z, flights[0].To.z));
@@ -1210,6 +1315,9 @@ namespace Metro.App.Views {
             context.Root.localRotation = Quaternion.identity;
             for (int i = 0; i < specs.Count; i++) BuildStairFlight(context, view, specs[i], surfaceMaterial, pivot);
             BuildStairLandings(context, view, flights, slides, style, savedWidth, treadWidth, surfaceMaterial, request, pivot);
+            if (request.Neighbours != null) {
+                BuildStairFencePillars(context, view, flights, specs, treadWidth, pivot, null);
+            }
             RegisterStairAnchors(view, specs, flights, pivot);
             view.RunLength = specs[0].Run;
             context.LevelMin = int.MaxValue; context.LevelMax = int.MinValue;
@@ -1551,13 +1659,17 @@ namespace Metro.App.Views {
 
             context.Root.localPosition = StationCoordinates.Point(band.Lower);
             context.Root.localRotation = Quaternion.identity;
+            GameObject prefabInstance = null;
             if (prefabExact) {
-                BuildBandPrefab(context, view, band, request);
+                prefabInstance = BuildBandPrefab(context, view, band, request);
             } else {
                 BuildBandDimensioned(context, view, band);
             }
             if (escalator && request.Neighbours != null && request.Facts != null) {
                 BuildRampJoins(context, view, band);
+            }
+            if (request.Neighbours != null) {
+                BuildBandFencePillars(context, view, band, from, to, escalator, prefabInstance);
             }
             RegisterBandAnchors(context, view, band, from, to);
             context.LevelMin = Mathf.Min(from.z, to.z);
@@ -1570,7 +1682,7 @@ namespace Metro.App.Views {
             return true;
         }
 
-        static void BuildBandPrefab(BuildContext context, VerticalModuleView view, BandRig band, VerticalModuleRequest request) {
+        static GameObject BuildBandPrefab(BuildContext context, VerticalModuleView view, BandRig band, VerticalModuleRequest request) {
             var instance = UnityEngine.Object.Instantiate(request.Prefab, context.Root, false);
             var yaw = Quaternion.Euler(0f, band.PrefabYawDegrees, 0f);
             instance.transform.localPosition = Vector3.zero;
@@ -1591,6 +1703,7 @@ namespace Metro.App.Views {
             }
             band.PrefabFrame = true;
             SetupBandInstancedSteps(context, view, band, instance.transform);
+            return instance;
         }
 
         static void BuildBandDimensioned(BuildContext context, VerticalModuleView view, BandRig band) {
@@ -2315,6 +2428,224 @@ namespace Metro.App.Views {
                     }
                 }
             }
+        }
+
+        /// <summary>
+        /// Vertical steel receiver pillar on each escalator/walkway landing side where an adjacent
+        /// fence snaps to the landing cell. Fills the lateral gap between the outer face of the
+        /// black moving rubber handrail and the landing cell boundary (±halfW) so the fence rail,
+        /// glass, and clamps bolt flush into the pillar without penetrating the moving handrail.
+        /// </summary>
+        static void BuildBandFencePillars(
+            BuildContext context,
+            VerticalModuleView view,
+            BandRig band,
+            Vector3Int from,
+            Vector3Int to,
+            bool escalator,
+            GameObject prefabInstance) {
+            var neighbours = context.Request.Neighbours;
+            if (neighbours == null || neighbours.Count == 0) return;
+            var horizontal = new Vector3(band.Climb.x, band.Climb.y, 0f);
+            if (horizontal.sqrMagnitude <= 1e-9f) return;
+            horizontal.Normalize();
+            var docUp = new Vector3(0f, 0f, 1f);
+            var across = Vector3.Cross(docUp, horizontal);
+            if (across.sqrMagnitude <= 1e-9f) return;
+            across.Normalize();
+
+            bool lowerFirst = from.z != to.z ? from.z < to.z : (from.x != to.x ? from.x < to.x : from.y < to.y);
+            var lowCell = lowerFirst ? from : to;
+            var highCell = lowerFirst ? to : from;
+            float lenPlan = new Vector2(highCell.x - lowCell.x, highCell.y - lowCell.y).magnitude;
+            float halfShift = lenPlan > 1e-6f ? (band.WidthBlocks - 1f) * .5f / lenPlan : 0f;
+            float shiftX = (highCell.y - lowCell.y) * halfShift;
+            float shiftY = -(highCell.x - lowCell.x) * halfShift;
+            float halfW = band.WidthBlocks * .5f;
+            var pillarRot = RotationFromBasis(horizontal, across, docUp);
+
+            var pillarMesh = new PartMesh(band.Lower);
+            for (int endIdx = 0; endIdx < 2; endIdx++) {
+                var cell = endIdx == 0 ? lowCell : highCell;
+                float lift = (float)StationRampOpenings.ExitLandingHeight(neighbours, cell.x, cell.y, cell.z);
+                var landingCenter = new Vector3(cell.x + .5f + shiftX, cell.y + .5f + shiftY, cell.z + 1f + lift);
+                for (int side = -1; side <= 1; side += 2) {
+                    var probe = landingCenter + across * (side * (halfW + .5f));
+                    int adjX = Mathf.FloorToInt(probe.x);
+                    int adjY = Mathf.FloorToInt(probe.y);
+                    int adjZ = cell.z;
+                    bool hasFence = false;
+                    bool tallFence = false;
+                    for (int n = 0; n < neighbours.Count; n++) {
+                        var m = neighbours[n];
+                        if (m == null || !string.Equals(m.Type, "fence", StringComparison.Ordinal)) continue;
+                        if (m.X != adjX || m.Y != adjY || m.Z != adjZ) continue;
+                        var variant = m.Config.Text("variant");
+                        if (OutdoorModuleViews.IsNoiseBarrier(variant)) continue;
+                        hasFence = true;
+                        if (string.Equals(variant, "steel-blue", StringComparison.Ordinal)) tallFence = true;
+                    }
+                    if (!hasFence) continue;
+
+                    // Standard 1 m fences reach 0.999 m (top rail r = 0.029 at z = 0.97); a 1.015 m
+                    // steel column seats rail, glass, and clamps flush on its uninterrupted shaft
+                    // (0.038..1.001 m) while staying clear of the 30° lower straight handrail above.
+                    // A 2 m steel-blue fence gets a matching 2.015 m column.
+                    float pillarHeight = tallFence ? 2.015f : 1.015f;
+                    float outerEdge = halfW;
+                    // Torus handrail outer edge sits at halfW - 0.095 m; straight handrail at halfW - 0.090 m.
+                    float innerEdge = (escalator && !tallFence) ? halfW - .094f : halfW - .090f;
+                    float pillarW = outerEdge - innerEdge;
+                    float acrossCenter = side * ((innerEdge + outerEdge) * .5f);
+                    var columnBase = landingCenter + across * acrossCenter;
+
+                    const float baseHeight = .038f;
+                    const float capHeight = .014f;
+                    float shaftHeight = pillarHeight - baseHeight - capHeight;
+                    // Three non-overlapping stacked boxes (zero coplanar faces): base shoe matching
+                    // the fence post shoe, flush shaft receiving the fence rail/clamps, and top cap.
+                    pillarMesh.Box(columnBase + docUp * (baseHeight * .5f),
+                        new Vector3(.108f, pillarW, baseHeight), pillarRot);
+                    pillarMesh.Box(columnBase + docUp * (baseHeight + shaftHeight * .5f),
+                        new Vector3(.092f, pillarW, shaftHeight), pillarRot);
+                    pillarMesh.Box(columnBase + docUp * (pillarHeight - capHeight * .5f),
+                        new Vector3(.102f, pillarW, capHeight), pillarRot);
+                }
+            }
+            if (pillarMesh.VertexCount == 0) return;
+            var material = ExtractPrefabSteelMaterial(prefabInstance) ?? context.Material(PaletteSteel);
+            view.Meshes.Add(pillarMesh.Build(context.Root, material, "fence-pillar"));
+            var pillarNode = context.Root.Find("fence-pillar");
+            if (pillarNode != null) view.Register("fence-pillar", pillarNode, false);
+        }
+
+        /// <summary>
+        /// Vertical steel receiver pillar on each stair landing outer edge where an adjacent fence
+        /// snaps to the landing cell. Emits on both open stairs and pit-walled stairs (where the
+        /// below-floor wall suppresses the stair's flight handrail), seating the fence's rail,
+        /// glass, and clamps flush at the cell seam without blocking stair treads.
+        /// </summary>
+        static void BuildStairFencePillars(
+            BuildContext context,
+            VerticalModuleView view,
+            List<StairFlight> flights,
+            List<StairFlightSpec> specs,
+            float treadWidth,
+            Vector3 pivot,
+            GameObject prefabInstance) {
+            var neighbours = context.Request.Neighbours;
+            if (neighbours == null || neighbours.Count == 0 || specs == null || specs.Count == 0) return;
+
+            var pillarMesh = new PartMesh(pivot);
+            var seen = new HashSet<(int X, int Y, int Z, int Side)>();
+            for (int s = 0; s < specs.Count; s++) {
+                var spec = specs[s];
+                if (spec.Index < 0 || spec.Index >= flights.Count) continue;
+                var flight = flights[spec.Index];
+                var rawDelta = flight.To - flight.From;
+                float run = new Vector2(rawDelta.x, rawDelta.y).magnitude;
+                if (run < 1e-5f) continue;
+                float rux = rawDelta.x / run, ruy = rawDelta.y / run;
+                if (Mathf.Abs(rux) > 1e-4f && Mathf.Abs(ruy) > 1e-4f) continue;
+                bool acrossX = Mathf.Abs(rux) < Mathf.Abs(ruy);
+
+                var low = flight.From.z <= flight.To.z ? flight.From : flight.To;
+                var high = flight.From.z <= flight.To.z ? flight.To : flight.From;
+                float cux = (high.x - low.x) / run, cuy = (high.y - low.y) / run;
+
+                for (int endIdx = 0; endIdx < 2; endIdx++) {
+                    var pt = endIdx == 0 ? flight.From : flight.To;
+                    if (Mathf.Abs(pt.x - Mathf.Round(pt.x)) > 1e-4f ||
+                        Mathf.Abs(pt.y - Mathf.Round(pt.y)) > 1e-4f ||
+                        Mathf.Abs(pt.z - Mathf.Round(pt.z)) > 1e-4f) continue;
+                    int pz = Mathf.RoundToInt(pt.z);
+                    float lift = (float)StationRampOpenings.ExitLandingHeight(neighbours, pt.x, pt.y, pt.z);
+                    float floorZ = pz + 1f + lift;
+                    float bandCentre = (acrossX ? pt.x : pt.y) + .5f + (acrossX ? spec.Slide.x : spec.Slide.y);
+                    int lo = Mathf.FloorToInt(bandCentre - treadWidth * .5f + 1e-5f);
+                    int hi = Mathf.CeilToInt(bandCentre + treadWidth * .5f - 1e-5f) - 1;
+                    int alongCell = Mathf.RoundToInt(acrossX ? pt.y : pt.x);
+                    float alongCentre = alongCell + .5f;
+
+                    for (int side = -1; side <= 1; side += 2) {
+                        int adjAcross = side < 0 ? lo - 1 : hi + 1;
+                        int adjX = acrossX ? adjAcross : alongCell;
+                        int adjY = acrossX ? alongCell : adjAcross;
+                        if (!seen.Add((adjX, adjY, pz, side))) continue;
+
+                        bool hasFence = false;
+                        bool tallFence = false;
+                        for (int n = 0; n < neighbours.Count; n++) {
+                            var m = neighbours[n];
+                            if (m == null || !string.Equals(m.Type, "fence", StringComparison.Ordinal)) continue;
+                            if (m.X != adjX || m.Y != adjY || m.Z != pz) continue;
+                            var variant = m.Config.Text("variant");
+                            if (OutdoorModuleViews.IsNoiseBarrier(variant)) continue;
+                            hasFence = true;
+                            if (string.Equals(variant, "steel-blue", StringComparison.Ordinal)) tallFence = true;
+                        }
+                        if (!hasFence) continue;
+
+                        bool isLeft = (acrossX ? side * (-cuy) : side * cux) > 0f;
+                        if (isLeft ? spec.OpenLeft : spec.OpenRight) continue;
+                        bool hasHandrail = isLeft ? !spec.WallLeft : !spec.WallRight;
+
+                        float cellEdge = side < 0 ? lo : hi + 1f;
+                        float treadEdge = bandCentre + side * (treadWidth * .5f);
+                        float marginToTread = Mathf.Abs(cellEdge - treadEdge);
+                        float inwardDepth;
+                        if (marginToTread < .05f) {
+                            inwardDepth = .084f;
+                        } else if (marginToTread <= .115f) {
+                            inwardDepth = .094f;
+                        } else {
+                            inwardDepth = Mathf.Min(marginToTread - .011f, Mathf.Max(.094f, marginToTread - .025f));
+                        }
+                        float proud = hasHandrail && marginToTread >= .05f && marginToTread <= .106f ? .002f : 0f;
+                        float outerPos = cellEdge + side * proud;
+                        float innerPos = cellEdge - side * inwardDepth;
+                        float pillarW = Mathf.Abs(outerPos - innerPos);
+                        float acrossCentre = (outerPos + innerPos) * .5f;
+                        float pillarHeight = tallFence ? 2.015f : 1.015f;
+
+                        const float baseHeight = .038f;
+                        const float capHeight = .014f;
+                        float shaftHeight = pillarHeight - baseHeight - capHeight;
+                        Vector3 BaseCenter(float zMid) => acrossX
+                            ? new Vector3(acrossCentre, alongCentre, floorZ + zMid)
+                            : new Vector3(alongCentre, acrossCentre, floorZ + zMid);
+                        Vector3 BoxSize(float alongLen, float h) => acrossX
+                            ? new Vector3(pillarW, alongLen, h)
+                            : new Vector3(alongLen, pillarW, h);
+
+                        pillarMesh.Box(BaseCenter(baseHeight * .5f), BoxSize(.108f, baseHeight), Quaternion.identity);
+                        pillarMesh.Box(BaseCenter(baseHeight + shaftHeight * .5f), BoxSize(.092f, shaftHeight), Quaternion.identity);
+                        pillarMesh.Box(BaseCenter(pillarHeight - capHeight * .5f), BoxSize(.102f, capHeight), Quaternion.identity);
+                    }
+                }
+            }
+            if (pillarMesh.VertexCount == 0) return;
+            var material = ExtractPrefabSteelMaterial(prefabInstance) ?? context.Material(PaletteSteel);
+            view.Meshes.Add(pillarMesh.Build(context.Root, material, "fence-pillar"));
+            var pillarNode = context.Root.Find("fence-pillar");
+            if (pillarNode != null) view.Register("fence-pillar", pillarNode, false);
+        }
+
+        static Material ExtractPrefabSteelMaterial(GameObject prefabInstance) {
+            if (!prefabInstance) return null;
+            var renderers = prefabInstance.GetComponentsInChildren<MeshRenderer>(true);
+            for (int i = 0; i < renderers.Length; i++) {
+                var renderer = renderers[i];
+                if (!renderer) continue;
+                var materials = renderer.sharedMaterials;
+                for (int m = 0; m < materials.Length; m++) {
+                    var material = materials[m];
+                    if (!material) continue;
+                    if (string.Equals(OutdoorModuleViews.MaterialBaseName(material.name), "steel", StringComparison.OrdinalIgnoreCase))
+                        return material;
+                }
+            }
+            return null;
         }
 
         /* -------------------------------------------------------- build: lift */
@@ -3942,7 +4273,9 @@ namespace Metro.App.Views {
             var verticalNeighbours = new List<ModuleFacts>(64);
             for (int i = 0; i < modules.Count; i++) {
                 var m = modules[i];
-                if (m != null && (IsVerticalType(m.Type) || string.Equals(m.Type, "exit", StringComparison.Ordinal))) {
+                if (m != null && (IsVerticalType(m.Type) ||
+                                  string.Equals(m.Type, "exit", StringComparison.Ordinal) ||
+                                  IsFenceWithPillar(m))) {
                     verticalNeighbours.Add(m.Facts);
                 }
             }
@@ -4033,6 +4366,14 @@ namespace Metro.App.Views {
             return new StationBox(b.X0 - 2, b.Y0 - 2, b.Z0 - 6, b.X1 + 2, b.Y1 + 2, b.Z1 + 6);
         }
 
+        static bool IsFenceWithPillar(StationModuleRecord module) =>
+            module != null &&
+            string.Equals(module.Type, "fence", StringComparison.Ordinal) &&
+            !OutdoorModuleViews.IsNoiseBarrier(module.Config.Text("variant"));
+
+        static StationBox FenceSearchEnvelope(StationModuleRecord module) =>
+            new StationBox(module.X - 0.25, module.Y - 0.25, module.Z - 0.5, module.X + 1.25, module.Y + 1.25, module.Z + 2.5);
+
         static bool BoxesOverlap(in StationBox a, double bx0, double by0, double bz0, double bx1, double by1, double bz1) =>
             a.X0 <= bx1 && a.X1 >= bx0 && a.Y0 <= by1 && a.Y1 >= by0 && a.Z0 <= bz1 && a.Z1 >= bz0;
 
@@ -4059,6 +4400,7 @@ namespace Metro.App.Views {
             var removedIds = new HashSet<string>(StringComparer.Ordinal);
             var dirtyIds = new HashSet<string>(StringComparer.Ordinal);
             List<StationBox> rampEnvelopes = null;
+            List<StationBox> fenceEnvelopes = null;
 
             var delta = context.Delta;
             for (int i = 0; i < delta.RemovedModules.Count; i++) {
@@ -4069,6 +4411,8 @@ namespace Metro.App.Views {
                     (rampEnvelopes ??= new List<StationBox>()).Add(VerticalSearchEnvelope(oldMod));
                 } else if (string.Equals(oldMod.Type, "exit", StringComparison.Ordinal)) {
                     (rampEnvelopes ??= new List<StationBox>()).Add(ExitSearchEnvelope(oldMod));
+                } else if (IsFenceWithPillar(oldMod)) {
+                    (fenceEnvelopes ??= new List<StationBox>()).Add(FenceSearchEnvelope(oldMod));
                 }
             }
             for (int i = 0; i < delta.ChangedModules.Count; i++) {
@@ -4086,6 +4430,13 @@ namespace Metro.App.Views {
                         string.Equals(prevMod.Type, "exit", StringComparison.Ordinal)) {
                         rampEnvelopes.Add(ExitSearchEnvelope(prevMod));
                     }
+                } else if (IsFenceWithPillar(mod)) {
+                    (fenceEnvelopes ??= new List<StationBox>()).Add(FenceSearchEnvelope(mod));
+                    if (context.PrevIndex.TryGetModule(mod.Id, out var prevMod) && IsFenceWithPillar(prevMod)) {
+                        fenceEnvelopes.Add(FenceSearchEnvelope(prevMod));
+                    }
+                } else if (context.PrevIndex.TryGetModule(mod.Id, out var prevFence) && IsFenceWithPillar(prevFence)) {
+                    (fenceEnvelopes ??= new List<StationBox>()).Add(FenceSearchEnvelope(prevFence));
                 }
             }
             if (context.CityChanged || context.NameChanged) {
@@ -4103,6 +4454,22 @@ namespace Metro.App.Views {
                     var vb = view.DocumentBounds;
                     for (int e = 0; e < rampEnvelopes.Count; e++) {
                         if (BoxesOverlap(rampEnvelopes[e], vb.X0, vb.Y0, vb.Z0, vb.X1, vb.Y1, vb.Z1)) {
+                            dirtyIds.Add(view.ModuleId);
+                            break;
+                        }
+                    }
+                }
+            }
+            if (fenceEnvelopes != null) {
+                for (int i = 0; i < state.Views.Count; i++) {
+                    var view = state.Views[i];
+                    if (view == null || removedIds.Contains(view.ModuleId) || dirtyIds.Contains(view.ModuleId)) continue;
+                    if (view.Kind != VerticalModuleKind.Escalator &&
+                        view.Kind != VerticalModuleKind.Walkway &&
+                        view.Kind != VerticalModuleKind.Stair) continue;
+                    var vb = view.DocumentBounds;
+                    for (int e = 0; e < fenceEnvelopes.Count; e++) {
+                        if (BoxesOverlap(fenceEnvelopes[e], vb.X0, vb.Y0, vb.Z0, vb.X1, vb.Y1, vb.Z1)) {
                             dirtyIds.Add(view.ModuleId);
                             break;
                         }
@@ -4135,7 +4502,7 @@ namespace Metro.App.Views {
             try { state.EnsureFinishes(context.World.Shader); } catch (Exception) { }
 
             var rampAndExitFacts = dirtyIds.Count > 0
-                ? context.GetNextFactsOfTypes("stair", "escalator", "walkway", "lift", "exit")
+                ? context.GetNextFactsOfTypes("stair", "escalator", "walkway", "lift", "exit", "fence")
                 : Array.Empty<ModuleFacts>();
             var nextIndex = context.NextIndex;
             var catalogue = context.World.Catalogue;

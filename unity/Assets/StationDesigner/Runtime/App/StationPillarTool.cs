@@ -110,12 +110,19 @@ namespace Metro.App {
         /// <summary>The extension plan, or null when no post stands at the pointed cell.</summary>
         static StationPlacementPlan Resolve(StationGameHost host, StationSceneHit hit) {
             if (host?.Index == null || hit == null) return null;
-            var cell = hit.EditCell;
-            if (!cell.HasCell) return null;
-            // `pillarAt(station.modules, ...hit.cell)`: the post anchored on the cell the
-            // pointer's surface belongs to (a solid block or the work-plane cell).
-            var post = StationPillarPlanning.PillarAt(host.Index, cell.X, cell.Y, cell.Z)
+            StationModuleRecord post = null;
+            if (hit.HasModule && hit.ModuleWins && hit.Module != null &&
+                string.Equals(hit.Module.Type, "pillar", StringComparison.Ordinal)) {
+                post = host.Index.GetModule(hit.Module.Id) ?? hit.Module;
+            }
+            if (post == null) {
+                var cell = hit.EditCell;
+                if (!cell.HasCell) return null;
+                // `pillarAt(station.modules, ...hit.cell)`: the post anchored on the cell the
+                // pointer's surface belongs to (a solid block or the work-plane cell).
+                post = StationPillarPlanning.PillarAt(host.Index, cell.X, cell.Y, cell.Z)
                        ?? (cell.Solid ? null : StationPillarPlanning.PillarAt(host.Index, cell.PlaceX, cell.PlaceY, cell.PlaceZ));
+            }
             if (post == null) return null;
             var grown = StationPillarPlanning.Extend(host.Index, post, ArmedSection());
             if (grown.Candidate == null) return grown;

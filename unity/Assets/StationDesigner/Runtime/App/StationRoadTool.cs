@@ -146,6 +146,7 @@ namespace Metro.App {
         }
 
         public static bool HasGesture => gesture != null;
+        public static bool IsRemoving => gesture != null && gesture.Remove;
         public static RoadEditPreview Preview => preview;
 
         public static void Reset() {
@@ -203,7 +204,8 @@ namespace Metro.App {
             hasAim = true;
             if (StationRoadEditService.TryPreview(host, gesture.Request, out var aimed, out _)) {
                 preview = aimed;
-                StationRoadRenderer.Current?.ShowPreview(aimed);
+                if (gesture.Remove) StationRoadRenderer.Current?.ClearPreview();
+                else StationRoadRenderer.Current?.ShowPreview(aimed);
             } else {
                 preview = null;
                 StationRoadRenderer.Current?.ClearPreview();

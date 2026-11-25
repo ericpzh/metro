@@ -179,7 +179,7 @@ public class OutdoorModuleViewTests {
                 Assert.AreEqual(OutdoorYawSource.SavedRotation, view.YawSource);
             } else {
                 builtFences++;
-                Assert.GreaterOrEqual(view.TriangleCount, 300, module.Id + " fence model is too small to be the panel");
+                Assert.GreaterOrEqual(view.TriangleCount, view.ComposedArms > 0 ? 180 : 300, module.Id + " fence model is too small to be the panel");
                 ExpectedPanelSize(visual.Key, out var panelWidth, out var panelHeight);
                 Assert.AreEqual(panelHeight, view.Bounds.size.y, .01f,
                     module.Id + " fence height (" + visual.Key + ")");
@@ -187,13 +187,17 @@ public class OutdoorModuleViewTests {
                 // so its extent is the arm span around the centre post — not the isolated one-metre
                 // panel. Everything else still draws the promoted panel unchanged.
                 if (view.ComposedArms > 0) {
-                    var junctionArms = OutdoorModuleViews.FenceArms(module.Rotation, OutdoorModuleViews.Neighbours(module, station));
+                    var neighbours = OutdoorModuleViews.Neighbours(module, station);
+                    var junctionArms = OutdoorModuleViews.FenceArms(module.Rotation, neighbours);
                     // The centre post's floor shoe is 0.11 m wide, so the bound never falls inside
-                    // ±0.055 even where an arm runs one way only.
-                    float loX = Mathf.Min(junctionArms.RunsAlongX ? junctionArms.X0 : 0f, -.055f);
-                    float hiX = Mathf.Max(junctionArms.RunsAlongX ? junctionArms.X1 : 0f, .055f);
-                    float loZ = Mathf.Min(junctionArms.RunsAlongY ? junctionArms.Y0 : 0f, -.055f);
-                    float hiZ = Mathf.Max(junctionArms.RunsAlongY ? junctionArms.Y1 : 0f, .055f);
+                    // ±0.055 even where an arm runs one way only; sealed arms extend into adjacent objects.
+                    bool gatePosts = visual.Key == "fence-gate";
+                    float capShoe = visual.Key == "fence-iron" ? 0f : .015f;
+                    float halfFoot = visual.Key == "fence-iron" ? .18f : .055f;
+                    float loX = Mathf.Min(junctionArms.RunsAlongX ? junctionArms.X0 - neighbours.SealWest - ((junctionArms.CapWest || gatePosts) ? capShoe : 0f) : 0f, -halfFoot);
+                    float hiX = Mathf.Max(junctionArms.RunsAlongX ? junctionArms.X1 + neighbours.SealEast + ((junctionArms.CapEast || gatePosts) ? capShoe : 0f) : 0f, halfFoot);
+                    float loZ = Mathf.Min(junctionArms.RunsAlongY ? junctionArms.Y0 - neighbours.SealSouth - ((junctionArms.CapSouth || gatePosts) ? capShoe : 0f) : 0f, -halfFoot);
+                    float hiZ = Mathf.Max(junctionArms.RunsAlongY ? junctionArms.Y1 + neighbours.SealNorth + ((junctionArms.CapNorth || gatePosts) ? capShoe : 0f) : 0f, halfFoot);
                     float spanX = hiX - loX, spanZ = hiZ - loZ;
                     float longest = Mathf.Max(spanX, spanZ), shortest = Mathf.Min(spanX, spanZ);
                     Assert.AreEqual(longest, Mathf.Max(view.Bounds.size.x, view.Bounds.size.z), .02f,
@@ -238,7 +242,7 @@ public class OutdoorModuleViewTests {
             Assert.IsNotNull(module, "the Zoo fixture has no fence with variant '" + item.variant + "'");
             var visual = ModuleViews.Resolve(module, station, catalogue);
             Assert.AreEqual(item.key, visual.Key, "fence variant '" + item.variant + "' resolved to the wrong key");
-            var view = Build(module, visual, station);
+            var view = Build(module, visual, new[] { module });
             Assert.AreEqual(item.triangles, view.TriangleCount, module.Id + " is not the " + item.key + " model");
             ExpectedPanelSize(item.key, out var panelWidth, out var panelHeight);
             Assert.AreEqual(panelHeight, view.Bounds.size.y, .01f, module.Id + " height (" + item.key + ")");
@@ -390,9 +394,11 @@ public class OutdoorModuleViewTests {
         var pair = new[] { centre, north };
         var view = Build(centre, ModuleViews.Resolve(centre, pair, catalogue), pair);
         Assert.AreEqual(OutdoorYawSource.ArmAxis, view.YawSource, "the run axis must win over the saved turn");
+        Assert.AreEqual(1, view.ComposedArms, "a connected one-axis fence composes its arm directly");
         Assert.AreEqual(-90f, view.Yaw, .01f, "a north neighbour turns the panel onto +y even at rot 0");
+        Assert.AreEqual(1.015f, view.Bounds.size.z, .03f, "a north neighbour spans along +y even at rot 0");
         Assert.IsTrue(view.PanelExtentMatchesSource, "a one-axis panel covers the whole cell");
-        Assert.IsEmpty(view.Diagnostic);
+        StringAssert.Contains("fence-arms-composed:1arms", view.Diagnostic);
 
         // An L is composed from the computed arms (RCA 15 §4): one centre post and a half span
         // toward each neighbour, which is exactly what `fenceArms` describes.

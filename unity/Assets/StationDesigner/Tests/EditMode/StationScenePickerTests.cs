@@ -598,10 +598,15 @@ namespace Metro.Tests {
                 var placeReply = new JObject();
                 Assert.IsTrue(StationPointerRouter.Handle(host, "pointer.down", placePayload, placeReply,
                     out var placeCode, out var placeReason), placeCode + ": " + placeReason);
+                var placeUpPayload = (JObject)placePayload.DeepClone();
+                placeUpPayload["buttons"] = 0;
+                Assert.IsTrue(StationPointerRouter.Handle(host, "pointer.up", placeUpPayload, new JObject(),
+                    out placeCode, out placeReason), placeCode + ": " + placeReason);
                 Assert.AreEqual(revBeforePlace + 1, host.CurrentRevision, "placement committed at -10 m");
-                string placedId = StationEditSession.SelectionKey;
-                Assert.IsTrue(host.Index.TryGetModule(placedId, out var placed) && placed.Z == -10,
-                    "placed bench must land on -10 m, not on hidden 0 m grade");
+                Assert.AreEqual("", StationEditSession.SelectionKey, "newly placed bench must not be selected");
+                var placed = host.Index.Document.Modules.FirstOrDefault(m => m.Type == "bench" && m.X == 4 && m.Y == 2 && m.Z == -10);
+                Assert.IsNotNull(placed, "placed bench must land on -10 m, not on hidden 0 m grade");
+                string placedId = placed.Id;
 
                 // Immediately pick after edit rebuild WITHOUT retoggling any view control:
                 var afterEditFloor = StationScenePicker.PickRay(host.Coordinator.World, DownAt(1.5, 1.5, 30),
@@ -1480,15 +1485,20 @@ namespace Metro.Tests {
                 // Refused click on occupied bin cell (58, 38, -10):
                 Assert.IsTrue(StationPointerRouter.Handle(host, "pointer.down", PointerAtDoc(fixedBinDoc), new JObject(), out _, out _));
                 Assert.AreEqual(++picks, StationScenePicker.PickCount);
+                Assert.IsTrue(StationPointerRouter.Handle(host, "pointer.up", PointerAtDoc(fixedBinDoc, 0, 0), new JObject(), out _, out _));
+                Assert.AreEqual(++picks, StationScenePicker.PickCount);
                 Assert.AreEqual(rev0, host.CurrentRevision, "refused placement leaves revision untouched");
 
                 // Valid click on (57, 37, -10):
                 Assert.IsTrue(StationPointerRouter.Handle(host, "pointer.down", PointerAtDoc(fixedCellDoc), new JObject(), out _, out _));
                 Assert.AreEqual(++picks, StationScenePicker.PickCount);
+                Assert.IsTrue(StationPointerRouter.Handle(host, "pointer.up", PointerAtDoc(fixedCellDoc, 0, 0), new JObject(), out _, out _));
+                Assert.AreEqual(++picks, StationScenePicker.PickCount);
                 Assert.AreEqual(rev0 + 1, host.CurrentRevision, "single commit for valid placement");
-                string placedId = StationEditSession.SelectionKey;
-                Assert.IsTrue(!string.IsNullOrEmpty(placedId), "newly placed bench is selected");
-                Assert.IsTrue(host.Index.TryGetModule(placedId, out var placedBench));
+                Assert.AreEqual("", StationEditSession.SelectionKey, "newly placed bench must not be auto-selected");
+                var placedBench = host.Index.Document.Modules.FirstOrDefault(m => m.Type == "bench" && m.X == 57 && m.Y == 37 && m.Z == -10);
+                Assert.IsNotNull(placedBench, "newly placed bench exists at (57, 37, -10)");
+                string placedId = placedBench.Id;
                 Assert.AreEqual(57, placedBench.X);
                 Assert.AreEqual(37, placedBench.Y);
                 Assert.AreEqual(-10, placedBench.Z);

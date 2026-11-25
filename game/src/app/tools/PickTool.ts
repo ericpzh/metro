@@ -198,6 +198,129 @@ export function paletteIdForModule(mod: Module): string | null {
   return id
 }
 
+/**
+ * Arm the editor tool and all piece-specific settings from a picked placed module.
+ * Shared by the web canvas `PickTool` and the Unity shell's `pick` adoption so picking
+ * any placed piece (such as a 4 m pillar, turning stair, curtain wall, hanger, or bridge)
+ * preserves its exact height, dimensions, variant, and rotation instead of falling back to
+ * stale tool defaults. Returns true when a tool was armed (false for non-placeable pieces
+ * like derived `platform-edge`).
+ */
+export function adoptPickedModule(mod: Module, options?: { select?: boolean; notify?: boolean }): boolean {
+  const st = useStore.getState()
+  const label = moduleLabel(mod)
+  const shouldSelect = options?.select !== false
+  const shouldNotify = options?.notify !== false
+  // A derived screen door has no placement of its own: select it, stay.
+  if (mod.type === 'platform-edge') {
+    if (shouldSelect) st.select({ kind: 'module', key: mod.id, label })
+    return false
+  }
+  // **Every branch below re-arms the rail**, so the state it stands on is noted
+  // first: Esc puts the picked piece back and the player is where they were
+  // (`cancelPick`). The screen door above changes nothing and so notes nothing.
+  if (mod.type === 'track' && mod.cfg.bridge) {
+    st.beginPick()
+    st.setModuleType('bridge')
+    st.setStructureOptions({ bridgeLength: mod.w, bridgeRailing: mod.cfg.bridgeRailing ?? 'railing' })
+    st.setTool('module')
+    return true
+  }
+  if (mod.type === 'track') {
+    st.beginPick()
+    st.setRailCatenaryStyle(mod.cfg.catenaryStyle ?? 'canopy')
+    st.setTool('rail')
+    if (shouldSelect) st.select({ kind: 'module', key: mod.id, label })
+    if (shouldNotify) st.setNotice(msg('picked_value', label))
+    return true
+  }
+  // A walled room belongs to the 分区 tool's room brush: arming that brush
+  // reveals the 房间 folder, the room's own tile.
+  if (mod.type === 'shop' || mod.type === 'booth' || mod.type === 'retail') {
+    st.beginPick()
+    const kind = mod.type === 'booth' ? (mod.cfg.kind ?? 'ticket') : (mod.cfg.kind ?? 'store')
+    st.setZoneBrush(kind === 'toilet' || kind === 'office' || kind === 'ticket' || kind === 'info' ? kind : 'store')
+    st.setTool('zone')
+    if (shouldSelect) st.select({ kind: 'module', key: mod.id, label })
+    if (shouldNotify) st.setNotice(msg('picked_value', label))
+    return true
+  }
+  const optionId = paletteIdForModule(mod)
+  if (optionId === null) {
+    if (shouldSelect) st.select({ kind: 'module', key: mod.id, label })
+    return false
+  }
+  st.beginPick()
+  // Arm the placement with the picked piece's own settings, so the next
+  // click lands the same variant stood the same way. A wide stair's lane
+  // count is deliberately not copied: one lane carries no record of how
+  // many it was laid with, so the width stays where the player left it.
+  //
+  // A 指示牌 is **its boards** (§5.8): the piece's tile alone would hang
+  // whatever board was composed last, so the picked sign's own two printed
+  // faces become the current pair — the ghost under the pointer and the sign
+  // the next click hangs are the one the player pointed at.
+  if (mod.type === 'sign') st.adoptSignBoards(signBoardsOf(mod.cfg, st.station))
+  st.setModuleType(optionId)
+  if (mod.type === 'calligraphy') useStore.setState({ calligraphyEnglish: !!mod.cfg.showEnglish })
+  if (mod.type === 'road') useStore.setState({ roadDirection: mod.cfg.direction, roadWidth: (mod.rot ?? 0) % 2 ? mod.d : mod.w })
+  if (mod.type === 'checkout') st.setCounterLength(mod.w ?? 1)
+  if (mod.type === 'hanger') useStore.setState({ hangerLength: mod.w })
+  if (mod.type === 'glass' && optionId === 'curtain-wall') useStore.setState({ curtainWidth: Math.max(1, Math.min(4, mod.w)) as 1 | 2 | 3 | 4, curtainHeight: mod.cfg.curtainHeight ?? 4 })
+  if (mod.type === 'psd-end' && mod.cfg.variant !== 'cover') useStore.setState({ psdEndHeight: mod.cfg.psd })
+  if (mod.type === 'floor-mark' && mod.cfg.variant === 'direction' && mod.cfg.line) st.setRailLine(mod.cfg.line)
+  if (mod.type === 'guidepost') st.setGuideExitId(mod.cfg.exitId ?? null)
+  if (mod.type === 'light') st.setLightPosition(mod.cfg.position ?? 0)
+  if (mod.type === 'pillar') useStore.setState({ pillarLength: pillarSectionOf(mod.cfg.height) })
+  if (mod.type === 'stair' && mod.cfg.block) st.setStairBlockHeight(mod.cfg.blockHeight ?? 1)
+  if (mod.type === 'door') st.setDoorWidth((mod.cfg.variant ?? 'steel-1').endsWith('-2'))
+  if (typeof mod.rot === 'number') st.setModuleRot(optionId === 'stair-block' ? (1 - mod.rot + 4) % 4 : mod.rot)
+  if (mod.type === 'escalator') {
+    st.setEscalatorDir(mod.cfg.dir)
+    st.setEscalatorWidth(escalatorWidthOf(mod))
+    // The span comes with the piece: a picked 双层 run arms the 双层 family at
+    // its own length, so the next click rebuilds the same two-floor run.
+    const span = escalatorSpanOf(mod)
+    st.setEscalatorSpan(span)
+    if (span === 'triple') st.setTripleRampLength(escalatorLength(mod))
+    else if (span === 'double') st.setDoubleRampLength(escalatorLength(mod))
+    else st.setRampLength(escalatorLength(mod))
+  }
+  // A 自动步道 is picked at its own level length, and copies the shared
+  // plan width and up/down direction the way the escalator does.
+  if (mod.type === 'walkway') {
+    st.setEscalatorDir(mod.cfg.dir)
+    st.setEscalatorWidth(escalatorWidthOf(mod))
+    st.setWalkwayLength(walkwayLengthOf(mod))
+  }
+  // A 楼梯 is picked at its own length too, so the next click rebuilds the run
+  // the player pointed at. Every shape but the 1 × 1 楼梯块 has one: a straight
+  // run in one flight, a turning stair in two with its platform at half the
+  // rise.
+  if (mod.type === 'stair' && !mod.cfg.block) {
+    const span = escalatorSpanOf(mod)
+    st.setEscalatorSpan(span)
+    if (span === 'triple') st.setTripleRampLength(stairLengthOf(mod))
+    else if (span === 'double') st.setDoubleRampLength(stairLengthOf(mod))
+    else st.setRampLength(stairLengthOf(mod))
+  }
+  if (mod.type === 'roof' && mod.cfg.variant) st.setRoofWidth(mod.d)
+  if (mod.type === 'lift') {
+    st.setLiftStyle(mod.cfg.style === 'steel' ? 'steel' : 'glass')
+    st.setLiftSize(liftSizeOf(mod))
+    // The floor interval comes with the shaft: a picked piece arms the interval
+    // of its lowest segment, which is where a fresh stack starts.
+    const first = liftRises(mod)[0]
+    const interval = LIFT_INTERVALS.find((s) => s.interval === Math.round(first))?.interval
+    if (interval) st.setLiftInterval(interval)
+  }
+  if (mod.type === 'gate') st.setGateDoor(mod.cfg.door ?? 'lane')
+  st.setTool('module')
+  if (shouldSelect) st.select({ kind: 'module', key: mod.id, label })
+  if (shouldNotify) st.setNotice(msg('picked_value', label))
+  return true
+}
+
 export class PickTool extends ToolController {
   readonly tool = 'pick' as const
 
@@ -220,113 +343,7 @@ export class PickTool extends ToolController {
     const picked = pickedId ? st.station.modules.find((m) => m.id === pickedId) : undefined
     const mod = picked ?? rail ?? this.visibleModule(hit.solid ? moduleTarget(st.station.modules, null, hit.cell, undefined, st.station.levelBase, st.station.storeyHeight) : undefined)
     if (mod) {
-      const label = moduleLabel(mod)
-      // A derived screen door has no placement of its own: select it, stay.
-      if (mod.type === 'platform-edge') {
-        st.select({ kind: 'module', key: mod.id, label })
-        return
-      }
-      // **Every branch below re-arms the rail**, so the state it stands on is noted
-      // first: Esc puts the picked piece back and the player is where they were
-      // (`cancelPick`). The screen door above changes nothing and so notes nothing.
-      st.beginPick()
-      // A rail run belongs to the 轨道 tool: selecting it reveals the 轨道
-      // folder (`findSelectedTrack`), which is the rail's half of the link.
-      if (mod.type === 'track' && mod.cfg.bridge) {
-        st.setModuleType('bridge')
-        st.setStructureOptions({ bridgeLength: mod.w, bridgeRailing: mod.cfg.bridgeRailing ?? 'railing' })
-        st.setTool('module')
-        return
-      }
-      if (mod.type === 'track') {
-        st.setRailCatenaryStyle(mod.cfg.catenaryStyle ?? 'canopy')
-        st.setTool('rail')
-        st.select({ kind: 'module', key: mod.id, label })
-        st.setNotice(msg('picked_value', label))
-        return
-      }
-      // A walled room belongs to the 分区 tool's room brush: arming that brush
-      // reveals the 房间 folder, the room's own tile.
-      if (mod.type === 'shop' || mod.type === 'booth' || mod.type === 'retail') {
-        const kind = mod.type === 'booth' ? (mod.cfg.kind ?? 'ticket') : (mod.cfg.kind ?? 'store')
-        st.setZoneBrush(kind === 'toilet' || kind === 'office' || kind === 'ticket' || kind === 'info' ? kind : 'store')
-        st.setTool('zone')
-        st.select({ kind: 'module', key: mod.id, label })
-        st.setNotice(msg('picked_value', label))
-        return
-      }
-      const optionId = paletteIdForModule(mod)
-      if (optionId === null) {
-        st.select({ kind: 'module', key: mod.id, label })
-        return
-      }
-      // Arm the placement with the picked piece's own settings, so the next
-      // click lands the same variant stood the same way. A wide stair's lane
-      // count is deliberately not copied: one lane carries no record of how
-      // many it was laid with, so the width stays where the player left it.
-      //
-      // A 指示牌 is **its boards** (§5.8): the piece's tile alone would hang
-      // whatever board was composed last, so the picked sign's own two printed
-      // faces become the current pair — the ghost under the pointer and the sign
-      // the next click hangs are the one the player pointed at.
-      if (mod.type === 'sign') st.adoptSignBoards(signBoardsOf(mod.cfg, st.station))
-      st.setModuleType(optionId)
-      if (mod.type === 'calligraphy') useStore.setState({ calligraphyEnglish: !!mod.cfg.showEnglish })
-      if (mod.type === 'road') useStore.setState({ roadDirection: mod.cfg.direction, roadWidth: (mod.rot??0)%2?mod.d:mod.w })
-      if (mod.type === 'checkout') st.setCounterLength(mod.w ?? 1)
-      if (mod.type === 'hanger') useStore.setState({ hangerLength: mod.w })
-      if (mod.type === 'glass' && optionId === 'curtain-wall') useStore.setState({ curtainWidth: Math.max(1, Math.min(4, mod.w)) as 1 | 2 | 3 | 4, curtainHeight: mod.cfg.curtainHeight ?? 4 })
-      if (mod.type === 'psd-end' && mod.cfg.variant !== 'cover') useStore.setState({ psdEndHeight: mod.cfg.psd })
-      if (mod.type === 'floor-mark' && mod.cfg.variant === 'direction' && mod.cfg.line) st.setRailLine(mod.cfg.line)
-      if (mod.type === 'guidepost') st.setGuideExitId(mod.cfg.exitId ?? null)
-      if (mod.type === 'light') st.setLightPosition(mod.cfg.position ?? 0)
-      if (mod.type === 'pillar') useStore.setState({ pillarLength: pillarSectionOf(mod.cfg.height) })
-      if (mod.type === 'stair' && mod.cfg.block) st.setStairBlockHeight(mod.cfg.blockHeight ?? 1)
-      if (mod.type === 'door') st.setDoorWidth((mod.cfg.variant ?? 'steel-1').endsWith('-2'))
-      if (typeof mod.rot === 'number') st.setModuleRot(optionId === 'stair-block' ? (1 - mod.rot + 4) % 4 : mod.rot)
-      if (mod.type === 'escalator') {
-        st.setEscalatorDir(mod.cfg.dir)
-        st.setEscalatorWidth(escalatorWidthOf(mod))
-        // The span comes with the piece: a picked 双层 run arms the 双层 family at
-        // its own length, so the next click rebuilds the same two-floor run.
-        const span = escalatorSpanOf(mod)
-        st.setEscalatorSpan(span)
-        if (span === 'triple') st.setTripleRampLength(escalatorLength(mod))
-        else if (span === 'double') st.setDoubleRampLength(escalatorLength(mod))
-        else st.setRampLength(escalatorLength(mod))
-      }
-      // A 自动步道 is picked at its own level length, and copies the shared
-      // plan width and up/down direction the way the escalator does.
-      if (mod.type === 'walkway') {
-        st.setEscalatorDir(mod.cfg.dir)
-        st.setEscalatorWidth(escalatorWidthOf(mod))
-        st.setWalkwayLength(walkwayLengthOf(mod))
-      }
-      // A 楼梯 is picked at its own length too, so the next click rebuilds the run
-      // the player pointed at. Every shape but the 1 × 1 楼梯块 has one: a straight
-      // run in one flight, a turning stair in two with its platform at half the
-      // rise.
-      if (mod.type === 'stair' && !mod.cfg.block) {
-        const span = escalatorSpanOf(mod)
-        st.setEscalatorSpan(span)
-        if (span === 'triple') st.setTripleRampLength(stairLengthOf(mod))
-        else if (span === 'double') st.setDoubleRampLength(stairLengthOf(mod))
-        else st.setRampLength(stairLengthOf(mod))
-      }
-      if (mod.type === 'roof' && mod.cfg.variant) st.setRoofWidth(mod.d)
-      if (mod.type === 'lift') {
-        st.setLiftStyle(mod.cfg.style === 'steel' ? 'steel' : 'glass')
-        st.setLiftSize(liftSizeOf(mod))
-        // The floor interval comes with the shaft: a picked piece arms the interval
-        // of its lowest segment, which is where a fresh stack starts.
-        const first = liftRises(mod)[0]
-        const interval = LIFT_INTERVALS.find((s) => s.interval === Math.round(first))?.interval
-        if (interval) st.setLiftInterval(interval)
-      }
-      if (mod.type === 'gate') st.setGateDoor(mod.cfg.door ?? 'lane')
-      st.setTool('module')
-      st.select({ kind: 'module', key: mod.id, label })
-      st.setNotice(msg('picked_value', label))
+      adoptPickedModule(mod)
       return
     }
     // No piece under the pointer: a solid face lends its finish to the 材质

@@ -73,6 +73,8 @@ namespace Metro.App {
         public static IReadOnlyList<StationPlacementPlan> Refused => refused;
         /// <summary>A press is in flight for a roof tile.</summary>
         public static bool HasGesture => gesture != null;
+        /// <summary>True while an in-flight roof gesture is removing existing roof pieces.</summary>
+        public static bool IsRemoving => gesture != null && gesture.Remove;
 
         public static bool IsArmed() => IsRoofTile(StationToolSelection.Setting("moduleType")) &&
                                         string.Equals(StationToolSelection.Active, "module", StringComparison.Ordinal);
@@ -317,7 +319,7 @@ namespace Metro.App {
             foreach (var cell in cells) {
                 if (current.Remove) {
                     var piece = RoofAt(host.Index, cell, current.TileType);
-                    if (piece == null) continue;
+                    if (piece == null || !taken.Add(piece.Id)) continue;
                     var removal = new StationPlacementPlan { Candidate = StationModulePlacement.DraftOf(piece) };
                     removal.CellX = piece.X; removal.CellY = piece.Y; removal.CellZ = piece.Z;
                     accepted.Add(removal);

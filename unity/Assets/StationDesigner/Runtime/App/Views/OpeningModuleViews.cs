@@ -1259,6 +1259,63 @@ namespace Metro.App {
         }
 
         /// <summary>
+        /// Build a placement/move ghost for `psd-end` (half, full, corner-trimmed, or cover),
+        /// `door` (with its exact leading-edge offset), `gate` (with its doorless fence panel),
+        /// `cubicle`, or `platform-edge` through the exact same builder the live renderer commits.
+        /// </summary>
+        public static bool TryBuildPreview(
+            StationModuleRecord record, StationIndex index, RuntimeCatalogue catalogue,
+            Transform parent, Material ghostMaterial, out GameObject root, out List<Mesh> meshes) {
+            root = null;
+            meshes = null;
+            if (record?.Facts == null || parent == null || ghostMaterial == null || !Owns(record.Type)) return false;
+            var palette = OpeningPalette.CreatePreview(ghostMaterial);
+            var request = RequestFor(record, index);
+            ModuleFacts[] stationFacts;
+            if (index?.Document?.Modules != null) {
+                var mods = index.Document.Modules;
+                stationFacts = new ModuleFacts[mods.Count];
+                for (int i = 0; i < mods.Count; i++) stationFacts[i] = mods[i]?.Facts;
+            } else {
+                stationFacts = Array.Empty<ModuleFacts>();
+            }
+            if (!TryBuild(request, record.Facts, stationFacts, catalogue, parent, palette, out var view) ||
+                view?.Holder == null) {
+                if (view?.Holder != null) SafeDestroy(view.Holder.gameObject);
+                palette.Release();
+                return false;
+            }
+            root = view.Holder.gameObject;
+            root.name = "ghost " + (string.IsNullOrEmpty(record.Id) ? record.Type : record.Id) + " " + record.Type;
+            if (string.Equals(record.Type, "gate", StringComparison.Ordinal) && !GateHasLane(request.Door)) {
+                foreach (var t in root.GetComponentsInChildren<Transform>(true)) {
+                    if (t == null) continue;
+                    if (string.Equals(t.name, "fence panel", StringComparison.Ordinal)) {
+                        t.name = "ghost doorless gate panel";
+                    } else if (string.Equals(t.name, "wing", StringComparison.Ordinal) ||
+                               string.Equals(t.name, "left-leaf", StringComparison.Ordinal) ||
+                               string.Equals(t.name, "right-leaf", StringComparison.Ordinal)) {
+                        t.gameObject.SetActive(false);
+                    }
+                }
+            }
+            foreach (var r in root.GetComponentsInChildren<Renderer>(true)) {
+                if (r == null) continue;
+                r.forceMeshLod = 0;
+                int count = Mathf.Max(1, r.sharedMaterials.Length);
+                var mats = new Material[count];
+                for (int i = 0; i < count; i++) mats[i] = ghostMaterial;
+                r.sharedMaterials = mats;
+                r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                r.receiveShadows = false;
+            }
+            meshes = new List<Mesh>(palette.MeshCount);
+            palette.DrainMeshes(meshes);
+            palette.Release();
+            return true;
+        }
+
+        /// <summary>
         /// Build one module. Returns false with <see cref="OpeningView.Diagnostic"/> set and
         /// nothing drawn when the record cannot be honoured; a fixed end or cover returns
         /// true with <see cref="OpeningView.Movable"/> false.
@@ -3020,6 +3077,19 @@ namespace Metro.App {
 
         public bool HasMaterials => ownsMaterials && materials != null && materials[0] != null;
 
+        internal static OpeningPalette CreatePreview(Material ghostMaterial) {
+            var palette = new OpeningPalette(null, null, "");
+            if (ghostMaterial != null) {
+                for (int i = 0; i < palette.materials.Length; i++) palette.materials[i] = ghostMaterial;
+            }
+            return palette;
+        }
+
+        internal void DrainMeshes(List<Mesh> target) {
+            if (target != null && meshes.Count > 0) target.AddRange(meshes);
+            meshes.Clear();
+        }
+
         /// <summary>Hand one combined mesh to the palette, so it dies with the world.</summary>
         public void Own(Mesh mesh) { if (mesh) meshes.Add(mesh); }
 
@@ -3043,6 +3113,7 @@ namespace Metro.App {
         /// </summary>
         public Material GateCrossMaterial(Material template) {
             if (released) return null;
+            if (!ownsMaterials && materials != null && materials[0] != null) return materials[0];
             if (!gateCrossTexture) gateCrossTexture = OpeningModuleViews.BuildGateCrossTexture();
             if (template != null && template.shader != null) {
                 if (gateCrossByShader.TryGetValue(template.shader, out var cached) && cached) return cached;

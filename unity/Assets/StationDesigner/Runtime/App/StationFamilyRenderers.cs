@@ -366,30 +366,66 @@ namespace Metro.App {
             HashSet<string> dirtyIds,
             StationIndex nextIndex) {
             if (module == null) return;
+            void MarkNeighbours(int cx, int cy, int cz) {
+                for (int dy = -1; dy <= 1; dy++) {
+                    for (int dx = -1; dx <= 1; dx++) {
+                        if (Math.Abs(dx) + Math.Abs(dy) > 1) continue;
+                        if (state.FencesByCell.TryGetValue((cx + dx, cy + dy, cz), out var fid) &&
+                            !removedIds.Contains(fid) && nextIndex.TryGetModule(fid, out _)) {
+                            dirtyIds.Add(fid);
+                        }
+                    }
+                }
+            }
+            if (module.Type == "escalator" || module.Type == "walkway") {
+                foreach (var pt in StationRunGeometry.EscalatorLandings(module.Facts)) {
+                    if (pt.IsCell) MarkNeighbours((int)Math.Round(pt.X), (int)Math.Round(pt.Y), (int)Math.Round(pt.Z));
+                }
+                return;
+            }
+            if (module.Type == "stair" && !module.Config.Bool("block")) {
+                var flights = StationRunGeometry.StairFlights(module.Facts);
+                var slides = StationRunGeometry.StairFlightSlides(module.Facts, flights);
+                double width = StationRunGeometry.StairTreadWidth(module.Facts);
+                for (int i = 0; i < flights.Count; i++) {
+                    var f = flights[i];
+                    double rdx = f.To.X - f.From.X, rdy = f.To.Y - f.From.Y;
+                    if (rdx == 0 && rdy == 0) {
+                        if (f.From.IsCell) MarkNeighbours((int)Math.Round(f.From.X), (int)Math.Round(f.From.Y), (int)Math.Round(f.From.Z));
+                        continue;
+                    }
+                    var slide = i < slides.Count ? slides[i] : default;
+                    bool acrossX = Math.Abs(rdx) < Math.Abs(rdy);
+                    void MarkBand(StationRunPoint p) {
+                        if (!p.IsCell) return;
+                        int pz = (int)Math.Round(p.Z);
+                        if (acrossX) {
+                            double c = p.X + 0.5 + slide.X;
+                            int lo = (int)Math.Floor(c - width / 2 + 1e-9);
+                            int hi = (int)Math.Ceiling(c + width / 2 - 1e-9) - 1;
+                            int py = (int)Math.Round(p.Y);
+                            for (int x = lo; x <= hi; x++) MarkNeighbours(x, py, pz);
+                        } else {
+                            double c = p.Y + 0.5 + slide.Y;
+                            int lo = (int)Math.Floor(c - width / 2 + 1e-9);
+                            int hi = (int)Math.Ceiling(c + width / 2 - 1e-9) - 1;
+                            int px = (int)Math.Round(p.X);
+                            for (int y = lo; y <= hi; y++) MarkNeighbours(px, y, pz);
+                        }
+                    }
+                    MarkBand(f.From);
+                    MarkBand(f.To);
+                }
+                return;
+            }
             int x0 = module.X - 1, x1 = module.X + Math.Max(1, module.Width);
             int y0 = module.Y - 1, y1 = module.Y + Math.Max(1, module.Depth);
-            int z0 = module.Z, z1 = module.Z;
-            if (module.From.HasValue) {
-                var f = module.From.Value;
-                x0 = Math.Min(x0, (int)Math.Floor(f.X) - 1); x1 = Math.Max(x1, (int)Math.Ceiling(f.X) + 1);
-                y0 = Math.Min(y0, (int)Math.Floor(f.Y) - 1); y1 = Math.Max(y1, (int)Math.Ceiling(f.Y) + 1);
-                z0 = Math.Min(z0, (int)Math.Round(f.Z)); z1 = Math.Max(z1, (int)Math.Round(f.Z));
-            }
-            if (module.To.HasValue) {
-                var t = module.To.Value;
-                x0 = Math.Min(x0, (int)Math.Floor(t.X) - 1); x1 = Math.Max(x1, (int)Math.Ceiling(t.X) + 1);
-                y0 = Math.Min(y0, (int)Math.Floor(t.Y) - 1); y1 = Math.Max(y1, (int)Math.Ceiling(t.Y) + 1);
-                z0 = Math.Min(z0, (int)Math.Round(t.Z)); z1 = Math.Max(z1, (int)Math.Round(t.Z));
-            }
+            int z0 = module.Z;
             for (int y = y0; y <= y1; y++) {
                 for (int x = x0; x <= x1; x++) {
                     if (state.FencesByCell.TryGetValue((x, y, z0), out var fid) &&
                         !removedIds.Contains(fid) && nextIndex.TryGetModule(fid, out _)) {
                         dirtyIds.Add(fid);
-                    }
-                    if (z1 != z0 && state.FencesByCell.TryGetValue((x, y, z1), out var fid2) &&
-                        !removedIds.Contains(fid2) && nextIndex.TryGetModule(fid2, out _)) {
-                        dirtyIds.Add(fid2);
                     }
                 }
             }

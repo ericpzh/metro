@@ -652,8 +652,9 @@ test('local-worker split asset loader reassembles parts and rejects missing or m
   await assert.rejects(() => missingSecond.arrayBuffer(), /Missing split asset part/)
 })
 
-test('main.tsx and SettingsMenu.tsx preserve paintPick, passenger selection, curtain/psd-end eyedropper, and Unity graphics wiring', () => {
+test('main.tsx and SettingsMenu.tsx preserve paintPick, passenger selection, curtain/psd-end/pillar eyedropper, and Unity graphics wiring', () => {
   const mainSource = readFileSync(join(repo, 'game/src/unity-web/main.tsx'), 'utf8')
+  const pickSource = readFileSync(join(repo, 'game/src/app/tools/PickTool.ts'), 'utf8')
   const menuSource = readFileSync(join(repo, 'game/src/app/windows/topbar/SettingsMenu.tsx'), 'utf8')
 
   // Paint eyedropper (`paintPick`) sets finish and restores prior paint mode.
@@ -665,11 +666,15 @@ test('main.tsx and SettingsMenu.tsx preserve paintPick, passenger selection, cur
   assert.match(mainSource, /\(kind === 'module' \|\| kind === 'cell' \|\| kind === 'agent'\) && key/)
   assert.match(mainSource, /kind === 'agent' \? msg\('passenger_value', Number\(key\)\) : label/)
 
-  // Eyedropper pick adoption restores curtainWidth/curtainHeight and psdEndHeight.
-  assert.match(mainSource, /picked\.type === 'glass' && optionId === 'curtain-wall'/)
-  assert.match(mainSource, /curtainWidth:\s*Math\.max\(1,\s*Math\.min\(4,\s*picked\.w\)\)/)
-  assert.match(mainSource, /picked\.type === 'psd-end' && picked\.cfg\.variant !== 'cover' && picked\.cfg\.psd/)
-  assert.match(mainSource, /psdEndHeight:\s*picked\.cfg\.psd/)
+  // Eyedropper pick adoption delegates to shared PickTool.adoptPickedModule, restoring
+  // curtainWidth/curtainHeight, psdEndHeight, pillarLength, and all other module settings.
+  assert.match(mainSource, /adoptPickedModule\(picked,\s*\{\s*select:\s*false\s*\}\)/)
+  assert.match(pickSource, /mod\.type === 'glass' && optionId === 'curtain-wall'/)
+  assert.match(pickSource, /curtainWidth:\s*Math\.max\(1,\s*Math\.min\(4,\s*mod\.w\)\)/)
+  assert.match(pickSource, /mod\.type === 'psd-end' && mod\.cfg\.variant !== 'cover'/)
+  assert.match(pickSource, /psdEndHeight:\s*mod\.cfg\.psd/)
+  assert.match(pickSource, /mod\.type === 'pillar'/)
+  assert.match(pickSource, /pillarLength:\s*pillarSectionOf\(mod\.cfg\.height\)/)
 
   // SettingsMenu.tsx wires Unity host modelDetail, upscaling, and desktop openBenchmark.
   assert.match(menuSource, /const modelDetail = stationHost\?\.modelDetail/)

@@ -122,7 +122,7 @@ namespace Metro.App {
                    string.Equals(id, "roof-truss", StringComparison.Ordinal) ||
                    string.Equals(id, "roof-tapered", StringComparison.Ordinal) ||
                    string.Equals(id, "roof-canopy", StringComparison.Ordinal) ||
-                   Metro.Build.StationModuleRuns.IsLinePalette(id);
+                   Metro.Build.StationModuleRuns.SupportsDragPlacement(id);
         }
 
         /// <summary>
@@ -277,8 +277,9 @@ namespace Metro.App {
             }
             // An ack never reaches the shell's shared store, and `rightClaim` has to be current
             // the moment the next right press arrives: publish one state frame with the new
-            // tool, its claim and the effective settings (plan 27 §2).
-            if (host != null && toolChanged) host.PublishStateNow();
+            // tool, its claim and the effective settings (plan 27 §2). A same-tool palette swap
+            // (e.g. stair -> gate) can also change `rightClaim`, so publish on `ownerChanged` too.
+            if (host != null && (toolChanged || ownerChanged)) host.PublishStateNow();
             payload["tool"] = StationToolSelection.Active;
             payload["previous"] = previous;
             payload["generation"] = StationToolSelection.Generation;

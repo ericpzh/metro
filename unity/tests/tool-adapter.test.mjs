@@ -18,6 +18,8 @@ import {
   settingsKey,
   shellToolFor,
 } from '../../game/src/unity-web/toolAdapter.ts'
+import { adoptPickedModule } from '../../game/src/app/tools/PickTool.ts'
+import { useStore } from '../../game/src/app/store.ts'
 
 /** A store-shaped state: only the fields the adapter reads, all at their defaults. */
 function toolState(overrides = {}) {
@@ -223,5 +225,39 @@ test('composed sign boards ride tool.set and trigger a replan when edited', () =
     assert.equal(sent[1].settings.signBoards, JSON.stringify(updatedBoards))
   } finally {
     adapter.dispose()
+  }
+})
+
+test('adoptPickedModule copies pillarLength, slim spot, and piece settings synced by toolAdapter', () => {
+  const before = useStore.getState()
+  try {
+    useStore.setState({ tool: 'pick', moduleType: 'gate', pillarLength: 5, moduleRot: 0, hangerLength: 4, roofWidth: 4, doorWide: false })
+    const thick4m = { id: 'p-4', type: 'pillar', x: 1, y: 1, z: -5, rot: 0, cfg: { size: 'thick', height: 4 } }
+    assert.equal(adoptPickedModule(thick4m, { select: false, notify: false }), true)
+    let st = useStore.getState()
+    assert.equal(st.tool, 'module')
+    assert.equal(st.moduleType, 'pillar-thick')
+    assert.equal(st.pillarLength, 4, 'picking a 4 m pillar must arm pillarLength=4 so it fits under a 4 m ceiling')
+    assert.equal(settingsFor(st).pillarLength, 4)
+
+    useStore.setState({ tool: 'pick', pillarLength: 5, moduleRot: 0 })
+    const slim3m = { id: 'p-slim', type: 'pillar', x: 2, y: 2, z: 0, rot: 7, cfg: { size: 'slim', height: 3 } }
+    assert.equal(adoptPickedModule(slim3m, { select: false, notify: false }), true)
+    st = useStore.getState()
+    assert.equal(st.moduleType, 'pillar-slim')
+    assert.equal(st.pillarLength, 3)
+    assert.equal(st.moduleRot, 7)
+
+    useStore.setState({ tool: 'pick', hangerLength: 4, roofWidth: 4, doorWide: false, stairBlockHeight: 1 })
+    assert.equal(adoptPickedModule({ id: 'h-8', type: 'hanger', x: 0, y: 0, z: 0, w: 8, rot: 1, cfg: { mount: 'roof' } }, { select: false, notify: false }), true)
+    assert.equal(useStore.getState().hangerLength, 8)
+    assert.equal(settingsFor(useStore.getState()).hangerLength, 8)
+
+    useStore.setState({ tool: 'pick' })
+    assert.equal(adoptPickedModule({ id: 'r-12', type: 'roof', x: 0, y: 0, z: 0, w: 4, d: 12, rot: 0, cfg: { variant: 'tapered-truss' } }, { select: false, notify: false }), true)
+    assert.equal(useStore.getState().moduleType, 'roof-tapered')
+    assert.equal(useStore.getState().roofWidth, 12)
+  } finally {
+    useStore.setState(before)
   }
 })

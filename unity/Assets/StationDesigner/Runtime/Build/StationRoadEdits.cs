@@ -31,6 +31,7 @@ namespace Metro.Build {
     /// <summary>What the ghost should draw before the document commits.</summary>
     public sealed class RoadEditPreview {
         public bool Valid;
+        public bool IsDelete;
         public string Code = "";
         public StationRoadRecord Candidate;
         /// <summary>Authored record the delete would remove (null for add).</summary>
@@ -134,7 +135,7 @@ namespace Metro.Build {
             if (segment == null) return RoadEditPreview.Invalid("no-road-to-remove");
             var layout = StationRoadLayout.Layout(segment.Road);
             return new RoadEditPreview {
-                Valid = true, Candidate = segment.Road, SourceId = segment.SourceId,
+                Valid = true, IsDelete = true, Candidate = segment.Road, SourceId = segment.SourceId,
                 Length = layout.Length, Lanes = layout.Lanes, LaneWidth = layout.LaneWidth,
             };
         }

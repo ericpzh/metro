@@ -3976,6 +3976,76 @@ namespace Metro.App.Views {
             };
         }
 
+        /// <summary>
+        /// Build a translucent placement/bridge/tunnel preview for a track run using the exact
+        /// same <see cref="RailRunGeometry"/> builder the live street renderer commits.
+        /// </summary>
+        public static bool TryBuildTrackPreview(
+            StationDocument document, StationIndex index, TrainCatalogue trainCatalogue,
+            ModuleFacts module, Transform parent, Material ghostMaterial,
+            out GameObject root, out List<Mesh> meshes) {
+            root = null;
+            meshes = null;
+            if (module == null || parent == null || ghostMaterial == null) return false;
+            float width = Mathf.Max(1f, module.Width);
+            float depth = Mathf.Max(1f, module.Depth);
+            float scale = StationRailGeometry.DefaultScale;
+            if (trainCatalogue != null && document != null) {
+                var line = LineOf(document, module);
+                if (line != null) {
+                    var formation = TrainFormations.Select(line.Stock, line.Cars, line.Power, trainCatalogue);
+                    if (trainCatalogue.TryGet(formation, out var entry) && entry != null && entry.bakedScale > 0f)
+                        scale = entry.bakedScale;
+                }
+            }
+            ModuleFacts[] stationFacts;
+            if (document != null && document.Modules != null) {
+                stationFacts = new ModuleFacts[document.Modules.Count];
+                for (int i = 0; i < stationFacts.Length; i++) stationFacts[i] = document.Modules[i]?.Facts;
+            } else {
+                stationFacts = Array.Empty<ModuleFacts>();
+            }
+            int thirdRail = StationRailGeometry.ThirdRailSide(module, stationFacts,
+                StationRailGeometry.LineDirectionOf(document, module));
+            bool catenary = string.Equals(StationRailGeometry.PowerOf(document, module), "catenary",
+                StringComparison.Ordinal);
+            var bridge = RailBridgeOptionsFor(document, module, stationFacts, catenary, thirdRail);
+            RailCatenaryOptions catenaryOptions = null;
+            if (catenary) {
+                bool tunnel = module.Config.Bool("tunnel");
+                string catStyle = module.Config.Text("catenaryStyle");
+                catenaryOptions = new RailCatenaryOptions {
+                    Tunnel = tunnel,
+                    Style = catStyle,
+                    VehicleWidth = StockWidthOf(document, module),
+                    CeilingZ = StationRailGeometry.TrackCeilingUndersideLocal(index, module,
+                        true, tunnel, bridge != null, catStyle),
+                };
+            }
+            var run = RailRunGeometry.Build(width, depth, scale, thirdRail, catenary, bridge, catenaryOptions);
+            root = new GameObject("ghost " + (string.IsNullOrEmpty(module.Id) ? "track" : module.Id) + " track");
+            root.transform.SetParent(parent, false);
+            root.transform.SetPositionAndRotation(
+                StationCoordinates.Point(new Vector3(module.X + .5f, module.Y + .5f, module.Z)),
+                ModulePlacement.Rotation(module.Rotation));
+            meshes = new List<Mesh>(8);
+            AddTrackPart(root.transform, run.Bed, ghostMaterial, meshes, "track-bed");
+            AddTrackPart(root.transform, run.Deck, ghostMaterial, meshes, "track-deck");
+            AddTrackPart(root.transform, run.Steel, ghostMaterial, meshes, "track-rail");
+            AddTrackPart(root.transform, run.Dark, ghostMaterial, meshes, "track-hardware");
+            AddTrackPart(root.transform, run.Power, ghostMaterial, meshes, "track-power");
+            AddTrackPart(root.transform, run.Insulator, ghostMaterial, meshes, "track-insulator");
+            AddTrackPart(root.transform, run.Panel, ghostMaterial, meshes, "track-barrier-panel");
+            AddTrackPart(root.transform, run.Copper, ghostMaterial, meshes, "track-contact-wire");
+            foreach (var r in root.GetComponentsInChildren<Renderer>(true)) {
+                if (r == null) continue;
+                r.forceMeshLod = 0;
+                r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                r.receiveShadows = false;
+            }
+            return meshes.Count > 0;
+        }
+
         /// <summary>Per-track composition notes (`trackNotes`), one per saved track run.</summary>
         public List<string> TrackNotes => trackNotes;
         readonly List<string> trackNotes = new List<string>();
@@ -4956,21 +5026,44 @@ namespace Metro.App.Views {
             return true;
         }
 
-        StagedProceduralItem BuildWallGlassCore(
-            StationDocument document, StationIndex index, Shader shader,
-            Transform parent, Transform worldRoot, StationModuleRecord record, WorldState state,
-            Action<string, string, string, string> reportUnresolved, bool recordNote,
-            ModuleFacts fallbackModule = null) {
-            var module = record?.Facts ?? fallbackModule;
-            var materials = Palette(shader, state);
+        /// <summary>
+        /// Build a placement/move ghost for a 玻璃板 or 玻璃幕墙 using the exact same framed panel,
+        /// leading-edge offset, corner-join trim, and fitted-door cutout geometry that
+        /// <see cref="BuildWallGlassCore"/> commits to the scene.
+        /// </summary>
+        public static bool TryBuildGlassPreview(
+            StationModuleRecord record, StationIndex index, Transform parent, Material ghostMaterial,
+            out GameObject root, out List<Mesh> meshes) {
+            root = null;
+            meshes = null;
+            if (record?.Facts == null || parent == null || ghostMaterial == null) return false;
+            BuildWallGlassGeometry(index?.Document, index, record, record.Facts, parent,
+                ghostMaterial, ghostMaterial, ghostMaterial,
+                out root, out meshes, out _, out _, out _, out _, out _);
+            if (root == null || meshes == null || meshes.Count == 0) return false;
+            root.name = "ghost " + (string.IsNullOrEmpty(record.Id) ? "glass" : record.Id) + " glass";
+            foreach (var r in root.GetComponentsInChildren<Renderer>(true)) {
+                if (r == null) continue;
+                r.forceMeshLod = 0;
+                r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                r.receiveShadows = false;
+            }
+            return true;
+        }
+
+        static void BuildWallGlassGeometry(
+            StationDocument document, StationIndex index, StationModuleRecord record, ModuleFacts module,
+            Transform parent, Material steelMat, Material darkMat, Material glassMat,
+            out GameObject root, out List<Mesh> glassMeshes,
+            out int run, out float h, out bool floorStanding, out int doorCount, out int joinedCount) {
             var spec = StationFootprints.GlassSpec(module.Config);
-            int run = module.Width > 0 ? module.Width : spec.W;
-            bool floorStanding = StationFootprints.GlassStandsOnFloor(module.Config);
+            run = module.Width > 0 ? module.Width : spec.W;
+            floorStanding = StationFootprints.GlassStandsOnFloor(module.Config);
             // The group origin: the run's centre, on the leading edge for a floor-standing
             // curtain (`buildGlass`'s `edgeIn`) or on the cell centre for wall cladding.
             StationFootprints.RotateLocal(module.Rotation, (run - 1) * .5, floorStanding ? GlassEdgeIn : 0,
                 out var centreX, out var centreY);
-            var root = new GameObject((string.IsNullOrEmpty(module.Id) ? "glass" : module.Id) + " glass");
+            root = new GameObject((string.IsNullOrEmpty(module.Id) ? "glass" : module.Id) + " glass");
             root.transform.SetParent(parent, false);
             root.transform.SetPositionAndRotation(
                 StationCoordinates.Point(new Vector3(module.X + .5f + (float)centreX, module.Y + .5f + (float)centreY, module.Z + 1f)),
@@ -4980,7 +5073,8 @@ namespace Metro.App.Views {
             var frame = new GlassParts();
             var panes = new GlassParts();
 
-            float w = run, h = spec.H;
+            float w = run;
+            h = spec.H;
             // A short 玻璃板 is cladding bolted to the wall on its local −y face, 0.44 m off the
             // cell centre; a curtain stands on the tile edge, so its plane is the group origin.
             float across = floorStanding ? 0f : -GlassWallOffset;
@@ -4991,12 +5085,14 @@ namespace Metro.App.Views {
             if (floorStanding && record != null) {
                 // A same-tile crossing trims the end post that would project into the other
                 // panel's frame (`curtainCornerJoin`), so two curtains read as one corner.
-                var glassList = index != null ? index.ModulesOfType("glass") : document.Modules;
-                for (int i = 0; i < glassList.Count; i++) {
-                    var other = glassList[i];
-                    if (other == null || !string.Equals(other.Type, "glass", StringComparison.Ordinal)) continue;
-                    if (string.Equals(other.Id, module.Id, StringComparison.Ordinal)) continue;
-                    foreach (var end in GlassCornerJoin(record, other)) joined.Add(end);
+                var glassList = index != null ? index.ModulesOfType("glass") : document?.Modules;
+                if (glassList != null) {
+                    for (int i = 0; i < glassList.Count; i++) {
+                        var other = glassList[i];
+                        if (other == null || !string.Equals(other.Type, "glass", StringComparison.Ordinal)) continue;
+                        if (string.Equals(other.Id, module.Id, StringComparison.Ordinal)) continue;
+                        foreach (var end in GlassCornerJoin(record, other)) joined.Add(end);
+                    }
                 }
             }
             float left = -span + (joined.Contains("start") ? post : 0f);
@@ -5011,15 +5107,17 @@ namespace Metro.App.Views {
             var runCells = GlassCells(module, run);
             float cut = 0f;
             if (floorStanding && record != null) {
-                var doorList = index != null ? index.ModulesOfType("door") : document.Modules;
-                for (int i = 0; i < doorList.Count; i++) {
-                    var otherRecord = doorList[i];
-                    if (otherRecord?.Facts == null || !string.Equals(otherRecord.Type, "door", StringComparison.Ordinal)) continue;
-                    if (!GlassDoorShare(record, otherRecord)) continue;
-                    cut = Mathf.Max(cut, (float)StationFootprints.DoorHeight(otherRecord));
-                    foreach (var cell in GlassCells(otherRecord.Facts, Mathf.Max(1, otherRecord.Width))) {
-                        int cellIdx = runCells.FindIndex(candidate => candidate.X == cell.X && candidate.Y == cell.Y);
-                        if (cellIdx >= 0) covered.Add(cellIdx);
+                var doorList = index != null ? index.ModulesOfType("door") : document?.Modules;
+                if (doorList != null) {
+                    for (int i = 0; i < doorList.Count; i++) {
+                        var otherRecord = doorList[i];
+                        if (otherRecord?.Facts == null || !string.Equals(otherRecord.Type, "door", StringComparison.Ordinal)) continue;
+                        if (!GlassDoorShare(record, otherRecord)) continue;
+                        cut = Mathf.Max(cut, (float)StationFootprints.DoorHeight(otherRecord));
+                        foreach (var cell in GlassCells(otherRecord.Facts, Mathf.Max(1, otherRecord.Width))) {
+                            int cellIdx = runCells.FindIndex(candidate => candidate.X == cell.X && candidate.Y == cell.Y);
+                            if (cellIdx >= 0) covered.Add(cellIdx);
+                        }
                     }
                 }
             }
@@ -5067,10 +5165,24 @@ namespace Metro.App.Views {
                     Mathf.Max(.05f, h - rail * 2f));
             }
 
-            var glassMeshes = new List<Mesh>(3);
-            posts.Emit(root.transform, glassMeshes, "glass-posts", Mat(materials, StationMaterials.Steel));
-            frame.Emit(root.transform, glassMeshes, "glass-frame", Mat(materials, StationMaterials.Dark));
-            panes.Emit(root.transform, glassMeshes, "glass-pane", Mat(materials, StationMaterials.Glass));
+            glassMeshes = new List<Mesh>(3);
+            posts.Emit(root.transform, glassMeshes, "glass-posts", steelMat);
+            frame.Emit(root.transform, glassMeshes, "glass-frame", darkMat);
+            panes.Emit(root.transform, glassMeshes, "glass-pane", glassMat);
+            doorCount = covered.Count;
+            joinedCount = joined.Count;
+        }
+
+        StagedProceduralItem BuildWallGlassCore(
+            StationDocument document, StationIndex index, Shader shader,
+            Transform parent, Transform worldRoot, StationModuleRecord record, WorldState state,
+            Action<string, string, string, string> reportUnresolved, bool recordNote,
+            ModuleFacts fallbackModule = null) {
+            var module = record?.Facts ?? fallbackModule;
+            var materials = Palette(shader, state);
+            BuildWallGlassGeometry(document, index, record, module, parent,
+                Mat(materials, StationMaterials.Steel), Mat(materials, StationMaterials.Dark), Mat(materials, StationMaterials.Glass),
+                out var root, out var glassMeshes, out int run, out float h, out bool floorStanding, out int doorCount, out int joinedCount);
 
             var built = new BuiltModule { ModuleId = module.Id, Type = module.Type, View = root, Key = "generated:glass" };
             var grid = StationLevelGrid.FromDocument(document.LevelBase, document.StoreyHeight);
@@ -5091,8 +5203,8 @@ namespace Metro.App.Views {
             int band = StationModuleLevels.Band(grid, (bounds.Z0 + bounds.Z1) * .5);
             if (recordNote) {
                 glassNotes.Add(module.Id + " run=" + run + " height=" + h.ToString("0.##", CultureInfo.InvariantCulture) +
-                    " mount=" + (floorStanding ? "floor-edge" : "wall") + " doors=" + covered.Count +
-                    " joined=" + joined.Count);
+                    " mount=" + (floorStanding ? "floor-edge" : "wall") + " doors=" + doorCount +
+                    " joined=" + joinedCount);
             }
             return new StagedProceduralItem {
                 Built = built,

@@ -28,8 +28,7 @@ import { createToolAdapter, rightClaimedByTool } from './toolAdapter.ts'
 import { noticeKey, noticeText, type BuildOutcome } from './editNotices.ts'
 import { UnityExplodedView } from './UnityExplodedView.tsx'
 import { UnityBenchmarkRoute } from './UnityBenchmarkRoute.tsx'
-import { paletteIdForModule } from '../app/tools/PickTool.ts'
-import { signBoardsOf } from '../sim/sign.ts'
+import { adoptPickedModule } from '../app/tools/PickTool.ts'
 import { createSignFacePort } from './signFaceProvider.ts'
 import { createPsdHeaderPort } from './psdHeaderProvider.ts'
 import { createExitFacePort } from './exitFaceProvider.ts'
@@ -704,31 +703,11 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
     if (pickId && pickId !== lastPick) {
       lastPick = pickId
       const picked = useStore.getState().station.modules.find(module => module.id === pickId)
-      const optionId = picked ? paletteIdForModule(picked) : null
       // Only arm the rail while the eyedropper is still the committed tool: a pick result
       // that arrives after the player (or the presenter) moved on must not drag the tool
-      // back to 设备.
-      if (picked && optionId !== null && useStore.getState().tool === 'pick') {
-        const tools = useStore.getState()
-        tools.beginPick()
-        tools.setModuleType(optionId)
-        if (typeof picked.rot === 'number') tools.setModuleRot(picked.rot)
-        if (picked.type === 'light') tools.setLightPosition(picked.cfg.position ?? 0)
-        if (picked.type === 'floor-mark' && picked.cfg.variant === 'direction' && picked.cfg.line) tools.setRailLine(picked.cfg.line)
-        if (picked.type === 'gate') tools.setGateDoor(picked.cfg.door ?? 'lane')
-        if (picked.type === 'glass' && optionId === 'curtain-wall') {
-          useStore.setState({
-            curtainWidth: Math.max(1, Math.min(4, picked.w)) as 1 | 2 | 3 | 4,
-            curtainHeight: picked.cfg.curtainHeight ?? 4,
-          })
-        }
-        if (picked.type === 'psd-end' && picked.cfg.variant !== 'cover' && picked.cfg.psd) {
-          useStore.setState({ psdEndHeight: picked.cfg.psd })
-        }
-        if (picked.type === 'sign') {
-          tools.adoptSignBoards(signBoardsOf(picked.cfg, tools.station))
-        }
-        tools.setTool('module')
+      // back to 设备. Selection already arrived through `edit.selectionKey` above.
+      if (picked && useStore.getState().tool === 'pick') {
+        adoptPickedModule(picked, { select: false })
       }
     }
     if (!pickId) lastPick = ''
