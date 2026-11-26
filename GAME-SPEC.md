@@ -785,6 +785,8 @@ Track is one module type, drawn as a straight run on the five-metre grid:
 | 信号 rail signal | 1 × 1 | trackside prop |
 | 屏蔽门 screen doors | derived per edge | not a placed module; the line's `psd` draws the screen (§5.3) |
 
+Add a line in the Lines panel before placing the first platform.
+
 **Power is a property of the track**, not a separate segment: `third-rail` or `catenary`.
 A tunnel keeps its own shell; a bridge draws the matching gantry/canopy. Third rail is
 laid automatically on the travel side in a tunnel or on a bridge and off the platform side

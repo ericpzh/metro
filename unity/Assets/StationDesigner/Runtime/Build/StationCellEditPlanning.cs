@@ -211,9 +211,7 @@ namespace Metro.Build {
         /// <summary>Placed modules anchored on a removed cell (`removeCells` takes them).</summary>
         public readonly List<string> RemoveModuleIds = new List<string>();
         /// <summary>
-        /// Lines this edit **adds**. A first platform rail on a line-less document creates the
-        /// line it binds to in the same revision (`layTrack`'s default line), so a fresh station
-        /// never refuses the railway for want of a line list (plan 28 §3c).
+        /// Lines explicitly added by this patch.
         /// </summary>
         public readonly List<StationLineDraft> LineAdds = new List<StationLineDraft>();
         /// <summary>Pieces whose reservation this packet could not derive (reported, never guessed).</summary>

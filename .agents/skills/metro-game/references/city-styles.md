@@ -15,8 +15,8 @@
   undoable presentation edit (`StationSlice.setCityStyle`). Existing line colours and
   existing exit identifiers are never rewritten; city defaults apply only to newly
   created lines and newly placed exits.
-- **New-line palettes (`lineColourFor`):** Every new-line factory — including the
-  first rail and platform preview — must pass the station's `cityStyle`. Tables cover
+- **New-line palettes (`lineColourFor`):** Pass the station's `cityStyle` to
+  the line factory when the player adds a line. Tables cover
   in-service, planned, branch, suburban, airport, and tram identifiers with both
   English keys and full Chinese aliases where defined in `sim/cityStyles.ts`.
 - **New-exit naming (`build/model/Equipment.ts` `nextExitName`):**

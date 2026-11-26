@@ -7,6 +7,12 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { noticeKey, noticeText } from '../../game/src/unity-web/editNotices.ts'
 
+test('platform placement without a line points to the Lines panel in both languages', () => {
+  const outcome = { kind: 'blocked', tool: 'rail', code: 'no-line' }
+  assert.equal(noticeText(outcome, 'en'), 'Add a line in the Lines panel before placing a platform.')
+  assert.equal(noticeText(outcome, 'zh-CN'), '请先在「线路」中添加一条线路，再放置站台。')
+})
+
 test('a blocked candidate names its own code in both languages', () => {
   const occupied = { kind: 'blocked', code: 'occupied', tool: 'module', moduleType: 'bench' }
   assert.equal(noticeText(occupied, 'zh-CN'), '此处已有设备，请另选位置')

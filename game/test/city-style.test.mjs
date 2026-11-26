@@ -21,7 +21,7 @@ import { drawMetroMark, refreshCityTrainMark } from '../src/render/cityBranding.
 import { drawChengduLogo } from '../src/render/chengduBranding.ts'
 import chengduContours from '../src/assets/branding/chengdu-contours.json' with { type: 'json' }
 import { presentationKeepIds } from '../src/render/presentationEdit.ts'
-import { getLanguage, setLanguage } from '../src/sim/i18n.ts'
+import { getLanguage, msg, setLanguage } from '../src/sim/i18n.ts'
 import { drawChongqingTrainBadge } from '../src/render/chongqingBranding.ts'
 import { refreshChongqingTrainMark } from '../src/render/chongqingTrainMark.ts'
 import { drawWuhanHeader } from '../src/render/models/pieces/WuhanExitHeader.ts'
@@ -250,12 +250,22 @@ test('all supplied Shenzhen line colours, including 6B and planned lines, reach 
   assert.equal(lineColourFor('unknown', 'shenzhen'), '#2f7ef2')
 })
 
-test('the first automatically-created rail line uses the saved city', () => {
+test('a platform requires an explicitly added line, which uses the saved city', () => {
   const previous = useStore.getState()
   try {
-    useStore.setState({ station: { ...fixture(), cityStyle:'shenzhen', lines:[] }, past:[],future:[],railLineId:'' })
+    const station = { ...fixture(), cityStyle:'shenzhen', lines:[] }
+    useStore.setState({ station, past:[],future:[],railLineId:'' })
     useStore.getState().layTrack([0,0,0])
-    assert.equal(useStore.getState().station.lines[0]?.colour,'#00ab39')
+    assert.equal(useStore.getState().station, station)
+    assert.equal(useStore.getState().past.length, 0)
+    assert.equal(useStore.getState().notice, msg('add_a_line_before_placing_a_platform'))
+    useStore.getState().addLine()
+    const line = useStore.getState().station.lines[0]
+    assert.equal(line.colour, '#00ab39')
+    useStore.getState().layTrack([0,0,0])
+    assert.ok(useStore.getState().station.modules.some(m => m.type === 'track' && m.cfg.line === line.id))
+    useStore.getState().undo()
+    assert.deepEqual(useStore.getState().station.lines, [line])
   } finally { useStore.setState(previous) }
 })
 

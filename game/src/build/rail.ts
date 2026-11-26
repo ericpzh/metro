@@ -373,7 +373,7 @@ export function trackFloorMissing(state: StationState, track: TrackModule): bool
 }
 
 /** Why a track may not be placed, or null when it is eligible. */
-export type TrackBlock = 'interference' | 'wall' | 'floor'
+export type TrackBlock = 'interference' | 'wall' | 'floor' | 'no-line'
 
 /**
  * A refused rail, in the words the notice bar uses — with the pieces in the
@@ -381,6 +381,7 @@ export type TrackBlock = 'interference' | 'wall' | 'floor'
  * saying the run is blocked.
  */
 export function trackBlockNotice(state: StationState, track: TrackModule, block: TrackBlock): string {
+  if (block === 'no-line') return msg('add_a_line_before_placing_a_platform')
   if (block === 'interference') {
     const colliders = trackColliders(state, track)
     const names = colliders.length > 0 ? msg('blocked_by_value', blockerLabels(colliders)) : ''
@@ -391,6 +392,7 @@ export function trackBlockNotice(state: StationState, track: TrackModule, block:
 }
 
 export function trackBlockReason(state: StationState, track: TrackModule): TrackBlock | null {
+  if (!track.cfg.tunnel && !track.cfg.bridge && !state.lines.some((line) => line.id === track.cfg.line)) return 'no-line'
   if (trackInterferenceBlocked(state, track)) return 'interference'
   // A tunnel bores through walls and hangs over void; only a platform is held
   // to open air and solid ground under its whole footprint.

@@ -1241,8 +1241,7 @@ namespace Metro.EditModeTests {
         }
 
         [Test]
-        public void RailPlannerResizeCollisionRefusalDefaultLineDeepBedAndQuarterTurns() {
-            // 1. Default Line 1 on empty lines + deep 2-course bed keeping platform supports.
+        public void RailPlannerResizeCollisionRefusalDeepBedAndQuarterTurns() {
             var slab = new JArray();
             for (int x = 0; x < 70; x++) {
                 for (int y = 0; y < 70; y++) {
@@ -1251,10 +1250,14 @@ namespace Metro.EditModeTests {
                 }
             }
             var emptyLinesRead = ReadSave("empty-lines", slab, new JArray(), new JArray());
-            var defaultPlan = StationRailPlanner.Plan(emptyLinesRead.Index, "", "up", 0, 35, 35, 0);
+            var blocked = StationRailPlanner.Plan(emptyLinesRead.Index, "", "up", 0, 35, 35, 0);
+            Assert.AreEqual("no-line", blocked.Reason);
+            Assert.IsFalse(blocked.ToPatch().HasWork);
+            var twoCarLine = new JArray { LineJson("1", "L", 2, "third-rail", "up", 0.98) };
+            var turnedRead = ReadSave("quarter-turns", slab, new JArray(), twoCarLine);
+            var defaultPlan = StationRailPlanner.Plan(turnedRead.Index, "", "up", 0, 35, 35, 0);
             Assert.IsTrue(defaultPlan.Ok, defaultPlan.Reason);
-            Assert.IsNotNull(defaultPlan.NewLine, "planning on empty lines creates default line");
-            Assert.AreEqual("1", defaultPlan.NewLine.Id, "default line id is 1");
+            Assert.AreEqual("1", defaultPlan.LineId, "the first saved line is the fallback");
 
             // Deep 2-course bed digs z and z-1 ONLY on bed cells; adjacent platform cells stay intact.
             Assert.AreEqual(defaultPlan.Bed.Count * 2, defaultPlan.DigCells.Count, "2 courses dug per bed cell");
@@ -1268,8 +1271,6 @@ namespace Metro.EditModeTests {
                 "platform supports beside bed stay intact");
 
             // 2. Quarter-turned tracks (rot 0..3) all plan cleanly with rotated spans.
-            var twoCarLine = new JArray { LineJson("1", "L", 2, "third-rail", "up", 0.98) };
-            var turnedRead = ReadSave("quarter-turns", slab, new JArray(), twoCarLine);
             foreach (int rot in new[] { 0, 1, 2, 3 }) {
                 var p = StationRailPlanner.Plan(turnedRead.Index, "1", "up", rot, 35, 35, 0);
                 Assert.IsTrue(p.Ok, $"rot={rot} failed: {p.Reason}");

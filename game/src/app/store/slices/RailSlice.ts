@@ -6,7 +6,6 @@ import { msg } from '../../../sim/i18n.ts'
 import type { StateCreator } from 'zustand'
 import { removeModule } from '../../../build/model.ts'
 import {
-  defaultLine,
   dropDerivedEdges,
   freeTunnelEnd,
   makeTrack,
@@ -82,22 +81,14 @@ export const createRailSlice: StateCreator<AppState, [], [], RailSlice> = (set, 
   },
   layTrack: (at) => {
     const st = get()
-    let station = st.station
-    let lineId = st.railLineId
-    if (!station.lines.some((l) => l.id === lineId)) {
-      // First rail on a fresh station: create the line it binds to, so placement
-      // never stalls on an empty line list.
-      if (station.lines.length === 0) {
-        const line = defaultLine('1', st.railDir, 'third-rail', st.station.storeyHeight, st.station.cityStyle)
-        station = { ...station, lines: [line] }
-        lineId = line.id
-      } else {
-        lineId = station.lines[0].id
-      }
-      set({ railLineId: lineId })
+    const station = st.station
+    const line = station.lines.find((l) => l.id === st.railLineId) ?? station.lines[0]
+    if (!line) {
+      set({ notice: msg('add_a_line_before_placing_a_platform') })
+      return
     }
-    const line = station.lines.find((l) => l.id === lineId)
-    if (!line) return
+    const lineId = line.id
+    if (lineId !== st.railLineId) set({ railLineId: lineId })
     // The piece is sized from the line's consist before it is placed: a
     // car-width bed and a run the length of the whole train. Power is a line
     // option, so the track inherits the bound line's power.

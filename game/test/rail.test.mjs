@@ -45,6 +45,14 @@ test('placing a rail digs the bed, lays the track and derives the screen doors',
   assert.equal(edges[0].cfg.from, track.id, 'the edge remembers its rail')
 })
 
+test('a new platform rejects missing and unknown line ids without digging its footprint', () => {
+  const before = toState(station([]))
+  const platform = { lineId: 'missing', dir: 'terminal', power: 'third-rail', rot: 0, x: 0, y: 0, z: 0, w: 40, d: 3 }
+  assert.equal(placeTrack(before, platform), before)
+  const empty = { ...before, lines: [] }
+  assert.equal(placeTrack(empty, { ...platform, lineId: '1' }), empty)
+})
+
 test('platform edge derivation keeps the first floor record and any solid overhead', () => {
   const track = { id: 'rail', type: 'track', x: 0, y: 1, z: 0, w: 4, d: 1, cfg: { line: '1', power: 'third-rail' } }
   const cells = [

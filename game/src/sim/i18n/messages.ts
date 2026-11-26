@@ -1972,9 +1972,9 @@ export const messages = {
     "zh": "尚未建出入口。",
     "en": "No exits built yet."
   },
-  "no_lines_configured_laying_track_creates_one_automatically_or_ad": {
-    "zh": "尚未配置线路。铺下第一段轨道时会自动新建，也可在此手动添加。",
-    "en": "No lines configured. Laying track creates one automatically, or add one here."
+  "add_a_line_before_placing_a_platform": {
+    "zh": "请先在「线路」中添加一条线路，再放置站台。",
+    "en": "Add a line in the Lines panel before placing a platform."
   },
   "new_line": {
     "zh": "+ 新建线路",

@@ -90,6 +90,12 @@ library and sound studio (`model/`), an anonymous stats/feedback Worker
 
 ### Interaction, Verification & Unity Discipline
 
+- **Platform placement** requires an existing line in both runtimes. Resolve
+  the selected line or fall back to the first saved line. With no lines, show
+  the localized Lines panel guidance and leave the document and undo history
+  untouched. Keep preview and commit checks aligned in `PlatformTool` /
+  `RailSlice` and Unity's `StationRailPlanner`.
+
 - **Single pick & preview isolation** (`AGENTS.md`): Resolve at most one scene
   pick per pointer event and keep interactive preview work separate from
   document commits, undo history, and worker rebuilds.

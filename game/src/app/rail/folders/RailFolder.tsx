@@ -135,6 +135,7 @@ export function RailFolder({ subMenu, onToggleSubMenu }: { subMenu: SubMenuKey |
                     <>
                       <div className="bpSub">
                         <div className="bpSubTitle">{t('line')}</div>
+                        {stationLines.length === 0 && <div className="muted small">{t('add_a_line_before_placing_a_platform')}</div>}
                         <div className="blockGrid">
                           {stationLines.map((l) => (
                             <LineItem

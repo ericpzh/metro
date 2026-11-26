@@ -253,6 +253,7 @@ export function Viewport(): React.ReactElement {
   const facilityRot = useStore((s) => s.facilityRot)
   const railRot = useStore((s) => s.railRot)
   const railLineId = useStore((s) => s.railLineId)
+  const railLines = useStore((s) => s.station.lines)
   const railDir = useStore((s) => s.railDir)
   const tunnelLength = useStore((s) => s.tunnelLength)
   const activeZ = useStore((s) => s.activeZ)
@@ -512,7 +513,7 @@ export function Viewport(): React.ReactElement {
   // the pre-rendered ghost, so rebuild it in place.
   useEffect(() => {
     tools.platform.refreshHover()
-  }, [railRot, railLineId, railDir, tools, exploded])
+  }, [railRot, railLineId, railLines, railDir, tools, exploded])
 
   // The tunnel's length changes its ghost; the hovered rail does not.
   useEffect(() => {

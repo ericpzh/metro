@@ -65,6 +65,7 @@ function keyFor(outcome: BuildOutcome): MessageKey | null {
   const code = outcome.code ?? ''
   const tool = outcome.tool ?? ''
   const palette = outcome.moduleType ?? ''
+  if (code === 'no-line' && tool === 'rail') return 'add_a_line_before_placing_a_platform'
   if (code === 'no-track' && palette.startsWith('bridge')) {
     return 'select_existing_track_first_the_bridge_connects_to_its_end'
   }

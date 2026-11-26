@@ -3,7 +3,7 @@ import { msg } from '../../sim/i18n.ts'
 // line (R turns it), right-click removes one. Moved verbatim from
 // app/Viewport.tsx (GAME-SPEC §7: 站台/隧道 rail tools).
 
-import { defaultLine, makeTrack, railModuleAt, trackBlockReason, trackColliders, trackPieceForLine } from '../../build/rail.ts'
+import { makeTrack, railModuleAt, trackBlockReason, trackColliders, trackPieceForLine } from '../../build/rail.ts'
 import { trackOriginForCentre } from '../../sim/track.ts'
 import type { Module } from '../../sim/types.ts'
 import { useStore } from '../store.ts'
@@ -33,7 +33,7 @@ export class PlatformTool extends ToolController {
     // A track piece sits on floor like equipment: a click drops the whole
     // pre-sized module (R turns it), a right-click removes one. Pressing void
     // is a `floor` refusal, not silence.
-    if (!hit.solid) {
+    if (!hit.solid && st.station.lines.length > 0) {
       st.setNotice(msg('platform_track_needs_a_solid_floor_at_least_three_cells_wide'))
       return
     }
@@ -54,14 +54,15 @@ export class PlatformTool extends ToolController {
 
   /**
    * The fixed track piece the rail tool would drop at the hovered cell. It is
-   * sized from the bound line's consist (or a default line on a fresh station),
+   * sized from an existing line's consist,
    * so the ghost is the exact module the click would place — rotation and all.
    */
   private railPiece(): Module | null {
     const st = useStore.getState()
     const h = this.ctx.hover.current
     if (!h) return null
-    const line = st.station.lines.find((l) => l.id === st.railLineId) ?? st.station.lines[0] ?? defaultLine(st.railLineId || '1', st.railDir, 'third-rail', st.station.storeyHeight, st.station.cityStyle)
+    const line = st.station.lines.find((l) => l.id === st.railLineId) ?? st.station.lines[0]
+    if (!line) return null
     const { w, d } = trackPieceForLine(line)
     // Centre the long run on the highlighted tile, so it grows evenly both ways.
     const [ox, oy] = trackOriginForCentre(st.railRot, h.cell[0], h.cell[1], w, d)
@@ -80,7 +81,7 @@ export class PlatformTool extends ToolController {
     const mod = h.solid ? this.railPiece() : null
     const blocked = !!mod && (mod.type !== 'track' || trackBlockReason(st.station, mod) !== null)
     const colliderIds = mod && mod.type === 'track' && blocked ? trackColliders(st.station, mod).map((m) => m.id) : []
-    scene.setCursor(h.cell, h.solid && !blocked)
+    scene.setCursor(h.cell, mod !== null && !blocked)
     scene.setModulePreview(mod, blocked)
     scene.setCollisionHighlight(blocked ? colliderIds : null)
   }

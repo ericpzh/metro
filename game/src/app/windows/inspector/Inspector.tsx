@@ -104,7 +104,7 @@ export function Inspector(): React.ReactElement {
       body: (
         <>
           {stationLines.length === 0 && (
-            <div className="muted small">{t('no_lines_configured_laying_track_creates_one_automatically_or_ad')}</div>
+            <div className="muted small">{t('add_a_line_before_placing_a_platform')}</div>
           )}
           {stationLines.map((line) => (
             <LineCard

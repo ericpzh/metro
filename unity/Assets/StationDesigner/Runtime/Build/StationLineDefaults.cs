@@ -146,14 +146,14 @@ namespace Metro.Build {
     }
 
     /// <summary>
-    /// The default line a first rail or Add Line button creates (<c>build/rail.ts:defaultLine</c>),
+    /// The default line the Add Line button creates (<c>build/rail.ts:defaultLine</c>),
     /// populated with the station's active city palette from <see cref="StationCityStyles"/>.
     /// </summary>
     public static class StationLineDefaults {
         /// <summary><c>DEFAULT_LINE_COLOUR</c>.</summary>
         public const string FallbackColour = StationCityStyles.DefaultLineColour;
 
-        /// <summary><c>defaultLine(id, dir, power, city)</c>: a fresh line for the first rail laid or Add Line.</summary>
+        /// <summary><c>defaultLine(id, dir, power, city)</c>: a fresh line for Add Line.</summary>
         public static StationLineDraft Default(string id, string direction, string power, string city = StationCityStyles.DefaultCity) {
             var lineId = string.IsNullOrEmpty(id) ? "1" : id;
             return new StationLineDraft {

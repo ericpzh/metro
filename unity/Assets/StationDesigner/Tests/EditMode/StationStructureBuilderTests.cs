@@ -9,8 +9,8 @@ using UnityEngine;
 namespace Metro.EditModeTests {
     /// <summary>
     /// Plan 28 §3: the Structure builder's three tile families below the cell tools — the
-    /// 支柱 family and its grow gesture, the 屋顶 area/bay gestures, and the rail's default line
-    /// on a document that has none. The rules are `sim/structures.ts` (`pillarAt`,
+    /// 支柱 family and its grow gesture, the 屋顶 area/bay gestures, and platform placement.
+    /// The rules are `sim/structures.ts` (`pillarAt`,
     /// `extendedPillar`, `PILLAR_LENGTHS`), `build/Equipment.ts:createModule` and `build/rail.ts`
     /// (`defaultLine`, `layTrack`), and the fixture is the shared 12 × 12 pavement.
     /// </summary>
@@ -298,29 +298,42 @@ namespace Metro.EditModeTests {
         // ------------------------------------------------------------------- rails
 
         [Test]
-        public void AFirstRailOnALineLessDocumentCreatesItsDefaultLine() {
+        public void PlatformNeedsAnExplicitLineBeforePreviewAndPlacement() {
             Assert.AreEqual(0, host.Index.Document.Lines.Count, "the fixture carries no line");
             Assert.IsTrue(StationToolSelection.TrySelect("rail", out _, out var selectCode), selectCode);
-            var plan = StationRailPlanner.Plan(host.Index, "", "up", 0, 4, 6, 0);
-            Assert.IsTrue(plan.Ok, plan.Reason);
-            Assert.IsNotNull(plan.NewLine, "the plan carries the line it creates");
-            plan.Track.Id = StationModulePlacement.NextId(host.Index, "track");
+            var hit = StationCellFixture.Hit(4, 6, 0, true);
+            var pointer = Pointer(4, 6, 0);
             int before = host.CurrentRevision;
-            Assert.IsTrue(StationEditSession.TryApplyCells(host, plan.ToPatch(), "place rail", null, out _, out var code), code);
-            Assert.AreEqual(before + 1, host.CurrentRevision, "the line and its rail are one revision");
-            Assert.AreEqual(1, host.Index.Document.Lines.Count);
-            var line = host.Index.Document.Lines[0];
+            StationRailTool.Aim(host, hit, pointer);
+            Assert.AreEqual("no-line", StationRailTool.Preview.Reason);
+            Assert.IsNull(StationRailTool.Preview.Track);
+            Assert.IsFalse(StationRailTool.Begin(host, hit, pointer, 0, out _, out var reason));
+            Assert.AreEqual("no-line", reason);
+            Assert.AreEqual(before, host.CurrentRevision);
+            Assert.IsEmpty(host.Index.ModulesOfType("track"));
+            Assert.IsEmpty(host.Document.Lines);
+
+            var line = AddPlatformLine();
             Assert.AreEqual("1", line.Id);
-            Assert.AreEqual("B", line.Stock, "the reference's stock-B six-car default");
-            Assert.AreEqual(6, line.Cars);
-            Assert.AreEqual("full", line.Psd);
-            Assert.AreEqual(1, host.Index.ModulesOfType("track").Count);
+            Assert.IsTrue(StationRailTool.Begin(host, hit, pointer, 0, out var code, out reason), code ?? reason);
+            Assert.AreEqual(before + 2, host.CurrentRevision);
+            Assert.AreEqual(line.Id, host.Index.ModulesOfType("track")[0].Config.Text("line"));
             Assert.IsTrue(StationEditSession.TryUndo(host, out _, out code), code);
-            Assert.AreEqual(0, host.Index.Document.Lines.Count, "one undo takes the line with the rail");
+            Assert.AreEqual(1, host.Document.Lines.Count);
+            Assert.IsEmpty(host.Index.ModulesOfType("track"));
+        }
+
+        StationLineRecord AddPlatformLine() {
+            var before = host.Coordinator.CommittedRead;
+            var planned = StationHostEdits.TryPlanAddLine(before, "up", "test", out var line, out var code);
+            Assert.IsNotNull(planned, code);
+            Assert.IsTrue(StationEditSession.TryApplyLocalRead(host, planned, before, "add line", null, out _, out code), code);
+            return line;
         }
 
         [Test]
         public void ABridgeAndATunnelReadOneExtensionAim() {
+            AddPlatformLine();
             Assert.IsTrue(StationToolSelection.TrySelect("rail", out _, out var selectCode), selectCode);
             var plan = StationRailPlanner.Plan(host.Index, "", "up", 0, 4, 6, 0);
             Assert.IsTrue(plan.Ok, plan.Reason);
