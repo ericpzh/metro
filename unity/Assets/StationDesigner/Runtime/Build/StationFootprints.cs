@@ -627,6 +627,48 @@ namespace Metro.Build {
             return StationMount.Floor;
         }
 
+        /// <summary>
+        /// Port of <c>app/tools/moduleTarget.ts:needsSurfaceHit</c>: ceiling-hung fittings, ramps
+        /// and screen-door pieces whose storey envelope includes empty air above blocks must only
+        /// be targeted via a direct hit on their drawn surface, never via a coarse cell fallback.
+        /// </summary>
+        public static bool NeedsSurfaceHit(StationModuleRecord m) {
+            if (m == null) return false;
+            return IsCeilingHung(m) ||
+                   (m.Type == "stair" && !m.Config.Bool("block")) ||
+                   m.Type == "escalator" ||
+                   m.Type == "walkway" ||
+                   m.Type == "platform-edge" ||
+                   m.Type == "psd-end";
+        }
+
+        /// <summary>
+        /// Port of <c>sim/placement.ts:moduleAt</c> filtered by <c>!needsSurfaceHit</c>
+        /// (<c>app/tools/moduleTarget.ts</c> with <c>pickedId = null</c>): finds a non-hung,
+        /// non-ramp module whose clearance overlaps the air cell above <c>(x, y, z)</c>,
+        /// preferring standing equipment over enclosing rooms and hangers.
+        /// </summary>
+        public static StationModuleRecord ModuleTarget(IReadOnlyList<StationModuleRecord> modules, int x, int y, int z) {
+            if (modules == null || modules.Count == 0) return null;
+            var cell = new StationBox(x, y, z + 1, x + 1, y + 1, z + 2);
+            for (int pass = 0; pass < 2; pass++) {
+                bool skipRooms = pass == 0;
+                for (int i = 0; i < modules.Count; i++) {
+                    var m = modules[i];
+                    if (m == null || NeedsSurfaceHit(m)) continue;
+                    bool isRoomOrHanger = m.Type == "shop" || m.Type == "booth" || m.Type == "retail" || m.Type == "hanger";
+                    if (skipRooms && isRoomOrHanger) continue;
+                    if (!skipRooms && !isRoomOrHanger) continue;
+                    if (!TryClearance(m, out var env, out _)) continue;
+                    var query = m.Z == z
+                        ? new StationBox(cell.X0, cell.Y0, cell.Z0, cell.X1, cell.Y1, Math.Max(cell.Z1, env.Z1))
+                        : cell;
+                    if (env.Overlaps(query)) return m;
+                }
+            }
+            return null;
+        }
+
         /// <summary>Port of <c>glassStandsOnFloor</c>: a panel that stands on the floor edge like a doorway.</summary>
         public static bool GlassStandsOnFloor(StationModuleRecord m) => GlassStandsOnFloor(m.Config);
         public static bool GlassStandsOnFloor(ModuleConfig config) {

@@ -18,7 +18,8 @@ import {
   settingsKey,
   shellToolFor,
 } from '../../game/src/unity-web/toolAdapter.ts'
-import { adoptPickedModule } from '../../game/src/app/tools/PickTool.ts'
+import { adoptPickedFace, adoptPickedModule } from '../../game/src/app/tools/PickTool.ts'
+import { parseHostPick } from '../../game/src/unity-web/pickAdoption.ts'
 import { useStore } from '../../game/src/app/store.ts'
 
 /** A store-shaped state: only the fields the adapter reads, all at their defaults. */
@@ -257,6 +258,105 @@ test('adoptPickedModule copies pillarLength, slim spot, and piece settings synce
     assert.equal(adoptPickedModule({ id: 'r-12', type: 'roof', x: 0, y: 0, z: 0, w: 4, d: 12, rot: 0, cfg: { variant: 'tapered-truss' } }, { select: false, notify: false }), true)
     assert.equal(useStore.getState().moduleType, 'roof-tapered')
     assert.equal(useStore.getState().roofWidth, 12)
+  } finally {
+    useStore.setState(before)
+  }
+})
+
+test('parseHostPick parses module, face, custom hex, repeated seq, and empty host picks', () => {
+  assert.deepEqual(parseHostPick(null), { kind: 'none', key: '' })
+  assert.deepEqual(parseHostPick({ kind: 'none', moduleId: '', finish: '', seq: 1 }), { kind: 'none', key: '' })
+
+  const face1 = parseHostPick({
+    seq: 4,
+    kind: 'face',
+    moduleId: '',
+    cell: [2, 3, 1],
+    face: 's',
+    finish: 'wall.enamel#ff4242',
+    armable: true,
+  })
+  assert.deepEqual(face1, {
+    kind: 'face',
+    key: 'face|4|wall.enamel#ff4242|2,3,1|s',
+    cell: [2, 3, 1],
+    face: 's',
+    finish: 'wall.enamel#ff4242',
+  })
+
+  const faceRepeat = parseHostPick({
+    seq: 5,
+    kind: 'face',
+    moduleId: '',
+    cell: [2, 3, 1],
+    face: 's',
+    finish: 'wall.enamel#ff4242',
+    armable: true,
+  })
+  assert.notEqual(faceRepeat.key, face1.key, 'monotonic seq distinguishes repeated picks of the same face')
+
+  const mod1 = parseHostPick({ seq: 6, kind: 'module', moduleId: 'bench-1', armable: true })
+  const modRepeat = parseHostPick({ seq: 7, kind: 'module', moduleId: 'bench-1', armable: true })
+  assert.equal(mod1.kind, 'module')
+  assert.equal(mod1.moduleId, 'bench-1')
+  assert.equal(mod1.armable, true)
+  assert.notEqual(modRepeat.key, mod1.key, 'monotonic seq distinguishes repeated picks of the same module')
+
+  const nonArmable = parseHostPick({ seq: 8, kind: 'module', moduleId: 'pe-1', armable: false })
+  assert.equal(nonArmable.kind, 'module')
+  assert.equal(nonArmable.armable, false)
+
+  // Legacy payload without seq still produces a deterministic fallback key.
+  const legacyFace = parseHostPick({ cell: [0, 1, 0], face: 'top', finish: 'floor.granite' })
+  assert.equal(legacyFace.kind, 'face')
+  assert.equal(legacyFace.key, 'face|floor.granite|0,1,0|top')
+})
+
+test('adoptPickedFace arms paint tool with stock/custom finish, keeps paintBaseMode, syncs settings, and restores on cancelPick', () => {
+  const before = useStore.getState()
+  try {
+    // 1. Custom hex wall tint while paintBaseMode='surface'.
+    useStore.setState({
+      tool: 'pick',
+      paintFinish: 'floor.concrete',
+      paintMode: 'single',
+      paintBaseMode: 'surface',
+      pickDraft: null,
+      notice: null,
+    })
+    adoptPickedFace([2, 3, 1], 'wall.enamel#ff4242', { select: false })
+    let st = useStore.getState()
+    assert.equal(st.tool, 'paint')
+    assert.equal(st.paintFinish, 'wall.enamel#ff4242')
+    assert.equal(st.paintMode, 'surface', 'adoptPickedFace preserves paintBaseMode')
+    assert.equal(settingsFor(st).paintFinish, 'wall.enamel#ff4242', 'toolAdapter syncs custom hex finish to Unity')
+    assert.equal(settingsFor(st).paintMode, 'surface')
+    assert.ok(st.pickDraft, 'adoptPickedFace records pickDraft for Esc cancelPick')
+    assert.ok(typeof st.notice === 'string' && st.notice.length > 0, 'adoptPickedFace shows localized picked finish notice')
+
+    // Esc restores prior tool, finish, and paint mode.
+    assert.equal(st.cancelPick(), true)
+    st = useStore.getState()
+    assert.equal(st.tool, 'pick')
+    assert.equal(st.paintFinish, 'floor.concrete')
+    assert.equal(st.paintMode, 'single')
+    assert.equal(st.pickDraft, null)
+
+    // 2. Bare default finish with paintBaseMode='single' and select=true selects the cell.
+    useStore.setState({
+      tool: 'pick',
+      paintFinish: 'wall.tiles',
+      paintMode: 'single',
+      paintBaseMode: 'single',
+      selected: null,
+      pickDraft: null,
+    })
+    adoptPickedFace([4, 5, 0], 'floor.concrete', { select: true, notify: false })
+    st = useStore.getState()
+    assert.equal(st.tool, 'paint')
+    assert.equal(st.paintFinish, 'floor.concrete')
+    assert.equal(st.paintMode, 'single')
+    assert.deepEqual(st.selected, { kind: 'cell', key: '4,5,0', label: '(4, 5, 0)' })
   } finally {
     useStore.setState(before)
   }

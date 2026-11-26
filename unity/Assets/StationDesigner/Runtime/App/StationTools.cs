@@ -269,7 +269,7 @@ namespace Metro.App {
             var host = StationEditHost.Host;
             if (host != null && host.IsLoaded && (toolChanged || settingsChanged)) {
                 if (toolChanged) {
-                    StationPointerRouter.OnToolChanged(host);
+                    StationPointerRouter.OnToolChanged(host, previous);
                     StationPointerRouter.RefreshHover(host);
                 } else {
                     StationPointerRouter.OnToolSettingsEdited(host, ownerChanged);

@@ -82,6 +82,31 @@ test('select hover marks the cell that a click selects, not the adjacent placeme
   }
 })
 
+test('pick hover highlights the hit wall/block itself instead of a flat tile on the adjacent cell', () => {
+  const before = useStore.getState()
+  try {
+    const f = fixture()
+    f.ctx.pickModule = () => null
+    const cursors = []
+    const ghosts = []
+    f.ctx.scene().setCursor = (...args) => cursors.push(args)
+    f.ctx.scene().setGhost = (...args) => ghosts.push(args)
+    const tool = new PickTool(f.ctx)
+
+    // Vertical wall hit: highlights wall block [2, 3, 1] itself in blue and suppresses flat cursor ring.
+    tool.onMove({ ...f.pointer, hit: { cell: [2, 3, 1], place: [2, 2, 1], solid: true } })
+    assert.deepEqual(ghosts.at(-1), [[[2, 3, 1]], 'remove', 0x168cff])
+    assert.deepEqual(cursors.at(-1), [null])
+
+    // Horizontal work-plane hit: clears block ghost and shows flat grid cursor on the work plane.
+    tool.onMove({ ...f.pointer, hit: { cell: [4, 5, 0], place: [4, 5, 0], solid: false } })
+    assert.deepEqual(ghosts.at(-1), [[], 'remove'])
+    assert.deepEqual(cursors.at(-1), [[4, 5, 0], true])
+  } finally {
+    useStore.setState(before)
+  }
+})
+
 test('equipment settings refresh cannot restore a stair-block preview after switching to 方块', () => {
   const before = useStore.getState()
   try {

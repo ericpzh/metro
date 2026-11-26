@@ -34,7 +34,7 @@ import { finishLabel } from '../../sim/finishes.ts'
 import { moduleTarget } from './moduleTarget.ts'
 import { pillarSectionOf } from '../../sim/structures.ts'
 import { signBoardsOf, signMountSpec } from '../../sim/sign.ts'
-import type { Module } from '../../sim/types.ts'
+import type { FinishId, Module } from '../../sim/types.ts'
 import { MODULE_OPTIONS, moduleLabel, useStore } from '../store.ts'
 import { dominantFace } from './geometry/faces.ts'
 import { ToolController } from './ToolController.ts'
@@ -321,6 +321,26 @@ export function adoptPickedModule(mod: Module, options?: { select?: boolean; not
   return true
 }
 
+/**
+ * Arm the 材质 brush with a picked block/wall face finish and remember the prior tool state
+ * for Esc (`cancelPick`). Shared by the web canvas `PickTool` and the Unity shell's `pick`
+ * adoption so both preserve `paintBaseMode` (`single` / `surface`), open the 材质 folder
+ * with synced colour controls, and show the localized picked-finish notice.
+ */
+export function adoptPickedFace(
+  cell: readonly [number, number, number],
+  finish: FinishId,
+  options?: { select?: boolean; notify?: boolean },
+): void {
+  const st = useStore.getState()
+  const shouldSelect = options?.select !== false
+  const shouldNotify = options?.notify !== false
+  st.beginPick()
+  st.selectPaintFinish(finish)
+  if (shouldSelect) st.select({ kind: 'cell', key: cellKey(cell[0], cell[1], cell[2]), label: `(${cell.join(', ')})` })
+  if (shouldNotify) st.setNotice(msg('picked_value', finishLabel(finish)))
+}
+
 export class PickTool extends ToolController {
   readonly tool = 'pick' as const
 
@@ -360,10 +380,7 @@ export class PickTool extends ToolController {
       const finish = faceFinish(st.station.cells, x, y, z, face)
       // A face is a pick like any other — it hands the tool and the brush over —
       // so it notes the state it stands on for Esc as well.
-      st.beginPick()
-      st.selectPaintFinish(finish)
-      st.select({ kind: 'cell', key: cellKey(...hit.cell), label: `(${hit.cell.join(', ')})` })
-      st.setNotice(msg('picked_value', finishLabel(finish)))
+      adoptPickedFace(hit.cell, finish)
     }
   }
 
@@ -374,6 +391,7 @@ export class PickTool extends ToolController {
     if (!hit) {
       scene.setHoverHighlight?.(null)
       scene.setModulePreview(null)
+      scene.setGhost?.([], 'remove')
       scene.setCursor(null)
       return
     }
@@ -383,12 +401,21 @@ export class PickTool extends ToolController {
       const picked = useStore.getState().station.modules.find((m) => m.id === pickedId)
       scene.setHoverHighlight?.(null)
       scene.setModulePreview(picked ?? null, false, 0x168cff)
+      scene.setGhost?.([], 'remove')
       scene.setCursor(null)
       return
     }
     scene.setHoverHighlight?.(null)
     scene.setModulePreview(null)
-    scene.setCursor(hit.solid ? hit.place : hit.cell, true)
+    if (hit.solid) {
+      // Highlight the hovered block/wall itself instead of projecting a flat horizontal
+      // placement ring onto the adjacent air cell (`hit.place`).
+      scene.setGhost?.([hit.cell], 'remove', 0x168cff)
+      scene.setCursor(null)
+    } else {
+      scene.setGhost?.([], 'remove')
+      scene.setCursor(hit.cell, true)
+    }
   }
 
   // The pick commits on press; the release owns nothing.

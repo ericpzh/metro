@@ -456,6 +456,90 @@ namespace Metro.App {
             return style.Length == 0 || string.Equals(style, "straight", StringComparison.Ordinal);
         }
 
+        /// <summary>
+        /// Port of <c>SceneRenderer.isModuleVisible</c>: true when <paramref name="module"/> is
+        /// currently visible under the active storey slice, role visibility toggles, culling mask
+        /// and section plane. Used to gate coordinate-based picker fallbacks (tracks, rooms,
+        /// standing equipment) so hidden-storey or section-clipped modules cannot be picked through.
+        /// </summary>
+        public static bool IsModuleVisible(StationWorldView world, StationVisibilityRegistry visibility,
+            StationModuleRecord module, int cullingMask = ~0) {
+            if (module == null) return false;
+            if (world != null && world.IsBuilt) {
+                var idx = EnsureIndex(world);
+                var groups = idx.Groups;
+                if (groups != null) {
+                    bool foundAny = false;
+                    for (int g = 0; g < groups.Length; g++) {
+                        var group = groups[g];
+                        var bodies = group.Bodies;
+                        for (int b = 0; b < bodies.Length; b++) {
+                            var body = bodies[b];
+                            if (body?.Module == null ||
+                                !string.Equals(body.Module.Id, module.Id, StringComparison.Ordinal)) continue;
+                            foundAny = true;
+                            if (group.View == null || !group.View.activeInHierarchy) continue;
+                            if (visibility != null && visibility.DecidePart(group.PartRole, group.LevelBands, false,
+                                    StationVisibilityTarget.NoGroundBand, group.GradeOwned) == StationDrawMode.Hidden) {
+                                continue;
+                            }
+                            bool anyEligible = false;
+                            for (int p = 0; p < body.Parts.Length; p++) {
+                                if (IsRendererEligible(body.Parts[p].Renderer, cullingMask)) {
+                                    anyEligible = true;
+                                    break;
+                                }
+                            }
+                            if (!anyEligible) continue;
+                            if (visibility != null && visibility.SectionClipping && !body.Box.IsEmpty &&
+                                visibility.Section.Classify(WorldBoundsOf(body.Box)) == StationSectionSide.Cut) {
+                                continue;
+                            }
+                            return true;
+                        }
+                    }
+                    if (foundAny) return false;
+                }
+            }
+            if (visibility == null) return true;
+            var grid = world?.Document != null
+                ? StationLevelGrid.FromDocument(world.Document.LevelBase, world.Document.StoreyHeight)
+                : StationLevelGrid.FromDocument(visibility.State.LevelBase, visibility.State.StoreyHeight);
+            var bands = StationModuleLevels.Of(module, grid);
+            var role = ModuleRoleForVisibility(module);
+            var gradeOwned = StationViewFeature.IsGradeModule(module);
+            if (visibility.DecidePart(role, bands, false, StationVisibilityTarget.NoGroundBand, gradeOwned) ==
+                StationDrawMode.Hidden) {
+                return false;
+            }
+            if (visibility.SectionClipping && StationFootprints.TryClearance(module, out var clearance, out _) &&
+                !clearance.IsEmpty &&
+                visibility.Section.Classify(WorldBoundsOf(clearance)) == StationSectionSide.Cut) {
+                return false;
+            }
+            return true;
+        }
+
+        static StationPartRole ModuleRoleForVisibility(StationModuleRecord module) {
+            if (module == null) return StationPartRole.Prop;
+            switch (module.Type) {
+                case "psd": case "psd-end": case "platform-edge": return StationPartRole.Psd;
+                case "roof": return StationPartRole.Roof;
+                case "sidewalk": case "lawn": case "tree": case "road": case "traffic-light": return StationPartRole.Ground;
+                case "sign": case "billboard": case "calligraphy": case "linemap": case "monitor": return StationPartRole.Sign;
+                case "train": return StationPartRole.Train;
+                default: return StationPartRole.Prop;
+            }
+        }
+
+        static Bounds WorldBoundsOf(StationBox box) {
+            var a = StationCoordinates.Point(new Vector3((float)box.X0, (float)box.Y0, (float)box.Z0));
+            var b = StationCoordinates.Point(new Vector3((float)box.X1, (float)box.Y1, (float)box.Z1));
+            var min = Vector3.Min(a, b);
+            var max = Vector3.Max(a, b);
+            return new Bounds((min + max) * 0.5f, max - min);
+        }
+
         readonly struct ModuleHit {
             public ModuleHit(StationModuleRecord module, StationViewRecord record, float distance,
                 Vector3 point, Vector3 normal, Vector3 local, bool exact) {

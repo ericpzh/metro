@@ -32,7 +32,8 @@ import { createToolAdapter, rightClaimedByTool } from './toolAdapter.ts'
 import { noticeKey, noticeText, type BuildOutcome } from './editNotices.ts'
 import { UnityExplodedView } from './UnityExplodedView.tsx'
 import { UnityBenchmarkRoute } from './UnityBenchmarkRoute.tsx'
-import { adoptPickedModule } from '../app/tools/PickTool.ts'
+import { adoptPickedFace, adoptPickedModule } from '../app/tools/PickTool.ts'
+import { parseHostPick } from './pickAdoption.ts'
 import { createSignFacePort } from './signFaceProvider.ts'
 import { createPsdHeaderPort } from './psdHeaderProvider.ts'
 import { createExitFacePort } from './exitFaceProvider.ts'
@@ -807,19 +808,25 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
       lastSelection = ''
       useStore.getState().select(null)
     }
-    const pick = edit.pick as Record<string, unknown> | null | undefined
-    const pickId = pick && typeof pick.moduleId === 'string' ? pick.moduleId : ''
-    if (pickId && pickId !== lastPick) {
-      lastPick = pickId
-      const picked = useStore.getState().station.modules.find(module => module.id === pickId)
+    const parsedPick = parseHostPick(edit.pick as Record<string, unknown> | null | undefined)
+    if (parsedPick.kind !== 'none' && parsedPick.key !== lastPick) {
+      lastPick = parsedPick.key
       // Only arm the rail while the eyedropper is still the committed tool: a pick result
       // that arrives after the player (or the presenter) moved on must not drag the tool
-      // back to 设备. Selection already arrived through `edit.selectionKey` above.
-      if (picked && useStore.getState().tool === 'pick') {
-        adoptPickedModule(picked, { select: false })
+      // back to 设备 / 材质. Selection already arrived through `edit.selectionKey` above.
+      if (useStore.getState().tool === 'pick') {
+        if (parsedPick.kind === 'module') {
+          const picked = useStore.getState().station.modules.find(module => module.id === parsedPick.moduleId)
+          if (picked) {
+            adoptPickedModule(picked, { select: false })
+          }
+        } else if (parsedPick.kind === 'face') {
+          adoptPickedFace(parsedPick.cell, parsedPick.finish, { select: false })
+        }
       }
+    } else if (parsedPick.kind === 'none') {
+      lastPick = ''
     }
-    if (!pickId) lastPick = ''
     // The 材质 brush's 取色 is the host's: `state.edit.paintPick` carries the finish of the face
     // the player eyedropped, and only while the brush is still armed with the eyedropper — a
     // late result must not drag the moulding brush back into pick mode.

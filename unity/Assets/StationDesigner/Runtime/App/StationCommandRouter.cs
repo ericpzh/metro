@@ -41,14 +41,20 @@ namespace Metro.App {
                 return delete || secondary || tool == "delete" ? "delete" : "place";
             }
             if (accepted && !carried && StationEditSession.HasCarried) return "pick";
-            if (accepted && (pick != StationEditSession.Picked &&
-                    !string.IsNullOrEmpty((string)StationEditSession.Picked?["moduleId"]) ||
+            if (accepted && (pick != StationEditSession.Picked && IsArmablePick(StationEditSession.Picked) ||
                 paintPick != StationEditSession.PaintPick && StationEditSession.PaintPick != null)) return "pick";
             if (accepted && !string.IsNullOrEmpty(StationEditSession.SelectionKey) &&
                 (selectionKind != StationEditSession.SelectionKind || selectionKey != StationEditSession.SelectionKey)) return "select";
             if (pointer && notice != StationEditSession.Notice &&
                 (string)StationEditSession.Notice?["kind"] == "blocked" && tool != "pick" && tool != "select") return "refused";
             return !accepted && (move || delete) && !string.IsNullOrEmpty(rejectCode) ? "refused" : null;
+        }
+
+        static bool IsArmablePick(JObject picked) {
+            if (picked == null) return false;
+            var armable = picked["armable"];
+            if (armable != null && armable.Type == JTokenType.Boolean) return (bool)armable;
+            return !string.IsNullOrEmpty((string)picked["moduleId"]) || !string.IsNullOrEmpty((string)picked["finish"]);
         }
     }
 

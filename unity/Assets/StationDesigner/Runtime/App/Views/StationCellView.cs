@@ -1284,6 +1284,17 @@ namespace Metro.App.Views {
             return false;
         }
 
+        /// <summary>Look up the committed paint snapshot (including ground holes and window) for <paramref name="world"/>.</summary>
+        public static bool TryGetSnapshot(StationWorldView world, out StationPaintSnapshot snapshot) {
+            var state = FindState(world);
+            if (state != null && state.Snapshot != null) {
+                snapshot = state.Snapshot;
+                return true;
+            }
+            snapshot = null;
+            return false;
+        }
+
         public static StagedCellRendererDelta StageLocalDelta(
             StationWorldView world,
             StationDocument nextDoc,

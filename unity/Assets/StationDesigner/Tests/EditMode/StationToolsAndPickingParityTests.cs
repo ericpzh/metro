@@ -793,5 +793,376 @@ namespace Metro.EditModeTests {
             var recorded = (JArray)stopPayload["frames"];
             Assert.AreEqual(16000, recorded.Count, "MaxFrameSamples caps at 16,000 and filters invalid intervals");
         }
+
+        // ------------------------------------------------------------------ Pick tool full Web parity
+
+        void AimCameraAt(Vector3 docTarget, Vector3 docEye) {
+            camera.transform.position = StationCoordinates.Point(docEye);
+            camera.transform.LookAt(StationCoordinates.Point(docTarget), Vector3.up);
+        }
+
+        bool DispatchPointerAtCenter(string type, int button, out JObject reply, out string code, out string reason) {
+            reply = new JObject();
+            var payload = new JObject {
+                ["x"] = 640f,
+                ["y"] = 360f,
+                ["w"] = 1280f,
+                ["h"] = 720f,
+                ["button"] = button,
+                ["buttons"] = button == 0 ? 1 : button == 2 ? 2 : 0,
+                ["pointerId"] = 1,
+                ["toolGeneration"] = StationToolSelection.Generation,
+                ["documentRevision"] = host.CurrentRevision,
+            };
+            return StationPointerRouter.Handle(host, type, payload, reply, out code, out reason);
+        }
+
+        [Test]
+        public void PickToolLiftsBlockWallCustomTintDefaultGroundCutAndSlopeFinishesAndPreservesSelection() {
+            var cells = SolidFloorPatch(0, 9, 0, 4, 0);
+            // Painted floor top at (1,1,0).
+            foreach (JObject c in cells) {
+                if ((int)c["x"] == 1 && (int)c["y"] == 1 && (int)c["z"] == 0) {
+                    c["finish"] = new JObject { ["top"] = "floor.granite" };
+                }
+            }
+            // Wall with distinct finishes on N and custom hex on S.
+            cells.Add(new JObject {
+                ["x"] = 2, ["y"] = 2, ["z"] = 1, ["fill"] = "solid",
+                ["tags"] = new JArray("wall"),
+                ["finish"] = new JObject { ["n"] = "wall.tiles", ["s"] = "wall.enamel#ff4242" },
+            });
+            // Half-wall hugging N at (4,2,1) with painted inner S face (solid block at (4,1,1) proves inner face stays present).
+            cells.Add(new JObject { ["x"] = 4, ["y"] = 1, ["z"] = 1, ["fill"] = "solid", ["tags"] = new JArray("wall") });
+            cells.Add(new JObject {
+                ["x"] = 4, ["y"] = 2, ["z"] = 1, ["fill"] = "solid",
+                ["tags"] = new JArray("wall", "half-wall:n"),
+                ["finish"] = new JObject { ["s"] = "wall.plaster" },
+            });
+            // Half-corner hugging NW (n) at (5,0,1) with clear +X corridor for its inner E face.
+            cells.Add(new JObject {
+                ["x"] = 5, ["y"] = 0, ["z"] = 1, ["fill"] = "solid",
+                ["tags"] = new JArray("wall", "half-corner:n"),
+                ["finish"] = new JObject { ["e"] = "wall.concrete" },
+            });
+            // Compound cut (missing NW quarter -> inner W face present) at (6,4,1) with clear -X corridor.
+            cells.Add(new JObject {
+                ["x"] = 6, ["y"] = 4, ["z"] = 1, ["fill"] = "solid",
+                ["tags"] = new JArray("wall", "cut:nw"),
+                ["finish"] = new JObject { ["w"] = "wall.marble" },
+            });
+            // 45° upper triangle wedge (slope finish stored on `top`) and lower wedge (stored on `bottom`).
+            cells.Add(new JObject {
+                ["x"] = 7, ["y"] = 2, ["z"] = 1, ["fill"] = "solid",
+                ["tags"] = new JArray("tri-upper:s"),
+                ["finish"] = new JObject { ["top"] = "floor.terrazzo" },
+            });
+            cells.Add(new JObject {
+                ["x"] = 8, ["y"] = 2, ["z"] = 2, ["fill"] = "solid",
+                ["tags"] = new JArray("tri-lower:s"),
+                ["finish"] = new JObject { ["bottom"] = "wall.panel" },
+            });
+
+            OpenSave(MakeSave(0, cells));
+            EnsurePreview();
+            rig.Visibility.State.ActiveLevel = 0;
+            rig.Visibility.Apply();
+            int revBefore = host.CurrentRevision;
+
+            SelectTool("pick");
+
+            // 1. Painted floor top -> floor.granite.
+            AimCameraAt(new Vector3(1.5f, 1.5f, 1f), new Vector3(1.5f, 1.5f, 6f));
+            StationScenePicker.ResetPickCount();
+            Assert.IsTrue(DispatchPointerAtCenter("pointer.down", 0, out _, out _, out _));
+            Assert.AreEqual(1, StationScenePicker.PickCount, "one scene pick per pointer event");
+            Assert.AreEqual("face", (string)StationEditSession.Picked["kind"]);
+            Assert.AreEqual("floor.granite", (string)StationEditSession.Picked["finish"]);
+            Assert.AreEqual("top", (string)StationEditSession.Picked["face"]);
+            Assert.IsTrue((bool)StationEditSession.Picked["armable"]);
+            int firstSeq = (int)StationEditSession.Picked["seq"];
+            Assert.AreEqual("cell", StationEditSession.SelectionKind);
+            Assert.AreEqual("1,1,0", StationEditSession.SelectionKey);
+
+            // Repeated pick of the exact same face increments seq so React re-adopts it.
+            Assert.IsTrue(DispatchPointerAtCenter("pointer.down", 0, out _, out _, out _));
+            Assert.Greater((int)StationEditSession.Picked["seq"], firstSeq, "repeated pick increments seq");
+
+            // 2. Switching pick -> paint via tool.set preserves the freshly picked cell selection;
+            // a subsequent manual switch paint -> block clears it.
+            var toolHandler = new StationToolCommandHandler();
+            var toPaint = new JObject { ["tool"] = "paint", ["settings"] = new JObject { ["paintFinish"] = "floor.granite" } };
+            Assert.IsTrue(toolHandler.TryHandle(new StationCommand { Type = "tool.set", Payload = toPaint }, toPaint, out _, out _));
+            Assert.AreEqual("cell", StationEditSession.SelectionKind, "pick -> paint keeps picked cell selection");
+            Assert.AreEqual("1,1,0", StationEditSession.SelectionKey);
+
+            var toBlock = new JObject { ["tool"] = "block" };
+            Assert.IsTrue(toolHandler.TryHandle(new StationCommand { Type = "tool.set", Payload = toBlock }, toBlock, out _, out _));
+            Assert.AreEqual("", StationEditSession.SelectionKind, "subsequent switch away from paint clears selection");
+
+            // 3. Wall custom hex tint on S face and stock finish on N face.
+            SelectTool("pick");
+            AimCameraAt(new Vector3(2.5f, 2f, 1.5f), new Vector3(2.5f, -2f, 1.5f));
+            Assert.IsTrue(DispatchPointerAtCenter("pointer.down", 0, out _, out _, out _));
+            Assert.AreEqual("face", (string)StationEditSession.Picked["kind"]);
+            Assert.AreEqual("wall.enamel#ff4242", (string)StationEditSession.Picked["finish"]);
+            Assert.AreEqual("s", (string)StationEditSession.Picked["face"]);
+            Assert.AreEqual("2,2,1", StationEditSession.SelectionKey);
+
+            AimCameraAt(new Vector3(2.5f, 3f, 1.5f), new Vector3(2.5f, 7f, 1.5f));
+            Assert.IsTrue(DispatchPointerAtCenter("pointer.down", 0, out _, out _, out _));
+            Assert.AreEqual("wall.tiles", (string)StationEditSession.Picked["finish"]);
+            Assert.AreEqual("n", (string)StationEditSession.Picked["face"]);
+
+            // 4. Bare unpainted solid cell falls back to floor.concrete.
+            AimCameraAt(new Vector3(3.5f, 1.5f, 1f), new Vector3(3.5f, 1.5f, 6f));
+            Assert.IsTrue(DispatchPointerAtCenter("pointer.down", 0, out _, out _, out _));
+            Assert.AreEqual("face", (string)StationEditSession.Picked["kind"]);
+            Assert.AreEqual(StationFinishIds.DefaultMaterial, (string)StationEditSession.Picked["finish"]);
+
+            // 5. Virtual street ground outside explicit cells picks floor.concrete.
+            AimCameraAt(new Vector3(14.5f, 14.5f, 1f), new Vector3(14.5f, 14.5f, 6f));
+            Assert.IsTrue(DispatchPointerAtCenter("pointer.down", 0, out _, out _, out _));
+            Assert.AreEqual("face", (string)StationEditSession.Picked["kind"]);
+            Assert.AreEqual(StationFinishIds.DefaultMaterial, (string)StationEditSession.Picked["finish"]);
+            Assert.AreEqual("top", (string)StationEditSession.Picked["face"]);
+
+            // 6. Half-wall inner face (S, even with solid (4,1,1) beside it), half-corner inner face (E), and compound cut inner face (W).
+            // Aim from above (4,1,1) diagonally into (4,2,1)'s clear south half so the ray clears (4,1,1) and camera.nearClipPlane.
+            AimCameraAt(new Vector3(4.5f, 2.5f, 1.5f), new Vector3(4.5f, 1.5f, 4.5f));
+            Assert.IsTrue(DispatchPointerAtCenter("pointer.down", 0, out _, out _, out _));
+            Assert.AreEqual("wall.plaster", (string)StationEditSession.Picked["finish"]);
+            Assert.AreEqual("s", (string)StationEditSession.Picked["face"]);
+
+            AimCameraAt(new Vector3(5.5f, 0.75f, 1.5f), new Vector3(9f, 0.75f, 1.5f));
+            Assert.IsTrue(DispatchPointerAtCenter("pointer.down", 0, out _, out _, out _));
+            Assert.AreEqual("wall.concrete", (string)StationEditSession.Picked["finish"]);
+            Assert.AreEqual("e", (string)StationEditSession.Picked["face"]);
+
+            AimCameraAt(new Vector3(6.5f, 4.75f, 1.5f), new Vector3(2f, 4.75f, 1.5f));
+            Assert.IsTrue(DispatchPointerAtCenter("pointer.down", 0, out _, out _, out _));
+            Assert.AreEqual("wall.marble", (string)StationEditSession.Picked["finish"]);
+            Assert.AreEqual("w", (string)StationEditSession.Picked["face"]);
+
+            // 7. 45° upper and lower triangle wedge slopes resolve `top` and `bottom` respectively.
+            AimCameraAt(new Vector3(7.5f, 2.5f, 1.5f), new Vector3(7.5f, 5.5f, 4.5f));
+            Assert.IsTrue(DispatchPointerAtCenter("pointer.down", 0, out _, out _, out _));
+            Assert.AreEqual("floor.terrazzo", (string)StationEditSession.Picked["finish"]);
+            Assert.AreEqual("top", (string)StationEditSession.Picked["face"]);
+
+            AimCameraAt(new Vector3(8.5f, 2.5f, 2.5f), new Vector3(8.5f, 5.5f, 0.5f));
+            Assert.IsTrue(DispatchPointerAtCenter("pointer.down", 0, out _, out _, out _));
+            Assert.AreEqual("wall.panel", (string)StationEditSession.Picked["finish"]);
+            Assert.AreEqual("bottom", (string)StationEditSession.Picked["face"]);
+
+            Assert.AreEqual(revBefore, host.CurrentRevision, "picking finishes never modifies document revision");
+        }
+
+        [Test]
+        public void PickToolIgnoresRightClickDrawsCursorRingOnCellsAndClearsHoverOnMiss() {
+            var cells = SolidFloorPatch(0, 6, 0, 6, 0);
+            cells.Add(new JObject {
+                ["x"] = 2, ["y"] = 2, ["z"] = 1, ["fill"] = "solid",
+                ["tags"] = new JArray("wall"),
+                ["finish"] = new JObject { ["s"] = "wall.tiles" },
+            });
+            var modules = new JArray {
+                new JObject { ["id"] = "bench-1", ["type"] = "bench", ["x"] = 4, ["y"] = 4, ["z"] = 0, ["rot"] = 0, ["w"] = 1, ["d"] = 1,
+                    ["cfg"] = new JObject { ["variant"] = "steel-1" } },
+            };
+            OpenSave(MakeSave(0, cells, modules));
+            var preview = EnsurePreview();
+            rig.Visibility.State.ActiveLevel = 0;
+            rig.Visibility.Apply();
+
+            Assert.IsTrue(StationPointerRouter.NeedsWorkPlane("pick", 0), "pick evaluates work plane on hover/primary");
+            Assert.IsFalse(StationPointerRouter.NeedsWorkPlane("pick", 2), "pick does not evaluate work plane on right button");
+
+            SelectTool("pick");
+
+            // Hovering a solid floor cell highlights the block itself (`kind == "cell-hover"`), not a flat cursor ring.
+            AimCameraAt(new Vector3(1.5f, 1.5f, 1f), new Vector3(1.5f, 1.5f, 6f));
+            Assert.IsTrue(DispatchPointerAtCenter("pointer.move", -1, out _, out _, out _));
+            Assert.AreEqual("cell-hover", (string)StationEditSession.Ghost?["kind"], "hovering floor cell highlights the block itself");
+            Assert.Greater((int)StationEditSession.Ghost["count"], 0);
+
+            // Hovering a vertical wall highlights the wall block (2,2,1) itself — never a flat tile floating at adjacent cell (2,1,1).
+            AimCameraAt(new Vector3(2.5f, 2f, 1.5f), new Vector3(2.5f, -2f, 1.5f));
+            Assert.IsTrue(DispatchPointerAtCenter("pointer.move", -1, out _, out _, out _));
+            Assert.AreEqual("cell-hover", (string)StationEditSession.Ghost?["kind"], "hovering wall highlights the wall block itself");
+            var livePreview = StationEditHost.Ensure().Preview;
+            var wallHoverFilter = livePreview.GetComponentInChildren<MeshFilter>(false);
+            Assert.IsNotNull(wallHoverFilter, "wall hover builds retained surface highlight mesh");
+            var wallDocCenter = StationCoordinates.WorldToDocument(wallHoverFilter.sharedMesh.bounds.center);
+            Assert.AreEqual(2.5f, wallDocCenter.x, 0.05f, "wall hover centers on wall cell X");
+            Assert.AreEqual(2.5f, wallDocCenter.y, 0.05f, "wall hover centers on wall cell Y (not adjacent air cell y=1.5)");
+            Assert.AreEqual(1.5f, wallDocCenter.z, 0.05f, "wall hover centers on wall cell Z");
+
+            // Right-click down and right-tap in pick tool never pick, never delete, and keep selection untouched.
+            StationEditSession.SelectCell(new StationCellKey(1, 1, 0));
+            int revBefore = host.CurrentRevision;
+            AimCameraAt(new Vector3(2.5f, 2f, 1.5f), new Vector3(2.5f, -2f, 1.5f));
+            Assert.IsTrue(DispatchPointerAtCenter("pointer.down", 2, out _, out _, out _));
+            Assert.IsNull(StationEditSession.Picked, "right press must not pick");
+            Assert.AreEqual("1,1,0", StationEditSession.SelectionKey, "right press leaves selection untouched");
+
+            Assert.IsTrue(DispatchPointerAtCenter("pointer.rightTap", 2, out _, out _, out _));
+            Assert.AreEqual(revBefore, host.CurrentRevision, "right tap in pick never deletes");
+            Assert.AreEqual("1,1,0", StationEditSession.SelectionKey, "right tap leaves selection untouched");
+            Assert.AreEqual(1, host.Index.Document.Modules.Count);
+
+            // Aiming straight up into empty sky (`targetKind == "none"`) clears hover and cell preview.
+            AimCameraAt(new Vector3(0f, 0f, 50f), new Vector3(0f, 0f, 10f));
+            Assert.IsTrue(DispatchPointerAtCenter("pointer.move", -1, out var missReply, out _, out _));
+            Assert.AreEqual("none", (string)missReply["hit"]?["targetKind"], "sky ray hits nothing");
+            Assert.IsNull(StationEditSession.Ghost, "miss clears cell hover");
+            Assert.IsNull(livePreview.GetComponentInChildren<MeshFilter>(false), "miss disables active hover highlight renderers");
+        }
+
+        [Test]
+        public void PickToolCoordinateFallbacksRespectVisibilitySurfaceHitAndModuleSemantics() {
+            var cells = SolidFloorPatch(0, 12, 0, 8, -5);
+            // Dug track bed at x=2..5, y=2..4, z=-5 (remove floor cells at z=-5, leave work plane at -5).
+            for (int i = cells.Count - 1; i >= 0; i--) {
+                var c = (JObject)cells[i];
+                int cx = (int)c["x"], cy = (int)c["y"];
+                if (cx >= 2 && cx <= 5 && cy >= 2 && cy <= 4) cells.RemoveAt(i);
+            }
+            var lines = new JArray {
+                new JObject { ["id"] = "L1", ["name"] = "1号线", ["color"] = "#f5c542", ["cars"] = 4 },
+            };
+            var modules = new JArray {
+                new JObject { ["id"] = "trk-1", ["type"] = "track", ["x"] = 2, ["y"] = 2, ["z"] = -5, ["rot"] = 0, ["w"] = 4, ["d"] = 3,
+                    ["cfg"] = new JObject { ["line"] = "L1", ["catenaryStyle"] = "overhead" } },
+                new JObject { ["id"] = "trk-bridge", ["type"] = "track", ["x"] = 2, ["y"] = 2, ["z"] = 5, ["rot"] = 0, ["w"] = 4, ["d"] = 3,
+                    ["cfg"] = new JObject { ["line"] = "L1", ["bridge"] = true, ["bridgeRailing"] = "glass" } },
+                new JObject { ["id"] = "shop-1", ["type"] = "shop", ["x"] = 7, ["y"] = 2, ["z"] = -5, ["rot"] = 0, ["w"] = 3, ["h"] = 3,
+                    ["cfg"] = new JObject { ["kind"] = "store" } },
+                new JObject { ["id"] = "bench-in-shop", ["type"] = "bench", ["x"] = 7, ["y"] = 2, ["z"] = -5, ["rot"] = 0, ["w"] = 1, ["d"] = 1,
+                    ["cfg"] = new JObject { ["variant"] = "steel-1" } },
+                new JObject { ["id"] = "light-1", ["type"] = "light", ["x"] = 10, ["y"] = 2, ["z"] = -5, ["rot"] = 0,
+                    ["cfg"] = new JObject { ["variant"] = "circular", ["position"] = 0 } },
+                new JObject { ["id"] = "pe-1", ["type"] = "platform-edge", ["x"] = 10, ["y"] = 4, ["z"] = -5, ["rot"] = 0, ["w"] = 2,
+                    ["cfg"] = new JObject { ["from"] = "trk-1", ["psd"] = "full" } },
+            };
+            OpenSave(MakeSave(-5, cells, modules, lines));
+            EnsurePreview();
+            rig.Visibility.State.ActiveLevel = -5;
+            rig.Visibility.State.ShowLevels = false;
+            rig.Visibility.Apply();
+
+            // 1. StationFootprints.NeedsSurfaceHit & ModuleTarget parity.
+            Assert.IsTrue(StationFootprints.NeedsSurfaceHit(host.Index.GetModule("light-1")), "ceiling-hung light needs surface hit");
+            Assert.IsTrue(StationFootprints.NeedsSurfaceHit(host.Index.GetModule("pe-1")), "platform-edge needs surface hit");
+            Assert.IsFalse(StationFootprints.NeedsSurfaceHit(host.Index.GetModule("bench-in-shop")), "standing bench uses cell fallback");
+            Assert.IsFalse(StationFootprints.NeedsSurfaceHit(host.Index.GetModule("shop-1")), "room uses cell fallback");
+
+            var atBenchAndShop = StationFootprints.ModuleTarget(host.Index.Document.Modules, 7, 2, -5);
+            Assert.AreEqual("bench-in-shop", atBenchAndShop?.Id, "ModuleTarget prefers standing equipment over enclosing shop");
+            var atEmptyShop = StationFootprints.ModuleTarget(host.Index.Document.Modules, 8, 3, -5);
+            Assert.AreEqual("shop-1", atEmptyShop?.Id, "ModuleTarget resolves enclosing shop on empty floor cell");
+            var underLight = StationFootprints.ModuleTarget(host.Index.Document.Modules, 10, 2, -5);
+            Assert.IsNull(underLight, "ModuleTarget never resurrects ceiling-hung light from floor cell");
+            var underPsd = StationFootprints.ModuleTarget(host.Index.Document.Modules, 10, 4, -5);
+            Assert.IsNull(underPsd, "ModuleTarget never resurrects platform-edge from floor cell");
+
+            // 2. Clicking shop floor (cell hit, no standalone shop mesh) picks shop-1 via ModuleTarget.
+            SelectTool("pick");
+            AimCameraAt(new Vector3(8.5f, 3.5f, -4f), new Vector3(8.5f, 3.5f, 0f));
+            Assert.IsTrue(DispatchPointerAtCenter("pointer.down", 0, out _, out _, out _));
+            Assert.AreEqual("module", (string)StationEditSession.Picked["kind"]);
+            Assert.AreEqual("shop-1", (string)StationEditSession.Picked["moduleId"]);
+            Assert.IsTrue((bool)StationEditSession.Picked["armable"]);
+            Assert.AreEqual("shop-1", StationEditSession.SelectionKey);
+
+            // 3. Clicking dug track bed on active level picks trk-1 via rail coordinate fallback.
+            AimCameraAt(new Vector3(3.5f, 3.5f, -4f), new Vector3(3.5f, 3.5f, 0f));
+            Assert.IsTrue(DispatchPointerAtCenter("pointer.down", 0, out _, out _, out _));
+            Assert.AreEqual("trk-1", (string)StationEditSession.Picked["moduleId"]);
+            Assert.IsTrue((bool)StationEditSession.Picked["armable"]);
+
+            // 4. Bridge track on hidden storey +5 is NOT visible while ActiveLevel=-5, and IS visible at ActiveLevel=5;
+            // when picked at ActiveLevel=5 it arms bridge without selecting it.
+            var bridgeMod = host.Index.GetModule("trk-bridge");
+            Assert.IsFalse(StationScenePicker.IsModuleVisible(host.Coordinator.World, rig.Visibility, bridgeMod),
+                "hidden storey bridge track is not visible");
+            rig.Visibility.State.ActiveLevel = 5;
+            rig.Visibility.Apply();
+            Assert.IsTrue(StationScenePicker.IsModuleVisible(host.Coordinator.World, rig.Visibility, bridgeMod),
+                "active storey bridge track is visible");
+            StationEditSession.ClearSelection();
+            AimCameraAt(new Vector3(3.5f, 3.5f, 6f), new Vector3(3.5f, 3.5f, 11f));
+            Assert.IsTrue(DispatchPointerAtCenter("pointer.down", 0, out _, out _, out _));
+            Assert.AreEqual("trk-bridge", (string)StationEditSession.Picked["moduleId"]);
+            Assert.AreEqual("bridge", (string)StationEditSession.Picked["paletteId"]);
+            Assert.IsTrue((bool)StationEditSession.Picked["armable"]);
+            Assert.AreEqual("", StationEditSession.SelectionKey, "bridge track pick arms tool without selecting");
+
+            // 5. StationModulePick.PaletteIdFor & ArmsTool cover all Web families.
+            StationModuleRecord MakeMod(string type, JObject cfg = null) {
+                var d = new StationEditDraft { Id = "test", Type = type, Width = 1, Depth = 1 };
+                if (cfg != null) {
+                    foreach (var p in cfg.Properties()) {
+                        if (p.Value.Type == JTokenType.Boolean) d.Set((bool)p.Value, p.Name);
+                        else if (p.Value.Type == JTokenType.Integer) d.Set((int)p.Value, p.Name);
+                        else d.Set(p.Name, p.Value.ToString());
+                    }
+                }
+                return StationModulePlacement.ToRecord(d);
+            }
+            Assert.AreEqual("pillar-thick", StationModulePick.PaletteIdFor(MakeMod("pillar", new JObject { ["size"] = "thick" })));
+            Assert.AreEqual("roof-tapered", StationModulePick.PaletteIdFor(MakeMod("roof", new JObject { ["variant"] = "tapered-truss" })));
+            Assert.AreEqual("shelf-cooler", StationModulePick.PaletteIdFor(MakeMod("shelf", new JObject { ["variant"] = "cooler" })));
+            Assert.AreEqual("hanger-roof", StationModulePick.PaletteIdFor(MakeMod("hanger", new JObject { ["mount"] = "roof" })));
+            Assert.AreEqual("curtain-wall", StationModulePick.PaletteIdFor(MakeMod("glass", new JObject { ["variant"] = "2x2", ["curtainHeight"] = 3 })));
+            Assert.AreEqual("glass-2x1", StationModulePick.PaletteIdFor(MakeMod("glass", new JObject { ["variant"] = "2x1" })));
+            Assert.AreEqual("door-glass-1", StationModulePick.PaletteIdFor(MakeMod("door", new JObject { ["variant"] = "glass-2" })));
+            Assert.AreEqual("calligraphy-wei-v", StationModulePick.PaletteIdFor(MakeMod("calligraphy", new JObject { ["style"] = "wei", ["axis"] = "v" })));
+            Assert.AreEqual("linemap-stand", StationModulePick.PaletteIdFor(MakeMod("linemap", new JObject { ["mount"] = "stand" })));
+            Assert.AreEqual("sign-wall", StationModulePick.PaletteIdFor(MakeMod("sign", new JObject { ["mount"] = "wall" })));
+            Assert.AreEqual("sign-ceiling", StationModulePick.PaletteIdFor(MakeMod("sign", new JObject { ["mount"] = "ceiling" })));
+            Assert.AreEqual("stair-block", StationModulePick.PaletteIdFor(MakeMod("stair", new JObject { ["block"] = true })));
+            Assert.AreEqual("stair-turning", StationModulePick.PaletteIdFor(MakeMod("stair", new JObject { ["style"] = "turning" })));
+            Assert.AreEqual("exit-doorway-3", StationModulePick.PaletteIdFor(MakeMod("exit", new JObject { ["style"] = "doorway", ["bays"] = 3 })));
+            Assert.AreEqual("exit-uncovered-1", StationModulePick.PaletteIdFor(MakeMod("exit", new JObject { ["covered"] = false, ["bays"] = 1 })));
+            Assert.AreEqual("psd-end-cover", StationModulePick.PaletteIdFor(MakeMod("psd-end", new JObject { ["variant"] = "cover" })));
+            Assert.AreEqual("checkout-cafe", StationModulePick.PaletteIdFor(MakeMod("checkout", new JObject { ["variant"] = "cafe" })));
+            Assert.AreEqual("checkout", StationModulePick.PaletteIdFor(MakeMod("checkout")));
+            Assert.AreEqual("bridge", StationModulePick.PaletteIdFor(bridgeMod));
+            Assert.AreEqual("ac-unit", StationModulePick.PaletteIdFor(MakeMod("ac-unit")));
+            Assert.AreEqual("electrical-cabinet", StationModulePick.PaletteIdFor(MakeMod("electrical-cabinet")));
+            Assert.IsFalse(StationModulePick.ArmsTool(host.Index.GetModule("pe-1")), "platform-edge is not armable");
+            Assert.IsTrue(StationModulePick.ArmsTool(host.Index.GetModule("trk-1")), "track is armable");
+            Assert.IsTrue(StationModulePick.ArmsTool(host.Index.GetModule("shop-1")), "shop is armable");
+        }
+
+        [Test]
+        public void CalligraphyEnglishSettingPropagatesToPlacedCandidate() {
+            var cells = SolidFloorPatch(0, 6, 0, 6, 0);
+            for (int x = 1; x <= 5; x++) {
+                for (int z = 1; z <= 3; z++) {
+                    cells.Add(new JObject { ["x"] = x, ["y"] = 4, ["z"] = z, ["fill"] = "solid", ["tags"] = new JArray("wall") });
+                }
+            }
+            OpenSave(MakeSave(0, cells));
+            EnsurePreview();
+            rig.Visibility.State.ActiveLevel = 0;
+            rig.Visibility.Apply();
+
+            SelectTool("module", new JObject {
+                ["moduleType"] = "calligraphy-kai-h",
+                ["rotation"] = 0,
+                ["calligraphyEnglish"] = true,
+            });
+            AimCameraAt(new Vector3(3.5f, 4f, 2.5f), new Vector3(3.5f, 0f, 2.5f));
+            Assert.IsTrue(DispatchPointerAtCenter("pointer.move", -1, out _, out _, out _));
+            Assert.IsNotNull(StationEditSession.Plan?.Candidate, "calligraphy hover resolved candidate");
+            Assert.AreEqual("calligraphy", StationEditSession.Plan.Candidate.Type);
+            Assert.IsTrue(StationEditSession.Plan.Candidate.Bool("showEnglish"), "calligraphyEnglish=true sets cfg.showEnglish");
+
+            StationToolSelection.ApplySettings(new JObject { ["calligraphyEnglish"] = false });
+            Assert.IsTrue(DispatchPointerAtCenter("pointer.move", -1, out _, out _, out _));
+            Assert.IsFalse(StationEditSession.Plan.Candidate.Bool("showEnglish"), "calligraphyEnglish=false clears cfg.showEnglish");
+        }
     }
 }

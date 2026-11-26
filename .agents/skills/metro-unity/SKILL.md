@@ -106,7 +106,19 @@ and keep `Newtonsoft.Json` out of `Metro.Sim`, `Metro.Build`, and `Metro.View`.
   station loads alongside `StationCellTool` and `StationEditHost`).
   `StationPlacementPreview` keeps hover, selection, and ghosts separate outside
   document commits and uses `StationHighlight.shader` for retained erase
-  batches. See [references/rendering-lod-fsr.md](references/rendering-lod-fsr.md).
+  batches and `ShowCellHover` (including compound cuts). In the `pick`
+  (eyedropper) tool, `StationPointerRouter` resolves visible modules, dug track
+  beds (`StationRailPlanner.RailAt`), standing/room fallbacks
+  (`StationFootprints.ModuleTarget` / `NeedsSurfaceHit` gated by
+  `StationScenePicker.IsModuleVisible`), and solid block/wall/cut/wedge/ground
+  face finishes (`StationCellRenderer.TryGetSnapshot` +
+  `StationFinishEdits.FacePresent`/`FinishOf`), stamps monotonic `seq` and
+  `armable` (`StationModulePick.ArmsTool`) on `StationEditSession.Picked`,
+  preserves pick-driven selection across the ensuing `pick → target` tool
+  switch (`PreserveNextToolChangeSelection`), ignores right-click/right-tap,
+  and highlights hovered walls/blocks directly (`ShowCellHover`) rather than a
+  flat tile on the adjacent air cell. See
+  [references/rendering-lod-fsr.md](references/rendering-lod-fsr.md).
 - **Model detail, non-active storey Mesh LODs & desktop batching:**
   `StationGraphicsSettings` owns `high` / `balanced` / `low` (`graphics.get` /
   `graphics.set`). Non-active storeys step down one Unity LOD tier

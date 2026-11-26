@@ -105,6 +105,14 @@ namespace Metro.App {
         public static Metro.Build.StationRailPlan Rail;
         /// <summary>The last eyedropper result, cleared by the next input.</summary>
         public static JObject Picked;
+        static int pickSeq;
+        /// <summary>Monotonic per-session sequence number so repeated picks of the same target remain distinguishable.</summary>
+        public static int NextPickSeq() => ++pickSeq;
+        /// <summary>
+        /// True immediately after an armable eyedropper pick, so the shell's resulting `tool.set`
+        /// away from `pick` keeps the freshly picked module/cell selection instead of wiping it.
+        /// </summary>
+        public static bool PreserveNextToolChangeSelection;
         /// <summary>
         /// The last build outcome the player should be told about (plan 28 §4): a normalized
         /// refusal code, the host's own sentence and the outcome kind — `blocked` (a candidate
@@ -198,6 +206,8 @@ namespace Metro.App {
             Surface = null;
             Rail = null;
             Picked = null;
+            pickSeq = 0;
+            PreserveNextToolChangeSelection = false;
             Notice = null;
             Ghost = null;
             Probe = null;

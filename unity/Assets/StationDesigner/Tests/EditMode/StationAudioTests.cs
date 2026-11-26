@@ -143,6 +143,32 @@ namespace Metro.Tests {
             Assert.IsNull(EvaluateCue(emptyPicked, accepted: true, committed: false),
                 "Picked with empty moduleId stays silent");
 
+            // Eyedropper Picked with block/wall face finish plays pick.
+            var eyedropFace = CaptureOutcome("pointer.down", new JObject { ["button"] = 0 });
+            StationEditSession.Picked = new JObject {
+                ["seq"] = 1, ["kind"] = "face", ["moduleId"] = "", ["finish"] = "wall.enamel#ff4242", ["armable"] = true,
+            };
+            StationEditSession.SelectCell(new StationCellKey(2, 1, 1));
+            Assert.AreEqual("pick", EvaluateCue(eyedropFace, accepted: true, committed: false),
+                "eyedropper lifting a block/wall face finish plays pick");
+
+            // Non-armable module pick (e.g. derived platform-edge) plays select instead of pick.
+            var nonArmablePick = CaptureOutcome("pointer.down", new JObject { ["button"] = 0 });
+            StationEditSession.Picked = new JObject {
+                ["seq"] = 2, ["kind"] = "module", ["moduleId"] = "pe-1", ["type"] = "platform-edge", ["armable"] = false,
+            };
+            StationEditSession.SelectModule(DummyModule("pe-1", "platform-edge"));
+            Assert.AreEqual("select", EvaluateCue(nonArmablePick, accepted: true, committed: false),
+                "non-armable module pick falls through to select cue");
+
+            // Empty target pick stays silent.
+            var nonePick = CaptureOutcome("pointer.down", new JObject { ["button"] = 0 });
+            StationEditSession.Picked = new JObject {
+                ["seq"] = 3, ["kind"] = "none", ["moduleId"] = "", ["finish"] = "", ["armable"] = false,
+            };
+            Assert.IsNull(EvaluateCue(nonePick, accepted: true, committed: false),
+                "empty target pick stays silent");
+
             // 3. PaintPick eyedropper.
             SelectTool("paint");
             var eyedropPaint = CaptureOutcome("pointer.up", new JObject { ["button"] = 0 });

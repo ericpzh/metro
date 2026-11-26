@@ -691,6 +691,26 @@ namespace Metro.App {
             return new Bounds((min + max) * 0.5f, max - min);
         }
 
+        /// <summary>Draw only the cyan/red pointer ring on one horizontal cell (e.g. empty work plane).</summary>
+        public void ShowCursor(StationCellKey cell, bool ok = true) {
+            ClearCells();
+            if (!bound || IsUiHidden()) return;
+            BuildLineBox(CursorBounds(cell), CursorMaterial(ok), cellOwned);
+            StationEditSession.Ghost = Summary("cursor");
+        }
+
+        /// <summary>
+        /// Highlight one solid block/wall cell itself (full block, half-wall, corner, compound
+        /// cut, or 45° wedge) in the hover blue (`#168cff`) instead of drawing a flat horizontal
+        /// cursor tile beside it.
+        /// </summary>
+        public void ShowCellHover(StationCellKey cell) {
+            ClearCells();
+            if (!bound || IsUiHidden()) return;
+            BuildEraseBatch(new[] { cell }, FillMaterial(true));
+            StationEditSession.Ghost = Summary("cell-hover");
+        }
+
         /// <summary>Drop the cell ghost (pointer leave, a tool change, a commit).</summary>
         public void ClearCells() {
             if (eraseBatch != null) eraseBatch.SetActive(false);
@@ -1683,7 +1703,7 @@ namespace Metro.App {
         void BuildEraseBatch(IReadOnlyList<StationCellKey> cells, Material material) {
             eraseVertices.Clear(); eraseTriangles.Clear(); eraseFaces.Clear();
             foreach (var cell in cells) {
-                var record = index.GetCell(cell);
+                var record = index != null ? index.GetCell(cell) : null;
                 var shape = record == null ? StationCellShape.Full : StationCellRules.ShapeOf(record.Tags);
                 if (shape.Kind == StationShapeKind.Triangle) {
                     var wedge = WedgeMesh(shape.Side, shape.Triangle == StationTriangleKind.Lower);
@@ -1693,27 +1713,13 @@ namespace Metro.App {
                     foreach (var triangle in wedge.triangles) eraseTriangles.Add(start + triangle);
                     continue;
                 }
-                var rect = StationCellRules.Bounds(shape);
-                for (double x = rect.X0; x < rect.X1; x += .5)
-                    for (double y = rect.Y0; y < rect.Y1; y += .5) {
-                        var a = StationCoordinates.Point(new Vector3(cell.X + (float)x, cell.Y + (float)y, cell.Z));
-                        var b = a + new Vector3(.5f, 1, .5f);
-                        int first = eraseVertices.Count, firstIndex = eraseTriangles.Count;
-                        BoxFaces.AppendAxisAligned(eraseVertices, eraseTriangles, (a + b) / 2, b - a);
-                        for (int face = 0; face < 6; face++) {
-                            var min = eraseVertices[first + face * 4]; var max = min;
-                            for (int v = 1; v < 4; v++) {
-                                min = Vector3.Min(min, eraseVertices[first + face * 4 + v]);
-                                max = Vector3.Max(max, eraseVertices[first + face * 4 + v]);
-                            }
-                            var key = (min, max);
-                            int faceIndex = firstIndex + face * 6;
-                            if (eraseFaces.TryGetValue(key, out var previous)) {
-                                for (int i = 0; i < 6; i++) { eraseTriangles[previous + i] = -1; eraseTriangles[faceIndex + i] = -1; }
-                                eraseFaces.Remove(key);
-                            } else eraseFaces[key] = faceIndex;
-                        }
+                if (shape.Kind == StationShapeKind.Cuts) {
+                    foreach (var cut in StationCellRules.CutRectangles(shape.Mask)) {
+                        AppendEraseRect(cell, cut);
                     }
+                    continue;
+                }
+                AppendEraseRect(cell, StationCellRules.Bounds(shape));
             }
             eraseTriangles.RemoveAll(i => i < 0);
             if (eraseMesh == null) {
@@ -1732,6 +1738,29 @@ namespace Metro.App {
             eraseMesh.RecalculateBounds();
             eraseBatch.GetComponent<MeshRenderer>().sharedMaterial = material;
             eraseBatch.SetActive(eraseTriangles.Count > 0);
+        }
+
+        void AppendEraseRect(StationCellKey cell, StationCutRect rect) {
+            for (double x = rect.X0; x < rect.X1; x += .5)
+                for (double y = rect.Y0; y < rect.Y1; y += .5) {
+                    var a = StationCoordinates.Point(new Vector3(cell.X + (float)x, cell.Y + (float)y, cell.Z));
+                    var b = a + new Vector3(.5f, 1, .5f);
+                    int first = eraseVertices.Count, firstIndex = eraseTriangles.Count;
+                    BoxFaces.AppendAxisAligned(eraseVertices, eraseTriangles, (a + b) / 2, b - a);
+                    for (int face = 0; face < 6; face++) {
+                        var min = eraseVertices[first + face * 4]; var max = min;
+                        for (int v = 1; v < 4; v++) {
+                            min = Vector3.Min(min, eraseVertices[first + face * 4 + v]);
+                            max = Vector3.Max(max, eraseVertices[first + face * 4 + v]);
+                        }
+                        var key = (min, max);
+                        int faceIndex = firstIndex + face * 6;
+                        if (eraseFaces.TryGetValue(key, out var previous)) {
+                            for (int i = 0; i < 6; i++) { eraseTriangles[previous + i] = -1; eraseTriangles[faceIndex + i] = -1; }
+                            eraseFaces.Remove(key);
+                        } else eraseFaces[key] = faceIndex;
+                    }
+                }
         }
 
         /// <summary>One cell's ghost: the whole block, a cut's thin panel, or a 三角's wedge.</summary>

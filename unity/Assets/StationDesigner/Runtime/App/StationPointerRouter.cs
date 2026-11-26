@@ -228,6 +228,7 @@ namespace Metro.App {
             StationEditSession.Cells = null;
             StationEditSession.Plan = null;
             StationEditSession.Ghost = null;
+            StationEditSession.PreserveNextToolChangeSelection = false;
             ForgetPress();
             return cancelled;
         }
@@ -290,6 +291,7 @@ namespace Metro.App {
             if (StationCellTool.HasGesture) return !StationCellTool.Gesture.Remove;
             if (StationZoneTool.HasGesture) return !StationZoneTool.GestureErase;
             if (button == 2) return false;
+            if (string.Equals(tool, "pick", StringComparison.Ordinal)) return true;
             if (string.Equals(tool, "zone", StringComparison.Ordinal)) return true;
             return StationCellTool.WantsWorkPlane(tool);
         }
@@ -601,6 +603,7 @@ namespace Metro.App {
                 ForgetPress();
                 ClearCellLayer(editHost);
                 editHost.Preview?.ClearGhost();
+                editHost.Preview?.ClearHover();
                 reply["miss"] = true;
                 reply["tool"] = tool;
                 reply["toolGeneration"] = StationToolSelection.Generation;
@@ -847,7 +850,7 @@ namespace Metro.App {
         /// (or its release) survives the switch (plan 27 §2: "Clear stale plans immediately on
         /// ownership changes").
         /// </summary>
-        public static void OnToolChanged(StationGameHost host) {
+        public static void OnToolChanged(StationGameHost host, string previousTool = null) {
             var editHost = StationEditHost.Ensure();
             StationCellTool.Cancel();
             StationPaintTool.Cancel();
@@ -858,8 +861,12 @@ namespace Metro.App {
             StationRoofTool.Cancel();
             StationPillarTool.Cancel();
             if (StationEditSession.HasCarried) CancelMove(host, editHost);
+            bool preserveSelection = StationEditSession.PreserveNextToolChangeSelection &&
+                string.Equals(previousTool, "pick", StringComparison.Ordinal);
+            StationEditSession.PreserveNextToolChangeSelection = false;
             var active = StationToolSelection.Active;
-            if (!string.Equals(active, "select", StringComparison.Ordinal) &&
+            if (!preserveSelection &&
+                !string.Equals(active, "select", StringComparison.Ordinal) &&
                 !string.Equals(active, "move", StringComparison.Ordinal)) {
                 StationEditSession.ClearSelection();
                 ClearSelectionHighlight(editHost);
@@ -1008,7 +1015,9 @@ namespace Metro.App {
             in StationPickContext pickContext, StationPointerEvent pointer, string tool, StationSceneHit hit,
             JObject reply, out string code, out string reason) {
             code = null; reason = null;
+            if (string.Equals(tool, "pick", StringComparison.Ordinal) && pointer.Button == 2) return;
             StationEditSession.Picked = null;
+            StationEditSession.PreserveNextToolChangeSelection = false;
             if (StationEditSession.HasCarried) {
                 if (pointer.Button == 2) {
                     CancelMove(host, editHost);
@@ -1174,7 +1183,7 @@ namespace Metro.App {
                     Select(host, editHost, hit);
                     return;
                 case "pick":
-                    Pick(host, editHost, hit);
+                    if (pointer.Button == 0) Pick(host, editHost, world, pickContext, hit);
                     return;
                 case "paint": {
                     // The 材质 brush is a face gesture: press anchors, release paints (or erases
@@ -1291,6 +1300,7 @@ namespace Metro.App {
                 StationCellTool.Cancel();
                 return;
             }
+            if (string.Equals(tool, "pick", StringComparison.Ordinal)) return;
             if (tool == "select") {
                 Delete(host, editHost, hit, reply, out code, out reason);
                 return;
@@ -1533,8 +1543,38 @@ namespace Metro.App {
                 Hover(host, editHost, world, ray, pickContext, hit);
                 return;
             }
+            if (string.Equals(tool, "pick", StringComparison.Ordinal)) {
+                var hoverMod = hit.HasModule && hit.ModuleWins ? hit.Module : null;
+                if (hoverMod == null && host.Index != null) {
+                    StationModuleRecord railCandidate = null;
+                    if (hit.HasCell) {
+                        railCandidate = StationRailPlanner.RailAt(host.Index, hit.Cell.X, hit.Cell.Y, hit.Cell.Z)
+                            ?? StationRailPlanner.RailAt(host.Index, hit.Cell.PlaceX, hit.Cell.PlaceY, hit.Cell.PlaceZ);
+                    } else if (hit.HasWorkPlane) {
+                        railCandidate = StationRailPlanner.RailAt(host.Index, hit.WorkPlane.X, hit.WorkPlane.Y, hit.WorkPlane.Z);
+                    }
+                    if (railCandidate != null &&
+                        StationScenePicker.IsModuleVisible(world, pickContext.Visibility, railCandidate, pickContext.CullingMask)) {
+                        hoverMod = railCandidate;
+                    }
+                }
+                if (hoverMod != null) {
+                    ClearPlan(host, editHost, keepHover: true);
+                    editHost.EnsureBound(host);
+                    editHost.Preview?.Hover(hoverMod);
+                } else {
+                    ClearPlan(host, editHost);
+                    editHost.EnsureBound(host);
+                    if (hit.HasCell && hit.Cell.Solid) {
+                        editHost.Preview?.ShowCellHover(hit.CellKey);
+                    } else if (hit.HasWorkPlane) {
+                        editHost.Preview?.ShowCursor(new StationCellKey(hit.WorkPlane.X, hit.WorkPlane.Y, hit.WorkPlane.Z), true);
+                    }
+                }
+                return;
+            }
             ClearPlan(host, editHost, keepHover: true);
-            editHost.Preview?.Hover(tool == "select" || tool == "pick" || tool == "move" ? hit.Module : null);
+            editHost.Preview?.Hover((tool == "select" || tool == "move") && hit.ModuleWins ? hit.Module : null);
         }
 
         // --------------------------------------------------------------- selection
@@ -1557,22 +1597,97 @@ namespace Metro.App {
 
         // ---------------------------------------------------------------- eyedropper
 
-        static void Pick(StationGameHost host, StationEditHost editHost, StationSceneHit hit) {
+        static void Pick(StationGameHost host, StationEditHost editHost, StationWorldView world,
+            in StationPickContext pickContext, StationSceneHit hit) {
             ClearPlan(host, editHost);
-            if (hit.TargetKind != StationSceneTargetKind.Module) {
-                StationEditSession.Picked = new JObject { ["moduleId"] = "", ["type"] = "", ["reason"] = "no-module" };
+            var index = host?.Index;
+            StationModuleRecord picked = hit.HasModule && hit.ModuleWins ? hit.Module : null;
+            StationModuleRecord rail = null;
+            if (picked == null && index != null) {
+                StationModuleRecord railCandidate = null;
+                if (hit.HasCell) {
+                    railCandidate = StationRailPlanner.RailAt(index, hit.Cell.X, hit.Cell.Y, hit.Cell.Z)
+                        ?? StationRailPlanner.RailAt(index, hit.Cell.PlaceX, hit.Cell.PlaceY, hit.Cell.PlaceZ);
+                } else if (hit.HasWorkPlane) {
+                    railCandidate = StationRailPlanner.RailAt(index, hit.WorkPlane.X, hit.WorkPlane.Y, hit.WorkPlane.Z);
+                }
+                if (railCandidate != null &&
+                    StationScenePicker.IsModuleVisible(world, pickContext.Visibility, railCandidate, pickContext.CullingMask)) {
+                    rail = railCandidate;
+                }
+            }
+            StationModuleRecord fallback = null;
+            if (picked == null && rail == null && hit.HasCell && hit.Cell.Solid && index?.Document != null) {
+                var candidate = StationFootprints.ModuleTarget(index.Document.Modules, hit.Cell.X, hit.Cell.Y, hit.Cell.Z);
+                if (candidate != null &&
+                    StationScenePicker.IsModuleVisible(world, pickContext.Visibility, candidate, pickContext.CullingMask)) {
+                    fallback = candidate;
+                }
+            }
+            var module = picked ?? rail ?? fallback;
+            if (module != null) {
+                bool isBridge = string.Equals(module.Type, "track", StringComparison.Ordinal) && module.Config.Bool("bridge");
+                bool armable = StationModulePick.ArmsTool(module);
+                if (!isBridge) {
+                    StationEditSession.SelectModule(module);
+                    editHost.EnsureBound(host);
+                    editHost.Preview?.Select(module);
+                }
+                StationEditSession.PreserveNextToolChangeSelection = armable && !isBridge;
+                StationEditSession.Picked = new JObject {
+                    ["seq"] = StationEditSession.NextPickSeq(),
+                    ["kind"] = "module",
+                    ["moduleId"] = module.Id,
+                    ["type"] = module.Type,
+                    ["cfg"] = SafeCfg(module),
+                    ["paletteId"] = StationModulePick.PaletteIdFor(module),
+                    ["armable"] = armable,
+                    ["reason"] = "",
+                };
                 return;
             }
-            var module = hit.Module;
-            StationEditSession.SelectModule(module);
-            editHost.Preview?.Select(module);
+            if (hit.HasCell && hit.Cell.Solid) {
+                var cell = hit.CellKey;
+                var face = ResolvePickFace(hit);
+                StationPaintSnapshot snapshot = null;
+                if (world != null) StationCellRenderer.TryGetSnapshot(world, out snapshot);
+                if (snapshot == null && index?.Document != null) {
+                    snapshot = StationPaintSnapshot.FromDocument(index.Document, null, host.CurrentRevision);
+                }
+                if (snapshot != null && StationFinishEdits.FacePresent(snapshot, cell, face)) {
+                    var finish = snapshot.FinishOf(cell, face);
+                    StationEditSession.SelectCell(cell);
+                    ClearSelectionHighlight(editHost);
+                    StationEditSession.PreserveNextToolChangeSelection = true;
+                    StationEditSession.Picked = new JObject {
+                        ["seq"] = StationEditSession.NextPickSeq(),
+                        ["kind"] = "face",
+                        ["moduleId"] = "",
+                        ["type"] = "",
+                        ["cell"] = new JArray(cell.X, cell.Y, cell.Z),
+                        ["face"] = StationFaces.Name(face),
+                        ["finish"] = finish,
+                        ["armable"] = true,
+                        ["reason"] = "",
+                    };
+                    return;
+                }
+            }
             StationEditSession.Picked = new JObject {
-                ["moduleId"] = module.Id,
-                ["type"] = module.Type,
-                ["cfg"] = SafeCfg(module),
-                ["paletteId"] = StationModulePick.PaletteIdFor(module),
-                ["reason"] = "",
+                ["seq"] = StationEditSession.NextPickSeq(),
+                ["kind"] = "none",
+                ["moduleId"] = "",
+                ["type"] = "",
+                ["finish"] = "",
+                ["armable"] = false,
+                ["reason"] = "no-target",
             };
+        }
+
+        static StationFace ResolvePickFace(StationSceneHit hit) {
+            if (!hit.CellSlope) return hit.CellFace;
+            if (Math.Abs(hit.CellNormal.Z) > 1e-4) return hit.CellNormal.Z >= 0 ? StationFace.Top : StationFace.Bottom;
+            return hit.CellFace;
         }
 
         static JObject SafeCfg(StationModuleRecord module) {
@@ -1915,6 +2030,14 @@ namespace Metro.App {
                 case "guidepost": {
                     var exitId = StationToolSelection.Setting("guideExitId");
                     if (!string.IsNullOrEmpty(exitId)) candidate.Set("exitId", exitId);
+                    break;
+                }
+                case "calligraphy": {
+                    if (StationToolSelection.SettingBool("calligraphyEnglish")) {
+                        candidate.Set(true, "showEnglish");
+                    } else {
+                        candidate.Config.Remove("showEnglish");
+                    }
                     break;
                 }
                 case "psd-end": {
@@ -3131,13 +3254,86 @@ namespace Metro.App {
     }
 
     /// <summary>
-    /// Palette ids for the families whose creation the C# resolver already ports.
+    /// Palette ids and armability for placed modules, ported 1:1 from
+    /// <c>game/src/app/tools/PickTool.ts</c> (<c>paletteIdForModule</c> + <c>adoptPickedModule</c>).
     /// </summary>
     public static class StationModulePick {
+        public static bool ArmsTool(StationModuleRecord module) {
+            if (module == null) return false;
+            if (string.Equals(module.Type, "platform-edge", StringComparison.Ordinal)) return false;
+            if (string.Equals(module.Type, "track", StringComparison.Ordinal)) return true;
+            if (string.Equals(module.Type, "shop", StringComparison.Ordinal) ||
+                string.Equals(module.Type, "booth", StringComparison.Ordinal) ||
+                string.Equals(module.Type, "retail", StringComparison.Ordinal)) return true;
+            return !string.IsNullOrEmpty(PaletteIdFor(module));
+        }
+
         public static string PaletteIdFor(StationModuleRecord module) {
             if (module == null) return "";
             switch (module.Type) {
+                case "tactile": return "tactile-" + Fallback(module.Config.Text("variant"), "guide");
+                case "floor-mark": return "floor-mark-" + Fallback(module.Config.Text("variant"), "boarding");
+                case "light": return module.Config.Text("variant") == "rectangular" ? "light-rectangular" : "light-circular";
+                case "pillar": {
+                    var size = module.Config.Text("size");
+                    return string.IsNullOrEmpty(size) ? "" : "pillar-" + size;
+                }
+                case "roof": {
+                    var variant = module.Config.Text("variant");
+                    return variant == "canopy" ? "roof-canopy"
+                        : variant == "tapered-truss" ? "roof-tapered"
+                        : variant == "shell" ? "roof-shell"
+                        : variant == "truss" ? "roof-truss"
+                        : "roof";
+                }
+                case "shelf": return "shelf-" + Fallback(module.Config.Text("variant"), "dark-tall");
                 case "bench": return "bench-" + Fallback(module.Config.Text("variant"), "steel-1");
+                case "hanger": {
+                    var mount = module.Config.Text("mount");
+                    return string.IsNullOrEmpty(mount) ? "" : "hanger-" + mount;
+                }
+                case "road": return "road";
+                case "busstop": {
+                    var variant = module.Config.Text("variant");
+                    return string.IsNullOrEmpty(variant) ? "" : "busstop-" + variant;
+                }
+                case "billboard": return "billboard-" + Fallback(module.Config.Text("variant"), "wide");
+                case "glass": {
+                    var variant = module.Config.Text("variant");
+                    return module.Config.Has("curtainHeight") || variant.EndsWith("x4", StringComparison.Ordinal)
+                        ? "curtain-wall"
+                        : "glass-" + Fallback(variant, "1x1");
+                }
+                case "door": {
+                    var variant = Fallback(module.Config.Text("variant"), "steel-1");
+                    int dash = variant.IndexOf('-');
+                    var kind = dash >= 0 ? variant.Substring(0, dash) : variant;
+                    return "door-" + kind + "-1";
+                }
+                case "calligraphy":
+                    return "calligraphy-" + Fallback(module.Config.Text("style"), "kai") + "-" +
+                           Fallback(module.Config.Text("axis"), "h");
+                case "linemap": return module.Config.Text("mount") == "stand" ? "linemap-stand" : "linemap-wall";
+                case "monitor": return module.Config.Text("mount") == "wall" ? "monitor-wall" : "monitor-ceiling";
+                case "sign": return StationFootprints.IsCeilingHung(module) ? "sign-ceiling" : "sign-wall";
+                case "stair":
+                    return module.Config.Bool("block")
+                        ? "stair-block"
+                        : "stair-" + Fallback(module.Config.Text("style"), "straight");
+                case "exit": {
+                    var style = module.Config.Text("style");
+                    if (style == "virtual") return "exit-virtual";
+                    int bays = StationFootprints.ExitBays(module);
+                    if (style == "doorway") return "exit-doorway-" + bays;
+                    bool covered = !module.Config.Has("covered") || module.Config.Bool("covered");
+                    return covered
+                        ? (bays == 1 ? "exit-covered-1" : bays == 3 ? "exit-covered-3" : "exit")
+                        : (bays == 1 ? "exit-uncovered-1" : bays == 3 ? "exit-uncovered-3" : "exit-uncovered-2");
+                }
+                case "cctv": {
+                    var variant = module.Config.Text("variant");
+                    return variant == "post" ? "cctv-post" : variant == "ptz" ? "cctv-ptz" : variant == "dome" ? "cctv-dome" : "cctv";
+                }
                 case "fence":
                     switch (module.Config.Text("variant")) {
                         case "sound-barrier": return "noise-barrier";
@@ -3148,31 +3344,41 @@ namespace Metro.App {
                         case "iron": return "fence-iron";
                         default: return "fence";
                     }
-                case "tactile": return "tactile-" + Fallback(module.Config.Text("variant"), "guide");
-                case "floor-mark": return "floor-mark-" + Fallback(module.Config.Text("variant"), "boarding");
-                case "clock": return module.Config.Text("variant") == "digital" ? "clock-digital" : "clock";
-                case "cctv": {
-                    var variant = module.Config.Text("variant");
-                    return variant == "post" ? "cctv-post" : variant == "ptz" ? "cctv-ptz" : variant == "dome" ? "cctv-dome" : "cctv";
-                }
-                case "monitor": return module.Config.Text("mount") == "wall" ? "monitor-wall" : "monitor-ceiling";
-                case "light": return module.Config.Text("variant") == "rectangular" ? "light-rectangular" : "light-circular";
                 case "gate": return module.Config.Text("variant") == "new" ? "gate-new" : "gate";
-                case "cubicle": return module.Config.Text("variant") == "toilet" ? "cubicle-toilet" : "cubicle";
-                case "court": return "court-" + Fallback(module.Config.Text("variant"), "pickleball");
                 case "extinguisher": {
                     var variant = module.Config.Text("variant");
                     return variant == "compact" ? "extinguisher-compact" : variant == "glass" ? "extinguisher-glass" : "extinguisher";
                 }
+                case "psd-end": return module.Config.Text("variant") == "cover" ? "psd-end-cover" : "psd-end";
+                case "cubicle": return module.Config.Text("variant") == "toilet" ? "cubicle-toilet" : "cubicle";
+                case "court": return "court-" + Fallback(module.Config.Text("variant"), "pickleball");
+                case "checkout": {
+                    var variant = module.Config.Text("variant");
+                    return variant == "generic" || variant == "cafe" || variant == "cafe-pastry"
+                        ? "checkout-" + variant
+                        : "checkout";
+                }
+                case "clock": return module.Config.Text("variant") == "digital" ? "clock-digital" : "clock";
+                case "track": return module.Config.Bool("bridge") ? "bridge" : "";
+                case "guidepost":
                 case "tvm":
                 case "vending":
-                case "bin":
                 case "desk":
-                case "guidepost":
                 case "urinal":
                 case "sink":
-                case "tv":
+                case "bin":
                 case "vent":
+                case "sidewalk":
+                case "lawn":
+                case "tree":
+                case "traffic-light":
+                case "rail-signal":
+                case "tv":
+                case "escalator":
+                case "walkway":
+                case "lift":
+                case "ac-unit":
+                case "electrical-cabinet":
                     return module.Type;
                 default:
                     return "";
