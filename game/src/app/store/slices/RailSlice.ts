@@ -151,6 +151,8 @@ export const createRailSlice: StateCreator<AppState, [], [], RailSlice> = (set, 
     set({ notice: msg('track_removed') })
   },
   updateRail: (trackId, patch) => {
+    const host = stationHostCommit()
+    if (patch.bridgeRailing !== undefined && host?.ownsStation() && host.commitBridgeRailing?.(trackId, patch.bridgeRailing)) return
     const st = get()
     const modules = st.station.modules.map((m) =>
       m.id === trackId && m.type === 'track' ? { ...m, cfg: { ...m.cfg, ...patch } } : m,

@@ -302,6 +302,18 @@ namespace Metro.Tests {
             Assert.AreEqual(3.5f, new RailBridgeOptions { Railing = "sound-barrier" }.BarrierTop, 1e-4f);
         }
 
+        [TestCase(true, 3f)]
+        [TestCase(false, 3.62f)]
+        public void OpenTrackWithoutRailingsKeepsTheDeckAndHardware(bool groundTrack, float span) {
+            var options = new RailBridgeOptions { Railing = "none", GroundTrack = groundTrack, VehicleWidth = 3f };
+            var track = RailRunGeometry.Build(32f, 3f, .98f, -1, false, options);
+            Assert.AreEqual(span, track.BridgeSpan, 1e-4f);
+            Assert.AreEqual(12, track.Deck.TriangleCount, "only the slab remains");
+            Assert.AreEqual(0, track.Panel.TriangleCount);
+            Assert.Greater(track.Steel.TriangleCount, 0, "running rails still render");
+            Assert.AreEqual(0f, options.BarrierTop);
+        }
+
         [Test]
         public void TheStreetRendererBuildsTheSavedBridgeDeckAndBarrier() {
             var read = StationDocumentReader.Read(Save(new JArray {

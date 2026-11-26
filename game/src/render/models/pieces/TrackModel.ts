@@ -6,7 +6,7 @@ import { TRACK_BED_DROP } from '../../../sim/constants.ts'
 import { STOCK, TRAIN_ORIGIN_Z, trainOriginForScale, trainScaleForStorey } from '../../../sim/stock.ts'
 import { PieceBuilder, slab, finishSlab } from '../PieceBuilder.ts'
 import type { ModelMaterials } from '../PieceBuilder.ts'
-import { BRIDGE_DECK_DEPTH, bridgeBarrierTop } from '../../../sim/structures.ts'
+import { BRIDGE_DECK_DEPTH, GROUND_TRACK_MAX_Z, bridgeBarrierTop } from '../../../sim/structures.ts'
 import { thirdRailSide, trackSideFixtureOffset, trackCeilingUnderside } from '../../../sim/track.ts'
 import type { Module } from '../../../sim/types.ts'
 import { buildTrackCatenary } from './CatenaryModel.ts'
@@ -56,7 +56,9 @@ function buildTrack(mats: ModelMaterials, mod: Extract<Module, { type: 'track' }
   const cy = (d - 1) / 2
   // Continue the screen-door centre line across the platform/bridge join.
   const bridgeSupportOffset = trackSideFixtureOffset(d, vehicleWidth)
-  const bridgeSpan = Math.max(d, bridgeSupportOffset * 2 + 0.12)
+  const hasRailing = mod.cfg.bridgeRailing !== 'none'
+  const bridgeSpan = hasRailing || mod.cfg.power === 'catenary' || mod.z > GROUND_TRACK_MAX_Z
+    ? Math.max(d, bridgeSupportOffset * 2 + 0.12) : d
   const scale = trainScaleForStorey(mod.storeyHeight)
   const hardwareLift = trainOriginForScale(scale) - TRAIN_ORIGIN_Z * scale
   const bedTop = (0.45 - TRACK_BED_DROP) * scale + hardwareLift
@@ -73,7 +75,7 @@ function buildTrack(mats: ModelMaterials, mod: Extract<Module, { type: 'track' }
     // face, making the underside flicker as the camera moved.
     finishSlab(g, deckMat, cx, cy, (bedTop - BRIDGE_DECK_DEPTH) / 2, mod.w, bridgeSpan, BRIDGE_DECK_DEPTH + bedTop).name = 'bridge-deck'
     const gantry = trackGantryLayout(mod, thirdRail, vehicleWidth)
-    for (const y of [cy - bridgeSupportOffset, cy + bridgeSupportOffset]) {
+    for (const y of hasRailing ? [cy - bridgeSupportOffset, cy + bridgeSupportOffset] : []) {
       const ownPostXs = gantry?.ys.some(postY => Math.abs(postY - y) < 0.12) ? gantry.xs : []
       const soundBarrier = mod.cfg.bridgeRailing === 'sound-barrier' || mod.cfg.bridgeRailing === 'sound-barrier-half'
       const shoulderDepth = (bridgeSpan - d) / 2
@@ -83,7 +85,7 @@ function buildTrack(mats: ModelMaterials, mod: Extract<Module, { type: 'track' }
         ...neighborPosts.filter(post => Math.abs(post.y - y) < 0.12 - 1e-6).map(post => post.x),
       ]
       buildBridgeEdgeConcrete(g, deckMat, mod.w, shoulderY, shoulderDepth, soundBarrier ? 0.5 : 0.55, postXs, bedTop)
-      if (mod.cfg.bridgeRailing === 'sound-barrier' || mod.cfg.bridgeRailing === 'sound-barrier-half') {
+      if (soundBarrier) {
         buildBridgeNoiseBarrier(g, mats, mod.w, y, bridgeBarrierTop(mod.cfg.bridgeRailing), ownPostXs.length > 0, neighborPosts)
       } else {
         buildBridgeRailing(g, mats, mod.w, y, ownPostXs.length > 0)

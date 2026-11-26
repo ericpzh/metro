@@ -619,12 +619,12 @@ namespace Metro.Build {
                 }
             } else if (module.Type == "track") {
                 structural = true;
-                var cfg = module.Config;
+                bool cutsGround = StationFootprints.TrackCutsGround(module);
                 foreach (var cell in StationFootprints.TrackCells(module)) {
                     var key = new StationCellKey((int)Math.Round(cell.X), (int)Math.Round(cell.Y), (int)Math.Round(cell.Z));
                     trackFootprint.Add(key);
                     if (coveredByFloorLevel.TryGetValue(key.Z, out var cov)) cov.Add((key.X, key.Y));
-                    if (key.Z == StationFootprints.GroundZ && !cfg.Bool("tunnel") && !cfg.Bool("bridge"))
+                    if (cutsGround)
                         trackGroundAtGrade.Add((key.X, key.Y));
                 }
             } else if (module.Type == "platform-edge") {
@@ -657,11 +657,11 @@ namespace Metro.Build {
             }
             foreach (var module in idx.ModulesOfType("track")) {
                 if (excluded != null && excluded.Contains(module.Id)) continue;
-                var cfg = module.Config;
+                bool cutsGround = StationFootprints.TrackCutsGround(module);
                 foreach (var cell in StationFootprints.TrackCells(module)) {
                     var key = new StationCellKey((int)Math.Round(cell.X), (int)Math.Round(cell.Y), (int)Math.Round(cell.Z));
                     trackFootprint.Add(key);
-                    if (key.Z == StationFootprints.GroundZ && !cfg.Bool("tunnel") && !cfg.Bool("bridge"))
+                    if (cutsGround)
                         trackGroundAtGrade.Add((key.X, key.Y));
                 }
             }
@@ -750,6 +750,7 @@ namespace Metro.Build {
         public bool IsTrackCell(int x, int y, int z) {
             var key = new StationCellKey(x, y, z);
             if (IsTrackFootprint(key)) return true;
+            if (z == StationFootprints.GroundZ && trackGroundAtGrade.Contains((x, y))) return true;
             var c = Index?.GetCell(key);
             return c != null && c.IsSolid && string.Equals(c.FinishTop, "floor.track", StringComparison.Ordinal);
         }

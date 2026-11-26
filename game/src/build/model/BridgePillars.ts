@@ -2,7 +2,7 @@
 import { registerDocumentCache } from '../../sim/documentCaches.ts'
 import { groundHoleReader, GROUND_Z } from '../../sim/ground.ts'
 import { equipmentReason } from '../../sim/placement.ts'
-import { BRIDGE_DECK_DEPTH, pillarSupportsBridge } from '../../sim/structures.ts'
+import { BRIDGE_DECK_DEPTH, GROUND_TRACK_MAX_Z, pillarSupportsBridge } from '../../sim/structures.ts'
 import { rotateLocal, type TrackModule } from '../../sim/track.ts'
 import type { Cell, Module } from '../../sim/types.ts'
 import type { StationState } from './State.ts'
@@ -50,7 +50,7 @@ registerDocumentCache((_cells, modules, _liveCells, liveModules) => {
 })
 
 export function bridgePillarCandidates(cells: readonly Cell[], modules: readonly Module[], bridge: TrackModule): Array<Extract<Module, { type: 'pillar' }>> {
-  if (!bridge.cfg.bridge) return []
+  if (!bridge.cfg.bridge || bridge.z <= GROUND_TRACK_MAX_Z) return []
   const sites: Array<{ id: string; x: number; y: number; z: number }> = []
   const columns = new Map<number, Map<number, typeof sites[number]>>()
   const supported = new Set<string>()
@@ -94,7 +94,7 @@ export function bridgePillarCandidates(cells: readonly Cell[], modules: readonly
 /** Backfill bridges and remove owned supports outside the current spacing. */
 export function syncBridgePillars(state: StationState): StationState {
   if (!hasBridgeOrBridgePillar(state.modules)) return state
-  const bridges = state.modules.filter((m): m is TrackModule => m.type === 'track' && m.cfg.bridge === true)
+  const bridges = state.modules.filter((m): m is TrackModule => m.type === 'track' && m.cfg.bridge === true && m.z > GROUND_TRACK_MAX_Z)
   const supportIds = new Set<string>()
   for (const bridge of bridges) {
     for (let i = 4; i + 4 <= bridge.w; i += 8) {

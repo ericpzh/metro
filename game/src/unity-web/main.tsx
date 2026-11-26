@@ -991,6 +991,7 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
     commitSwitchRunDirection: moduleId => sendRevisionedEdit('edit.run.reverse', { moduleId }),
     commitSwitchRoadDirection: moduleId => sendRevisionedEdit('edit.road.reverse', { moduleId }),
     commitRegenRail: trackId => sendRevisionedEdit('edit.rail.regen', { trackId }),
+    commitBridgeRailing: (trackId, railing) => sendRevisionedEdit('edit.rail.railing', { trackId, railing }),
     startMove: moduleId => {
       stationBridge.send('edit.move.start', { moduleId })
       return true

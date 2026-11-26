@@ -159,7 +159,7 @@ export function RailFolder({ subMenu, onToggleSubMenu }: { subMenu: SubMenuKey |
         <TileGrid folder="rail" subMenu={subMenu} onToggleSubMenu={onToggleSubMenu} embedded />
         {interleaveRows([
           { anchor: '__tunnel', node: <Block key="__tunnel" label={t('tunnel')} icon="tunnel" tile={TUNNEL_TILE} active={tool === 'tunnel'} submenu={tunnelOpen} onClick={() => setTool('tunnel')} /> },
-          { anchor: 'bridge', node: <Block key="bridge" label={t('railway_bridge')} icon="bridge" tile="bridge" active={bridgeOpen} submenu={bridgeOpen} onClick={() => { setModuleType('bridge'); setTool('module') }} /> },
+          { anchor: 'bridge', node: <Block key="bridge" label={t('track')} icon="bridge" tile="bridge" active={bridgeOpen} submenu={bridgeOpen} onClick={() => { setModuleType('bridge'); setTool('module') }} /> },
         ], (anchor) => anchor === '__tunnel' ? [
           <InlinePanel key="tunnel-derived" open={tunnelOpen}>
             <div className="blockGrid"><Block label={translate(trackRunLengthLabel(tunnelLength))} art={<DimensionArt selected={TRACK_RUN_LENGTHS.indexOf(tunnelLength as typeof TRACK_RUN_LENGTHS[number])} count={TRACK_RUN_LENGTHS.length} />} shortcut="Tab" onClick={() => st().cycleTunnelLength()} /></div>
@@ -168,7 +168,7 @@ export function RailFolder({ subMenu, onToggleSubMenu }: { subMenu: SubMenuKey |
       </div>
       {track && (
         <div className="muted small railStatus">
-          {t('selected_value_value_m_value_mvalue', track.cfg.bridge ? t('railway_bridge') : track.cfg.tunnel ? t('tunnel') : t('track'), track.w, track.d ?? 1, trackSummary && !track.cfg.tunnel && !track.cfg.bridge ? t('value_cars_value_m_value_doors', trackSummary.cars, trackSummary.trainLength, trackSummary.doors) : '')}
+          {t('selected_value_value_m_value_mvalue', track.cfg.tunnel ? t('tunnel') : t('track'), track.w, track.d ?? 1, trackSummary && !track.cfg.tunnel && !track.cfg.bridge ? t('value_cars_value_m_value_doors', trackSummary.cars, trackSummary.trainLength, trackSummary.doors) : '')}
         </div>
       )}
     </>

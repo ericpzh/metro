@@ -928,7 +928,7 @@ namespace Metro.Persistence {
             var bridges = new List<StationModuleRecord>();
             for (int i = 0; i < modules.Count; i++) {
                 var m = modules[i];
-                if (m.Type == "track" && m.Config.Bool("bridge")) bridges.Add(m);
+                if (m.Type == "track" && m.Config.Bool("bridge") && m.Z > StationBridgePillars.GroundTrackMaxZ) bridges.Add(m);
             }
             var supportIds = new HashSet<string>(StringComparer.Ordinal);
             for (int b = 0; b < bridges.Count; b++) {
@@ -969,11 +969,11 @@ namespace Metro.Persistence {
             for (int i = 0; i < modules.Count; i++) {
                 var m = modules[i];
                 if (m.Type == "track") {
-                    bool isTunnelOrBridge = m.Config.Bool("tunnel") || m.Config.Bool("bridge");
+                    bool cutsGround = StationFootprints.TrackCutsGround(m);
                     foreach (var tc in StationFootprints.TrackCells(m)) {
                         int tx = (int)Math.Round(tc.X), ty = (int)Math.Round(tc.Y), tz = (int)Math.Round(tc.Z);
                         trackCells.Add(new StationCellKey(tx, ty, tz));
-                        if (!isTunnelOrBridge && tz == 0) {
+                        if (cutsGround) {
                             groundModuleHoles.Add(((long)(tx + 32768) << 20) | (uint)(ty + 32768));
                         }
                     }

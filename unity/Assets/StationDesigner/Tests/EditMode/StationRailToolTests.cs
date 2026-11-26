@@ -469,9 +469,9 @@ namespace Metro.EditModeTests {
         }
 
         /// <summary>A bridge record over the fixture floor, with the given run length.</summary>
-        StationModuleRecord Bridge(int width) {
+        StationModuleRecord Bridge(int width, int z = 3) {
             var bridge = new StationEditDraft {
-                Type = "track", X = 2, Y = 4, Z = 3, Rotation = 0, Width = width, Depth = 1, Id = "bridge-1",
+                Type = "track", X = 2, Y = 4, Z = z, Rotation = 0, Width = width, Depth = 1, Id = "bridge-1",
             };
             bridge.Set("line", StationRailPlanner.ResolveLine(host.Index, "")?.Id ?? "1");
             bridge.Set("bridge", "1");
@@ -504,6 +504,15 @@ namespace Metro.EditModeTests {
             Assert.AreEqual(0, StationBridgePillars.Candidates(host.Index, StationModulePlacement.ToRecord(notBridge)).Count);
         }
 
+        [TestCase(0, true)]
+        [TestCase(1, true)]
+        [TestCase(2, false)]
+        public void LowOpenTracksRunWithoutPiers(int z, bool opensStreet) {
+            var track = Bridge(20, z);
+            Assert.AreEqual(opensStreet, StationFootprints.TrackCutsGround(track));
+            Assert.IsEmpty(StationBridgePillars.Candidates(host.Index, track));
+        }
+
         [Test]
         public void ABridgeIsATunnelVariantWithPiers() {
             // A bridge is `makeBridge`: the same span off the rail's free end, `cfg.bridge` and
@@ -519,9 +528,7 @@ namespace Metro.EditModeTests {
             Assert.AreEqual("1", plan.Track.Text("bridge"), "it spans as a bridge");
             Assert.AreEqual("sound-barrier", plan.Track.Text("bridgeRailing"), "with the armed railing");
             plan.Track.Id = "bridge-2";
-            // This span sits at the source rail's own height (z 0), which is below
-            // `BRIDGE_MIN_Z`: it carries no piers, and the pier derivation is proved on its own
-            // by `ABridgeNeedsOnePierPerCompleteBay` with a deck at z 3.
+            // This span sits at the source rail's own height (z 0), with no room for piers.
             Assert.AreEqual(0, StationBridgePillars.Candidates(host.Index,
                 StationModulePlacement.ToRecord(plan.Track)).Count, "a deck at street level has no base for a pier");
             int revision = host.CurrentRevision;
@@ -530,6 +537,13 @@ namespace Metro.EditModeTests {
             bool found = false;
             foreach (var module in host.Index.Document.Modules) if (module.Id == "bridge-2") found = true;
             Assert.IsTrue(found, "the bridge is in the document");
+            Assert.IsTrue(StationFootprints.IsGroundHole(host.Index, plan.X, plan.Y), "street clears the recessed rails");
+            Assert.IsTrue(StationZoneWorld.Build(host.Index).IsGroundHole(plan.X, plan.Y));
+
+            var railing = StationHostEdits.PlanBridgeRailing(host.Index, "bridge-2", "none", out code);
+            Assert.IsTrue(StationEditSession.TryApplyCells(host, railing, "track-railing", null, out _, out code), code);
+            Assert.IsTrue(host.Index.TryGetModule("bridge-2", out var track));
+            Assert.AreEqual("none", track.Config.Text("bridgeRailing"));
         }
     }
 }

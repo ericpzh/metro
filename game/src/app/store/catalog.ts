@@ -86,7 +86,7 @@ export const MODULE_OPTIONS: ModuleOption[] = [
   { id: 'roof-truss', label: msg('truss'), type: 'roof', w: 4, h: 4 },
   { id: 'roof-tapered', label: msg('tapered_truss'), type: 'roof', w: 4, h: 4 },
   { id: 'roof-canopy', label: msg('column_canopy'), type: 'roof', w: 4, h: 4 },
-  { id: 'bridge', label: msg('railway_bridge'), type: 'track', w: 12, h: 3 },
+  { id: 'bridge', label: msg('track'), type: 'track', w: 12, h: 3 },
   { id: 'gate', label: msg('old'), type: 'gate', w: 1, h: 1 },
   { id: 'gate-new', label: msg('new'), type: 'gate', w: 1, h: 1 },
   { id: 'psd-end', label: msg('screen_end_door'), type: 'psd-end', w: 1, h: 1 },

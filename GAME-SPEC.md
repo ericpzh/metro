@@ -779,9 +779,9 @@ Track is one module type, drawn as a straight run on the five-metre grid:
 
 | Piece | Size | Notes |
 |---|---|---|
-| 轨道 track | `w` cells long × a car-width bed | `w` is one of the 4 / 16 / 32 / 64 / 128 m presets; `cfg` carries the line, power, direction and optional tunnel/bridge |
+| Track record | `w` cells long × a car-width bed | `cfg` carries the line, power, direction and optional tunnel or open-track settings |
 | 隧道 tunnel | preset run | a generated shell round the track; keeps the station's headroom contract |
-| 轨道桥 railway bridge | preset run | deck, piers and railings; catenary canopy or gantry, PSD-aligned |
+| 轨道 Track | 4 / 16 / 32 / 64 / 128 m | extends existing track at 0 m or above with a deck and optional railings or sound barriers |
 | 信号 rail signal | 1 × 1 | trackside prop |
 | 屏蔽门 screen doors | derived per edge | not a placed module; the line's `psd` draws the screen (§5.3) |
 
@@ -791,6 +791,11 @@ Add a line in the Lines panel before placing the first platform.
 A tunnel keeps its own shell; a bridge draws the matching gantry/canopy. Third rail is
 laid automatically on the travel side in a tunnel or on a bridge and off the platform side
 at a station.
+
+Open track at 0–2 m uses a ground bed without piers. At 0 m and 1 m the bed
+opens the street surface over the recessed rails. At 3 m and above the deck
+can generate a pier for each complete eight-metre bay. The edge tile cycles
+栏杆, 半高声屏障, 全高声屏障, and 无 (None).
 
 **Not in the build:** curved track, switches/crossovers, buffer stops, depot/stabling
 sidings, a minimum-radius validator, and the line tool that would route an alignment

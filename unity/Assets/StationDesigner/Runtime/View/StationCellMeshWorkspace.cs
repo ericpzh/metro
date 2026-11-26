@@ -1015,7 +1015,7 @@ namespace Metro.View {
             var tracks = index.ModulesOfType("track");
             for (int i = 0; i < tracks.Count; i++) {
                 var module = tracks[i];
-                if (module.Z == groundLevel && !module.Config.Bool("tunnel") && !module.Config.Bool("bridge")) {
+                if (StationFootprints.TrackCutsGround(module, groundLevel)) {
                     foreach (var pt in StationFootprints.TrackCells(module)) {
                         holes.Add(new StationCellKey(
                             (int)Math.Round(pt.X, MidpointRounding.AwayFromZero),

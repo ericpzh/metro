@@ -6,6 +6,8 @@ import * as THREE from 'three'
 import { createModule, toState, paintRoofSurface, paintStairSurface, addEquipment, syncBridgePillars, removeModule, paintBridgeSurface } from '../src/build/model.ts'
 import { emptyStation } from '../src/data/reference-station.ts'
 import { extendedPillar } from '../src/sim/structures.ts'
+import { groundHoleAt, groundHoleReader, withGround } from '../src/sim/ground.ts'
+import { blockIndex } from '../src/sim/blockIndex.ts'
 import { equipmentReason, moduleEnvelope, moduleFootprint, blockReason, wallSide } from '../src/sim/placement.ts'
 import { checkModulePlacements } from '../src/build/validation.ts'
 import { exitDoorCell, exitFloorAt, exitWallPlanes, exitRunSnap, exitDoorwayOffset } from '../src/sim/exits.ts'
@@ -381,22 +383,55 @@ test('B deletes a generated pier permanently while preserving its bridge, with u
   assert.ok(!useStore.getState().station.modules.some((m) => m.id === pier.id), 'later edits do not respawn it')
 })
 
-test('the whole bridge deck must clear the ground in every rotation and barrier variant', () => {
+test('open track is legal from grade up and cuts street pavement only where its bed needs room', () => {
   const state = toState(emptyStation())
-  for (let rot = 0; rot < 4; rot++) for (const railing of ['railing', 'sound-barrier-half', 'sound-barrier']) {
-    for (const z of [-4, 0, 1]) {
-      const bridge = { ...createModule('bridge', 0, 0, z, 'bridge', rot), w: 4 }
-      bridge.cfg.bridgeRailing = railing
-      assert.equal(trackBlockReason(state, bridge), 'floor')
-      assert.equal(commitTrack(state, bridge), state)
-      assert.equal(equipmentReason([], [], bridge, true), 'bridge-below-ground')
-      assert.equal(checkModulePlacements(state, [{ id: bridge.id, module: bridge, layer: true }]).refused.get(bridge.id), 'bridge-below-ground')
+  for (let rot = 0; rot < 4; rot++) {
+    const underground = createModule('bridge', 0, 0, -1, 'underground', rot)
+    assert.equal(trackBlockReason(state, underground), 'floor')
+    assert.equal(commitTrack(state, underground), state)
+    assert.equal(equipmentReason([], [], underground, true), 'bridge-below-ground')
+    assert.equal(checkModulePlacements(state, [{ id: underground.id, module: underground, layer: true }]).refused.get(underground.id), 'bridge-below-ground')
+    for (const z of [0, 1, 2, 3]) {
+      const track = { ...createModule('bridge', 0, 0, z, 'track', rot), w: 16 }
+      track.cfg.bridgeRailing = 'none'
+      const [x, y] = rotateLocal(rot, 4, 1)
+      const cells = [{ x, y, z: -4, fill: 'solid' }]
+      const site = { ...state, cells }
+      assert.equal(trackBlockReason(site, track), null)
+      const built = commitTrack(site, track)
+      const cutsGround = z < 2
+      assert.equal(groundHoleAt(built.cells, built.modules, x, y), cutsGround)
+      assert.equal(groundHoleReader(built.cells, built.modules)(x, y), cutsGround)
+      assert.equal(blockIndex(built.cells, built.modules).ground(x, y, 0), !cutsGround)
+      if (cutsGround) {
+        assert.equal(blockReason(built.cells, built.modules, x, y, 0).reason, 'track')
+        assert.equal(blockReason(built.cells, built.modules, x, y, 0, blockIndex(built.cells, built.modules)).reason, 'track')
+      }
+      assert.equal(withGround(built.cells, built.modules).some(c => c.x === x && c.y === y && c.z === 0), !cutsGround)
+      assert.equal(built.modules.filter(m => m.type === 'pillar').length, z === 3 ? 2 : 0)
+      const saved = parse(serialize(built)).state
+      assert.deepEqual(saved.modules, built.modules)
+      const stalePier = { ...createModule('pillar-thick', x, y, -4, 'track:pillar:4'), cfg: { size: 'thick', height: z + 4, bridgeId: track.id } }
+      if (z < 3) assert.deepEqual(syncBridgePillars({ ...built, modules: [...built.modules, stalePier] }).modules, built.modules)
     }
-    const above = { ...createModule('bridge', 0, 0, 2, 'above', rot), w: 4 }
-    above.cfg.bridgeRailing = railing
-    assert.equal(moduleEnvelope(above).z0, 1, 'underside rests at the street surface')
-    assert.equal(trackBlockReason(state, above), null)
-    assert.notEqual(commitTrack(state, above), state)
+  }
+})
+
+test('the no-railing variant renders only the bed and rail hardware at grade and on the viaduct', () => {
+  for (const z of [0, 1, 2, 3]) {
+    const track = createModule('bridge', 0, 0, z, 'track')
+    const withRailing = new TrackModel(ctx).build(track)
+    track.cfg.bridgeRailing = 'none'
+    const bare = new TrackModel(ctx).build(track)
+    bare.updateMatrixWorld(true)
+    assert.ok(withRailing.getObjectByName('bridge-edge-concrete'))
+    assert.equal(bare.getObjectByName('bridge-edge-concrete'), undefined)
+    assert.ok(bare.getObjectByName('concrete sleepers'))
+    const deck = bare.getObjectByName('bridge-deck')
+    assert.ok(Math.abs(new THREE.Box3().setFromObject(deck).min.z - (z - 1)) < 1e-6)
+    assert.equal(moduleEnvelope(track).z1, z)
+    assert.ok(new THREE.Box3().setFromObject(bare).max.z <= z)
+    if (z < 3) assert.equal(sizeOf(deck).y, track.d)
   }
 })
 

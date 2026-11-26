@@ -492,6 +492,25 @@ namespace Metro.Persistence {
             }, sourceId, out code);
         }
 
+        public static StationCellPatch PlanBridgeRailing(StationIndex index, string trackId, string railing, out string code) {
+            code = null;
+            if (railing != "none" && railing != "railing" && railing != "sound-barrier-half" && railing != "sound-barrier") {
+                code = "bad-payload";
+                return null;
+            }
+            if (!index.TryGetModule(trackId, out var track) || track.Type != "track" || !track.Config.Bool("bridge")) {
+                code = "not-found";
+                return null;
+            }
+            var patch = new StationCellPatch();
+            var current = track.Config.Text("bridgeRailing");
+            if ((string.IsNullOrEmpty(current) ? "railing" : current) == railing) return patch;
+            var draft = StationModulePlacement.DraftOf(track);
+            draft.Set("bridgeRailing", railing);
+            patch.ReplaceModule(draft);
+            return patch;
+        }
+
         public static string TryPlanRegenRail(StationReadResult committed, string trackId, out string code) {
             code = null;
             if (committed?.Document == null || committed.Index == null) { code = "no-session"; return null; }

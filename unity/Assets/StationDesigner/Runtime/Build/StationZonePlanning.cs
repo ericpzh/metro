@@ -102,8 +102,9 @@ namespace Metro.Build {
                 if (module == null) continue;
                 switch (module.Type) {
                     case "track": {
-                        if (module.Config.Bool("tunnel") || module.Config.Bool("bridge")) break;
-                        foreach (var at in StationFootprints.TrackCells(module)) AddGroundHole(at);
+                        if (!StationFootprints.TrackCutsGround(module, GroundZ)) break;
+                        foreach (var at in StationFootprints.TrackCells(module))
+                            groundHoles.Add(((int)Math.Round(at.X), (int)Math.Round(at.Y)));
                         break;
                     }
                     case "stair":

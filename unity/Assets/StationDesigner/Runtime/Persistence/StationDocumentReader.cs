@@ -698,7 +698,6 @@ namespace Metro.Persistence {
     /// </summary>
     public static class StationModuleRepair {
         const double BridgeDeckDepth = 1;
-        const double BridgeMinZ = BridgeDeckDepth + 1;
 
         // The campaign catalogue, in the source's order per silhouette. A poster is a
         // stable roll from the module id, so these arrays must stay in catalogue order.
@@ -902,7 +901,8 @@ namespace Metro.Persistence {
                 if (StationDocumentReader.Str(module["type"]) != "track") continue;
                 var cfg = module["cfg"] as JObject;
                 if (cfg == null || cfg["bridge"] == null || cfg["bridge"].Type != JTokenType.Boolean || !(bool)cfg["bridge"]) continue;
-                bridges.Add(StationDocumentReader.BuildModule(module, ""));
+                var bridge = StationDocumentReader.BuildModule(module, "");
+                if (bridge.Z > StationBridgePillars.GroundTrackMaxZ) bridges.Add(bridge);
             }
             if (bridges.Count == 0) {
                 // Still drop an owned pillar whose bridge no longer exists.
@@ -1122,11 +1122,9 @@ namespace Metro.Persistence {
                     if (!(token is JObject module)) continue;
                     var type = StationDocumentReader.Str(module["type"]);
                     var cfg = module["cfg"] as JObject;
-                    if (type == "track" && cfg != null && cfg["tunnel"]?.Type == JTokenType.Boolean && (bool)cfg["tunnel"]) continue;
-                    if (type == "track" && cfg != null && cfg["bridge"]?.Type == JTokenType.Boolean && (bool)cfg["bridge"]) continue;
                     var record = TryBuildModule(module);
                     if (record == null) continue;
-                    if (type == "track" && TrackCellAt(record, x, y, 0)) return true;
+                    if (type == "track" && StationFootprints.TrackCutsGround(record) && TrackCellAt(record, x, y, record.Z)) return true;
                     if (type == "stair" || type == "escalator" || type == "walkway" || type == "lift") {
                         foreach (var cell in StationFootprints.Footprint(record))
                             if (cell.Z == 0 && cell.X == x && cell.Y == y) return true;

@@ -13,7 +13,7 @@
 
 import type { SignBoards } from '../sim/sign.ts'
 import type { CityStyle } from '../sim/cityStyles.ts'
-import type { LiftDoorSide, LineDef, LineDirection } from '../sim/types.ts'
+import type { BridgeRailing, LiftDoorSide, LineDef, LineDirection } from '../sim/types.ts'
 
 /** Exit inspector settings that can be committed directly through a player host. */
 export interface ExitPatch {
@@ -60,6 +60,7 @@ export interface StationHostCommitPort {
   commitSwitchRoadDirection?(moduleId: string): boolean
   /** Regenerate derived platform screen doors for a platform track. */
   commitRegenRail?(trackId: string): boolean
+  commitBridgeRailing?(trackId: string, railing: BridgeRailing): boolean
   /** Start moving a placed module on the host. */
   startMove?(moduleId: string): boolean
   /**

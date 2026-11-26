@@ -3864,10 +3864,11 @@ namespace Metro.App.Views {
             if (!module.Config.Bool("bridge")) return null;
             var options = new RailBridgeOptions {
                 Railing = module.Config.Text("bridgeRailing"),
+                GroundTrack = module.Z <= StationBridgePillars.GroundTrackMaxZ,
                 VehicleWidth = StockWidthOf(document, module),
             };
             if (options.Railing.Length == 0) options.Railing = "railing";
-            if (catenary) options.NeighborPosts = NeighboringGantryPosts(document, module, station, thirdRail);
+            if (catenary && options.HasRailing) options.NeighborPosts = NeighboringGantryPosts(document, module, station, thirdRail);
             return options;
         }
 

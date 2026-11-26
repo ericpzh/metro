@@ -609,7 +609,7 @@ export interface StairFlight {
   to: Vec3i
 }
 
-export type BridgeRailing = 'railing' | 'sound-barrier-half' | 'sound-barrier'
+export type BridgeRailing = 'railing' | 'sound-barrier-half' | 'sound-barrier' | 'none'
 
 /**
  * Which cabin doors a lift shaft opens at one storey (§5.1): `front` is the

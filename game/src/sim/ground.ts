@@ -29,6 +29,10 @@ import { registerDocumentCache } from './documentCaches.ts'
 
 /** The street storey: the one plane the document stores inverted. */
 export const GROUND_Z = 0
+/** A surface track cuts its anchor course, and an open run also cuts the course below it. */
+export function trackCutsGround(track: TrackModule): boolean {
+  return !track.cfg.tunnel && (track.z === GROUND_Z || (track.cfg.bridge === true && track.z === GROUND_Z + 1))
+}
 /** A finish stored on existing pavement, rather than newly built ground. */
 export const PAINTED_GROUND = 'painted-ground'
 
@@ -234,7 +238,7 @@ export function groundHoleAt(cells: readonly Cell[], modules: readonly Module[],
   for (const c of cells) {
     if (c.x === x && c.y === y && c.z === GROUND_Z && c.fill !== 'solid') return true
   }
-  return modules.some((m) => m.type === 'track' && !m.cfg.tunnel && !m.cfg.bridge && trackCellAt(m, x, y, GROUND_Z)) || rampOpeningAt(modules, x, y, GROUND_Z) || exitFloorAt(modules, x, y, GROUND_Z)
+  return modules.some((m) => m.type === 'track' && trackCutsGround(m) && trackCellAt(m, x, y, m.z)) || rampOpeningAt(modules, x, y, GROUND_Z) || exitFloorAt(modules, x, y, GROUND_Z)
 }
 
 const groundHoleReaders = new WeakMap<readonly Cell[], WeakMap<readonly Module[], (x: number, y: number) => boolean>>()
@@ -243,9 +247,9 @@ const moduleGroundHoleReaders = new WeakMap<readonly Module[], (x: number, y: nu
 function moduleGroundHoleReader(modules: readonly Module[]): (x: number, y: number) => boolean {
   const cached = moduleGroundHoleReaders.get(modules)
   if (cached) return cached
-  const tracks = modules.filter((m): m is TrackModule => m.type === 'track' && !m.cfg.tunnel && !m.cfg.bridge)
+  const tracks = modules.filter((m): m is TrackModule => m.type === 'track' && trackCutsGround(m))
   const read = (x: number, y: number): boolean =>
-    tracks.some(m => trackCellAt(m, x, y, GROUND_Z)) ||
+    tracks.some(m => trackCellAt(m, x, y, m.z)) ||
     rampOpeningAt(modules, x, y, GROUND_Z) ||
     exitFloorAt(modules, x, y, GROUND_Z)
   moduleGroundHoleReaders.set(modules, read)
@@ -471,7 +475,7 @@ function generatedGround(cells: readonly Cell[],modules: readonly Module[],w: Re
     omit(x, y)
   }
   for (const m of modules) {
-    if (m.type === 'track' && m.z === GROUND_Z && !m.cfg.tunnel && !m.cfg.bridge) {
+    if (m.type === 'track' && trackCutsGround(m)) {
       for (const [x, y] of trackCells(m)) omit(x, y)
       continue
     }

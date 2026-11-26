@@ -12,8 +12,10 @@ namespace Metro.View {
     /// gantry post, including one a neighbouring run owns across the module seam.
     /// </summary>
     public sealed class RailBridgeOptions {
-        /// <summary>`cfg.bridgeRailing`: `<c>railing</c>`, `<c>sound-barrier</c>` or `<c>sound-barrier-half</c>`.</summary>
+        /// <summary>`cfg.bridgeRailing`: railing, either sound barrier, or none.</summary>
         public string Railing = "railing";
+        public bool GroundTrack;
+        public bool HasRailing => !string.Equals(Railing, "none", StringComparison.Ordinal);
         /// <summary>`STOCK[line.stock].width`, for the screen-door centre-line offset.</summary>
         public float VehicleWidth;
         /// <summary>
@@ -26,8 +28,7 @@ namespace Metro.View {
                                     string.Equals(Railing, "sound-barrier-half", StringComparison.Ordinal);
 
         /// <summary>`bridgeBarrierTop`: 2 m half-height, 3.5 m full, 1.29 m railing.</summary>
-        public float BarrierTop => string.Equals(Railing, "sound-barrier-half", StringComparison.Ordinal) ? 2f
-            : string.Equals(Railing, "sound-barrier", StringComparison.Ordinal) ? BridgeBarrierTop : BridgeRailingTop;
+        public float BarrierTop => (float)StationFootprints.BridgeBarrierTop(Railing);
 
         /// <summary>`BRIDGE_BARRIER_TOP`.</summary>
         public const float BridgeBarrierTop = 3.5f;
@@ -428,7 +429,7 @@ namespace Metro.View {
             var options = Bridge;
             float support = StationRailGeometry.TrackSideFixtureOffset(d, options.VehicleWidth);
             BridgeSupportOffset = support;
-            float span = Mathf.Max(d, support * 2f + .12f);
+            float span = options.HasRailing || Catenary || !options.GroundTrack ? Mathf.Max(d, support * 2f + .12f) : d;
             BridgeSpan = span;
             float shoulderDepth = (span - d) * .5f;
             bool sound = options.SoundBarrier;
@@ -438,7 +439,7 @@ namespace Metro.View {
             // The shoulder rises to the barrier's own footing: 0.5 m under a noise barrier,
             // 0.55 m under a railing (`buildTrack`).
             float shoulderTop = sound ? .5f : .55f;
-            for (int side = -1; side <= 1; side += 2) {
+            for (int side = -1; options.HasRailing && side <= 1; side += 2) {
                 float y = cy + side * support;
                 float shoulderY = cy + side * (d * .5f + shoulderDepth * .5f);
                 var ownPostXs = OwnGantryPostXs(y, support);

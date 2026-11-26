@@ -30,7 +30,7 @@ export function StructurePanel({ anchor }: { anchor: string }): React.ReactEleme
   return <InlinePanel open={placing || bridge !== undefined}>
     <div className="blockGrid">
       {placing && <Block label={translate(trackRunLengthLabel(bridgeLength))} art={<DimensionArt selected={TRACK_RUN_LENGTHS.indexOf(bridgeLength as typeof TRACK_RUN_LENGTHS[number])} count={TRACK_RUN_LENGTHS.length} />} shortcut="Tab" onClick={cycleBridgeLength} />}
-      <Block label={translate(bridgeRailingLabel(railing))} icon={railing === 'railing' ? 'fence' : 'glass'} onClick={cycleRailing} />
+      <Block label={translate(bridgeRailingLabel(railing))} icon={railing === 'none' ? 'minus' : railing === 'railing' ? 'fence' : 'glass'} onClick={cycleRailing} />
     </div>
   </InlinePanel>
 }

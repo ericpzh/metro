@@ -4,6 +4,7 @@ import { rampOpeningsInWindow } from './openings.ts'
 import { exitFootprintCells, isExitHeadHouse } from './exits.ts'
 import { trackCells } from './track.ts'
 import { registerDocumentCache } from './documentCaches.ts'
+import { trackCutsGround } from './ground.ts'
 
 export interface BlockIndex {
   (z: number): Set<string>
@@ -30,7 +31,7 @@ export function blockIndex(cells: readonly Cell[], modules: readonly Module[]): 
   const voidGround = new Set(cells.filter(c => c.z === 0 && c.fill !== 'solid').map(c => `${c.x},${c.y}`))
   const exits = new Set<string>()
   const trackGround = new Set<string>()
-  for (const mod of modules) if (mod.type === 'track' && mod.z === 0 && !mod.cfg.tunnel && !mod.cfg.bridge) {
+  for (const mod of modules) if (mod.type === 'track' && trackCutsGround(mod)) {
     for (const [x, y] of trackCells(mod)) trackGround.add(`${x},${y}`)
   }
   for (const mod of modules) if (mod.type === 'exit' && isExitHeadHouse(mod)) {

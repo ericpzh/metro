@@ -369,11 +369,9 @@ namespace Metro.Build {
             var tracks = index.ModulesOfType("track");
             for (int i = 0; i < tracks.Count; i++) {
                 var module = tracks[i];
-                if (module.Z != 0) continue;
-                var cfg = module.Config;
-                if (cfg.Bool("tunnel") || cfg.Bool("bridge")) continue;
+                if (!TrackCutsGround(module)) continue;
                 foreach (var cell in TrackCells(module))
-                    if (cell.Z == 0 && cell.X == x && cell.Y == y) return true;
+                    if (cell.X == x && cell.Y == y) return true;
             }
             string[] runTypes = { "stair", "escalator", "walkway", "lift" };
             for (int t = 0; t < runTypes.Length; t++) {
@@ -394,6 +392,11 @@ namespace Metro.Build {
             }
             return false;
         }
+
+        /// <summary>A surface track cuts its anchor course. An open run also cuts the course below it.</summary>
+        public static bool TrackCutsGround(StationModuleRecord track, int groundZ = 0) =>
+            !track.Config.Bool("tunnel") && (track.Z == groundZ ||
+                (track.Z == groundZ + 1 && track.Config.Bool("bridge")));
 
         /// <summary>
         /// True when a 自动步道's whole run lies on floor: the belt is a surface over solid
@@ -1182,7 +1185,7 @@ namespace Metro.Build {
 
         /// <summary>Port of <c>bridgeBarrierTop</c>.</summary>
         public static double BridgeBarrierTop(string railing) =>
-            railing == "sound-barrier-half" ? 2 : railing == "sound-barrier" ? 3.5 : 1.29;
+            railing == "none" ? 0 : railing == "sound-barrier-half" ? 2 : railing == "sound-barrier" ? 3.5 : 1.29;
 
         /// <summary>The wall-panel box: the run's AABB narrowed to one cell's depth on the wall side.</summary>
         static StationBox WallPanelBox(StationModuleRecord m, IReadOnlyList<StationPoint> cells, double zLo, double zHi) {

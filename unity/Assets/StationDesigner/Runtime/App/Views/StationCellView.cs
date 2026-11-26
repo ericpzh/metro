@@ -1582,7 +1582,7 @@ namespace Metro.App.Views {
                 if (module == null) continue;
                 switch (module.Type) {
                     case "track":
-                        if (module.Z == StationPaintSnapshot.GroundZ && !module.Config.Bool("tunnel") && !module.Config.Bool("bridge"))
+                        if (StationFootprints.TrackCutsGround(module, StationPaintSnapshot.GroundZ))
                             foreach (var point in StationFootprints.TrackCells(module))
                                 if (input.GroundHoles.Add(CellKeyAt(point))) holes++;
                         break;

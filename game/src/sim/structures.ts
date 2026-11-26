@@ -92,22 +92,29 @@ export function pillarOffset(m: PillarModule): { x: number; y: number } {
   return m.cfg.size === 'slim' ? inCellOffset(m.rot ?? 0, pillarWidth(m)) : { x: 0, y: 0 }
 }
 export const BRIDGE_DECK_DEPTH = 1
-/** The whole deck must clear the street slab, whose top is z=1 (§4.1). */
-export const BRIDGE_MIN_Z = BRIDGE_DECK_DEPTH + 1
+/** The highest track whose deck rests at or below the top of the street slab. */
+export const GROUND_TRACK_MAX_Z = BRIDGE_DECK_DEPTH + 1
 /** Sound barrier top above the track anchor; the bed surface is at +0.5 m. */
 export const BRIDGE_BARRIER_TOP = 3.5
 export function bridgeBarrierTop(railing: BridgeRailing | undefined): number {
+  if (railing === 'none') return 0
   return railing === 'sound-barrier-half' ? 2 : railing === 'sound-barrier' ? BRIDGE_BARRIER_TOP : 1.29
 }
 export function nextBridgeRailing(railing: BridgeRailing): BridgeRailing {
-  return railing === 'railing' ? 'sound-barrier-half' : railing === 'sound-barrier-half' ? 'sound-barrier' : 'railing'
+  switch (railing) {
+    case 'railing': return 'sound-barrier-half'
+    case 'sound-barrier-half': return 'sound-barrier'
+    case 'sound-barrier': return 'none'
+    default: return 'railing'
+  }
 }
 export function bridgeRailingLabel(railing: BridgeRailing): string {
+  if (railing === 'none') return msg('bridge_railing_none')
   return railing === 'sound-barrier-half' ? msg('half_height_noise_barrier') : railing === 'sound-barrier' ? msg('full_height_noise_barrier') : msg('railing')
 }
 export function pillarSupportsBridge(pillar: Module, track: Module): boolean {
   return pillar.type === 'pillar' && track.type === 'track' && track.cfg.bridge === true
-    && pillar.z + pillar.cfg.height === track.z && trackCellAt(track, pillar.x, pillar.y, track.z)
+    && track.z > GROUND_TRACK_MAX_Z && pillar.z + pillar.cfg.height === track.z && trackCellAt(track, pillar.x, pillar.y, track.z)
 }
 export function extendedPillar(m: PillarModule, step = m.storeyHeight ?? PILLAR_STEP): PillarModule {
   return { ...m, cfg: { ...m.cfg, height: m.cfg.height + step } }

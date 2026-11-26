@@ -9,7 +9,7 @@ import { msg } from '../sim/i18n.ts'
 // the whole module can be pre-rendered and turned with R like any equipment,
 // including across to the other axis. Pure document edits — no React, no three.
 
-import { pillarSupportsBridge, BRIDGE_DECK_DEPTH, BRIDGE_MIN_Z } from '../sim/structures.ts'
+import { pillarSupportsBridge, BRIDGE_DECK_DEPTH } from '../sim/structures.ts'
 import { GROUND_Z, groundHoleReader } from '../sim/ground.ts'
 import { bridgePillarCandidates, syncBridgePillars } from './model/BridgePillars.ts'
 import { floorSpeed } from '../sim/finishes.ts'
@@ -301,7 +301,7 @@ export function trackClearanceBlocked(state: StationState, track: TrackModule): 
   if (track.cfg.tunnel) return false
   const bed = new Set(trackCells(track).map(([x, y, z]) => cellKey(x, y, z)))
   const courses = new Set<number>()
-  if (track.cfg.bridge) courses.add(track.z - BRIDGE_DECK_DEPTH)
+  if (track.cfg.bridge && track.z > GROUND_Z + BRIDGE_DECK_DEPTH) courses.add(track.z - BRIDGE_DECK_DEPTH)
   for (let dz = 1; dz <= trackHeadroom(track); dz++) courses.add(track.z + dz)
   return state.cells.some(c => courses.has(c.z) && c.fill === 'solid' && bed.has(cellKey(c.x, c.y, track.z)))
 }
@@ -388,6 +388,7 @@ export function trackBlockNotice(state: StationState, track: TrackModule, block:
     return msg('cannot_place_value_equipment_rooms_platforms_or_other_tracks_are', names)
   }
   if (block === 'wall') return msg('a_wall_crosses_this_track_use_a_tunnel_instead_of_a_platform_her')
+  if (track.cfg.bridge && track.z < GROUND_Z) return msg('open_track_minimum_height')
   return msg('platform_track_needs_a_solid_floor_at_least_three_cells_wide')
 }
 
@@ -396,7 +397,7 @@ export function trackBlockReason(state: StationState, track: TrackModule): Track
   if (trackInterferenceBlocked(state, track)) return 'interference'
   // A tunnel bores through walls and hangs over void; only a platform is held
   // to open air and solid ground under its whole footprint.
-  if (track.cfg.bridge && track.z < BRIDGE_MIN_Z) return 'floor'
+  if (track.cfg.bridge && track.z < GROUND_Z) return 'floor'
   if (track.cfg.bridge) {
     const proposedModules = [...state.modules, track]
     if (bridgePillarCandidates(state.cells,state.modules,track).some(pillar=>

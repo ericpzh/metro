@@ -39,7 +39,7 @@ test('switching translates existing errors and catalogues while canonical data s
     setLanguage('zh-CN')
     const error = msg('cannot_place_bridge_blocked_by_value', msg('fare_gate'))
     setLanguage('en')
-    assert.equal(translate(error), 'Cannot place bridge: blocked by Fare gate')
+    assert.equal(translate(error), 'Cannot place track: blocked by Fare gate')
     assert.equal(translate(msg('corrupt_file')), 'Corrupt file')
     assert.equal(translate('A 畅通'), 'A Free flow')
     assert.equal(translate('1月1日 周四'), '1/1 Thursday')

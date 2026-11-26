@@ -643,7 +643,7 @@ namespace Metro.Build {
             byType.TryGetValue("pillar", out var pillars);
             for (int t = 0; t < tracks.Length; t++) {
                 var bridge = tracks[t];
-                if (!bridge.Config.Bool("bridge")) continue;
+                if (!bridge.Config.Bool("bridge") || bridge.Z <= StationBridgePillars.GroundTrackMaxZ) continue;
                 int width = Math.Max(1, bridge.Width);
                 int depth = Math.Max(1, bridge.Depth);
                 for (int i = 4; i + 4 <= width; i += 8) {

@@ -34,12 +34,12 @@ import { isPsdCornerPair, isPsdEndCoverSupport, isPsdEndJoin, psdEndOffset, psdE
 import { floorDecorCells, floorDecorSpec, floorDecorBounds, isFloorSticker, snapBoardingMark } from './floorDecor.ts'
 import { VENT_WIDTH, VENT_DEPTH, ventCeilingZ } from './vents.ts'
 import { LIGHT_DEPTH, lightCeilingZ, lightOffset, lightSpec } from './lights.ts'
-import { canopyBodyBoxes, canopyPostCells, CANOPY_ROOF_DROP, pillarSupportsBridge, pillarWidth, pillarOffset, ROOF_THICKNESS, TRUSS_ROOF_BASE, trussRoofTop, BRIDGE_DECK_DEPTH, BRIDGE_MIN_Z, bridgeBarrierTop } from './structures.ts'
+import { canopyBodyBoxes, canopyPostCells, CANOPY_ROOF_DROP, pillarSupportsBridge, pillarWidth, pillarOffset, ROOF_THICKNESS, TRUSS_ROOF_BASE, trussRoofTop, BRIDGE_DECK_DEPTH, bridgeBarrierTop } from './structures.ts'
 import { EXIT_L, exitSpan, exitBays, exitFloorAt, exitWidth, isExitHeadHouse } from './exits.ts'
 import { calligraphyBottom, calligraphyCourses } from './calligraphy.ts'
 import { GLASS_FRAME, glassModuleSpec, glassSpec, glassStandsOnFloor, glassWallCourses } from './glassPanels.ts'
 import { doorSpec } from './doors.ts'
-import { GROUND_Z, groundHoleAt, groundHoleReader, virtualSolidAt } from './ground.ts'
+import { GROUND_Z, groundHoleAt, groundHoleReader, trackCutsGround, virtualSolidAt } from './ground.ts'
 import { lineMapSpec, LINE_MAP_FRAME_PAD, lineMapWallCourses } from './linemaps.ts'
 import { liftFootprintCells, liftSizeOf } from './lifts.ts'
 import { billboardSpec } from './billboards.ts'
@@ -671,9 +671,13 @@ export function isTrackBed(cells: readonly Cell[], x: number, y: number, z: numb
   return c?.fill === 'solid' && c.finish?.top === 'floor.track'
 }
 
-/** Every cell a track module's bed covers — its run × depth at its own level. */
+/** Every cell a track bed reserves, including street cells cut by an open run at 1 m. */
 export function trackBedCells(m: Module): Array<[number, number, number]> {
-  return m.type === 'track' ? trackCells(m) : []
+  if (m.type !== 'track') return []
+  const bed = trackCells(m)
+  return m.z === GROUND_Z + 1 && trackCutsGround(m)
+    ? [...bed, ...bed.map(([x, y]): [number, number, number] => [x, y, GROUND_Z])]
+    : bed
 }
 
 /** The track module whose bed covers `(x, y, z)`, if any. */
@@ -701,7 +705,10 @@ export function trackBedKeys(cells: readonly Cell[], modules: readonly Module[])
 
 /** True when a cell is a track bed by either rule. */
 export function isTrackCell(cells: readonly Cell[], modules: readonly Module[], x: number, y: number, z: number): boolean {
-  return isTrackBed(cells, x, y, z) || trackAt(modules, x, y, z) !== undefined
+  if (isTrackBed(cells, x, y, z) || trackAt(modules, x, y, z)) return true
+  if (z !== GROUND_Z) return false
+  const raisedTrack = trackAt(modules, x, y, GROUND_Z + 1)
+  return raisedTrack?.type === 'track' && trackCutsGround(raisedTrack)
 }
 
 /**
@@ -2507,7 +2514,7 @@ export function equipmentReason(cells: readonly Cell[], modules: readonly Module
   }
   if (((candidate.type === 'cctv' && candidate.cfg.variant === 'post') || candidate.type === 'traffic-light' || candidate.type === 'guidepost' || candidate.type === 'busstop') && candidate.z < 0) return 'outdoor-below-ground'
   if (candidate.type === 'exit' && (candidate.cfg as { style?: string }).style === 'virtual' && candidate.z < 0) return 'outdoor-below-ground'
-  if (candidate.type === 'track' && candidate.cfg.bridge && candidate.z < BRIDGE_MIN_Z) return 'bridge-below-ground'
+  if (candidate.type === 'track' && candidate.cfg.bridge && candidate.z < GROUND_Z) return 'bridge-below-ground'
   if (candidate.type === 'stair' && candidate.cfg.block && cells.some((c) => c.fill === 'solid' && c.x === candidate.x && c.y === candidate.y && c.z === candidate.z + 1)) return 'occupied'
   if (candidate.type === 'roof' && candidate.cfg.variant && candidate.z < 0) return 'exit-on-slab'
   if (candidate.type === 'roof') {
@@ -2601,7 +2608,7 @@ export function equipmentRefusalNotice(reason: EquipmentRefusal, blockers: reado
       case 'exit-below-ground':
         return msg('ground_entrances_must_be_at_0_m_or_above')
       case 'bridge-below-ground':
-        return msg('the_bridge_underside_must_be_above_ground')
+        return msg('open_track_minimum_height')
       case 'outdoor-below-ground':
         return msg('wayfinding_posts_and_bus_stops_need_a_floor_at_0_m_or_above')
       case 'floor':

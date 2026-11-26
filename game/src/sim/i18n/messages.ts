@@ -143,7 +143,7 @@ export const messages = {
   "tutorial_platform": { "zh": "放置站台", "en": "Place a platform" },
   "tutorial_platform_body": { "zh": "选择站台工具并绑定线路，按 R 旋转，左键放置。先铺好足够长的地板，并留出乘客通行空间；工具会按线路设置生成屏蔽门。", "en": "Choose Platform and assign a line. Press R to rotate, then left-click to place it. Lay a floor long enough for the train and leave room for passengers; screen doors follow the line’s settings." },
   "tutorial_extend": { "zh": "延长轨道", "en": "Extend the tracks" },
-  "tutorial_extend_body": { "zh": "地下使用隧道，高架使用轨道桥，从已有轨道端部继续延伸。", "en": "Use tunnels underground or railway bridges above ground to extend from the ends of existing track." },
+  "tutorial_extend_body": { "zh": "地下使用隧道，地面和高架使用轨道，从已有轨道端部继续延伸。", "en": "Use Tunnel underground and Track at or above ground to extend an existing run." },
   "tutorial_equipment": { "zh": "让车站连通起来", "en": "Connect your station" },
   "tutorial_equipment_body": { "zh": "添加出入口、楼梯或扶梯，连通街面与站台，并保留连续的步行通道。再从设备和装饰文件夹中添加闸机、照明、标识等。", "en": "Add entrances, stairs or escalators to connect the street to your platforms, keeping a continuous walking route. Then add gates, lights, signs and more from Equipment and decoration folders." },
   "tutorial_paint": { "zh": "选择材质", "en": "Add finishes" },
@@ -360,8 +360,8 @@ export const messages = {
     "en": "Tapered truss roof with a single bottom beam; can be painted"
   },
   "open_railway_bridge_extends_the_line": {
-    "zh": "开放轨道桥，延伸线路",
-    "en": "Open railway bridge; extends the line"
+    "zh": "地面或高架轨道，延伸线路",
+    "en": "Ground or elevated track that extends the line"
   },
   "set_demand_for_each_exit": {
     "zh": "每个出入口单独设客流",
@@ -791,10 +791,6 @@ export const messages = {
   "tunnel": {
     "zh": "隧道",
     "en": "Tunnel"
-  },
-  "railway_bridge": {
-    "zh": "轨道桥",
-    "en": "Railway bridge"
   },
   "selected_value_value_m_value_mvalue": {
     "zh": "已选{0} · {1} m × {2} m{3}",
@@ -1605,16 +1601,16 @@ export const messages = {
     "en": "No floor marking to erase here"
   },
   "select_existing_track_first_the_bridge_connects_to_its_end": {
-    "zh": "先点一段现有轨道，轨道桥从端部接出",
-    "en": "Select existing track first; the bridge connects to its end"
+    "zh": "先点一段现有轨道，新轨道从端部接出",
+    "en": "Select existing track to extend it from the end"
   },
   "cannot_place_bridge_blocked_by_value": {
-    "zh": "轨道桥无法放置：被{0}阻挡",
-    "en": "Cannot place bridge: blocked by {0}"
+    "zh": "轨道无法放置：被{0}阻挡",
+    "en": "Cannot place track: blocked by {0}"
   },
   "cannot_place_bridge_check_its_height_and_obstacles_along_the_rou": {
-    "zh": "轨道桥无法放置：检查高度与沿线障碍",
-    "en": "Cannot place bridge: check its height and obstacles along the route"
+    "zh": "轨道无法放置：检查高度与沿线障碍",
+    "en": "Cannot place track: check its height and obstacles along the route"
   },
   "remove_shelves_one_at_a_time_point_at_a_shelf_and_right_click": {
     "zh": "货架需逐个拆除：指向货架后右键",
@@ -3070,9 +3066,9 @@ export const messages = {
     "zh": "地面出入口只能放在 0 米及以上",
     "en": "Ground entrances must be at 0 m or above"
   },
-  "the_bridge_underside_must_be_above_ground": {
-    "zh": "轨道桥的桥底必须在地面上方",
-    "en": "The bridge underside must be above ground"
+  "open_track_minimum_height": {
+    "zh": "轨道必须放在 0 m 或以上",
+    "en": "Track must be placed at 0 m or above"
   },
   "wayfinding_posts_and_bus_stops_need_a_floor_at_0_m_or_above": {
     "zh": "导向柱和公交站只能放在 0 米及以上的地板上",
@@ -3219,6 +3215,7 @@ export const messages = {
     "en": "Full-height noise barrier"
   },
   "noise_barrier": { "zh": "隔音屏", "en": "Sound barrier" },
+  "bridge_railing_none": { "zh": "无", "en": "None" },
   "railing": {
     "zh": "栏杆",
     "en": "Railing"

@@ -16,14 +16,14 @@ import { createModule } from '../src/build/model.ts'
 import { toState } from '../src/build/model/State.ts'
 import { emptyStation } from '../src/data/reference-station.ts'
 
-test('bridge railing tile cycles the three named variants and wraps', () => {
+test('bridge railing tile cycles all four variants and wraps', () => {
   let variant = 'railing'
   const labels = []
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < 4; i++) {
     labels.push(bridgeRailingLabel(variant))
     variant = nextBridgeRailing(variant)
   }
-  assert.deepEqual(labels, ['栏杆', '半高声屏障', '全高声屏障'])
+  assert.deepEqual(labels, ['栏杆', '半高声屏障', '全高声屏障', '无'])
   assert.equal(variant, 'railing')
 })
 

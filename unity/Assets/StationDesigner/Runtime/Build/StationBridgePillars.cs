@@ -14,8 +14,8 @@ namespace Metro.Build {
     public static class StationBridgePillars {
         /// <summary>The deck's own depth, metres (`BRIDGE_DECK_DEPTH`).</summary>
         public const double DeckDepth = 1;
-        /// <summary>The bridge's deck clears the street slab, whose top is z = 1.</summary>
-        public const double MinZ = DeckDepth + 1;
+        /// <summary>The highest track whose deck rests at or below the top of the street slab.</summary>
+        public const double GroundTrackMaxZ = DeckDepth + 1;
         /// <summary>One pier per eight-metre bay, four metres in from the end.</summary>
         public const int Bay = 8;
 
@@ -29,7 +29,7 @@ namespace Metro.Build {
             var pillars = new List<StationEditDraft>();
             if (index == null || bridge == null) return pillars;
             if (!string.Equals(bridge.Type, "track", StringComparison.Ordinal)) return pillars;
-            if (!bridge.Config.Has("bridge")) return pillars;
+            if (!bridge.Config.Bool("bridge") || bridge.Z <= GroundTrackMaxZ) return pillars;
             var removed = new HashSet<string>(StringComparer.Ordinal);
             var text = bridge.Config.Text("removedBridgePillars");
             if (!string.IsNullOrEmpty(text)) {
@@ -91,7 +91,7 @@ namespace Metro.Build {
         public static bool PillarSupportsBridge(StationModuleRecord pillar, StationModuleRecord bridge) {
             if (pillar == null || bridge == null) return false;
             if (!string.Equals(pillar.Type, "pillar", StringComparison.Ordinal)) return false;
-            if (!bridge.Config.Has("bridge")) return false;
+            if (!bridge.Config.Bool("bridge") || bridge.Z <= GroundTrackMaxZ) return false;
             double height = pillar.Config.Number("height", 0);
             if (Math.Abs(pillar.Z + height - bridge.Z) > 1e-6) return false;
             foreach (var cell in StationFootprints.TrackCells(bridge)) {

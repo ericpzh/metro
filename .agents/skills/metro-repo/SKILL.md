@@ -110,6 +110,19 @@ library and sound studio (`model/`), an anonymous stats/feedback Worker
 - **PowerShell 5.1**: `&&` is invalid on Windows PowerShell 5.1 — separate
   commands with `;` or run individually.
 
+### Open Track in Three.js and Unity
+
+- The 轨道 (Track) tool extends an existing run. Keep the `bridge` palette ID
+  and `cfg.bridge` save flag for compatibility. `cfg.bridgeRailing: 'none'`
+  represents 无 (None). Saves with no railing field default to `railing`.
+- Keep placement, preview, ground openings, and save repair in sync across
+  both runtimes. Runs at 0–2 m stay pier-free, and runs at 0 m and 1 m cut the
+  street course. At 3 m and above, derive supports per complete eight-metre
+  bay where there is clearance under the deck.
+- Check `game/test/overground.test.mjs` and Unity's `StationRailToolTests` and
+  `StationRailGeometryTests` when changing these rules. Unity applies railing
+  changes to selected tracks through the revisioned `edit.rail.railing` edit.
+
 ### Performance Reference Workflow
 
 The `references/performance.md` family is the **single measured-state record**

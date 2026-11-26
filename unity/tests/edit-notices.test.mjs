@@ -25,11 +25,12 @@ test('a block refusal speaks about blocks, not equipment', () => {
   assert.match(noticeText(blocked, 'zh-CN'), /方块/)
 })
 
-test('a track-less tunnel and bridge each ask for their own source rail', () => {
+test('the Tunnel and Track tools each explain how to extend an existing run', () => {
   const tunnel = { kind: 'blocked', code: 'no-track', tool: 'tunnel', moduleType: '' }
   const bridge = { kind: 'blocked', code: 'no-track', tool: 'module', moduleType: 'bridge' }
   assert.match(noticeText(tunnel, 'en'), /tunnel connects to its end/)
-  assert.match(noticeText(bridge, 'en'), /bridge connects to its end/)
+  assert.equal(noticeText(bridge, 'en'), 'Select existing track to extend it from the end')
+  assert.equal(noticeText({ ...bridge, code: 'bridge-below-ground' }, 'zh-CN'), '轨道必须放在 0 m 或以上')
 })
 
 test('a floor refusal on the rail tools is about the platform, not equipment', () => {

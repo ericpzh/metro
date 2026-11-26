@@ -48,6 +48,7 @@ const MESSAGES: Record<string, MessageKey> = {
   'no-roof-to-remove': 'no_roof_to_remove_here',
   'no-line': 'select_existing_track_first_the_tunnel_connects_to_its_end',
   'no-track': 'select_existing_track_first_the_tunnel_connects_to_its_end',
+  'bridge-below-ground': 'open_track_minimum_height',
   'bridge-pier': 'cannot_place_equipment_here_choose_another_location',
   'no-roof-to-place': 'cannot_place_a_roof_here_choose_another_location',
   'over-limit': 'drag_area_too_large',

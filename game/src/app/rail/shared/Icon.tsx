@@ -26,6 +26,8 @@ export function Icon({ name }: { name: string }): React.ReactElement {
     </svg>
   )
   switch (name) {
+    case 'minus':
+      return svg(<path {...s} d="M5 10h10" />)
     case 'move':
       return <RiDragDropLine />
     case 'bulldozer':

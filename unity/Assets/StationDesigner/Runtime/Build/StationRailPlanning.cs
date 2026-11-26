@@ -258,13 +258,8 @@ namespace Metro.Build {
         /// </summary>
         public static StationRailPlan PlanBridge(StationIndex index, string sourceId, int length,
             int atX, int atY, bool hasAt, string railing) {
-            var plan = PlanTunnel(index, sourceId, length, atX, atY, hasAt);
-            if (!plan.Ok || plan.Track == null) return plan;
-            plan.Track.Config.Remove("tunnel");
-            plan.Track.Set("bridge", "1");
-            plan.Track.Set("bridgeRailing", string.IsNullOrEmpty(railing) ? "railing" : railing);
-            plan.Tunnel = false;
-            return plan;
+            return PlanExtension(index, sourceId, length, atX, atY, hasAt,
+                string.IsNullOrEmpty(railing) ? "railing" : railing);
         }
 
         /// <summary>The requested saved line, or the first saved line as a fallback.</summary>
@@ -381,11 +376,9 @@ namespace Metro.Build {
             var tracks = index.ModulesOfType("track");
             for (int i = 0; i < tracks.Count; i++) {
                 var module = tracks[i];
-                if (module == null || module.Z != 0) continue;
-                var cfg = module.Config;
-                if (cfg.Bool("tunnel") || cfg.Bool("bridge")) continue;
+                if (module == null || !StationFootprints.TrackCutsGround(module)) continue;
                 foreach (var cell in StationFootprints.TrackCells(module)) {
-                    if (cell.Z == 0) holes.Add(((int)Math.Round(cell.X), (int)Math.Round(cell.Y)));
+                    holes.Add(((int)Math.Round(cell.X), (int)Math.Round(cell.Y)));
                 }
             }
             string[] runTypes = { "stair", "escalator", "walkway", "lift" };
@@ -740,8 +733,13 @@ namespace Metro.Build {
         /// over void, so only another rail's bed in the way refuses it. The shell
         /// (`boreTunnel`) is not ported yet; the run itself is the authored `track` record.
         /// </summary>
-        public static StationRailPlan PlanTunnel(StationIndex index, string sourceId, int length, int atX, int atY, bool hasAt) {
-            var plan = new StationRailPlan { Direction = "up", Tunnel = true };
+        public static StationRailPlan PlanTunnel(StationIndex index, string sourceId, int length, int atX, int atY, bool hasAt) =>
+            PlanExtension(index, sourceId, length, atX, atY, hasAt, null);
+
+        static StationRailPlan PlanExtension(StationIndex index, string sourceId, int length, int atX, int atY,
+            bool hasAt, string railing) {
+            bool bridge = railing != null;
+            var plan = new StationRailPlan { Direction = "up", Tunnel = !bridge };
             if (index == null) { plan.Reason = "no-document"; return plan; }
             if (string.IsNullOrEmpty(sourceId) || !index.TryGetModule(sourceId, out var source) || source == null ||
                 !string.Equals(source.Type, "track", StringComparison.Ordinal)) {
@@ -750,6 +748,12 @@ namespace Metro.Build {
             }
             int end = FreeTunnelEnd(index, source, atX, atY, hasAt);
             var draft = MakeTunnel(source, end, length, "");
+            if (bridge) {
+                if (draft.Z < StationFootprints.GroundZ) { plan.Reason = "bridge-below-ground"; return plan; }
+                draft.Config.Remove("tunnel");
+                draft.Set("bridge", "1");
+                draft.Set("bridgeRailing", railing);
+            }
             plan.LineId = draft.Text("line");
             plan.Direction = draft.Text("dir");
             plan.X = draft.X; plan.Y = draft.Y; plan.Z = draft.Z;
@@ -767,8 +771,8 @@ namespace Metro.Build {
                 }
             }
             if (plan.ColliderIds.Count > 0) { plan.Reason = "interference"; return plan; }
-            var space = StationRailRules.SpaceBox(plan.Bed, draft.Z,
-                StationRailRules.Headroom(draft.Text("power"), true, false, ""));
+            int headroom = StationRailRules.Headroom(draft.Text("power"), !bridge, bridge, "");
+            var space = StationRailRules.SpaceBox(plan.Bed, draft.Z, headroom);
             var allModules = index.Document.Modules;
             for (int mIdx = 0; mIdx < allModules.Count; mIdx++) {
                 var module = allModules[mIdx];
@@ -779,6 +783,20 @@ namespace Metro.Build {
                 if (box.Overlaps(space)) plan.ColliderIds.Add(module.Id);
             }
             if (plan.ColliderIds.Count > 0) { plan.Reason = "interference"; return plan; }
+            if (bridge) {
+                foreach (var cell in plan.Bed) {
+                    if (cell.Z > StationFootprints.GroundZ + StationBridgePillars.DeckDepth &&
+                        index.GetCell(cell.X, cell.Y, cell.Z - 1)?.IsSolid == true) {
+                        plan.Reason = "wall";
+                        return plan;
+                    }
+                    for (int dz = 1; dz <= headroom; dz++) {
+                        if (index.GetCell(cell.X, cell.Y, cell.Z + dz)?.IsSolid != true) continue;
+                        plan.Reason = "wall";
+                        return plan;
+                    }
+                }
+            }
             plan.Track = draft;
             foreach (var cell in plan.Bed) {
                 plan.DigCells.Add(cell);
