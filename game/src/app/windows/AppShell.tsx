@@ -22,7 +22,7 @@ import { StationHostProvider, type StationHost } from './StationHost.tsx'
 import { hostOwnsVerb } from '../stationHostBridge.ts'
 import { attachScrollbarDragFallback } from '../pointerDrag.ts'
 
-export function App({ viewport, files, zooStatus, host }: { viewport?: React.ReactNode; files?: { save: () => void; open: (text: string) => void }; zooStatus?: { queued: number; boarded: number }; host?: StationHost } = {}): React.ReactElement {
+export function App({ viewport, files, zooStatus, host }: { viewport?: React.ReactNode; files?: { save: () => void; open: (text: string) => void; pickOpen?: () => void }; zooStatus?: { queued: number; boarded: number }; host?: StationHost } = {}): React.ReactElement {
   useLanguage()
   const [leftOpen, setLeftOpen] = useState(true)
   const [rightOpen, setRightOpen] = useState(true)

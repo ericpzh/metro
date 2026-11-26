@@ -212,6 +212,7 @@ namespace Metro.App {
         bool mouseWasInside;
         volatile string desiredCursor = "default";
         volatile float desiredCursorScale = 1f;
+        volatile bool nativeModalDialogOpen;
         string appliedCursor = "default";
         int appliedCursorSize = StationDesktopCursors.Size;
         bool cursorHiddenByOverlay;
@@ -657,7 +658,7 @@ namespace Metro.App {
             }
 
             SyncViewportSize();
-            if (!smokeSuppressed && !SuppressPhysicalInput) {
+            if (!smokeSuppressed && !SuppressPhysicalInput && !nativeModalDialogOpen) {
                 ForwardMouseInput();
                 ForwardKeyboardButtons();
             }
@@ -779,6 +780,7 @@ namespace Metro.App {
                 }
                 proc.BeginErrorReadLine();
                 workerProcess = proc;
+                AllowWorkerForeground();
                 firstUpdateAt = -1.0;
                 autosaveInstallAfterPresentFrame = -1;
                 // Parse and index the standalone autosave off the main thread while Unity's logo
@@ -963,6 +965,7 @@ namespace Metro.App {
             lastUploadedSequence = 0;
             presentedFrames = 0;
             heldMouseButtons = 0;
+            nativeModalDialogOpen = false;
             desiredCursor = "default";
             ResetOverlayCursor();
             Array.Clear(keyRepeatAt, 0, keyRepeatAt.Length);
@@ -1092,7 +1095,8 @@ namespace Metro.App {
 
         void OnMouseButtonEvent(InputEventPtr inputEvent, InputDevice device) {
             if (!webReady || activeClient == null || !isActiveAndEnabled ||
-                smokeSuppressed || SuppressPhysicalInput || device is not Mouse mouse || mouse != Mouse.current) return;
+                smokeSuppressed || SuppressPhysicalInput || nativeModalDialogOpen ||
+                device is not Mouse mouse || mouse != Mouse.current) return;
 
             int previous =
                 (mouse.leftButton.isPressed ? 1 : 0) |
@@ -1271,7 +1275,7 @@ namespace Metro.App {
         }
 
         void OnTextInput(char ch) {
-            if (!webReady || activeClient == null || smokeSuppressed || SuppressPhysicalInput) return;
+            if (!webReady || activeClient == null || smokeSuppressed || SuppressPhysicalInput || nativeModalDialogOpen) return;
             if (ch < ' ' || ch == 127) return;
             var kb = Keyboard.current;
             if (kb != null && (kb.ctrlKey.isPressed || kb.altKey.isPressed || kb.leftMetaKey.isPressed || kb.rightMetaKey.isPressed)) {
@@ -1292,10 +1296,24 @@ namespace Metro.App {
         [DllImport("user32.dll")]
         static extern bool SystemParametersInfo(uint action, uint parameter, out uint value, uint flags);
 
+        [DllImport("user32.dll")]
+        static extern bool AllowSetForegroundWindow(uint dwProcessId);
+
+        void AllowWorkerForeground() {
+            var proc = workerProcess;
+            if (proc == null) return;
+            try {
+                if (!proc.HasExited) AllowSetForegroundWindow((uint)proc.Id);
+            } catch {
+                // Ignore if worker already exited or OS denies foreground handoff.
+            }
+        }
+
         void ApplyOverlayCursor() {
             bool overlayOwnsCursor =
                 webReady && activeClient != null && !smokeSuppressed && !SuppressPhysicalInput &&
-                mouseWasInside && Application.isFocused && surfaceImage != null && surfaceImage.enabled;
+                !nativeModalDialogOpen && mouseWasInside && Application.isFocused &&
+                surfaceImage != null && surfaceImage.enabled;
             string next = overlayOwnsCursor ? StationDesktopCursors.NormalizeName(desiredCursor) : "default";
             float scale = desiredCursorScale;
             int nextSize = StationDesktopCursors.ResolvePixelSize(scale);
@@ -1337,6 +1355,7 @@ namespace Metro.App {
 
         void OnApplicationFocus(bool focused) {
             if (focused) {
+                AllowWorkerForeground();
                 const uint getKeyboardSpeed = 0x000a;
                 const uint getKeyboardDelay = 0x0016;
                 if (SystemParametersInfo(getKeyboardDelay, 0, out uint delay, 0))
@@ -1642,6 +1661,12 @@ namespace Metro.App {
                     case "cursor": {
                         desiredCursor = StationDesktopCursors.NormalizeName((string)obj["cursor"]);
                         desiredCursorScale = (float?)obj["scale"] ?? 1f;
+                        break;
+                    }
+                    case "modalDialog": {
+                        bool open = (bool?)obj["open"] == true;
+                        nativeModalDialogOpen = open;
+                        if (open) heldMouseButtons = 0;
                         break;
                     }
                     case "log": {

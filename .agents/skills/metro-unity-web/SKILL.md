@@ -141,7 +141,7 @@ npm run build:unity:msix -- [--version 1.0.0.0] [--dev-sign]
   `trainMarkRequest`) must publish via `StationGameHost.PublishOutbound` — never WebGL-only
   `StationWebBridge.Publish` — so both WebGL and WebView2 receive them. `main.tsx` intercepts
   all five streams before `stationBridge.receive` so PNG chunks never enter the state reducer.
-- **Authoritative history, line selection, carried moves, theme sync, WebGL autosave & WebView2 links:**
+- **Authoritative history, line selection, carried moves, theme sync, WebGL autosave & WebView2 links/files:**
   `StationGameHost` publishes `canUndo`, `canRedo`, and monotonic `stationEpoch` (cleared
   unconditionally on non-edit station loads) so `TopBar.tsx` undo/redo buttons stay
   authoritative; `lineSelection.ts` activates host-created lines (`reserveAdd`/`bindAdd`/`trackAdd`)
@@ -149,8 +149,14 @@ npm run build:unity:msix -- [--version 1.0.0.0] [--dev-sign]
   surfaces carried-move targets and localized refusal reasons to `InfoCard.tsx`; `main.tsx`
   syncs `view.set { key: "theme" }` into `StationSkySystem`, runs lossless raw-JSON coalesced
   WebGL autosave (`webglAutosave.ts`, validating final record positions and disabling itself on
-  desktop overlay and `/benchmark`), and `MetroEditorWebView` forwards only allowlisted
-  `/stats/report` & `/stats/en/report` popups (`NewWindowRequested`) to the system browser.
+  desktop overlay and `/benchmark`), `MetroEditorWebView` forwards only allowlisted
+  `/stats/report` & `/stats/en/report` popups (`NewWindowRequested`) to the system browser,
+  and `MetroEditorWebView` + `desktopFiles.ts` expose `window.__metroDesktopFiles`
+  (native WinForms `OpenFileDialog`/`SaveFileDialog` on a dedicated STA thread owned by Unity's
+  HWND, with `AllowSetForegroundWindow` and `modalDialog` input gating in
+  `StationDesktopUiPresenter`) because Chromium's `<input type="file">` / `<a download>` cannot
+  surface OS file pickers from the offscreen `1×1` `HWND_BOTTOM` composition host (`files.pickOpen`
+  in `TopBar.tsx`; WebGL keeps the standard DOM file input and blob download).
 - **Artwork recapture:** Whenever runtime code binds or swaps textures/materials after world
   registration (signs, PSD headers, street exits, calligraphy, billboards, TVs, line maps,
   digital clocks, road signals), it must call `world.RecaptureArtwork(renderer)`

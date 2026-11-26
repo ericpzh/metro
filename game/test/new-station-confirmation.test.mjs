@@ -48,6 +48,6 @@ test('opening a save file via the toolbar button or Ctrl+L asks for confirmation
   assert.match(shell, /ck === 'l'[\s\S]{0,100}metro:open/, 'Ctrl+L dispatches the shared open event')
   assert.match(topBar, /const open = \(\): void => setConfirmOpenSave\(true\)/, 'Ctrl+L opens the confirmation dialog instead of opening the file picker immediately')
   assert.match(topBar, /onOpen=\{\(\) => setConfirmOpenSave\(true\)\}/, 'the Open toolbar button opens the confirmation dialog')
-  assert.match(topBar, /const confirmOpenSaveDialog = \(\): void => \{\s*setConfirmOpenSave\(false\)\s*fileRef\.current\?\.click\(\)/, 'only confirmation triggers the file picker')
+  assert.match(topBar, /const confirmOpenSaveDialog = \(\): void => \{\s*setConfirmOpenSave\(false\)\s*(?:if \(files\?\.pickOpen\) \{\s*files\.pickOpen\(\)\s*return\s*\}\s*)?fileRef\.current\?\.click\(\)/, 'only confirmation triggers the file picker')
   assert.match(topBar, /<ReplaceStationDialog[\s\S]*open=\{confirmOpenSave\}[\s\S]*title=\{t\('open_save_confirm_title'\)\}[\s\S]*confirmLabel=\{t\('open_save_confirm'\)\}/, 'Open Save renders the shared confirmation dialog')
 })

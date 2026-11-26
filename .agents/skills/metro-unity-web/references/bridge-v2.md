@@ -31,6 +31,7 @@ and the Unity bridge/presenter classes in `unity/Assets/StationDesigner/`.
 | `calligraphyFaceProvider.ts` | `calligraphyRequest` → `drawCalligraphyPanel` (`sim/calligraphyFonts.ts` manifest + DOM font advance probe, UV orientation `mirrorU`/`flipV`) → `calligraphy.faceChunk` + `calligraphy.faceReady`. |
 | `trainMarkProvider.ts` | `trainMarkRequest` → city cab emblems, Chongqing line-numbered cab badge, and Nanjing side mark → `train.markChunk` + `train.markReady`. |
 | `webglAutosave.ts` | Lossless raw-JSON WebGL `localStorage` autosave (`metro-game.autosave.v1`): O(1) `noteCommit`, coalesced idle encoding, synchronous `pagehide`/`visibilitychange`/`beforeunload`/5-minute interval flush, raw root/record slicing preserving own `__proto__` and >53-bit integer tokens, final-sequence target-index validation after removals/insertions (`onSequenceBroken` → `station.resync` without overwriting coherent storage), correlated `stationEpoch` clear-before-write replacement, and demo/explicit-open startup precedence (disabled on desktop overlay & `/benchmark`). |
+| `desktopFiles.ts` | Desktop WebView2 native file picker bridge (`getDesktopFileBridge`, `buildSaveFileName`, `openDesktopSaveFile`, `saveDesktopSaveFile`) wrapping `window.__metroDesktopFiles` so Unity Editor and standalone Windows open native `OpenFileDialog`/`SaveFileDialog` (via `TopBar` `files.pickOpen` and `host.save()`) while WebGL keeps `<input type="file">` and `<a download>` (`unity/tests/desktop-files.test.mjs`). |
 | `unityAudio.ts` | Mounts shared `gameAudio` & `gameMusic` on `stationBridge.onAudio` for edit cues (`place`, `select`, `pick`, `delete`, `move`, `refused`) and camera-relative crowd/train/traffic ambience frames. |
 | `unity-ui.css` | Full-viewport layout, hides `#unity-loading-container`/`#unity-footer`, layers `.explodedViewer[data-unity-host="true"]`, hides `.app` when `html.metro-overlay body:has(.explodedViewer[open])`, styles `.metro-measure-chip`, sets `.viewport.selectCursor` to `default`, and scales `.movePointer`/`.deletePointer`/`.pickerPointer` by `calc(32px * var(--ui-scale, 1))`. |
 | `bridge.ts` / `zooUi.tsx` | Legacy `ZooPlayable` vertical-slice bridge (`zooBridge`, `metro:zoo-state`) kept for slice verification. |
@@ -174,13 +175,21 @@ producing one stylesheet shared by the player and benchmark route.
   `.stage`/`#unity-canvas`/`.explodedViewer[data-ready="true"]` and sets
   `window.__metroDesktopOverlay = true` + `window.metroUnityAudioBase = '/audio/'`.
 - **Loopback TCP IPC & input forwarding:** JSON lines over `127.0.0.1` ephemeral port
-  (`connected`, `ready`, `cmd`, `bridge`, `resize`, `mouse`, `key`, `cursor`, `navigate`,
-  `capturePreview`, `previewCaptured`, `log`, `quit`). Offscreen CSS cursor and `--ui-scale`
-  changes stream as `{ kind: "cursor", cursor, scale }` notifications to
+  (`connected`, `ready`, `cmd`, `bridge`, `resize`, `mouse`, `key`, `cursor`, `modalDialog`,
+  `navigate`, `capturePreview`, `previewCaptured`, `log`, `quit`). Offscreen CSS cursor and
+  `--ui-scale` changes stream as `{ kind: "cursor", cursor, scale }` notifications to
   `StationDesktopUiPresenter`, which hides the OS cursor (`Cursor.visible = false`) for
   `none` and applies quantized `24–64 px` (4 px steps from 32 px base) hardware textures and
   hotspots via `StationDesktopCursors` (`StationDesktopCursorsTests`), resetting on leave,
-  focus loss, smoke suppression, and teardown.
+  focus loss, modal dialogs, smoke suppression, and teardown.
+  - **Native desktop file dialogs:** `MetroEditorWebView.exe` injects `window.__metroDesktopFiles`
+    (`openSave`, `saveFile`) backed by `__metro_file_{open,save,reply}__:` WebView2 messages
+    intercepted before `metro:station-state`. Requests run WinForms `OpenFileDialog` /
+    `SaveFileDialog` (64 MiB open cap, `.metro.json`/`.json` filters, remembered directory) on a
+    dedicated STA thread owned by Unity's foreground/main HWND (`ResolveUnityOwnerHwnd()`), while
+    `StationDesktopUiPresenter` grants `AllowSetForegroundWindow` on worker launch/focus and gates
+    mouse, keyboard, text, and custom cursor handling while `{ kind: "modalDialog", open: true }`
+    is active (`MetroEditorWebView` also drops CDP mouse/key events during `nativeDialogActive`).
   - Mouse button edges capture InputSystem event coordinates (`OnMouseButtonEvent`) and
     deliver final drag motion before button-up; `mouseMoved` carries the active held button
     (`HeldButtonName` / `ResolveCdpMouseButton`) so Blink preserves native scrollbars, range

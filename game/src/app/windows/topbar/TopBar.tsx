@@ -61,7 +61,7 @@ function StationName({ editable = true }: { editable?: boolean }): React.ReactEl
 const EMPTY_HISTORY = { canUndo: false, canRedo: false }
 const noopSubscribe = (): (() => void) => () => {}
 
-export function TopBar({ files }: { files?: { save: () => void; open: (text: string) => void } } = {}): React.ReactElement {
+export function TopBar({ files }: { files?: { save: () => void; open: (text: string) => void; pickOpen?: () => void } } = {}): React.ReactElement {
   useLanguage()
   const host = useStationHost()
   const saveToFile = useStore((s) => s.saveToFile)
@@ -94,6 +94,10 @@ export function TopBar({ files }: { files?: { save: () => void; open: (text: str
   }
   const confirmOpenSaveDialog = (): void => {
     setConfirmOpenSave(false)
+    if (files?.pickOpen) {
+      files.pickOpen()
+      return
+    }
     fileRef.current?.click()
   }
   return (

@@ -52,6 +52,7 @@ import { commitSignBoardsToHost, unityHostOwnsStation } from './signCommitAdapte
 import { registerStationHostCommit } from '../app/stationHostBridge.ts'
 import { beginPointerDrag } from '../app/pointerDrag.ts'
 import { mountUnityAudio } from './unityAudio.ts'
+import { buildSaveFileName, getDesktopFileBridge, openDesktopSaveFile, saveDesktopSaveFile } from './desktopFiles.ts'
 import '../styles.css'
 import './unity-ui.css'
 
@@ -179,13 +180,13 @@ function UnityViewport({ canvas, adapter }: { canvas: HTMLCanvasElement; adapter
   )
 }
 
-function UnityApp({ canvas, host, adapter }: { canvas: HTMLCanvasElement; host: StationHost; adapter: ViewCubeAdapter }): React.ReactElement {
+function UnityApp({ canvas, host, adapter, pickOpen }: { canvas: HTMLCanvasElement; host: StationHost; adapter: ViewCubeAdapter; pickOpen?: () => void }): React.ReactElement {
   return (
     <>
       <App
         viewport={<UnityViewport canvas={canvas} adapter={adapter} />}
         host={host}
-        files={{ save: () => host.save(), open: document => host.openSave(document) }}
+        files={{ save: () => host.save(), open: document => host.openSave(document), pickOpen }}
       />
       <UnityExplodedView canvas={canvas} />
     </>
@@ -199,6 +200,7 @@ function UnityShellRoot({
   desktop,
   initialBenchmark,
   registerToggle,
+  pickOpen,
 }: {
   canvas: HTMLCanvasElement
   host: StationHost
@@ -206,6 +208,7 @@ function UnityShellRoot({
   desktop: boolean
   initialBenchmark: boolean
   registerToggle: (open: () => void) => void
+  pickOpen?: () => void
 }): React.ReactElement {
   const [benchmarkMode, setBenchmarkMode] = useState(initialBenchmark)
   useEffect(() => {
@@ -215,7 +218,7 @@ function UnityShellRoot({
       setBenchmarkMode(true)
     })
   }, [registerToggle])
-  const unityApp = <UnityApp canvas={canvas} host={host} adapter={adapter} />
+  const unityApp = <UnityApp canvas={canvas} host={host} adapter={adapter} pickOpen={pickOpen} />
   if (!benchmarkMode) return unityApp
   const exitBenchmark = (): void => {
     delete document.body.dataset.metroBenchmarkActive
@@ -414,6 +417,7 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
   else delete document.body.dataset.metroBenchmarkActive
   const desktopOverlay = Boolean((window as unknown as { __metroDesktopOverlay?: boolean }).__metroDesktopOverlay) ||
     document.documentElement.classList.contains('metro-overlay')
+  const desktopFiles = getDesktopFileBridge()
   initLanguage()
   if (!isBenchmark || desktopOverlay) {
     initUiTheme()
@@ -540,26 +544,57 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
         const url = URL.createObjectURL(blob)
         const link = document.createElement('a')
         link.href = url
-        link.download = `${stationName.replace(/[^\w\u4e00-\u9fff-]+/g, '-')}.metro.json`
+        link.download = buildSaveFileName(stationName)
         link.click()
         window.setTimeout(() => URL.revokeObjectURL(url), 1000)
         useStore.getState().setNotice(msg('saved'))
       }
+      const exportDocument = (docText: string, stationName: string, notifyHost: boolean): void => {
+        if (desktopFiles) {
+          void saveDesktopSaveFile(desktopFiles, {
+            english: document.documentElement.lang === 'en',
+            stationName,
+            docText,
+            onSaved: () => {
+              useStore.getState().setNotice(msg('saved'))
+              if (notifyHost) stationBridge.send('station.save')
+            },
+            onError: () => {
+              useStore.getState().setNotice(msg('station_save_failed'))
+            },
+          })
+          return
+        }
+        downloadText(docText, stationName)
+        if (notifyHost) stationBridge.send('station.save')
+      }
       const snapshot = stationBridge.getSnapshot()
       const name = text(snapshot.state.name) ?? useStore.getState().station.name ?? 'station'
       if (snapshot.document && snapshot.documentRevision === snapshot.revision) {
-        downloadText(snapshot.document, name)
-        stationBridge.send('station.save')
+        exportDocument(snapshot.document, name, true)
         return
       }
       void stationBridge.readCommittedDocument().then(docText => {
         if (!docText) throw new Error('No committed document')
-        downloadText(docText, name)
+        exportDocument(docText, name, false)
       }).catch(() => {
         useStore.getState().setNotice(msg('station_save_failed'))
       })
     },
   }
+  const pickDesktopOpen = desktopFiles
+    ? (): void => {
+        void openDesktopSaveFile(desktopFiles, {
+          english: document.documentElement.lang === 'en',
+          onOpen: documentText => host.openSave(documentText),
+          onError: () => {
+            useStore.getState().setNotice(
+              document.documentElement.lang === 'en' ? 'Could not read the save file.' : '无法读取存档文件。',
+            )
+          },
+        })
+      }
+    : undefined
   // Tool and level intent travel as session-scoped commands; neither edits the
   // document, so neither carries an expected revision. The typed adapter owns the
   // canonical names and the whole settings payload: the host resolves a ghost from the
@@ -898,6 +933,7 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
       desktop={desktopOverlay}
       initialBenchmark={isBenchmark}
       registerToggle={open => { openDesktopBenchmark = open }}
+      pickOpen={pickDesktopOpen}
     />,
   )
   // The committed snapshot is the player's public state; a browser check reads it

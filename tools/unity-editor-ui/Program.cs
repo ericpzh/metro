@@ -861,8 +861,17 @@ internal sealed class OffscreenWebViewHost : NativeWindow, IDisposable {
     private bool navigationStarted;
     private bool webViewReady;
     private bool shuttingDown;
+    private int nativeDialogActive;
+    private string? lastFileDialogDir;
+
+    private const long MaxSaveFileBytes = 64L * 1024L * 1024L;
 
     public int ExitCode { get; private set; }
+
+    private sealed class Win32WindowOwner : IWin32Window {
+        public IntPtr Handle { get; }
+        public Win32WindowOwner(IntPtr handle) => Handle = handle;
+    }
 
     private sealed record CdpInputAction(string Method, string JsonPayload, bool IsCoalescableMove);
 
@@ -1241,8 +1250,206 @@ internal sealed class OffscreenWebViewHost : NativeWindow, IDisposable {
             return;
         }
 
+        if (msg.StartsWith("__metro_file_open__:", StringComparison.Ordinal)) {
+            HandleDesktopFileOpenRequest(msg["__metro_file_open__:".Length..]);
+            return;
+        }
+
+        if (msg.StartsWith("__metro_file_save__:", StringComparison.Ordinal)) {
+            HandleDesktopFileSaveRequest(msg["__metro_file_save__:".Length..]);
+            return;
+        }
+
         MarkDirty(450);
         _ = SendToUnityAsync(new { kind = "cmd", json = msg });
+    }
+
+    private void PostFileReplyToJs(object reply) {
+        string json = JsonSerializer.Serialize(reply);
+        PostOnUi(() => {
+            if (shuttingDown || coreWebView == null) return;
+            MarkDirty(600);
+            coreWebView.PostWebMessageAsString("__metro_file_reply__:" + json);
+        });
+    }
+
+    private static string SanitizeFilterLabel(string? label, string fallback) {
+        if (string.IsNullOrWhiteSpace(label)) return fallback;
+        string cleaned = label.Replace('|', ' ').Trim();
+        return cleaned.Length > 0 ? cleaned : fallback;
+    }
+
+    private static string SanitizeSuggestedFileName(string? name) {
+        string raw = string.IsNullOrWhiteSpace(name) ? "station.metro.json" : Path.GetFileName(name.Trim());
+        if (string.IsNullOrWhiteSpace(raw)) return "station.metro.json";
+        foreach (char invalid in Path.GetInvalidFileNameChars()) {
+            raw = raw.Replace(invalid, '-');
+        }
+        return raw.Length > 0 ? raw : "station.metro.json";
+    }
+
+    private IntPtr ResolveUnityOwnerHwnd() {
+        if (options.UnityPid > 0) {
+            IntPtr fg = NativeMethods.GetForegroundWindow();
+            if (fg != IntPtr.Zero &&
+                NativeMethods.IsWindow(fg) &&
+                NativeMethods.IsWindowVisible(fg) &&
+                !NativeMethods.IsIconic(fg)) {
+                NativeMethods.GetWindowThreadProcessId(fg, out uint fgPid);
+                if (fgPid == (uint)options.UnityPid) {
+                    return fg;
+                }
+            }
+            try {
+                using var proc = Process.GetProcessById(options.UnityPid);
+                IntPtr mainHwnd = proc.MainWindowHandle;
+                if (mainHwnd != IntPtr.Zero &&
+                    NativeMethods.IsWindow(mainHwnd) &&
+                    NativeMethods.IsWindowVisible(mainHwnd) &&
+                    !NativeMethods.IsIconic(mainHwnd)) {
+                    return mainHwnd;
+                }
+            } catch {
+                // Fall back to unowned top-level file dialog.
+            }
+        }
+        return IntPtr.Zero;
+    }
+
+    private void RunNativeFileDialogOnSta(string requestId, Func<IWin32Window?, object> runDialog) {
+        if (Interlocked.CompareExchange(ref nativeDialogActive, 1, 0) != 0) {
+            PostFileReplyToJs(new { id = requestId, ok = false, cancelled = true });
+            return;
+        }
+
+        _ = SendToUnityAsync(new { kind = "modalDialog", open = true });
+        IntPtr ownerHwnd = ResolveUnityOwnerHwnd();
+        var thread = new Thread(() => {
+            try {
+                IWin32Window? owner = ownerHwnd != IntPtr.Zero && NativeMethods.IsWindow(ownerHwnd)
+                    ? new Win32WindowOwner(ownerHwnd)
+                    : null;
+                object reply = runDialog(owner);
+                PostFileReplyToJs(reply);
+            } catch (Exception ex) {
+                PostFileReplyToJs(new { id = requestId, ok = false, cancelled = false, error = ex.Message });
+            } finally {
+                Interlocked.Exchange(ref nativeDialogActive, 0);
+                _ = SendToUnityAsync(new { kind = "modalDialog", open = false });
+            }
+        }) {
+            IsBackground = true,
+            Name = "MetroNativeFileDialog",
+        };
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+    }
+
+    private void HandleDesktopFileOpenRequest(string payloadJson) {
+        string requestId = "";
+        string title = "Open Station Save";
+        string filterLabel = "Station Save Files";
+        try {
+            using var doc = JsonDocument.Parse(payloadJson);
+            var root = doc.RootElement;
+            if (root.TryGetProperty("id", out var idEl)) requestId = idEl.GetString() ?? "";
+            if (root.TryGetProperty("title", out var titleEl) && !string.IsNullOrWhiteSpace(titleEl.GetString())) {
+                title = titleEl.GetString()!;
+            }
+            if (root.TryGetProperty("filterLabel", out var filterEl)) {
+                filterLabel = SanitizeFilterLabel(filterEl.GetString(), filterLabel);
+            }
+        } catch (Exception ex) {
+            PostFileReplyToJs(new { id = requestId, ok = false, cancelled = false, error = ex.Message });
+            return;
+        }
+
+        string initialDir = !string.IsNullOrWhiteSpace(lastFileDialogDir) && Directory.Exists(lastFileDialogDir)
+            ? lastFileDialogDir!
+            : "";
+        RunNativeFileDialogOnSta(requestId, owner => {
+            using var dialog = new OpenFileDialog {
+                Title = title,
+                Filter = $"{filterLabel} (*.metro.json;*.json)|*.metro.json;*.json|JSON (*.json)|*.json|All files (*.*)|*.*",
+                FilterIndex = 1,
+                CheckFileExists = true,
+                CheckPathExists = true,
+                Multiselect = false,
+                AutoUpgradeEnabled = true,
+            };
+            if (!string.IsNullOrEmpty(initialDir)) {
+                dialog.InitialDirectory = initialDir;
+            }
+            DialogResult result = owner != null ? dialog.ShowDialog(owner) : dialog.ShowDialog();
+            if (result != DialogResult.OK || string.IsNullOrWhiteSpace(dialog.FileName)) {
+                return new { id = requestId, ok = false, cancelled = true };
+            }
+            string selectedPath = dialog.FileName;
+            var info = new FileInfo(selectedPath);
+            if (!info.Exists || info.Length <= 0 || info.Length > MaxSaveFileBytes) {
+                return new { id = requestId, ok = false, cancelled = false, error = "Invalid save file size." };
+            }
+            string? dir = Path.GetDirectoryName(selectedPath);
+            if (!string.IsNullOrWhiteSpace(dir)) lastFileDialogDir = dir;
+            string text = File.ReadAllText(selectedPath, Encoding.UTF8);
+            return new { id = requestId, ok = true, cancelled = false, text, path = selectedPath };
+        });
+    }
+
+    private void HandleDesktopFileSaveRequest(string payloadJson) {
+        string requestId = "";
+        string title = "Save Station";
+        string filterLabel = "Station Save Files";
+        string suggestedName = "station.metro.json";
+        string content = "";
+        try {
+            using var doc = JsonDocument.Parse(payloadJson);
+            var root = doc.RootElement;
+            if (root.TryGetProperty("id", out var idEl)) requestId = idEl.GetString() ?? "";
+            if (root.TryGetProperty("title", out var titleEl) && !string.IsNullOrWhiteSpace(titleEl.GetString())) {
+                title = titleEl.GetString()!;
+            }
+            if (root.TryGetProperty("filterLabel", out var filterEl)) {
+                filterLabel = SanitizeFilterLabel(filterEl.GetString(), filterLabel);
+            }
+            if (root.TryGetProperty("suggestedName", out var nameEl)) {
+                suggestedName = SanitizeSuggestedFileName(nameEl.GetString());
+            }
+            if (root.TryGetProperty("text", out var textEl)) {
+                content = textEl.GetString() ?? "";
+            }
+        } catch (Exception ex) {
+            PostFileReplyToJs(new { id = requestId, ok = false, cancelled = false, error = ex.Message });
+            return;
+        }
+
+        string initialDir = !string.IsNullOrWhiteSpace(lastFileDialogDir) && Directory.Exists(lastFileDialogDir)
+            ? lastFileDialogDir!
+            : "";
+        RunNativeFileDialogOnSta(requestId, owner => {
+            using var dialog = new SaveFileDialog {
+                Title = title,
+                Filter = $"{filterLabel} (*.metro.json)|*.metro.json|JSON (*.json)|*.json|All files (*.*)|*.*",
+                FilterIndex = 1,
+                FileName = suggestedName,
+                DefaultExt = "json",
+                AddExtension = true,
+                OverwritePrompt = true,
+                AutoUpgradeEnabled = true,
+            };
+            if (!string.IsNullOrEmpty(initialDir)) {
+                dialog.InitialDirectory = initialDir;
+            }
+            DialogResult result = owner != null ? dialog.ShowDialog(owner) : dialog.ShowDialog();
+            if (result != DialogResult.OK || string.IsNullOrWhiteSpace(dialog.FileName)) {
+                return new { id = requestId, ok = false, cancelled = true };
+            }
+            string selectedPath = dialog.FileName;
+            string? dir = Path.GetDirectoryName(selectedPath);
+            if (!string.IsNullOrWhiteSpace(dir)) lastFileDialogDir = dir;
+            File.WriteAllText(selectedPath, content, new UTF8Encoding(false));
+            return new { id = requestId, ok = true, cancelled = false, path = selectedPath };
+        });
     }
 
     private void PostStateToJs(string json) {
@@ -1461,6 +1668,7 @@ internal sealed class OffscreenWebViewHost : NativeWindow, IDisposable {
                     break;
                 }
                 case "mouse": {
+                    if (Volatile.Read(ref nativeDialogActive) != 0) break;
                     string ev = root.TryGetProperty("ev", out var pev) ? pev.GetString() ?? "move" : "move";
                     double x = root.TryGetProperty("x", out var px) ? px.GetDouble() : 0;
                     double y = root.TryGetProperty("y", out var py) ? py.GetDouble() : 0;
@@ -1483,6 +1691,7 @@ internal sealed class OffscreenWebViewHost : NativeWindow, IDisposable {
                     break;
                 }
                 case "key": {
+                    if (Volatile.Read(ref nativeDialogActive) != 0) break;
                     string ev = root.TryGetProperty("ev", out var pev) ? pev.GetString() ?? "down" : "down";
                     int vk = root.TryGetProperty("vk", out var pvk) ? pvk.GetInt32() : 0;
                     string key = root.TryGetProperty("key", out var pkey) ? pkey.GetString() ?? "" : "";
@@ -1884,6 +2093,35 @@ internal sealed class OffscreenWebViewHost : NativeWindow, IDisposable {
       window.addEventListener('animationstart', notifyDirty, true);
       window.addEventListener('scroll', notifyDirty, true);
 
+      const pendingDesktopFileRequests = new Map();
+      let nextDesktopFileReqId = 1;
+      const requestDesktopFile = (prefix, payload) => new Promise((resolve, reject) => {
+        const id = 'df-' + (nextDesktopFileReqId++);
+        pendingDesktopFileRequests.set(id, { resolve, reject });
+        try {
+          window.chrome.webview.postMessage(prefix + JSON.stringify({ ...payload, id }));
+        } catch (err) {
+          pendingDesktopFileRequests.delete(id);
+          reject(err);
+        }
+      });
+      window.__metroDesktopFiles = {
+        openSave(options = {}) {
+          return requestDesktopFile('__metro_file_open__:', {
+            title: typeof options.title === 'string' ? options.title : '',
+            filterLabel: typeof options.filterLabel === 'string' ? options.filterLabel : '',
+          });
+        },
+        saveFile(options = {}) {
+          return requestDesktopFile('__metro_file_save__:', {
+            title: typeof options.title === 'string' ? options.title : '',
+            filterLabel: typeof options.filterLabel === 'string' ? options.filterLabel : '',
+            suggestedName: typeof options.suggestedName === 'string' ? options.suggestedName : '',
+            text: typeof options.text === 'string' ? options.text : '',
+          });
+        },
+      };
+
       window.__metroDesktopOverlay = true;
       window.metroUnityUiBase = '{{assetBase}}/';
       window.metroUnityAudioBase = '/audio/';
@@ -1894,6 +2132,18 @@ internal sealed class OffscreenWebViewHost : NativeWindow, IDisposable {
 
       window.chrome.webview.addEventListener('message', (event) => {
         const detail = typeof event.data === 'string' ? event.data : JSON.stringify(event.data);
+        if (detail.startsWith('__metro_file_reply__:')) {
+          try {
+            const reply = JSON.parse(detail.slice('__metro_file_reply__:'.length));
+            const entry = reply && typeof reply.id === 'string' ? pendingDesktopFileRequests.get(reply.id) : null;
+            if (entry) {
+              pendingDesktopFileRequests.delete(reply.id);
+              entry.resolve(reply);
+            }
+          } catch {}
+          notifyDirty();
+          return;
+        }
         window.dispatchEvent(new CustomEvent('metro:station-state', { detail }));
         notifyDirty();
       });
@@ -2044,6 +2294,21 @@ internal static class NativeMethods {
 
     [DllImport("user32.dll", SetLastError = true)]
     public static extern bool SetLayeredWindowAttributes(IntPtr hwnd, uint crKey, byte bAlpha, uint dwFlags);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+    [DllImport("user32.dll")]
+    public static extern bool IsWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    public static extern bool IsWindowVisible(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    public static extern bool IsIconic(IntPtr hWnd);
 
     [DllImport("d3d11.dll", ExactSpelling = true)]
     public static extern int D3D11CreateDevice(
