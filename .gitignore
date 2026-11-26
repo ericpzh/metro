@@ -43,6 +43,11 @@ npm-debug.log*
 .preview/
 slope-cut-preview/
 
+# Steam release config, SDK binaries, SteamPipe VDFs/logs, and unpacked depots
+/steam/*
+!/steam/README.md
+!/steam/steam-config.example.json
+
 # Rendered video deliverables (kept beside the editable save and thumbnail)
 *.mp4
 

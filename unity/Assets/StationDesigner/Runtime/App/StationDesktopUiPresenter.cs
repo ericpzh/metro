@@ -299,6 +299,7 @@ namespace Metro.App {
             BuildCanvas();
             SubscribeKeyboardText();
             InputSystem.onEvent += OnMouseButtonEvent;
+            StationSteamHost.OverlayActiveChanged += OnSteamOverlayActiveChanged;
             // Launch the offscreen WebView2 host (and background autosave parse) eagerly during
             // AfterSceneLoad while Unity's splash logo is still playing so #game-loading is
             // ready immediately once the logo finishes.
@@ -307,6 +308,7 @@ namespace Metro.App {
 
         void OnDestroy() {
             TryWriteStandaloneAutosave(boundHost, force: true);
+            StationSteamHost.OverlayActiveChanged -= OnSteamOverlayActiveChanged;
             InputSystem.onEvent -= OnMouseButtonEvent;
             UnsubscribeKeyboardText();
             StopWorker();
@@ -485,7 +487,11 @@ namespace Metro.App {
                 }
             }
             string saved = PlayerPrefs.GetString(UiLanguagePreference, "");
-            return string.Equals(saved, "en", StringComparison.OrdinalIgnoreCase);
+            if (!string.IsNullOrEmpty(saved)) {
+                return string.Equals(saved, "en", StringComparison.OrdinalIgnoreCase);
+            }
+            return StationSteamHost.TryResolveStartupLanguage(out string steamLocale) &&
+                   string.Equals(steamLocale, "en", StringComparison.OrdinalIgnoreCase);
         }
 
         void ApplyStartupLoadingTheme(string theme, bool english, Font font) {
@@ -658,7 +664,7 @@ namespace Metro.App {
             }
 
             SyncViewportSize();
-            if (!smokeSuppressed && !SuppressPhysicalInput && !nativeModalDialogOpen) {
+            if (!IsPhysicalInputBlocked) {
                 ForwardMouseInput();
                 ForwardKeyboardButtons();
             }
@@ -752,6 +758,11 @@ namespace Metro.App {
             string route = !string.IsNullOrEmpty(cliRoute)
                 ? cliRoute
                 : ((host.IsLoaded || wantsAutosaveRestore) && !IsBenchmarkRoute(startupRoute) ? "/game/" : startupRoute);
+            if (string.IsNullOrEmpty(cliRoute) &&
+                string.IsNullOrEmpty(PlayerPrefs.GetString(UiLanguagePreference, "")) &&
+                StationSteamHost.TryResolveStartupLanguage(out string steamLocale)) {
+                route = StationSteamHost.ApplyStartupLocaleToRoute(route, steamLocale);
+            }
             activeStartupRoute = route;
             pendingStandaloneAutosaveRestore = false;
             var startInfo = new ProcessStartInfo {
@@ -1093,9 +1104,29 @@ namespace Metro.App {
 
         // ------------------------------------------------------------------ InputSystem -> WebView2 forwarding
 
+        bool IsPhysicalInputBlocked =>
+            smokeSuppressed || SuppressPhysicalInput || nativeModalDialogOpen || StationSteamHost.IsOverlayActive;
+
+        void OnSteamOverlayActiveChanged(bool active) {
+            if (active) {
+                ReleaseHeldInput();
+            }
+        }
+
+        void ReleaseHeldInput() {
+            heldMouseButtons = 0;
+            ResetOverlayCursor();
+            for (int i = 0; i < KeyBindings.Length; i++) {
+                if (keyRepeatAt[i] == 0) continue;
+                var binding = KeyBindings[i];
+                SendKey("up", binding.Vk, binding.DomKey, binding.DomCode, 0);
+                keyRepeatAt[i] = 0;
+            }
+        }
+
         void OnMouseButtonEvent(InputEventPtr inputEvent, InputDevice device) {
             if (!webReady || activeClient == null || !isActiveAndEnabled ||
-                smokeSuppressed || SuppressPhysicalInput || nativeModalDialogOpen ||
+                IsPhysicalInputBlocked ||
                 device is not Mouse mouse || mouse != Mouse.current) return;
 
             int previous =
@@ -1275,7 +1306,7 @@ namespace Metro.App {
         }
 
         void OnTextInput(char ch) {
-            if (!webReady || activeClient == null || smokeSuppressed || SuppressPhysicalInput || nativeModalDialogOpen) return;
+            if (!webReady || activeClient == null || IsPhysicalInputBlocked) return;
             if (ch < ' ' || ch == 127) return;
             var kb = Keyboard.current;
             if (kb != null && (kb.ctrlKey.isPressed || kb.altKey.isPressed || kb.leftMetaKey.isPressed || kb.rightMetaKey.isPressed)) {
@@ -1311,8 +1342,8 @@ namespace Metro.App {
 
         void ApplyOverlayCursor() {
             bool overlayOwnsCursor =
-                webReady && activeClient != null && !smokeSuppressed && !SuppressPhysicalInput &&
-                !nativeModalDialogOpen && mouseWasInside && Application.isFocused &&
+                webReady && activeClient != null && !IsPhysicalInputBlocked &&
+                mouseWasInside && Application.isFocused &&
                 surfaceImage != null && surfaceImage.enabled;
             string next = overlayOwnsCursor ? StationDesktopCursors.NormalizeName(desiredCursor) : "default";
             float scale = desiredCursorScale;
@@ -1365,13 +1396,7 @@ namespace Metro.App {
                 return;
             }
 
-            ResetOverlayCursor();
-            for (int i = 0; i < KeyBindings.Length; i++) {
-                if (keyRepeatAt[i] == 0) continue;
-                var binding = KeyBindings[i];
-                SendKey("up", binding.Vk, binding.DomKey, binding.DomCode, 0);
-                keyRepeatAt[i] = 0;
-            }
+            ReleaseHeldInput();
         }
 
         void ForwardKeyboardButtons() {

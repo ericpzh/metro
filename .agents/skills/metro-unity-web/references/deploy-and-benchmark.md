@@ -14,7 +14,7 @@ Reference for `tools/unity-web/`, `tools/unity-windows-bundle/`, `unity/wrangler
 | `tools/unity-web/local-worker.mjs` | Production Cloudflare Worker (`unity/wrangler.jsonc`) and local Wrangler Worker: canonical redirects, HTML `lang` + `ASSET_PREFIX` rewriting, and zero-copy split-asset streaming. |
 | `tools/unity-web/serve-latest-pack.mjs` / `static-pack-server.mjs` | Plain Node HTTP server (`npm run preview:unity`, default port `8799`, `--pack <dir> --port <n> --ip <addr>`) mirroring `local-worker.mjs` routing and split-file reassembly across `/game/` and `/game/unity/` without `workerd`. |
 | `tools/unity-web/pack-release.mjs`, `release-worker.mjs`, `release-contract.mjs`, `route-contract.mjs` | Content-addressed immutable release pipeline (`/_unity/<releaseId>/...`, `releaseId = <sourceSha>-<artifactSha256[0..16]>`, `schemaVersion: 1` manifest, `Cache-Control: public, max-age=31536000, immutable`, `window.metroLaunch`). |
-| `tools/unity-web/build-windows.mjs` / `pack-windows-exe.mjs` / `pack-windows-msix.mjs` | Isolated `StandaloneWindows64` builder (`--configuration Release\|Development`, `--out <dir>`, `--no-passengers`, `--no-bundle`, `--msix [--version <v>] [--identity <json>] [--dev-sign]`), single-file `.exe` packager (`.preview/unity/StationDesigner.exe`), and Microsoft Store `.msix` packager (`msix-identity.example.json`, `.preview/unity/StationDesigner-<version>-x64.msix`). |
+| `tools/unity-web/build-windows.mjs` / `pack-windows-exe.mjs` / `pack-windows-msix.mjs` / `pack-windows-steam.mjs` | Isolated `StandaloneWindows64` builder (`--configuration Release\|Development`, `--out <dir>`, `--no-passengers`, `--no-bundle`, `--msix`, `--steam`), single-file `.exe` packager (`.preview/unity/StationDesigner.exe`), Microsoft Store `.msix` packager (`msix-identity.example.json`), and unpacked Steam depot + SteamPipe VDF packager (`steam/steam-config.example.json`, `steam/depot/`). |
 | `tools/unity-windows-bundle/` | Self-contained `net10.0-windows` single-file launcher (`StationDesignerLauncher.csproj`, `Program.cs`, `StationDesigner.ico`) that verifies/extracts the appended `METRO_BUNDLE_V1` zip payload and launches `MetroStation.exe`. |
 | `tools/unity-web/verify-station-game.mjs` | Headless Chrome verifier driving `window.__metroStationBridge` against a packed `StationGameLocal` build (`--packed <dir> --demo zoo\|tanwei\|tianhe\|all --locale both\|zh\|en --only case[,case] --timeout-ms <n> --load-probe`; set `METRO_STATIC_SERVER=1` to bypass `workerd`). |
 | `tools/unity-web/smoke.mjs`, `smoke-release.mjs`, `smoke-first-playable.mjs`, `smoke-zoo-playable.mjs` | Headless Chrome smoke runners for raw local packs, immutable release artifacts, and legacy slice scenes. |
@@ -128,6 +128,30 @@ Reference for `tools/unity-web/`, `tools/unity-windows-bundle/`, `unity/wrangler
    (and `.preview/unity/StationDesigner.msix`) for Microsoft Store upload (the Store re-signs it
    automatically). Pass `--dev-sign` to also produce a locally self-signed `.dev-signed.msix` +
    `.preview/unity/win-workspace/msix-dev-cert/dev-sign.cer` for local sideload testing.
+
+## Steam Unpacked Windows Depot (`npm run build:unity:steam`)
+
+1. `npm run build:unity:steam` invokes `build-windows.mjs --steam`, which enforces `--no-passengers`
+   (clean public `StationGameLocal.unity` scene, zero `INTERNAL_REVIEW_ONLY` assets), skips the
+   portable SFX wrapper (`--no-bundle`), and locks `companyName: Erikaze` / `productName: Station Designer`.
+2. `pack-windows-steam.mjs` publishes self-contained `win-x64` `MetroEditorWebView.exe`, extracts
+   official `steam_api64.dll` from `--steam-sdk` / `METRO_STEAM_SDK` / `%USERPROFILE%\Downloads\steamworks_sdk_*.zip`
+   (kept out of Git under `steam/sdk/`), strips `.pdb`/`.xml`,
+   `*_BackUpThisFolder_ButDontShipItWithYourGame`, `*_BurstDebugInformation_DoNotShip`, and any
+   `steam_appid.txt`, verifies passenger isolation via
+   `node unity/tests/passenger-profile.test.mjs --pack <stageDir>`, and mirrors the unpacked depot
+   into `steam/depot/` (with Steam Cloud Auto-Cloud path
+   `WinAppDataLocalLow/Erikaze/Station Designer`, pattern `*.metro.json`).
+3. Optional SteamPipe VDFs (`app_build_<appId>.vdf`, `depot_build_<depotId>.vdf`, and a WebView2
+   `installscript.vdf` template) plus `StreamingAssets/MetroUi/steam-runtime.json` are generated
+   under `steam/pipe/` when `steam/steam-config.local.json` (template:
+   `steam/steam-config.example.json`) or `--app-id <id> --depot-id <id>` is provided.
+4. `StationSteamHost` (`Metro.App`, `#if UNITY_STANDALONE_WIN && !UNITY_EDITOR`, gated at runtime
+   on `steam_api64.dll` beside `MetroStation.exe`) calls Steamworks SDK 1.65's flat C ABI
+   (`SteamAPI_RestartAppIfNecessary`, `SteamAPI_InitFlat`, `SteamAPI_ManualDispatch_*`,
+   `SteamAPI_ISteamApps_GetCurrentGameLanguage`, `SteamAPI_Shutdown`) to pause
+   `StationDesktopUiPresenter` input forwarding on `GameOverlayActivated_t` (`331`) and default
+   first-run startup language (`schinese`/`tchinese` → `zh-CN`, else `en`).
 
 ## Interactive Benchmark Route (`/game/unity/benchmark`)
 

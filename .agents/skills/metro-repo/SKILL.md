@@ -1,6 +1,6 @@
 ---
 name: metro-repo
-description: Entry point and router for the Station Designer repo — top-level layout, root npm commands, bilingual i18n, shared branding, Cloudflare Workers deploys, performance workflow, and tools/ index. Use for repo-wide work or to route into the 12 domain skills covering game/, unity/, model/, web/, stats/, video/, and wasm/.
+description: Entry point and router for the Station Designer repo — top-level layout, root npm commands, bilingual i18n, shared branding, Cloudflare Workers deploys, performance workflow, and tools/ index. Use for repo-wide work or to route into the 13 domain skills covering game/, unity/, steam/, model/, web/, stats/, video/, and wasm/.
 ---
 
 # Station Designer — Repo Entry Point
@@ -24,6 +24,7 @@ library and sound studio (`model/`), an anonymous stats/feedback Worker
 | [metro-game-test](../metro-game-test/SKILL.md) | `game/test/` Node test suite (`npm run test:game`, `test:perf`) and headless Chrome verification scripts (`tools/check-*.mjs`) |
 | [metro-unity](../metro-unity/SKILL.md) | Unity 6 URP C# runtime (`unity/Assets/StationDesigner/`), assemblies, live Editor (`metro-editor.ps1`), isolated batches (`metro-unity.ps1`), EditMode/PlayMode tests, `tools/unity-parity/` |
 | [metro-unity-web](../metro-unity-web/SKILL.md) | Shared React/Unity UI shell (`game/src/unity-web/`), Bridge v2, WebGL & WebView2 (`tools/unity-editor-ui/`), WebGL/Windows packaging (`tools/unity-web/`, `tools/unity-windows-bundle/`), `unity/wrangler.jsonc`, `unity/tests/` |
+| [metro-unity-steam](../metro-unity-steam/SKILL.md) | Steam Windows x64 release (`steam/`, `tools/unity-web/{pack-windows-steam,deploy-steam}.mjs`), Steamworks SDK 1.65 flat C ABI (`StationSteamHost`), Steam Overlay input pause, Steam Auto-Cloud & SteamCMD uploads |
 | [metro-unity-assets](../metro-unity-assets/SKILL.md) | Three.js/model → Unity URP asset pipeline (`tools/unity-assets/`, `unity/asset-recipes/`), glTFast proofs, native 3-tier Mesh LOD baking, public vs local passenger profiles |
 | [metro-model](../metro-model/SKILL.md) | `model/` soft-human passenger library, GLB exports, `tools/bake-soft-passengers.mjs` (`npm run bake:passengers`), `model/sounds.html` sound studio, `npm run art:models` |
 | [metro-web](../metro-web/SKILL.md) | `web/` concept-art site, `worker/` + root `wrangler.jsonc`, bilingual sheets (`art/`, `png/`), `tools/gen-art.mjs` / `tools/iso.mjs` / `tools/sheet-*.mjs` |
@@ -129,7 +130,7 @@ Run from the repository root (`package.json`):
 | Install deps (root / all sub-apps) | `npm install` · `npm run setup:all` (`setup`, `setup:game`, `setup:model`) |
 | Dev stack (`web` :5173 + `game` :5174 + `stats` :5176) | `npm start` or `npm run dev:all` (reuses listening ports; excludes `model`) |
 | Individual dev servers | `npm run dev` (`:5173`) · `npm run dev:game` (`:5174`) · `npm run dev:model` (`:5175`) · `npm run dev:stats` (`:5176`) |
-| Unity local WebGL, Windows `.exe` & Store MSIX | `npm start unity` (`127.0.0.1:8787/game/`) · `npm run build:unity` · `npm run build:unity:windows` · `npm run build:unity:msix` |
+| Unity local WebGL, Windows `.exe`, MSIX & Steam | `npm start unity` (`127.0.0.1:8787/game/`) · `npm run build:unity` · `npm run build:unity:windows` · `npm run build:unity:msix` · `npm run build:unity:steam` · `npm run deploy:unity:steam` |
 | Production builds & local preview | `npm run build` (`web`) · `npm run build:game` · `npm run build:model` · `npm run build:stats` · `npm run preview:local` (`:4173`) |
 | Tests & audits | `npm run test:game` · `npm run test:perf` · `npm run test:unity` · `npm run test:stats` · `npm run audit:i18n` |
 | Browser checks (site, UI & stats) | `npm run check:demos` · `npm run check:tutorial` · `npm run check:roads` · `npm run check:info-panel` · `npm run check:stats:reports` |

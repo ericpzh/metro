@@ -9,6 +9,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSyn
 import { join, resolve } from 'node:path'
 import { packWindowsExe } from './pack-windows-exe.mjs'
 import { packWindowsMsix } from './pack-windows-msix.mjs'
+import { packWindowsSteam } from './pack-windows-steam.mjs'
 
 const repo = resolve(import.meta.dirname, '../..')
 const unityDir = join(repo, 'unity')
@@ -20,26 +21,46 @@ let configuration = 'Release'
 let outDir = ''
 let noPassengers = false
 let buildMsix = false
+let buildSteam = false
 let noBundle = false
-let msixVersion = ''
+let version = ''
 let msixIdentity = ''
 let devSign = false
+let steamConfig = ''
+let steamAppId = ''
+let steamDepotId = ''
+let steamSetLive = ''
+let steamDescription = ''
+let steamSdkPath = ''
+let steamRequireRestart = false
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--configuration' && i + 1 < args.length) configuration = args[++i]
   else if (args[i] === '--out' && i + 1 < args.length) outDir = resolve(repo, args[++i])
   else if (args[i] === '--no-passengers') noPassengers = true
   else if (args[i] === '--msix') buildMsix = true
+  else if (args[i] === '--steam') buildSteam = true
   else if (args[i] === '--no-bundle') noBundle = true
-  else if (args[i] === '--version' && i + 1 < args.length) msixVersion = args[++i]
+  else if (args[i] === '--version' && i + 1 < args.length) version = args[++i]
   else if (args[i] === '--identity' && i + 1 < args.length) msixIdentity = args[++i]
   else if (args[i] === '--dev-sign') devSign = true
+  else if (args[i] === '--steam-config' && i + 1 < args.length) steamConfig = args[++i]
+  else if (args[i] === '--steam-sdk' && i + 1 < args.length) steamSdkPath = args[++i]
+  else if (args[i] === '--app-id' && i + 1 < args.length) steamAppId = args[++i]
+  else if (args[i] === '--depot-id' && i + 1 < args.length) steamDepotId = args[++i]
+  else if (args[i] === '--set-live' && i + 1 < args.length) steamSetLive = args[++i]
+  else if (args[i] === '--description' && i + 1 < args.length) steamDescription = args[++i]
+  else if (args[i] === '--require-steam-restart') steamRequireRestart = true
   else if (args[i] === '--help' || args[i] === '-h') {
-    console.log('Usage: node tools/unity-web/build-windows.mjs [--configuration Release|Development] [--out .preview/unity/<dir>] [--no-passengers] [--msix [--version 1.0.0.0] [--identity <json>] [--dev-sign]] [--no-bundle]')
+    console.log('Usage: node tools/unity-web/build-windows.mjs [--configuration Release|Development] [--out .preview/unity/<dir>] [--no-passengers] [--msix [--version 1.0.0.0] [--identity <json>] [--dev-sign]] [--steam [--version 0.1.0] [--steam-config <json>] [--app-id <id> --depot-id <id>] [--set-live <branch>] [--require-steam-restart]] [--no-bundle]')
     process.exit(0)
   }
 }
-// Microsoft Store MSIX builds are public releases: force clean public scene unless explicitly disabled.
-if (buildMsix) {
+if (buildMsix && buildSteam) {
+  throw new Error('Cannot combine --msix and --steam in the same invocation.')
+}
+// Public store builds (Microsoft Store MSIX & Steam depot) always ship the clean public scene
+// without the portable SFX wrapper.
+if (buildMsix || buildSteam) {
   noPassengers = true
   noBundle = true
 }
@@ -107,16 +128,20 @@ if (existsSync(connectAsset)) {
   if (normalized !== text) writeFileSync(connectAsset, normalized, 'utf8')
 }
 // Configure the isolated Windows player as a resizable 1600x900 windowed app named "Station Designer"
-// without modifying unity/ProjectSettings/ProjectSettings.asset in Git.
+// by Erikaze without modifying unity/ProjectSettings/ProjectSettings.asset in Git.
 const playerSettingsAsset = join(projectDir, 'ProjectSettings/ProjectSettings.asset')
 if (existsSync(playerSettingsAsset)) {
   const text = readFileSync(playerSettingsAsset, 'utf8')
-  const patched = text
+  let patched = text
+    .replace(/^(\s*companyName:\s*).*$/m, '$1Erikaze')
     .replace(/^(\s*productName:\s*).*$/m, '$1Station Designer')
     .replace(/^(\s*defaultScreenWidth:\s*)\d+/m, '$11600')
     .replace(/^(\s*defaultScreenHeight:\s*)\d+/m, '$1900')
     .replace(/^(\s*resizableWindow:\s*)\d+/m, '$11')
     .replace(/^(\s*fullscreenMode:\s*)\d+/m, '$13')
+  if (version) {
+    patched = patched.replace(/^(\s*bundleVersion:\s*).*$/m, `$1${version}`)
+  }
   if (patched !== text) writeFileSync(playerSettingsAsset, patched, 'utf8')
 }
 if (!existsSync(join(projectDir, 'Library')) && existsSync(join(unityDir, 'Library'))) {
@@ -175,7 +200,7 @@ if (!existsSync(webViewExe) || !existsSync(uiManifest)) {
 
 if (buildMsix) {
   const res = await packWindowsMsix(repo, playerDir, '', {
-    version: msixVersion || undefined,
+    version: version || undefined,
     identityPath: msixIdentity || undefined,
     devSign,
   })
@@ -185,6 +210,27 @@ if (buildMsix) {
   console.log(`[unity-win] Latest copy:                ${latestMsix}`)
   if (res.devSigned) {
     console.log(`[unity-win] Dev-signed sideload copy:   ${res.devSigned.signedMsix}`)
+  }
+} else if (buildSteam) {
+  const res = await packWindowsSteam(repo, playerDir, '', {
+    configPath: steamConfig || undefined,
+    steamSdkPath: steamSdkPath || undefined,
+    appId: steamAppId || undefined,
+    depotId: steamDepotId || undefined,
+    setLive: steamSetLive || undefined,
+    description: steamDescription || undefined,
+    requireSteamRestart: steamRequireRestart || undefined,
+    version: version || '0.1.0',
+  })
+  console.log(`\n[unity-win] Steam depot ready:     ${res.depotDir}`)
+  console.log(`[unity-win] Launch executable:     "${join(res.depotDir, 'MetroStation.exe')}"`)
+  console.log(`[unity-win] Steamworks SDK DLL:    ${res.steamSdk ? `bundled (${res.steamSdk.source})` : 'not bundled (DRM-free)'}`)
+  console.log(`[unity-win] Steam Cloud Auto-Cloud: WinAppDataLocalLow/Erikaze/Station Designer (*.metro.json)`)
+  if (res.vdf) {
+    console.log(`[unity-win] SteamPipe App VDF:     ${res.vdf.appVdf}`)
+    console.log(`[unity-win] Upload via SteamCMD:   "${res.steamCmdPath}" +login <account> +run_app_build "${res.vdf.appVdf}" +quit`)
+  } else {
+    console.log('[unity-win] Tip: create steam/steam-config.local.json (see steam/steam-config.example.json) or pass --app-id <id> --depot-id <id> to also generate SteamPipe VDF scripts.')
   }
 } else if (!noBundle) {
   // 5. Pack everything (UnityPlayer.dll, Data, self-contained MetroEditorWebView, UI, audio)

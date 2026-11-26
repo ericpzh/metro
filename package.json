@@ -14,6 +14,8 @@
     "build:unity": "node tools/unity-web/start-unity.mjs --build-only",
     "build:unity:windows": "node tools/unity-web/build-windows.mjs",
     "build:unity:msix": "node tools/unity-web/build-windows.mjs --msix",
+    "build:unity:steam": "node tools/unity-web/build-windows.mjs --steam",
+    "deploy:unity:steam": "node tools/unity-web/deploy-steam.mjs",
     "stage:unity": "node tools/unity-web/stage-deploy.mjs",
     "deploy:unity": "npm run build:unity -- --scene StationGameLocal && npm run stage:unity && wrangler deploy -c unity/wrangler.jsonc",
     "test:unity": "node --test \"unity/tests/*.test.mjs\"",

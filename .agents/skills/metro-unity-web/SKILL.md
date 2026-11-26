@@ -89,6 +89,9 @@ npm run build:unity:windows
 
 # 7. Microsoft Store MSIX package (.preview/unity/StationDesigner-<version>-x64.msix; public scene, unsigned for Store signing)
 npm run build:unity:msix -- [--version 1.0.0.0] [--dev-sign]
+
+# 8. Steam unpacked Windows x64 depot (steam/depot/; public scene + optional SteamPipe VDFs in steam/pipe/)
+npm run build:unity:steam -- [--version 0.1.0] [--app-id <id> --depot-id <id>] [--set-live <branch>]
 ```
 
 ## Load-bearing contracts
