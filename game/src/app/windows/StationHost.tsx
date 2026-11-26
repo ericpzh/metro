@@ -16,6 +16,8 @@ export interface StationHost {
   openDemo(id: ExampleStationId): void
   openSave(text: string): void
   save(): void
+  /** True when running inside the native desktop Unity executable/Editor overlay rather than a web browser. */
+  desktop?: boolean
   modelDetail?(profile?: ModelDetailProfile): Promise<ModelDetailProfile>
   upscaling?(mode?: UpscalingMode): Promise<UpscalingMode>
   /** Desktop Unity player hook to open the interactive benchmark route in-place. */

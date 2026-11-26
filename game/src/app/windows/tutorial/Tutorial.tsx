@@ -7,7 +7,8 @@ import { useStore } from '../../store.ts'
 import { gameMusic } from '../../gameMusic.ts'
 import { isTypingTarget } from '../../Viewport.tsx'
 import { getUiScale, subscribeUiScale } from '../../uiScale.ts'
-import { readTutorialPreference, TUTORIAL_STEPS, tutorialAutoDisabled, writeTutorialPreference } from './steps.ts'
+import { useStationHost } from '../StationHost.tsx'
+import { readTutorialPreference, tutorialAutoDisabled, tutorialStepsFor, writeTutorialPreference } from './steps.ts'
 import './tutorial.css'
 
 interface Box { x: number; y: number; width: number; height: number }
@@ -17,17 +18,19 @@ function isBenchmarkActive(): boolean {
   const dataset = document.body?.dataset
   return dataset?.metroBenchmarkActive === 'true' || dataset?.metroBenchmarkLocked === 'true'
 }
-function initialPreference() {
+function initialPreference(stepCount: number) {
   const preference = (() => {
-    try { return readTutorialPreference(window.localStorage) } catch { return { step: 0, hidden: false } }
+    try { return readTutorialPreference(window.localStorage, stepCount) } catch { return { step: 0, hidden: false } }
   })()
   return isBenchmarkActive() ? { ...preference, hidden: true } : preference
 }
 
 export function Tutorial({ reveal }: { reveal: () => void }): React.ReactElement | null {
+  const host = useStationHost()
+  const steps = tutorialStepsFor({ desktop: host?.desktop === true })
   const language = useLanguage()
   const uiScale = useSyncExternalStore(subscribeUiScale, getUiScale)
-  const [preference, setPreference] = useState(initialPreference)
+  const [preference, setPreference] = useState(() => initialPreference(steps.length))
   const [suppressed, setSuppressed] = useState(isBenchmarkActive)
   const [open, setOpen] = useState(() => !preference.hidden && !isBenchmarkActive())
   const [boxes, setBoxes] = useState<Box[]>([])
@@ -36,7 +39,8 @@ export function Tutorial({ reveal }: { reveal: () => void }): React.ReactElement
   const music = useSyncExternalStore(gameMusic.subscribe, gameMusic.getSnapshot)
   const card = useRef<HTMLElement>(null)
   const next = useRef<HTMLButtonElement>(null)
-  const step = TUTORIAL_STEPS[preference.step]
+  const stepIndex = preference.step < steps.length ? preference.step : 0
+  const step = steps[stepIndex]
   const visible = open && !suppressed && !isBenchmarkActive()
   const tutorialLineId = useStore((state) => visible && step.title === 'tutorial_line' ? state.station.lines.at(-1)?.id : undefined)
   const practice = step.practice
@@ -208,7 +212,7 @@ export function Tutorial({ reveal }: { reveal: () => void }): React.ReactElement
   }, [visible, step, language, reveal, tutorialLineId, showBuildArea, uiScale])
 
   if (!visible) return null
-  const last = preference.step === TUTORIAL_STEPS.length - 1
+  const last = stepIndex === steps.length - 1
   return createPortal(
     <div className="tutorialOverlay" onContextMenu={(event) => event.preventDefault()}>
       <svg className="tutorialShade" width="100%" height="100%" aria-hidden="true">
@@ -219,8 +223,8 @@ export function Tutorial({ reveal }: { reveal: () => void }): React.ReactElement
         {boxes.map((box, index) => <rect key={index} {...box} rx="8" fill="none" stroke="#9bdacc" strokeWidth="2" />)}
       </svg>
       <section ref={card} className="tutorialCard" style={position} role="dialog" aria-labelledby="tutorialTitle" aria-describedby="tutorialBody">
-        <div className="tutorialEyebrow">{t('tutorial_title')}<span>{t('tutorial_progress', preference.step + 1, TUTORIAL_STEPS.length)}</span></div>
-        {preference.step === 0 && <div className="tutorialFirstControls">
+        <div className="tutorialEyebrow">{t('tutorial_title')}<span>{t('tutorial_progress', stepIndex + 1, steps.length)}</span></div>
+        {stepIndex === 0 && <div className="tutorialFirstControls">
           <div className="tutorialLanguage" role="group" aria-label={t('switch_language')}>
             <button type="button" aria-pressed={language === 'zh-CN'} onClick={() => setLanguage('zh-CN')}>{t('language_native_chinese')}</button>
             <button type="button" aria-pressed={language === 'en'} onClick={() => setLanguage('en')}>{t('language_native_english')}</button>
@@ -241,7 +245,7 @@ export function Tutorial({ reveal }: { reveal: () => void }): React.ReactElement
             <path d="M32 20v12" stroke="#132b26" strokeWidth="2" strokeLinecap="round" />
             {step.title === 'tutorial_zoom' && <path d="M68 18v40m-6-34 6-6 6 6m-12 28 6 6 6-6" stroke="#a6ddcb" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />}
           </svg>}
-          {step.keys && <div className={`tutorialKeys${preference.step === 0 ? ' wasd' : ''}`} aria-hidden="true">{step.keys.map((shortcut) => (
+          {step.keys && <div className={`tutorialKeys${stepIndex === 0 ? ' wasd' : ''}`} aria-hidden="true">{step.keys.map((shortcut) => (
             <span className="tutorialKeyChord" key={shortcut}>{shortcut.split('+').map((key, index) => (
               <Fragment key={index}>{index > 0 && <span className="tutorialKeyPlus">+</span>}<kbd>{key}</kbd></Fragment>
             ))}</span>
@@ -252,9 +256,9 @@ export function Tutorial({ reveal }: { reveal: () => void }): React.ReactElement
         <div className="tutorialActions">
           <button className="ghost" onClick={() => setOpen(false)}>{t('tutorial_skip')}</button>
           <div className="spacer" />
-          <button className="ghost" disabled={preference.step === 0} onClick={() => setPreference((prev) => ({ ...prev, step: prev.step - 1 }))}>{t('tutorial_back')}</button>
+          <button className="ghost" disabled={stepIndex === 0} onClick={() => setPreference((prev) => ({ ...prev, step: Math.max(0, stepIndex - 1) }))}>{t('tutorial_back')}</button>
           <button ref={next} className="primary" onClick={() => {
-            setPreference((prev) => ({ ...prev, step: last ? 0 : prev.step + 1 }))
+            setPreference((prev) => ({ ...prev, step: last ? 0 : stepIndex + 1 }))
             if (last) setOpen(false)
           }}>{t(last ? 'tutorial_finish' : 'tutorial_next')}</button>
         </div>

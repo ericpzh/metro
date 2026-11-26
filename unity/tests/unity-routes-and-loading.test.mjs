@@ -8,7 +8,7 @@ import vm from 'node:vm'
 import { demoStationForPath, gamePathFor } from '../../game/src/app/demoRoute.ts'
 import { languageForPath } from '../../game/src/sim/i18n.ts'
 import { benchmarkHrefFor, LANGUAGE_STORAGE_KEY } from '../../game/src/app/languageRoute.ts'
-import { tutorialAutoDisabled } from '../../game/src/app/windows/tutorial/steps.ts'
+import { tutorialAutoDisabled, tutorialStepsFor } from '../../game/src/app/windows/tutorial/steps.ts'
 import { frameTimeCeilingFor, frameTimePath, summarizeFrameIntervals } from '../../game/src/app/benchmark/benchmarkStats.ts'
 import localWorker from '../../tools/unity-web/local-worker.mjs'
 import { attachUnityUI } from '../../tools/unity-web/unity-ui-pack.mjs'
@@ -248,6 +248,9 @@ test('UnityBenchmarkRoute pins Tianhe default, desktop onExit, benchmark mode si
   assert.match(routeSource, /useState<ExampleStationId>\('tianhe'\)/, 'Unity benchmark defaults to Tianhe Park')
   assert.match(routeSource, /onExit\?: \(\) => void/, 'UnityBenchmarkRoute supports desktop onExit callback')
   assert.match(routeSource, /\{onExit && <button type="button" onClick=\{exitToGame\}>\{copy\.backToGame\}<\/button>\}/)
+  assert.match(mainSource, /desktop: desktopOverlay,/, 'main.tsx exposes desktopOverlay on StationHost for desktop-specific UI')
+  assert.equal(tutorialStepsFor({ desktop: true }).at(-1)?.title, 'tutorial_examples', 'desktop Unity tutorial ends at example stations without the browser GPU step')
+  assert.equal(tutorialStepsFor({ desktop: false }).at(-1)?.title, 'tutorial_gpu', 'browser tutorial retains the browser GPU step')
   assert.match(mainSource, /onExit=\{desktop \? exitBenchmark : undefined\}/, 'main.tsx wires desktop exitBenchmark')
   assert.match(mainSource, /document\.body\.dataset\.metroBenchmarkActive = 'true'/)
   assert.match(mainSource, /new CustomEvent\('metro:benchmark-mode', \{ detail: \{ active: true \} \}\)/)

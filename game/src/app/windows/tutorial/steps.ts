@@ -1,6 +1,6 @@
 import type { MessageKey } from '../../../sim/i18n.ts'
 
-interface TutorialStep {
+export interface TutorialStep {
   title: MessageKey
   body: MessageKey
   targets: string[]
@@ -8,6 +8,8 @@ interface TutorialStep {
   closedFolders?: string[]
   keys?: string[]
   practice?: { tool: 'block' | 'delete' | 'rail'; key?: string }
+  /** Only shown when running in a web browser; omitted in the desktop executable. */
+  browserOnly?: boolean
 }
 
 const tile = (id: string): string => `[data-tile="${id}"]`
@@ -31,8 +33,14 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   { title: 'tutorial_save', body: 'tutorial_save_body', targets: ['.stationName', '[aria-keyshortcuts="Control+S"]', '[aria-keyshortcuts="Control+L"]'], keys: ['Ctrl+S', 'Ctrl+L'] },
   { title: 'tutorial_simulate', body: 'tutorial_simulate_body', targets: ['.topbar .seg'], keys: ['Space'] },
   { title: 'tutorial_examples', body: 'tutorial_examples_body', targets: ['[data-tutorial="examples"]'] },
-  { title: 'tutorial_gpu', body: 'tutorial_gpu_body', targets: ['.stage'] },
+  { title: 'tutorial_gpu', body: 'tutorial_gpu_body', targets: ['.stage'], browserOnly: true },
 ]
+
+const DESKTOP_TUTORIAL_STEPS: readonly TutorialStep[] = TUTORIAL_STEPS.filter((step) => !step.browserOnly)
+
+export function tutorialStepsFor(options: { desktop?: boolean } = {}): readonly TutorialStep[] {
+  return options.desktop ? DESKTOP_TUTORIAL_STEPS : TUTORIAL_STEPS
+}
 
 export const TUTORIAL_STORAGE_KEY = 'metro-game.tutorial.v1'
 export interface TutorialPreference { step: number; hidden: boolean }
@@ -42,11 +50,14 @@ export function tutorialAutoDisabled(pathname: string): boolean {
   return path.endsWith('/benchmark') || path.endsWith('/benchmark/en')
 }
 
-export function readTutorialPreference(storage: Pick<Storage, 'getItem'>): TutorialPreference {
+export function readTutorialPreference(
+  storage: Pick<Storage, 'getItem'>,
+  stepCount = TUTORIAL_STEPS.length,
+): TutorialPreference {
   try {
     const value = JSON.parse(storage.getItem(TUTORIAL_STORAGE_KEY) ?? 'null')
     return {
-      step: Number.isInteger(value?.step) && value.step >= 0 && value.step < TUTORIAL_STEPS.length ? value.step : 0,
+      step: Number.isInteger(value?.step) && value.step >= 0 && value.step < stepCount ? value.step : 0,
       hidden: value?.hidden === true,
     }
   } catch { return { step: 0, hidden: false } }

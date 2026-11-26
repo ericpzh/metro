@@ -480,6 +480,7 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
     stationBridge.send(type, {}, rev >= 0 ? { expectedRevision: rev } : {})
   }
   const host: StationHost = {
+    desktop: desktopOverlay,
     openBenchmark: desktopOverlay ? () => { openDesktopBenchmark?.() } : undefined,
     undo: () => { sendHistoryStep('edit.undo') },
     redo: () => { sendHistoryStep('edit.redo') },

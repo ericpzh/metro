@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { readTutorialPreference, writeTutorialPreference, TUTORIAL_STORAGE_KEY, TUTORIAL_STEPS, tutorialAutoDisabled } from '../src/app/windows/tutorial/steps.ts'
+import { readTutorialPreference, writeTutorialPreference, TUTORIAL_STORAGE_KEY, TUTORIAL_STEPS, tutorialAutoDisabled, tutorialStepsFor } from '../src/app/windows/tutorial/steps.ts'
 import { messages } from '../src/sim/i18n/messages.ts'
 import { useStore } from '../src/app/store.ts'
 import { createStationSlice } from '../src/app/store/slices/StationSlice.ts'
@@ -61,4 +61,17 @@ test('every tutorial step has both languages and a spotlight target', () => {
       assert.ok(messages[key].en.trim(), `${key}: English`)
     }
   }
+})
+
+test('desktop Unity executable omits the browser-only GPU step and clamps stale saved indices', () => {
+  const browserSteps = tutorialStepsFor({ desktop: false })
+  const desktopSteps = tutorialStepsFor({ desktop: true })
+  assert.equal(browserSteps.at(-1)?.title, 'tutorial_gpu')
+  assert.equal(desktopSteps.length, browserSteps.length - 1)
+  assert.equal(desktopSteps.at(-1)?.title, 'tutorial_examples')
+  assert.equal(desktopSteps.some((step) => step.title === 'tutorial_gpu'), false)
+
+  const storage = { getItem: () => JSON.stringify({ step: browserSteps.length - 1, hidden: false }) }
+  assert.deepEqual(readTutorialPreference(storage, browserSteps.length), { step: browserSteps.length - 1, hidden: false })
+  assert.deepEqual(readTutorialPreference(storage, desktopSteps.length), { step: 0, hidden: false })
 })
