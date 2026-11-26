@@ -403,12 +403,21 @@ namespace Metro.App {
                     float centre = anchorX.TryGetValue(pair.anchorIndex, out var value) ? value : pair.centre;
                     left.closed.x = centre - quarter;
                     right.closed.x = centre + quarter;
-                    if (open) anyOpen = true;
+                    if (open) {
+                        // Leaves exported at the open pose are also plugged outward by `plugTravel`;
+                        // pull `closed.z` back into the body skin so closing seats flush and opening
+                        // does not plug out a second time.
+                        left.closed.z -= left.bank * left.plugTravel;
+                        right.closed.z -= right.bank * right.plugTravel;
+                        anyOpen = true;
+                    }
                 } else if (open) {
-                    // Stored at the jambs: pulling each leaf in by its travel closes the
+                    // Stored at the jambs: pulling each leaf in by its travel and plug closes the
                     // pair (the measured gap is 3 x travel, the shut one is 2 x travel).
                     left.closed.x += travel;
                     right.closed.x -= travel;
+                    left.closed.z -= left.bank * left.plugTravel;
+                    right.closed.z -= right.bank * right.plugTravel;
                     anyOpen = true;
                 }
                 leaves[a] = left;

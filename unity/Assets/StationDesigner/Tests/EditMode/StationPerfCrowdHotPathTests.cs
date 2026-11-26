@@ -928,11 +928,15 @@ namespace Metro.EditModeTests {
                 bool lift = (priorLift && currentLift && string.Equals(prior.ServerId, current.ServerId, StringComparison.Ordinal)) ||
                     (priorLift && IsOnFoot(current.State)) ||
                     (currentLift && IsOnFoot(prior.State));
-                if (!ground && !ramp && !lift &&
+                bool trainTransfer =
+                    (prior.State == StationPassengerState.Alighting && IsOnFoot(current.State)) ||
+                    (IsOnFoot(prior.State) && current.State == StationPassengerState.Boarding);
+                if (!ground && !ramp && !lift && !trainTransfer &&
                     (prior.State != current.State || !string.Equals(prior.ServerId, current.ServerId, StringComparison.Ordinal)))
                     return false;
                 double dx = current.X - prior.X, dy = current.Y - prior.Y, dz = current.Z - prior.Z;
-                return Math.Abs(dz) < (lift ? 3.0 : ramp ? 2.0 : .75) && dx * dx + dy * dy < 3.0 * 3.0;
+                double maxPlanar = trainTransfer ? 4.5 : 3.0;
+                return Math.Abs(dz) < (lift ? 3.0 : ramp ? 2.0 : .75) && dx * dx + dy * dy < maxPlanar * maxPlanar;
             }
 
             static bool IsOnFoot(StationPassengerState state) =>

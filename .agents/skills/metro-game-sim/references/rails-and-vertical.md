@@ -31,9 +31,11 @@ encoding (`World.trainRenderState`) and renderer decoding.
 
 ### Tracks, Power, and Train Choreography (`sim/track.ts`, `sim/trainFlags.ts`, `World.ts`)
 
-- **Track orientation** — `rotateLocal(rot, i, j)` turns local `+x` (run) and `+y` (across bed)
+- **Track orientation & berth centering** — `rotateLocal(rot, i, j)` turns local `+x` (run) and `+y` (across bed)
   counter-clockwise (`0: +x`, `1: +y`, `2: −x`, `3: −y`). Standard beds are 3 cells deep
-  (4 cells for 3.3 m D stock). Tunnel and bridge extensions share
+  (4 cells for 3.3 m D stock). `trackTrainCentreV` aligns single-platform berths to their
+  boarding side and centres dual-platform (Spanish-solution) tracks at `track.d / 2` (`1.50 m`)
+  so wide Type A open plug doors clear both PSDs. Tunnel and bridge extensions share
   `TRACK_RUN_LENGTHS = [4, 16, 32, 64, 128]`.
 - **Third-rail side (`thirdRailSide`)** — Tunnels and bridges place the conductor rail on
   travel right (`−1` = local `−y` for `up`, `+1` = local `+y` for `down`). Platform tracks with

@@ -254,13 +254,14 @@ namespace Metro.App {
             if (string.Equals(tool, "delete", StringComparison.Ordinal)) {
                 // 删除 is button-agnostic: a drawn piece under the pointer is the pending
                 // delete; otherwise the block under it is dug like the brush's erase.
-                if (!hit.HasCell && !hit.HasModule) { reason = "no-cell"; return false; }
+                bool deleteModule = hit.HasModule && hit.ModuleWins && !StationRailPlanner.IsBarePlatformEdge(hit.Module);
+                if (!hit.HasCell && !deleteModule) { reason = "no-cell"; return false; }
                 var deleteGesture = new StationCellGesture {
                     Kind = StationCellGestureKind.Delete,
                     Tool = tool,
                     Button = button,
                     Remove = true,
-                    Anchor = hit.HasModule
+                    Anchor = deleteModule
                         ? new StationCellKey(hit.Module.X, hit.Module.Y, hit.Module.Z)
                         : new StationCellKey(hit.Cell.X, hit.Cell.Y, hit.Cell.Z),
                     PressX = pointer.X,
@@ -271,7 +272,7 @@ namespace Metro.App {
                     ToolGeneration = StationToolSelection.Generation,
                 };
                 deleteGesture.Target = deleteGesture.Anchor;
-                if (hit.HasModule && hit.ModuleWins) {
+                if (deleteModule) {
                     // A press on a drawn piece freezes **module sweep** here: the family is the
                     // normalized one the piece belongs to, the storey is the piece's own, and
                     // the ids the drag collects are the only thing the release removes. The
@@ -650,7 +651,8 @@ namespace Metro.App {
                 var settings = StationCellToolSettings.Read();
                 bool isDelete = string.Equals(StationToolSelection.Active, "delete", StringComparison.Ordinal);
                 var cell = AnchorFor(hit, isDelete, WantsWorkPlane(StationToolSelection.Active));
-                if (!cell.HasValue && isDelete && hit != null && hit.HasModule && hit.ModuleWins) {
+                if (!cell.HasValue && isDelete && hit != null && hit.HasModule && hit.ModuleWins &&
+                    !StationRailPlanner.IsBarePlatformEdge(hit.Module)) {
                     cell = new StationCellKey(hit.Module.X, hit.Module.Y, hit.Module.Z);
                 }
                 if (cell.HasValue) {
@@ -856,7 +858,7 @@ namespace Metro.App {
                 };
             }
             if (string.Equals(tool, "delete", StringComparison.Ordinal)) {
-                if (hit != null && hit.HasModule && hit.ModuleWins) {
+                if (hit != null && hit.HasModule && hit.ModuleWins && !StationRailPlanner.IsBarePlatformEdge(hit.Module)) {
                     var previewOut = new StationCellPreview { Kind = "delete", Cursor = hoverCell };
                     foreach (var id in StationModuleTeardown.Expand(worldRef.Index, new[] { hit.Module.Id })) {
                         if (worldRef.Index.TryGetModule(id, out _)) previewOut.ModuleIds.Add(id);
@@ -1421,9 +1423,15 @@ namespace Metro.App {
                     // The ids the **preview actually collected**, plus the dependent records
                     // that cannot stand without them (a 站名 hung on a removed post), in one
                     // patch: one revision and one undo frame for the whole sweep (plan 30 §2).
+                    // A `platform-edge` strips only its physical screen (`cfg.psd = "none"`) and
+                    // records the side on its parent track (`Equipment.ts:removeModule` §5.9).
                     patch = new StationCellPatch();
                     foreach (var id in StationModuleTeardown.Expand(host.Index, current.ModuleIds)) {
-                        if (!host.Index.TryGetModule(id, out _)) continue;
+                        if (!host.Index.TryGetModule(id, out var targetMod) || targetMod == null) continue;
+                        if (string.Equals(targetMod.Type, "platform-edge", StringComparison.Ordinal)) {
+                            StationRailPlanner.PlanRemovePsd(host.Index, targetMod, patch);
+                            continue;
+                        }
                         patch.RemoveModuleIds.Add(id);
                         patch.Changed++;
                     }

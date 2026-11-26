@@ -133,9 +133,12 @@ project layers in `tools/unity-parity/check-unity-compile.ps1`:
     TVMs, vending, benches, shelves, cubicles, sinks, shops/retail/booths).
   - `StationServiceRuntime` models committed two-way gate lanes, platform
     flanking waiting nodes (`PlatformWaitingNodes`, `PsdQueueClearDepth`), door
-    load commitments, multi-leg errand queuing/dwell, and deterministic walking
-    profiles (`StationPassengerWalking`, mirrored in `PassengerCrowdView`).
-    Verified by `StationSimParityTests` and `StationErrandsAndWalkingTests`.
+    load commitments, cabin alighting/boarding (alighters spawn inside the train
+    cabin and walk out through the aligned train door and PSD; boarders walk into
+    the cabin, rendered in `PassengerCrowdView`), multi-leg errand queuing/dwell,
+    and deterministic walking profiles (`StationPassengerWalking`, mirrored in
+    `PassengerCrowdView`). Verified by `StationSimParityTests`,
+    `StationErrandsAndWalkingTests`, and `StationTrainAndRailParityTests`.
 - **Vertical circulation & lifts (`StationServiceRuntime`, `StationRoutePlanner`,
   `StationWalkGraphBuilder`, `StationWalkGraphWorkspace`):**
   - Arrivals and alighters share the `3%` step-free (`StepFreeChance = 0.03`) and

@@ -644,6 +644,55 @@ namespace Metro.Persistence {
                     var refusal = ModuleRefusal(existing);
                     if (refusal != null) { code = refusal; return false; }
 
+                    if (string.Equals(existing.Type, "platform-edge", StringComparison.Ordinal)) {
+                        if (string.Equals(existing.Config.Text("psd"), "none", StringComparison.Ordinal)) {
+                            code = "no-change";
+                            return false;
+                        }
+                        JObject edgeJson;
+                        try { edgeJson = JObject.Parse(existing.RawJson); } catch (JsonException) { code = "local-bad-module"; return false; }
+                        var edgeCfg = edgeJson["cfg"] as JObject;
+                        if (edgeCfg == null) { edgeCfg = new JObject(); edgeJson["cfg"] = edgeCfg; }
+                        edgeCfg["psd"] = "none";
+                        if (!TryBuildProjectedModule(edgeJson, city, out var updatedEdge, out code)) return false;
+                        if (!builder.ReplaceInPage(pageId, m => string.Equals(m.Id, removeId, StringComparison.Ordinal), updatedEdge)) {
+                            code = "local-module-mismatch";
+                            return false;
+                        }
+                        delta.ChangedModules.Add(updatedEdge);
+                        delta.ModulePageIds[updatedEdge.Id] = pageId;
+
+                        string fromId = existing.Config.Text("from");
+                        string side = existing.Config.Text("side");
+                        if (fromId.Length > 0 && (side == "left" || side == "right") &&
+                            previousIndex.TryGetModulePage(fromId, out var trackRec, out int trackPageId) &&
+                            trackRec != null && string.Equals(trackRec.Type, "track", StringComparison.Ordinal)) {
+                            var trackRefusal = ModuleRefusal(trackRec);
+                            if (trackRefusal != null) { code = trackRefusal; return false; }
+                            JObject trackJson;
+                            try { trackJson = JObject.Parse(trackRec.RawJson); } catch (JsonException) { code = "local-bad-module"; return false; }
+                            var trackCfg = trackJson["cfg"] as JObject;
+                            if (trackCfg == null) { trackCfg = new JObject(); trackJson["cfg"] = trackCfg; }
+                            var sides = trackCfg["removedPsdSides"] as JArray ?? new JArray();
+                            bool exists = false;
+                            for (int i = 0; i < sides.Count; i++) {
+                                if (string.Equals((string)sides[i], side, StringComparison.Ordinal)) { exists = true; break; }
+                            }
+                            if (!exists) {
+                                sides.Add(side);
+                                trackCfg["removedPsdSides"] = sides;
+                                if (!TryBuildProjectedModule(trackJson, city, out var updatedTrack, out code)) return false;
+                                if (!builder.ReplaceInPage(trackPageId, m => string.Equals(m.Id, fromId, StringComparison.Ordinal), updatedTrack)) {
+                                    code = "local-module-mismatch";
+                                    return false;
+                                }
+                                delta.ChangedModules.Add(updatedTrack);
+                                delta.ModulePageIds[updatedTrack.Id] = trackPageId;
+                            }
+                        }
+                        break;
+                    }
+
                     if (!builder.RemoveFromPage(pageId, m => string.Equals(m.Id, removeId, StringComparison.Ordinal))) {
                         code = "local-module-mismatch";
                         return false;

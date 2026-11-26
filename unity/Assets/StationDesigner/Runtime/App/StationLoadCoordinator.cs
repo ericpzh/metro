@@ -1714,7 +1714,7 @@ namespace Metro.App {
                     fact.AlightPerTrain = (int)Math.Round(Number(raw["alightPerTrain"], 0));
                     fact.AuthoredAlight = true;
                 }
-                fact.ModelScale = Number(raw?["modelScale"], 1);
+                fact.ModelScale = Number(raw?["modelScale"], StationTrainPose.DefaultScale);
                 if (fact.Cars <= 0) fact.Cars = 6;
                 projected.Lines.Add(fact);
             }

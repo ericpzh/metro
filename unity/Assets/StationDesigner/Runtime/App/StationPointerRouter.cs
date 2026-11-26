@@ -2291,6 +2291,20 @@ namespace Metro.App {
                     return;
                 }
             }
+            if (string.Equals(hit.Module.Type, "platform-edge", StringComparison.Ordinal)) {
+                var psdPatch = new StationCellPatch();
+                if (!StationRailPlanner.PlanRemovePsd(host.Index, hit.Module, psdPatch)) {
+                    reason = "nothing-to-delete";
+                    return;
+                }
+                if (!StationEditSession.TryApplyCells(host, psdPatch, "delete", null, out _, out code)) {
+                    reason = code;
+                    return;
+                }
+                StationEditSession.ClearSelection();
+                ClearSelectionHighlight(editHost);
+                return;
+            }
             if (!StationEditSession.TryApply(host, StationModuleEditMode.Remove, null, hit.Module.Id, "delete", null, out _, out code)) {
                 reason = code;
                 return;
@@ -2592,6 +2606,21 @@ namespace Metro.App {
                     string id = String(payload, "moduleId");
                     if (!host.IsLoaded) { rejectCode = "no-session"; return false; }
                     if (id.Length > 0) {
+                        if (host.Index != null && host.Index.TryGetModule(id, out var targetMod) &&
+                            string.Equals(targetMod?.Type, "platform-edge", StringComparison.Ordinal)) {
+                            var psdPatch = new StationCellPatch();
+                            if (!StationRailPlanner.PlanRemovePsd(host.Index, targetMod, psdPatch)) {
+                                rejectCode = "nothing-to-delete";
+                                rejectReason = "Platform screen doors are already removed.";
+                                return false;
+                            }
+                            if (!StationEditSession.TryApplyCells(host, psdPatch, "delete", command.Id, out _, out rejectCode)) {
+                                rejectReason = rejectCode;
+                                return false;
+                            }
+                            StationEditSession.ClearSelection();
+                            return true;
+                        }
                         if (!StationEditSession.TryApply(host, StationModuleEditMode.Remove, null, id, "delete", command.Id, out _, out rejectCode)) {
                             rejectReason = rejectCode;
                             return false;

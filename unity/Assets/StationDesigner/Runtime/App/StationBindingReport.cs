@@ -465,8 +465,10 @@ namespace Metro.App {
                 // anyway, so the row can say the doors work while the view is missing.
                 var transientConsist = UnityEngine.Object.Instantiate(entry.prefab);
                 transientConsist.name = "binding " + train.Id;
+                float transientScale = TrainConsistViews.ApplyConsistScale(
+                    transientConsist, entry.bakedScale, TrainConsistViews.ResolveModelScale(line));
                 transient.Add(transientConsist);
-                var rig = new TrainDoorRig(transientConsist, TrainDoorRig.ForLine(line.Stock, line.Cars, entry.bakedScale));
+                var rig = new TrainDoorRig(transientConsist, TrainDoorRig.ForLine(line.Stock, line.Cars, transientScale));
                 row.Rig = rig.Describe();
                 if (!dispatch.BindTrain(train.Id, rig, 1)) { row.Status = "no-view: train-rig-unbound"; row.Motion = "unbound"; continue; }
                 row.Status = trainRenderer != null ? "no-view: train-consist-missing" : "no-view: no-rolling-stock-renderer";

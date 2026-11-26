@@ -210,12 +210,29 @@ and per-model triangle counts, see
   `world.RecaptureArtwork(renderer)` (`StationVisibilityTarget.Recapture` →
   `SyncDerived` updates `Ghost`, `Clear`, and section-shader clones in place) and
   set glTFast ShaderGraph `baseColorTexture` / `baseColorFactor` alongside URP
-  `_BaseMap`. `StationRailMeshes` builds full 5 m rigid/gantry catenary,
-  `OpeningModuleViews` emits the yellow safety line across all PSD modes plus
-  four printed vinyl decals on full-height PSDs, `TrainDoorRig` supports
-  both-bank platform doors, and `StationContactShadowRenderer` /
-  `PassengerCrowdView` draw unpickable GPU-instanced contact shadows
-  (`StationTrainAndPlatformVisualsTests`).
+  `_BaseMap`. `StationRailMeshes` builds full 5 m rigid/gantry catenary;
+  `TrainConsistViews`, `StationRailGeometry`, and `StationTrainPose` align consist
+  berths to platform PSD doorways (`PlatformDoorCentreOffsets`) and centre
+  dual-platform (Spanish-solution) tracks at `track.d / 2` (`1.50 m`);
+  `TrainDoorRig` supports both-bank platform doors and pulls `closed.z` back by
+  `bank * plugTravel` on `authoredOpen` prefabs so closed doors seat flush against
+  the car skin and open plug doors swing out once. `OpeningModuleViews` emits the
+  yellow safety line across all PSD modes (including `psd = "none"`), four printed
+  vinyl decals, the owning line's colour on `psd-line-colour-band`, and oval amber
+  station indicator lights (`psd-station-light-bezel` + `psd-station-light`) above
+  each full-height doorway; half-height PSDs keep `psd-fixed-cap` on fixed panels
+  and `half-door-rail` (`0.05 m`) + `half-door-cap` (`0.06 m`) on moving leaves,
+  with `0.04 m` moving-leaf frame depth (`-0.05 m` from track boundary) so Type A
+  open plug doors clear every PSD frame on single and dual platforms
+  (`TianheTypeAOpenPlugDoorsClearEveryPsdFrameOnSingleAndDualPlatforms`).
+  Deleting a platform PSD (`StationCellTool`, `StationRailPlanning`,
+  `StationLocalEdit`, `StationModuleEdits`, `StationHostEdits`,
+  `StationPointerRouter`) writes `cfg.psd = "none"` and parent track
+  `cfg.removedPsdSides`, preserving the boarding edge and yellow safety line,
+  restoring platform floor insets, and supporting undo/redo
+  (`StationCellToolTests`, `OpeningModuleViewTests`).
+  `StationContactShadowRenderer` / `PassengerCrowdView` draw unpickable
+  GPU-instanced contact shadows (`StationTrainAndPlatformVisualsTests`).
 - **Section-plane shaders & handle drag (`StationSectionView`, `StationSectionDrag`):**
   Per-pixel cutaway clips fragments via `_SectionPlane` / `_SectionClip` in
   `StationSectionClip.hlsl` and `StationSectionDepth.hlsl` across

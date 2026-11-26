@@ -411,7 +411,7 @@ namespace Metro.Persistence {
                     if (read?.Index == null) { code = "parse-failed"; return false; }
                     if (!read.Index.TryGetModule(boundTracks[i].Id, out var trk) || trk == null) continue;
                     if (trk.Config.Bool("tunnel") || trk.Config.Bool("bridge")) continue;
-                    var regen = BuildRegenRailEnvelope(read.Index, workingJson, trk.Id, clearRemovedSides: false, psdOverride: nextPsd, out var regenCode);
+                    var regen = BuildRegenRailEnvelope(read.Index, workingJson, trk.Id, clearRemovedSides: true, psdOverride: nextPsd, out var regenCode);
                     if (regen == null) { code = regenCode ?? "regen-failed"; return false; }
                     workingJson = regen;
                 }

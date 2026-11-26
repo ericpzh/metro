@@ -3477,10 +3477,6 @@ namespace Metro.Sim {
             passenger.TrainRow = waveRows + k / 2;
             passenger.Server = -1;
             passenger.ServerId = "line:" + door.LineId + "|" + door.TrackId;
-            passenger.Activity = StationPassengerActivity.Wait;
-            passenger.ActivityStart = simTime;
-            passenger.ActivityTotal = 12;
-            passenger.WalkWeight = 0;
             // A rider stands inside the car, behind the alighting wave (`World.pinRider`'s slot):
             // the same `cabinWorldPos` frame the wave was seated in (18 §8.2).
             var berth = BerthFor(watch.LineId, watch.TrackId);
@@ -3490,6 +3486,14 @@ namespace Metro.Sim {
                 ry = graph.NodeY[door.Node];
                 rz = graph.NodeZ[door.Node];
             }
+            double stepDx = rx - passenger.X, stepDy = ry - passenger.Y;
+            double stepDist = Math.Sqrt(stepDx * stepDx + stepDy * stepDy);
+            if (Math.Abs(stepDx) + Math.Abs(stepDy) > 1e-9) passenger.Heading = Math.Atan2(stepDy, stepDx);
+            passenger.WalkDistance += stepDist;
+            passenger.Activity = stepDist > 1e-4 ? StationPassengerActivity.Walk : StationPassengerActivity.Wait;
+            passenger.ActivityStart = simTime;
+            passenger.ActivityTotal = 12;
+            passenger.WalkWeight = stepDist > 1e-4 ? 1 : 0;
             passenger.X = rx;
             passenger.Y = ry;
             passenger.Z = rz;
@@ -3521,8 +3525,8 @@ namespace Metro.Sim {
                     case Phase.Riding: StepRide(passenger); break;
                     case Phase.LiftQueuing: StepQueue(passenger); break;
                     case Phase.LiftRiding: StepLiftRide(passenger); break;
-                    case Phase.TrainRiding: passenger.WalkWeight = 0; break;
-                    case Phase.Alighting: passenger.WalkWeight = 0; break;
+                    case Phase.TrainRiding: StepTrainRiding(passenger); break;
+                    case Phase.Alighting: StepCabinWait(passenger); break;
                     case Phase.Stepping: StepOutRide(passenger); break;
                     case Phase.Buying:
                     case Phase.Browsing:
@@ -3750,17 +3754,74 @@ namespace Metro.Sim {
         }
 
         /// <summary>
+        /// Keep a boarded rider walking on its boarding tick so the renderer smoothly walks
+        /// it from the doorway into the cabin, then transition to standing idle inside the car.
+        /// </summary>
+        void StepTrainRiding(Passenger passenger) {
+            if (simTime > passenger.ActivityStart + 1e-9) {
+                passenger.Activity = StationPassengerActivity.Wait;
+                passenger.WalkWeight = 0;
+            }
+        }
+
+        /// <summary>
+        /// The source's `stepTrainRider` cabin-queue phase (`trainPhase === 1`): as front rows
+        /// leave through the doorway and `TrainRow` decrements, waiting alighters shuffle forward
+        /// inside the car toward their doorway slot rather than staying frozen in the aisle.
+        /// </summary>
+        void StepCabinWait(Passenger passenger) {
+            if (watches.TryGetValue(passenger.TrainKey ?? "", out TrainWatch watch) &&
+                passenger.TrainDoor >= 0 && passenger.TrainDoor < watch.Doors.Count) {
+                var door = watch.Doors[passenger.TrainDoor];
+                if (door.Node >= 0 && door.Node < graph.NodeCount) {
+                    var berth = BerthFor(watch.LineId, watch.TrackId);
+                    double nodeX = graph.NodeX[door.Node], nodeY = graph.NodeY[door.Node], nodeZ = graph.NodeZ[door.Node];
+                    double slotX, slotY, slotZ;
+                    if (!StationTrainPose.CabinWorldPos(berth, nodeX, nodeY, passenger.TrainFile, passenger.TrainRow,
+                            out slotX, out slotY, out slotZ)) {
+                        slotX = nodeX + passenger.TrainFile * 0.3;
+                        slotY = nodeY + (passenger.TrainRow % 2 == 0 ? -.15 : .15);
+                        slotZ = nodeZ;
+                    }
+                    double prevX = passenger.X, prevY = passenger.Y;
+                    double k = Math.Min(1.0, Dt / 0.35);
+                    passenger.X += (slotX - passenger.X) * k;
+                    passenger.Y += (slotY - passenger.Y) * k;
+                    passenger.Z += (slotZ - passenger.Z) * k;
+                    double mx = passenger.X - prevX, my = passenger.Y - prevY;
+                    double dist = Math.Sqrt(mx * mx + my * my);
+                    if (dist > 1e-4) {
+                        passenger.Heading = Math.Atan2(my, mx);
+                        passenger.WalkDistance += dist;
+                        passenger.WalkWeight = 1;
+                    } else {
+                        double toX = nodeX - passenger.X, toY = nodeY - passenger.Y;
+                        if (Math.Abs(toX) + Math.Abs(toY) > 1e-9) passenger.Heading = Math.Atan2(toY, toX);
+                        passenger.WalkWeight = 0;
+                    }
+                    return;
+                }
+            }
+            passenger.WalkWeight = 0;
+        }
+
+        /// <summary>
         /// The source's `stepTrainRider` stepping-out phase (`trainPhase === 2`): from the
         /// cabin slot to the doorway over `TRAIN_STEP_S`, then the passenger is an ordinary
         /// platform walker. The crossing is counted the tick the step lands, exactly where
         /// `World` counts `alighted` — that is the stop's visible delivery.
         /// </summary>
         void StepOutRide(Passenger passenger) {
+            double prevX = passenger.X, prevY = passenger.Y;
             passenger.StepT += Dt;
             double k = Math.Min(1, passenger.StepT / StationServiceCadence.TrainStepSeconds);
             passenger.X = passenger.StepFromX + (passenger.StepToX - passenger.StepFromX) * k;
             passenger.Y = passenger.StepFromY + (passenger.StepToY - passenger.StepFromY) * k;
             passenger.Z = passenger.StepFromZ + (passenger.StepToZ - passenger.StepFromZ) * k;
+            double stepDx = passenger.X - prevX, stepDy = passenger.Y - prevY;
+            double stepDist = Math.Sqrt(stepDx * stepDx + stepDy * stepDy);
+            passenger.WalkDistance += stepDist;
+            passenger.WalkWeight = stepDist > 1e-4 ? 1 : 0;
             double dx = passenger.StepToX - passenger.StepFromX, dy = passenger.StepToY - passenger.StepFromY;
             if (Math.Abs(dx) + Math.Abs(dy) > 1e-9) passenger.Heading = Math.Atan2(dy, dx);
             if (k < 1) return;
@@ -4535,8 +4596,9 @@ namespace Metro.Sim {
             if (berths.TryGetValue(key, out var held)) return held;
             StationTrainBerth berth = null;
             if (!string.IsNullOrEmpty(trackId) && document != null) {
-                StationTrainPose.TryBerth(document, FindLine(lineId), true, trackId,
-                    StationTrainPose.DefaultScale, out berth, out _);
+                var lineFact = FindLine(lineId);
+                double scale = lineFact.ModelScale > 0 ? lineFact.ModelScale : StationTrainPose.DefaultScale;
+                StationTrainPose.TryBerth(document, lineFact, true, trackId, scale, out berth, out _);
             }
             berths[key] = berth;
             return berth;

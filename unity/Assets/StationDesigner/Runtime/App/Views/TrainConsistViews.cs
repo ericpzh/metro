@@ -425,9 +425,14 @@ namespace Metro.App.Views {
             if (direction.Length == 0) direction = string.IsNullOrEmpty(lineDirection) ? "up" : lineDirection;
             var selected = new List<StationModuleRecord>(2);
             SelectBerthPlatformEdges(index, track, lineId, direction, selected);
-            var edge = selected.Count > 0 ? selected[0] : null;
-            if (edge == null) return depth * .5f;
-            if (string.Equals(edge.Config.Text("side"), "left", StringComparison.Ordinal)) {
+            if (selected.Count == 0) return depth * .5f;
+            bool hasLeft = false, hasRight = false;
+            for (int i = 0; i < selected.Count; i++) {
+                if (string.Equals(selected[i].Config.Text("side"), "left", StringComparison.Ordinal)) hasLeft = true;
+                else hasRight = true;
+            }
+            if (hasLeft && hasRight) return depth * .5f;
+            if (hasLeft) {
                 float low = vehicleWidth * .5f;
                 float high = depth - PlatformGap - vehicleWidth * .5f;
                 return low <= high ? Mathf.Min(high, Mathf.Max(low, depth * .5f)) : low;
@@ -439,25 +444,12 @@ namespace Metro.App.Views {
 
         /// <summary>
         /// `trackTrainCentreV`: the vehicle centre across the bed, measured from the
-        /// bed's local −y edge. A platform edge pulls the consist toward its own side.
+        /// bed's local −y edge. A platform edge pulls the consist toward its own side;
+        /// platforms on both sides (Spanish solution) keep it centred.
         /// </summary>
         public static float TrainCentreV(StationModuleRecord track, float vehicleWidth, StationDocument document,
-            string lineId, string lineDirection) {
-            float depth = Depth(track);
-            if (IsTunnelOrBridge(track)) return depth * .5f;
-            var direction = track.Config.Text("dir");
-            if (direction.Length == 0) direction = string.IsNullOrEmpty(lineDirection) ? "up" : lineDirection;
-            var edge = PlatformEdgeFor(document, track, lineId, direction);
-            if (edge == null) return depth * .5f;
-            if (string.Equals(edge.Config.Text("side"), "left", StringComparison.Ordinal)) {
-                float low = vehicleWidth * .5f;
-                float high = depth - PlatformGap - vehicleWidth * .5f;
-                return low <= high ? Mathf.Min(high, Mathf.Max(low, depth * .5f)) : low;
-            }
-            float rightLow = PlatformGap + vehicleWidth * .5f;
-            float rightHigh = depth - vehicleWidth * .5f;
-            return rightLow <= rightHigh ? Mathf.Min(rightHigh, Mathf.Max(rightLow, depth * .5f)) : rightHigh;
-        }
+            string lineId, string lineDirection) =>
+            StationRailGeometry.TrainCentreAcross(track, vehicleWidth, document, lineId, lineDirection);
 
         /// <summary>
         /// `World.connectedRun`: how far the consist can run past its berth before the
@@ -1210,7 +1202,7 @@ namespace Metro.App.Views {
                     "); nothing is drawn and no box stands in for it.");
                 return;
             }
-            float scale = entry.bakedScale > 0f ? entry.bakedScale : 1f;
+            float scale = ResolveModelScale(line);
             if (!TrainConsistGeometry.TryBerth(document, index, line, track, scale, out var berth, out var failure)) {
                 reportUnresolved?.Invoke("train-berth", "train", recordId,
                     "The track record cannot give this consist a berth: " + failure + ".");
@@ -1223,9 +1215,10 @@ namespace Metro.App.Views {
             }
             var instance = UnityEngine.Object.Instantiate(entry.prefab, parent);
             instance.name = "consist " + trainId;
-            // The promoted formation bakes the line's model scale on its own
-            // `Consist` node; rescaling the wrapper would shrink it twice.
-            instance.transform.localScale = Vector3.one;
+            // Apply the line's authored/storey model scale (default 0.98) onto the promoted
+            // `Consist` node so every formation (not only Zoo's baked 0.98 livery) aligns its
+            // car doors and cabin floor with the PSD run while keeping the wrapper at scale 1.
+            float rigScale = ApplyConsistScale(instance, entry.bakedScale, scale);
             if (stagedRecords != null) StationEditTrace.AddInstantiatedPrefab();
 
             var view = new TrainConsistView {
@@ -1271,7 +1264,7 @@ namespace Metro.App.Views {
             // The rig measures the promoted leaves against the stock's own door width;
             // track-local platform sides are converted into consist-local door banks once
             // at the consist boundary via StationTrainPose.ConsistDoorBankMask.
-            var rig = new TrainDoorRig(instance, TrainDoorRig.ForLine(line.Stock, line.Cars, scale));
+            var rig = new TrainDoorRig(instance, TrainDoorRig.ForLine(line.Stock, line.Cars, rigScale));
             view.Rig = rig;
             int bankMask = berth.DoorBankMask;
             view.DoorBankMask = bankMask;
@@ -1571,6 +1564,41 @@ namespace Metro.App.Views {
         }
 
         /* -------------------------------------------------------------- helpers */
+
+        /// <summary>
+        /// Target model scale for a line's rolling stock, matching <see cref="OpeningModuleViews.ModelScaleOf"/>
+        /// and <c>sim/stock.ts:trainScaleForStorey</c> (0.98 unless the line authored an explicit scale).
+        /// </summary>
+        public static float ResolveModelScale(StationLineRecord line) => OpeningModuleViews.ModelScaleOf(line);
+
+        /// <summary>
+        /// Applies <paramref name="targetScale"/> onto the promoted formation's <c>Consist</c> child
+        /// (keeping the outer wrapper at <see cref="Vector3.one"/> so root-local metres and
+        /// <see cref="TrainDoorRig"/> stay in world-metre units). Returns the scale that
+        /// <see cref="TrainDoorRig.ForLine"/> should use in consist-root space.
+        /// </summary>
+        public static float ApplyConsistScale(GameObject instance, float bakedScale, float targetScale) {
+            float effectiveTarget = targetScale > 0f ? targetScale : StationRailGeometry.DefaultScale;
+            float effectiveBaked = bakedScale > 0f ? bakedScale : 1f;
+            if (instance == null) return effectiveTarget;
+            instance.transform.localScale = Vector3.one;
+            var consist = instance.transform.Find("Unity basis/Consist");
+            if (consist == null) {
+                foreach (var child in instance.GetComponentsInChildren<Transform>(true)) {
+                    if (string.Equals(child.name, "Consist", StringComparison.Ordinal)) {
+                        consist = child;
+                        break;
+                    }
+                }
+            }
+            if (consist != null) {
+                consist.localScale = Vector3.one * effectiveTarget;
+                return effectiveTarget;
+            }
+            float ratio = effectiveTarget / effectiveBaked;
+            instance.transform.localScale = Vector3.one * ratio;
+            return effectiveBaked;
+        }
 
         /// <summary>Every `Car&lt;n&gt;-…` node of the promoted formation, in car order.</summary>
         public static List<Transform> CollectCars(GameObject consist) {

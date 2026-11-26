@@ -204,6 +204,8 @@ npm run build:unity:msix -- [--version 1.0.0.0] [--dev-sign]
    unavailable).
 3. Verify desktop/Editor WebView2 changes via
    `unity --no-banner --no-pager --format json command --project-path "$PWD/unity" metro editor_ui_selftest`
-   (and relevant `editor_ui_*` checks in the open Editor) or `npm run build:unity:windows`.
+   (and relevant `editor_ui_*` checks in the open Editor) and **always rebuild the
+   portable Windows `.exe`** (`npm run build:unity:windows`) after Unity desktop/UI
+   fixes.
 4. Before deploying publicly, verify the public pack passes
    `node unity/tests/passenger-profile.test.mjs --pack <pack-dir>` and `npm run stage:unity`.

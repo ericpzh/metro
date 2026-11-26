@@ -481,7 +481,9 @@ namespace Metro.EditModeTests {
             var catalogue = LoadTrainCatalogue();
             var cases = new (string Stock, int Cars, string Power, int TrackW, float Scale)[] {
                 ("L", 6, "third-rail", 101, 0.98f),
-                ("D", 2, "overhead", 42, 1.0f),
+                ("A", 8, "overhead", 173, 0.98f),
+                ("B", 6, "third-rail", 117, 0.98f),
+                ("D", 2, "overhead", 42, 0.98f),
             };
             string[] dirs = { "up", "down" };
 
@@ -519,6 +521,7 @@ namespace Metro.EditModeTests {
 
                         Assert.IsTrue(renderer.TryGetConsist("L1|track-1", out var view),
                             $"{c.Stock} rot={rot} dir={dir} consist missing");
+                        Assert.AreEqual(c.Scale, view.Scale, 1e-4f, $"{c.Stock} rot={rot} dir={dir} view scale");
                         renderer.Apply(MotionFrame(true, TrainFrame("L1", "track-1", TrainPhase.Dwell, 5, 1.0)));
 
                         // Project every DoorCentre-* anchor onto the track's local run axis from the
@@ -534,7 +537,8 @@ namespace Metro.EditModeTests {
                             .OrderBy(v => v)
                             .ToArray();
 
-                        var psdOffsets = TrainConsist.DoorRunOffsets(c.Stock, c.Cars, view.Scale, c.TrackW)
+                        // Compare against the line's actual scale (what PSDs use), never view.Scale.
+                        var psdOffsets = TrainConsist.DoorRunOffsets(c.Stock, c.Cars, c.Scale, c.TrackW)
                             .OrderBy(v => v)
                             .ToArray();
 
@@ -542,11 +546,145 @@ namespace Metro.EditModeTests {
                             $"{c.Stock} rot={rot} dir={dir} door count");
                         for (int i = 0; i < psdOffsets.Length; i++) {
                             Assert.AreEqual(psdOffsets[i], doorAlong[i], 0.08f,
-                                $"{c.Stock} rot={rot} dir={dir} door {i} must align with PSD opening");
+                                $"{c.Stock} rot={rot} dir={dir} scale={c.Scale} door {i} must align with PSD opening");
                         }
                     }
                 }
             }
+        }
+
+        [Test]
+        public void TianheParkEveryTrainDoorAlignsWithItsActualPsdOpenings() {
+            const string tianhePath = "Assets/StationDesigner/Demos/tianhe.metro.json";
+            if (!File.Exists(Path.Combine(Application.dataPath, "StationDesigner/Demos/tianhe.metro.json"))) {
+                Assert.Ignore("tianhe.metro.json not exported");
+            }
+            var catalogue = LoadTrainCatalogue();
+            var read = StationDocumentReader.ReadFile(tianhePath);
+            Assert.IsNotNull(read?.Document);
+
+            var root = Track(new GameObject("tianhe-door-alignment"));
+            var renderer = new TrainConsistRenderer();
+            var world = TrackWorld(new StationWorldView(root.transform, "tianhe-door-alignment",
+                new IStationViewRenderer[] { renderer },
+                new StationViewAssets { TrainCatalogue = catalogue }));
+            world.Build(read.Document, read.Index);
+            world.Activate();
+
+            int checkedEdges = 0;
+            foreach (var edge in read.Index.ModulesOfType("platform-edge")) {
+                var req = OpeningModuleViews.RequestFor(edge, read.Index);
+                var runReq = new PsdRunRequest {
+                    ModuleId = req.ModuleId, X = req.X, Y = req.Y, Z = req.Z,
+                    Rotation = req.Rotation, Width = req.Width, Side = req.Side, Psd = req.Psd,
+                    StoreyHeight = req.StoreyHeight, HasTrack = req.HasTrack,
+                    TrackX = req.TrackX, TrackY = req.TrackY, TrackRotation = req.TrackRotation, TrackWidth = req.TrackWidth,
+                    HasLine = req.HasLine, Stock = req.Stock, Cars = req.Cars, ModelScale = req.ModelScale,
+                };
+                Assert.IsTrue(OpeningModuleViews.TryPsdRun(runReq, out var layout, out var diag),
+                    $"{edge.Id}: PSD layout failed ({diag})");
+                string trainId = req.LineId + "|" + req.TrackId;
+                Assert.IsTrue(renderer.TryGetConsist(trainId, out var consist), $"consist missing for {trainId}");
+                Assert.AreEqual(req.ModelScale, consist.Scale, 1e-4f, $"{trainId} scale must match PSD scale");
+                renderer.Apply(MotionFrame(true, TrainFrame(req.LineId, req.TrackId, TrainPhase.Dwell, 5, 1.0)));
+
+                var facing = consist.Berth.Facing;
+                var origin = new Vector2(consist.Berth.DocumentPosition.x, consist.Berth.DocumentPosition.y);
+                var trainDoorAlong = consist.Root.GetComponentsInChildren<Transform>(true)
+                    .Where(t => t.name.StartsWith("DoorCentre-", StringComparison.Ordinal))
+                    .Select(t => {
+                        var docPos = StationCoordinates.WorldToDocument(t.position);
+                        return Vector2.Dot(new Vector2(docPos.x, docPos.y) - origin, facing);
+                    })
+                    .OrderBy(v => v)
+                    .ToArray();
+
+                Assert.Greater(layout.Openings.Count, 0, $"{edge.Id} has PSD openings");
+                foreach (var opening in layout.Openings) {
+                    float psdAlong = Vector2.Dot(new Vector2(opening.DocumentX, opening.DocumentY) - origin, facing);
+                    float nearest = trainDoorAlong.Min(t => Mathf.Abs(t - psdAlong));
+                    Assert.LessOrEqual(nearest, 0.08f,
+                        $"{edge.Id} ({trainId}) opening #{opening.Index} at along={psdAlong:F3} drifted {nearest:F3} m from nearest train door");
+                }
+                checkedEdges++;
+            }
+            Assert.GreaterOrEqual(checkedEdges, 6, "checked all Tianhe Park platform edges");
+        }
+
+        [Test]
+        public void AlightingPassengersSpawnInsideTrainShuffleForwardAndInterpolateOutThroughDoorway() {
+            // Two-car L-stock (6 doors) with 24 alighting passengers -> 2 rows x 2 files per door.
+            var doc = CabinLifecycleDocument(alightPerTrain: 24, cars: 2, stock: "L", modelScale: 0.98);
+            var graph = StationWalkGraphBuilder.Build(doc);
+            var runtime = new StationServiceRuntime(new StationServiceOptions { Spawn = false, AlightPerTrain = 24 });
+            runtime.Build(doc, graph, 77u);
+            Assert.IsTrue(StationTrainPose.TryBerth(doc, doc.Lines[0], true, "track-1", 0.98, out var berth, out var fail), fail);
+
+            // Berth: all 24 passengers spawn inside the car cabin, never on the PSD platform row (y >= 3.0).
+            runtime.Step(6, true, 0, new[] { TrainFrame("1", "track-1", TrainPhase.Berth, 0, 0) });
+            var berthFrames = runtime.PassengerFrames();
+            Assert.AreEqual(24, berthFrames.Length, "all 24 alighters spawned at Berth");
+            var berthById = berthFrames.ToDictionary(p => p.SimId);
+            foreach (var p in berthFrames) {
+                Assert.AreEqual(StationPassengerState.Alighting, p.State, $"pax {p.SimId} starts Alighting");
+                double across = -(p.X - berth.X) * berth.Fy + (p.Y - berth.Y) * berth.Fx;
+                Assert.LessOrEqual(Math.Abs(across), StationServiceCadence.CabinHalfWidth + 1e-6,
+                    $"pax {p.SimId} must spawn inside train cabin (across={across:F3})");
+                Assert.Less(p.Y, 3.0, $"pax {p.SimId} must spawn inside the car, not on the platform PSD tile");
+            }
+
+            // Opening t=0: doors begin opening, everyone still seated inside cabin.
+            runtime.Step(7, true, 0, new[] { TrainFrame("1", "track-1", TrainPhase.Opening, 0, 0.0) });
+            var preStepFrames = runtime.PassengerFrames().ToDictionary(p => p.SimId);
+
+            // Opening t=1: Row 0 (12 pax) steps out onto the platform doorway; Row 1 (12 pax) shuffles forward inside the car!
+            runtime.Step(8, true, 0, new[] { TrainFrame("1", "track-1", TrainPhase.Opening, 1, 0.5) });
+            var postStepFrames = runtime.PassengerFrames();
+            int steppedOut = 0;
+            int shuffledInside = 0;
+            StationPassengerFrame sampleSteppedPrior = default, sampleSteppedCurrent = default;
+            foreach (var cur in postStepFrames) {
+                var prior = preStepFrames[cur.SimId];
+                double moved = Math.Sqrt((cur.X - prior.X) * (cur.X - prior.X) + (cur.Y - prior.Y) * (cur.Y - prior.Y));
+                if (cur.State == StationPassengerState.Walking && prior.State == StationPassengerState.Alighting) {
+                    steppedOut++;
+                    Assert.Greater(moved, 0.5, $"pax {cur.SimId} stepped from cabin to doorway");
+                    Assert.Greater(cur.WalkDistance, 0.5, $"pax {cur.SimId} accumulated walk stride during step-out");
+                    Assert.Greater(cur.WalkWeight, 0.5, $"pax {cur.SimId} animates walking while stepping out");
+                    if (steppedOut == 1) { sampleSteppedPrior = prior; sampleSteppedCurrent = cur; }
+                } else if (cur.State == StationPassengerState.Alighting) {
+                    shuffledInside++;
+                    Assert.Greater(moved, 0.25, $"remaining cabin pax {cur.SimId} must shuffle forward toward the door");
+                    Assert.Greater(cur.Y, prior.Y, $"pax {cur.SimId} moved toward the left (+y) doorway");
+                    Assert.Less(cur.Y, 3.0, $"shuffled cabin pax {cur.SimId} stays inside the train");
+                    Assert.Greater(cur.WalkDistance, 0.25, $"shuffling pax {cur.SimId} advances WalkDistance");
+                    Assert.Greater(cur.WalkWeight, 0.5, $"shuffling pax {cur.SimId} plays walking animation");
+                }
+            }
+            Assert.AreEqual(12, steppedOut, "row 0 (2 abreast x 6 doors) stepped out");
+            Assert.AreEqual(12, shuffledInside, "row 1 shuffled forward inside the car");
+
+            // Crowd renderer interpolation: Alighting -> Walking must smoothly interpolate from cabin to PSD
+            // instead of snapping straight to the PSD threshold.
+            var adjacentMethod = typeof(PassengerCrowdRenderer).GetMethod("Adjacent",
+                BindingFlags.Static | BindingFlags.NonPublic);
+            Assert.IsNotNull(adjacentMethod, "PassengerCrowdRenderer.Adjacent missing");
+            var priorPose = SessionPassengerFeed.Map(sampleSteppedPrior);
+            var currentPose = SessionPassengerFeed.Map(sampleSteppedCurrent);
+            bool isAdjacentExit = (bool)adjacentMethod.Invoke(null, new object[] { priorPose, currentPose });
+            Assert.IsTrue(isAdjacentExit, "Alighting (cabin) -> Walking (PSD) must interpolate smoothly, never teleport to PSD");
+
+            // Boarding transition (Queuing at PSD -> Boarding inside cabin) must also interpolate smoothly.
+            var boardPrior = new PassengerPose {
+                SimId = 900, X = sampleSteppedCurrent.X, Y = sampleSteppedCurrent.Y, Z = sampleSteppedCurrent.Z,
+                State = StationPassengerState.Queuing, ServerId = "door:edge-1#0", Visible = true,
+            };
+            var boardCurrent = new PassengerPose {
+                SimId = 900, X = sampleSteppedPrior.X, Y = sampleSteppedPrior.Y, Z = sampleSteppedPrior.Z,
+                State = StationPassengerState.Boarding, ServerId = "line:1|track-1", Visible = true,
+            };
+            bool isAdjacentBoard = (bool)adjacentMethod.Invoke(null, new object[] { boardPrior, boardCurrent });
+            Assert.IsTrue(isAdjacentBoard, "Queuing (PSD) -> Boarding (cabin) must interpolate smoothly into the train");
         }
 
         [Test]
@@ -1512,6 +1650,137 @@ namespace Metro.EditModeTests {
             Assert.AreEqual(0.0, nextPanel.OffsetX, 1e-6, "continuation snap clears corner length trim OffsetX");
             Assert.AreEqual(0.14, nextPanel.OffsetY, 1e-6, "continuation snap carries neighbour glass plane OffsetY");
             Assert.AreEqual("", nextPanel.Text("corner"), "continuation snap does not copy neighbour corner id");
+        }
+
+        [Test]
+        public void TianheTypeAOpenPlugDoorsClearEveryPsdFrameOnSingleAndDualPlatforms() {
+            const string tianhePath = "Assets/StationDesigner/Demos/tianhe.metro.json";
+            if (!File.Exists(Path.Combine(Application.dataPath, "StationDesigner/Demos/tianhe.metro.json"))) {
+                Assert.Ignore("tianhe.metro.json not exported");
+            }
+            var trainCatalogue = LoadTrainCatalogue();
+            var openingCatalogue = AssetDatabase.LoadAssetAtPath<RuntimeCatalogue>(RuntimeCatalogue.AssetPath);
+            Assert.IsNotNull(openingCatalogue, "RuntimeCatalogue missing");
+            var read = StationDocumentReader.ReadFile(tianhePath);
+            Assert.IsNotNull(read?.Document, "Tianhe failed to read");
+
+            // Dual-platform (Spanish-solution) Line 13 Type-A tracks must centre across the 3 m bed.
+            foreach (var trackId in new[] { "track-55", "track-57" }) {
+                Assert.IsTrue(read.Index.TryGetModule(trackId, out var dualTrack));
+                float v = StationRailGeometry.TrainCentreAcross(dualTrack, 3.0f * 0.98f, read.Document, "13", "up");
+                Assert.AreEqual(1.5f, v, 1e-4f, trackId + " with platforms on both sides must centre at d/2");
+            }
+
+            var root = Track(new GameObject("tianhe-type-a-door-clearance"));
+            var trains = new TrainConsistRenderer();
+            var openings = new OpeningModuleRenderer();
+            var shader = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard");
+            var world = TrackWorld(new StationWorldView(root.transform, "tianhe-clearance",
+                new IStationViewRenderer[] { trains, openings },
+                new StationViewAssets { Catalogue = openingCatalogue, TrainCatalogue = trainCatalogue, Shader = shader }));
+            world.Build(read.Document, read.Index);
+            world.Activate();
+
+            var cases = new[] {
+                ("11|track-53", "edge-track-53-left"),
+                ("11|track-54", "edge-track-54-right"),
+                ("13|track-55", "edge-track-55-right"),
+                ("13|track-55", "edge-track-55-left"),
+                ("13|track-57", "edge-track-57-right"),
+                ("13|track-57", "edge-track-57-left"),
+            };
+
+            foreach (var (trainId, edgeId) in cases) {
+                Assert.IsTrue(trains.TryGetConsist(trainId, out var consist), "missing consist " + trainId);
+                Assert.IsTrue(openings.Views.TryGet(edgeId, out var psdView), "missing PSD " + edgeId);
+                Assert.IsTrue(read.Index.TryGetModule(edgeId, out var edgeRec), "missing edge record " + edgeId);
+                Assert.IsTrue(read.Index.TryGetModule(consist.TrackId, out var trackRec), "missing track " + consist.TrackId);
+
+                consist.Mount();
+                consist.Place();
+                psdView.Apply(OpeningState.Uniform(1f));
+
+                // Unit vector across the track from the consist centre toward this platform edge.
+                var sideVec = TrainConsistGeometry.Side(trackRec.Rotation);
+                bool isLeft = string.Equals(edgeRec.Config.Text("side"), "left", StringComparison.Ordinal);
+                var toPlatform = isLeft ? sideVec : -sideVec;
+                var berth = consist.Berth.DocumentPosition;
+                float minDoorZ = trackRec.Z + 1.02f;
+
+                // Closed doors must seat flush with the Type-A car skin (authoredOpen prefabs must not
+                // retain their outward plug offset when closed).
+                consist.Rig.Reset();
+                float closedDoorMax = float.NegativeInfinity;
+                foreach (var mf in consist.Root.GetComponentsInChildren<MeshFilter>(true)) {
+                    if (mf == null || mf.sharedMesh == null) continue;
+                    bool isDoorMesh = false;
+                    for (var t = mf.transform; t != null && t != consist.Root.transform; t = t.parent) {
+                        if (System.Text.RegularExpressions.Regex.IsMatch(t.name, @"Door\d+$")) {
+                            isDoorMesh = true;
+                            break;
+                        }
+                    }
+                    if (!isDoorMesh) continue;
+                    var verts = mf.sharedMesh.vertices;
+                    var l2w = mf.transform.localToWorldMatrix;
+                    for (int i = 0; i < verts.Length; i++) {
+                        var doc = StationCoordinates.WorldToDocument(l2w.MultiplyPoint3x4(verts[i]));
+                        if (doc.z < minDoorZ) continue;
+                        float proj = (doc.x - berth.x) * toPlatform.x + (doc.y - berth.y) * toPlatform.y;
+                        if (proj > closedDoorMax) closedDoorMax = proj;
+                    }
+                }
+                Assert.LessOrEqual(closedDoorMax, 1.485f,
+                    $"{trainId} vs {edgeId}: closed Type-A door max reach ({closedDoorMax:0.####} m) must seat flush with the 2.94 m car skin");
+
+                consist.Rig.ApplyMask(1f);
+
+                float trainDoorMax = float.NegativeInfinity;
+                float trainDoorTopZ = float.NegativeInfinity;
+                int doorFilterCount = 0;
+                foreach (var mf in consist.Root.GetComponentsInChildren<MeshFilter>(true)) {
+                    if (mf == null || mf.sharedMesh == null) continue;
+                    bool isDoorMesh = false;
+                    for (var t = mf.transform; t != null && t != consist.Root.transform; t = t.parent) {
+                        if (System.Text.RegularExpressions.Regex.IsMatch(t.name, @"Door\d+$")) {
+                            isDoorMesh = true;
+                            break;
+                        }
+                    }
+                    if (!isDoorMesh) continue;
+                    doorFilterCount++;
+                    var verts = mf.sharedMesh.vertices;
+                    var l2w = mf.transform.localToWorldMatrix;
+                    for (int i = 0; i < verts.Length; i++) {
+                        var doc = StationCoordinates.WorldToDocument(l2w.MultiplyPoint3x4(verts[i]));
+                        if (doc.z < minDoorZ) continue;
+                        if (doc.z > trainDoorTopZ) trainDoorTopZ = doc.z;
+                        float proj = (doc.x - berth.x) * toPlatform.x + (doc.y - berth.y) * toPlatform.y;
+                        if (proj > trainDoorMax) trainDoorMax = proj;
+                    }
+                }
+                Assert.Greater(doorFilterCount, 0, trainId + " must have door leaf meshes");
+
+                float psdMin = float.PositiveInfinity;
+                int psdFilterCount = 0;
+                foreach (var mf in psdView.Holder.GetComponentsInChildren<MeshFilter>(true)) {
+                    if (mf == null || mf.sharedMesh == null) continue;
+                    psdFilterCount++;
+                    var verts = mf.sharedMesh.vertices;
+                    var l2w = mf.transform.localToWorldMatrix;
+                    for (int i = 0; i < verts.Length; i++) {
+                        var doc = StationCoordinates.WorldToDocument(l2w.MultiplyPoint3x4(verts[i]));
+                        if (doc.z < minDoorZ || doc.z > trainDoorTopZ) continue;
+                        float proj = (doc.x - berth.x) * toPlatform.x + (doc.y - berth.y) * toPlatform.y;
+                        if (proj < psdMin) psdMin = proj;
+                    }
+                }
+                Assert.Greater(psdFilterCount, 0, edgeId + " must have PSD meshes");
+
+                float clearance = psdMin - trainDoorMax;
+                Assert.Greater(clearance, 0.005f,
+                    $"{trainId} vs {edgeId}: open Type-A plug door max reach ({trainDoorMax:0.####} m) overlaps PSD min reach ({psdMin:0.####} m), clearance={clearance:0.####} m");
+            }
         }
     }
 }

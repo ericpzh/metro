@@ -130,6 +130,8 @@ at a fresh folder beneath `.preview/unity/`:
   local cohort (`passenger-catalogue-web.asset`), packs it under
   `.preview/unity/local-web/packed`, and serves on `127.0.0.1` only.
 - **Portable Windows single-file `.exe` (`npm run build:unity:windows`):**
+  **Always rebuild the portable `.exe` after Unity runtime, UI, or player fixes**
+  so `.preview/unity/StationDesigner.exe` stays up to date.
   `tools/unity-web/build-windows.mjs` rebuilds `MetroEditorWebView.exe` and
   `game/dist-unity-ui`, syncs `unity/` into `.preview/unity/win-workspace/project`
   (patching `productName: Station Designer`, resizable `1600 × 900` windowed

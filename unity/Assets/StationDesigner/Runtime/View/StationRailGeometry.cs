@@ -189,9 +189,16 @@ namespace Metro.View {
             if (tunnelOrBridge) return depth * .5f;
             var direction = track.Config.Text("dir");
             if (direction.Length == 0) direction = string.IsNullOrEmpty(lineDirection) ? "up" : lineDirection;
-            var edge = PlatformEdgeFor(document, track, lineId, direction);
-            if (edge == null) return depth * .5f;
-            if (string.Equals(edge.Config.Text("side"), "left", StringComparison.Ordinal)) {
+            var selected = new List<StationModuleRecord>(2);
+            SelectBerthPlatformEdges(document, track, lineId, direction, selected);
+            if (selected.Count == 0) return depth * .5f;
+            bool hasLeft = false, hasRight = false;
+            for (int i = 0; i < selected.Count; i++) {
+                if (string.Equals(selected[i].Config.Text("side"), "left", StringComparison.Ordinal)) hasLeft = true;
+                else hasRight = true;
+            }
+            if (hasLeft && hasRight) return depth * .5f;
+            if (hasLeft) {
                 float low = vehicleWidth * .5f;
                 float high = depth - PlatformGap - vehicleWidth * .5f;
                 return low <= high ? Mathf.Min(high, Mathf.Max(low, depth * .5f)) : low;

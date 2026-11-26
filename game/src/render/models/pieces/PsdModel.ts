@@ -251,23 +251,23 @@ export function buildPsd(ctx: ModuleContext, mod: Extract<Module, { type: 'platf
       const glass = plate(g, movingGlass, leafW, doorH, leafX, leafY, leafMid, 0)
       glass.name = 'psd-door-glass'
       const frameMat = mats.black
-      const frame = slab(g, frameMat, dx + s * (doorW / 2 + overlap - 0.03), leafY, leafMid, 0.06, half ? 0.06 : 0.12, doorH)
+      const frame = slab(g, frameMat, dx + s * (doorW / 2 + overlap - 0.03), leafY, leafMid, 0.06, 0.04, doorH)
       registerDoorLeaf(glass, s, doorW / 2, leaves)
       registerDoorLeaf(frame, s, doorW / 2, leaves)
-      const meetingFrame = slab(g, mats.black, dx + s * 0.015, leafY, leafMid, 0.03, half ? 0.06 : 0.12, doorH)
+      const meetingFrame = slab(g, mats.black, dx + s * 0.015, leafY, leafMid, 0.03, 0.04, doorH)
       meetingFrame.name = 'psd-door-meeting-frame'
       registerDoorLeaf(meetingFrame, s, doorW / 2, leaves)
       if (half) {
-        const rail = slab(g, mats.black, leafX, leafY, z0 + halfRailTop - 0.06, leafW, 0.08, 0.12)
+        const rail = slab(g, mats.black, leafX, leafY, z0 + halfRailTop - 0.06, leafW, 0.05, 0.12)
         rail.name = 'half-door-rail'
         registerDoorLeaf(rail, s, doorW / 2, leaves)
-        const cap = slab(g, mats.black, leafX, leafY, z0 + PSD_HALF_HEIGHT - 0.025, leafW, 0.1, 0.05)
+        const cap = slab(g, mats.black, leafX, leafY, z0 + PSD_HALF_HEIGHT - 0.025, leafW, 0.06, 0.05)
         cap.name = 'half-door-cap'
         registerDoorLeaf(cap, s, doorW / 2, leaves)
       }
       if (!half) {
         for (const z of [z0 + 0.03, z0 + doorH - 0.03]) {
-          registerDoorLeaf(slab(g, frameMat, leafX, leafY, z, leafW, 0.12, 0.06), s, doorW / 2, leaves)
+          registerDoorLeaf(slab(g, frameMat, leafX, leafY, z, leafW, 0.04, 0.06), s, doorW / 2, leaves)
         }
         const stripe = band(leafX - leafW / 2, leafX + leafW / 2, leafY - toward * 0.001, true)
         if (stripe) registerDoorLeaf(stripe, s, doorW / 2, leaves)

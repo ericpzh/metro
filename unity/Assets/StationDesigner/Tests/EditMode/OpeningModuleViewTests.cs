@@ -2669,6 +2669,149 @@ public class OpeningModuleViewTests {
         File.WriteAllText(Path.Combine(directory, "psd-threshold.csv"), rows.ToString(), new UTF8Encoding(false));
     }
 
+    [Test]
+    public void FullHeightPsdLineColourBandUsesLineColourAndDrawsOvalIndicators() {
+        var parent = Root("full-height PSD colour and indicator");
+        var palette = new OpeningPalette(shader);
+        palettes.Add(palette);
+
+        var factsA = new ModuleFacts { Id = "edge-l21", Type = "platform-edge", Width = 24, Depth = 1, Rotation = 0 };
+        var reqA = new OpeningModuleViews.OpeningRequest {
+            ModuleId = "edge-l21", Type = "platform-edge", Width = 24, Depth = 1,
+            Side = "left", Psd = "full", StoreyHeight = 5, Dir = "up",
+            LineId = "21", LineColour = "#230b55", HasLine = true, Stock = "B", Cars = 6, ModelScale = 0.98f,
+            StationName = "天河公园", StationNameEn = "Tianhe Park",
+        };
+        Assert.IsTrue(OpeningModuleViews.TryBuild(reqA, factsA, new[] { factsA }, catalogue, parent, palette, out var viewA),
+            viewA.Diagnostic);
+
+        var factsB = new ModuleFacts { Id = "edge-l11", Type = "platform-edge", Width = 24, Depth = 1, Rotation = 0 };
+        var reqB = new OpeningModuleViews.OpeningRequest {
+            ModuleId = "edge-l11", Type = "platform-edge", Width = 24, Depth = 1,
+            Side = "right", Psd = "full", StoreyHeight = 5, Dir = "down",
+            LineId = "11", LineColour = "#f5bb17", HasLine = true, Stock = "A", Cars = 8, ModelScale = 0.98f,
+            StationName = "天河公园", StationNameEn = "Tianhe Park",
+        };
+        Assert.IsTrue(OpeningModuleViews.TryBuild(reqB, factsB, new[] { factsB }, catalogue, parent, palette, out var viewB),
+            viewB.Diagnostic);
+
+        var bandA = viewA.Part("psd-line-colour-band");
+        var bandB = viewB.Part("psd-line-colour-band");
+        Assert.IsNotNull(bandA?.Node, "Line 21 PSD must emit psd-line-colour-band");
+        Assert.IsNotNull(bandB?.Node, "Line 11 PSD must emit psd-line-colour-band");
+        var matA = bandA.Node.GetComponent<MeshRenderer>()?.sharedMaterial;
+        var matB = bandB.Node.GetComponent<MeshRenderer>()?.sharedMaterial;
+        Assert.IsNotNull(matA);
+        Assert.IsNotNull(matB);
+        Assert.AreNotSame(matA, matB, "different line colours must not share one hardcoded red band material");
+        ColorUtility.TryParseHtmlString("#230b55", out var purple);
+        ColorUtility.TryParseHtmlString("#f5bb17", out var gold);
+        AssertNear("Line 21 band R", purple.r, matA.color.r, 1e-2f);
+        AssertNear("Line 21 band G", purple.g, matA.color.g, 1e-2f);
+        AssertNear("Line 21 band B", purple.b, matA.color.b, 1e-2f);
+        AssertNear("Line 11 band R", gold.r, matB.color.r, 1e-2f);
+        AssertNear("Line 11 band G", gold.g, matB.color.g, 1e-2f);
+        AssertNear("Line 11 band B", gold.b, matB.color.b, 1e-2f);
+
+        // Full-height oval station indicator light: one bezel + one amber glow per doorway opening.
+        var bezelPart = viewA.Part("psd-station-light-bezel");
+        var lightPart = viewA.Part("psd-station-light");
+        Assert.IsNotNull(bezelPart?.Node, "full-height PSD must emit psd-station-light-bezel");
+        Assert.IsNotNull(lightPart?.Node, "full-height PSD must emit psd-station-light");
+        Assert.AreEqual("steel", bezelPart.Material);
+        Assert.AreEqual("psd-indicator", lightPart.Material);
+        var bezelBoxes = viewA.Boxes.Where(b => b.Part == "psd-station-light-bezel").ToList();
+        var lightBoxes = viewA.Boxes.Where(b => b.Part == "psd-station-light").ToList();
+        Assert.AreEqual(viewA.OpeningCount, bezelBoxes.Count, "one bezel oval per doorway");
+        Assert.AreEqual(viewA.OpeningCount, lightBoxes.Count, "one yellow indicator oval per doorway");
+        Assert.Greater(lightBoxes.Count, 0);
+
+        float expectedLampY = 1f + viewA.Run.DoorHeight + .085f;
+        float expectedBezelZ = viewA.Run.WallOffset - (-1f) * .137f;
+        float expectedLightZ = viewA.Run.WallOffset - (-1f) * .155f;
+        for (int i = 0; i < viewA.OpeningCount; i++) {
+            var opening = viewA.Run.Openings[i];
+            var bCenter = (bezelBoxes[i].Min + bezelBoxes[i].Max) * .5f;
+            var bSize = bezelBoxes[i].Max - bezelBoxes[i].Min;
+            var lCenter = (lightBoxes[i].Min + lightBoxes[i].Max) * .5f;
+            var lSize = lightBoxes[i].Max - lightBoxes[i].Min;
+            AssertNear("bezel x #" + i, opening.Centre, bCenter.x, 1e-3f);
+            AssertNear("bezel y #" + i, expectedLampY, bCenter.y, 1e-3f);
+            AssertNear("bezel z #" + i, expectedBezelZ, bCenter.z, 1e-3f);
+            AssertNear("bezel w #" + i, .19f, bSize.x, 1e-3f);
+            AssertNear("bezel h #" + i, .09f, bSize.y, 1e-3f);
+            AssertNear("light x #" + i, opening.Centre, lCenter.x, 1e-3f);
+            AssertNear("light y #" + i, expectedLampY, lCenter.y, 1e-3f);
+            AssertNear("light z #" + i, expectedLightZ, lCenter.z, 1e-3f);
+            AssertNear("light w #" + i, .15f, lSize.x, 1e-3f);
+            AssertNear("light h #" + i, .064f, lSize.y, 1e-3f);
+        }
+
+        var lightMat = lightPart.Node.GetComponent<MeshRenderer>()?.sharedMaterial;
+        Assert.IsNotNull(lightMat);
+        ColorUtility.TryParseHtmlString("#ffd21c", out var amber);
+        AssertNear("indicator R", amber.r, lightMat.color.r, 1e-2f);
+        AssertNear("indicator G", amber.g, lightMat.color.g, 1e-2f);
+        AssertNear("indicator B", amber.b, lightMat.color.b, 1e-2f);
+
+        // Verify UnitSphere has strictly outward-wound triangles.
+        var sphere = OpeningBuilder.UnitSphere;
+        var verts = sphere.vertices;
+        var norms = sphere.normals;
+        var tris = sphere.triangles;
+        Assert.Greater(tris.Length, 0);
+        for (int t = 0; t + 2 < tris.Length; t += 3) {
+            int i0 = tris[t], i1 = tris[t + 1], i2 = tris[t + 2];
+            var cross = Vector3.Cross(verts[i1] - verts[i0], verts[i2] - verts[i0]);
+            var outward = norms[i0] + norms[i1] + norms[i2];
+            Assert.Greater(Vector3.Dot(cross, outward), 0f, "sphere triangle " + (t / 3) + " must be outward-wound");
+        }
+    }
+
+    [Test]
+    public void HalfHeightPsdFixedCapSpansFixedPanelsOnlyAndMovingLeavesCarryTopFrame() {
+        var parent = Root("half-height PSD top frame");
+        var palette = new OpeningPalette(shader);
+        palettes.Add(palette);
+
+        var facts = new ModuleFacts { Id = "edge-half", Type = "platform-edge", Width = 24, Depth = 1, Rotation = 0 };
+        var request = new OpeningModuleViews.OpeningRequest {
+            ModuleId = "edge-half", Type = "platform-edge", Width = 24, Depth = 1,
+            Side = "left", Psd = "half", StoreyHeight = 5, Dir = "up",
+            LineId = "5", LineColour = "#c70541", HasLine = true, Stock = "L", Cars = 6, ModelScale = 0.98f,
+            StationName = "坦尾", StationNameEn = "Tanwei",
+        };
+        Assert.IsTrue(OpeningModuleViews.TryBuild(request, facts, new[] { facts }, catalogue, parent, palette, out var view),
+            view.Diagnostic);
+
+        Assert.IsNull(view.Part("psd-station-light"), "half-height PSD has no overhead oval indicator");
+        var capBoxes = view.Boxes.Where(b => b.Part == "psd-fixed-cap").ToList();
+        Assert.AreEqual(view.Run.Panels.Count(p => p.y - p.x > .05f), capBoxes.Count,
+            "psd-fixed-cap must emit one cap per fixed panel, not one continuous bar across doorways");
+        foreach (var opening in view.Run.Openings) {
+            foreach (var cap in capBoxes) {
+                bool bridgesDoorway = cap.Min.x < opening.Centre && cap.Max.x > opening.Centre;
+                Assert.IsFalse(bridgesDoorway,
+                    "psd-fixed-cap must not bridge over doorway opening #" + opening.Index + " at x=" + opening.Centre);
+            }
+        }
+
+        // Every moving leaf must carry half-door-rail (2.28..2.40) and half-door-cap (2.40..2.45)
+        // up to PSD_HALF_HEIGHT (z0 + 1.45 = 2.45) so there is no gap above the sliding leaves.
+        Assert.Greater(view.Leaves.Count, 0);
+        float expectedTop = 1f + OpeningModuleViews.PsdHalfHeight;
+        foreach (var leaf in view.Leaves) {
+            Assert.IsNotNull(leaf.Node);
+            var blackFilter = leaf.Node.GetComponentsInChildren<MeshFilter>(true)
+                .FirstOrDefault(f => f.gameObject.name.IndexOf("glass", StringComparison.OrdinalIgnoreCase) < 0);
+            Assert.IsNotNull(blackFilter?.sharedMesh, "half-height leaf must carry combined black frame/rail/cap mesh");
+            var meshBounds = blackFilter.sharedMesh.bounds;
+            float topInHolder = leaf.Closed.y + meshBounds.max.y;
+            AssertNear("half-height leaf top frame " + leaf.Name, expectedTop, topInHolder, 1e-3f);
+            AssertNear("half-height leaf cap depth " + leaf.Name, .06f, meshBounds.size.z, 1e-3f);
+        }
+    }
+
     /* --------------------------------------------------------------- helpers */
 
     /// <summary>

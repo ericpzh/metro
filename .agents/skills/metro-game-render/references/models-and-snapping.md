@@ -84,7 +84,10 @@ orchestration and [batching-and-lod.md](batching-and-lod.md) for LOD/batching ru
   * Full-height PSDs stand `PSD_FULL_HEIGHT = 3 m`: 2.35 m glazing, 0.6 m top
     information plate, 0.05 m cap (no top padding); half-height PSDs stand
     `PSD_HALF_HEIGHT = 1.45 m` with route/station glass stickers. Both share
-    `PSD_WALL_OFFSET = 0.34 m`, `PSD_BASE_DEPTH = 0.18 m`, and `platformBlockInsets`.
+    `PSD_WALL_OFFSET = 0.34 m`, `PSD_BASE_DEPTH = 0.18 m`, `platformBlockInsets`,
+    and recessed `0.04 m` moving-leaf frame depth (`0.05 m` / `0.06 m` half-height
+    leaf rail/cap, keeping track-side frames at `-0.05 m` from the track boundary
+    so Type A open plug doors clear single and dual platforms).
   * `PsdHeader.ts` prints bilingual platform-facing (`FrontSide`) route/station panels
     (`1024×256`): terminal status matches station name against the platform's own
     direction (`upTerminus` for `up`, `downTerminus` for `down`), hiding the

@@ -164,7 +164,16 @@ and keep `Newtonsoft.Json` out of `Metro.Sim`, `Metro.Build`, and `Metro.View`.
   (`StationSparsePolicy`/`Topology`/`Router`, default `StationRoutingMode.Sparse`)
   mirrors `game/src/sim/sparse*.ts` (`StationSparseRoutingTests`,
   `crowd-routing-oracle.json`). Arrivals and alighters use the 3% step-free /
-  8% luggage mix; lifts model 40 s cycle, 15 riders/cycle queue wait, 0/30/300 s
+  8% luggage mix; train berths align doors with PSD openings, centre dual-platform
+  (Spanish-solution) tracks at `track.d / 2`, spawn alighters inside the cabin to
+  walk out through the train door and PSD (`StationServiceRuntime`,
+  `PassengerCrowdView`, `StationTrainAndRailParityTests`), and `TrainDoorRig.Bind`
+  un-plugs `closed.z` by `bank * plugTravel` on `authoredOpen` prefabs so Type A
+  doors seat flush when closed and clear PSDs (`0.04 m` recessed leaf frames) when
+  open. Platform PSDs use each line's colour band, amber oval doorway lights,
+  half-height moving-leaf rails/caps, and support platform PSD deletion
+  (`cfg.psd = "none"` + `cfg.removedPsdSides`, preserving yellow safety lines and
+  undo/redo). Lifts model 40 s cycle, 15 riders/cycle queue wait, 0/30/300 s
   mobility penalties, and 3-phase walk-in/ride/walk-out (`LiftPhase` 0/1/2);
   stairs charge `32 s × StairFlights` (`StationServiceFrameTests`).
 - **No silent fallbacks & public pack hygiene:** Report unresolved modules via
@@ -186,4 +195,6 @@ and keep `Newtonsoft.Json` out of `Metro.Sim`, `Metro.Build`, and `Metro.View`.
 4. When touching shared bridge, React UI, WebGL packaging, or desktop overlay
    code, run the verification steps in
    [metro-unity-web](../metro-unity-web/SKILL.md#verification-checklist).
-5. Keep scratch projects, captures, and build outputs inside `.preview/unity/`.
+5. **Always rebuild the portable Windows `.exe`** (`npm run build:unity:windows` →
+   `.preview/unity/StationDesigner.exe`) after Unity runtime, UI, or player fixes.
+6. Keep scratch projects, captures, and build outputs inside `.preview/unity/`.

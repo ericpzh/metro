@@ -95,11 +95,16 @@ export function trackTrainCentreV(
   if (track.cfg.tunnel || track.cfg.bridge) return d / 2
   const dir = track.cfg.dir ?? lineDir ?? 'up'
   const id = track.id
-  const edge = edges.find((e) => (id !== undefined && e.cfg.from === id)
-    || (e.cfg.from === undefined && e.cfg.line === track.cfg.line && e.cfg.dir === dir))
-  if (!edge) return d / 2
+  const explicit = id !== undefined ? edges.filter((e) => e.cfg.from === id) : []
+  const matched = explicit.length > 0
+    ? explicit
+    : edges.filter((e) => e.cfg.from === undefined && e.cfg.line === track.cfg.line && e.cfg.dir === dir)
+  if (matched.length === 0) return d / 2
+  const hasLeft = matched.some((e) => e.cfg.side === 'left')
+  const hasRight = matched.some((e) => e.cfg.side === 'right')
+  if (hasLeft && hasRight) return d / 2
   const gap = 0.1
-  if (edge.cfg.side === 'left') {
+  if (hasLeft) {
     const low = vehicleWidth / 2
     const high = d - gap - vehicleWidth / 2
     return low <= high ? Math.min(high, Math.max(low, d / 2)) : low

@@ -1425,17 +1425,15 @@ namespace Metro.App {
             cavity.Box(OpeningColour.Concrete, Local(cx, layout.SillY, z0 - .51f), LocalSize(len, layout.SillDepth, .98f));
             if (!half) {
                 float headerBottom = layout.GlassHeight;
+                int lineColourSlot = paint != null ? paint.LineColourSlot(request.LineColour) : OpeningColour.Line;
                 cavity.Part("psd-info-housing", OpeningPartRole.Fascia);
                 cavity.Box(OpeningColour.White, Local(cx, wall, z0 + headerBottom + PsdHeaderHeight * .5f),
                     LocalSize(len, .24f, PsdHeaderHeight));
                 cavity.Part("psd-fascia-cap", OpeningPartRole.Fascia);
                 cavity.Box(OpeningColour.Black, Local(cx, wall, z0 + PsdFullHeight - .025f), LocalSize(len, .28f, .05f));
                 cavity.Part("psd-line-colour-band", OpeningPartRole.Fascia);
-                cavity.Box(OpeningColour.Line, Local(cx, wall - toward * .13f, z0 + headerBottom + .012f),
+                cavity.Box(lineColourSlot, Local(cx, wall - toward * .13f, z0 + headerBottom + .012f),
                     LocalSize(len, .03f, .025f));
-            } else {
-                cavity.Part("psd-fixed-cap", OpeningPartRole.Frame);
-                cavity.Box(OpeningColour.Black, Local(cx, wall, z0 + PsdHalfHeight - .025f), LocalSize(len, .10f, .05f));
             }
             cavity.Part("psd-warning-strip", OpeningPartRole.Warning);
             cavity.Box(OpeningColour.Red, Local(cx, wall, z0 + .003f), LocalSize(len, .03f, .006f));
@@ -1462,6 +1460,16 @@ namespace Metro.App {
                         LocalSize(width, .12f, .06f));
                 }
             }
+            if (half) {
+                cavity.Part("psd-fixed-cap", OpeningPartRole.Frame);
+                foreach (var panel in layout.Panels) {
+                    float width = panel.y - panel.x;
+                    if (width <= .05f) continue;
+                    float mid = (panel.x + panel.y) * .5f;
+                    cavity.Box(OpeningColour.Black, Local(mid, wall, z0 + PsdHalfHeight - .025f),
+                        LocalSize(width, .10f, .05f));
+                }
+            }
             cavity.Part("psd-fixed-post", OpeningPartRole.Frame);
             foreach (var post in layout.Posts)
                 cavity.Box(OpeningColour.Black, Local(post, wall, layout.GlassMid),
@@ -1470,11 +1478,26 @@ namespace Metro.App {
             foreach (var pillar in layout.Pillars)
                 cavity.Box(OpeningColour.Black, Local(pillar, wall, layout.GlassMid),
                     LocalSize(.16f, layout.FixedFrameDepth, layout.GlassHeight));
+            if (!half && layout.Openings.Count > 0) {
+                float lampZ = z0 + layout.DoorHeight + .085f;
+                cavity.Part("psd-station-light-bezel", OpeningPartRole.Fascia);
+                foreach (var opening in layout.Openings) {
+                    cavity.Oval(OpeningColour.Steel, Local(opening.Centre, wall - toward * .137f, lampZ),
+                        LocalSize(.19f, .036f, .09f));
+                }
+                cavity.Part("psd-station-light", OpeningPartRole.Fascia);
+                foreach (var opening in layout.Openings) {
+                    cavity.Oval(OpeningColour.Indicator, Local(opening.Centre, wall - toward * .155f, lampZ),
+                        LocalSize(.15f, .05f, .064f));
+                }
+            }
 
             // The moving leaves: tinted glass plus its frame, meeting frame, rails, and printed safety vinyl.
             // Each opening owns two leaves, and the pair parts by exactly one door width.
             float decalScale = Mathf.Min(1f, layout.GlassHeight / (2.95f - .05f - PsdHeaderHeight));
             float decalFacing = layout.Left ? 1f : -1f;
+            const float frameDepth = .04f;
+            float halfRailTop = PsdHalfHeight - .05f;
             if (!half) {
                 var fixedDecalRoot = OpeningBuilder.Node(holder, "psd-decals", Vector3.zero);
                 float fixedBandAcross = wall - toward * .075f;
@@ -1499,18 +1522,20 @@ namespace Metro.App {
                     var parts = new OpeningBuilder(node, paint);
                     parts.Part("psd-door-glass", OpeningPartRole.Glass);
                     parts.Box(OpeningColour.MovingGlass, Vector3.zero, LocalSize(opening.LeafWidth, .02f, layout.DoorHeight));
-                    // All opaque fittings sit track-side of their glass plane.
+                    // All opaque fittings sit track-side of their glass plane, kept strictly
+                    // inside the platform cell (`<= -0.05 m` from the track boundary) so wide
+                    // Type-A plug doors clear the PSD frame even on dual-platform 3 m beds.
                     parts.Part("psd-door-frame", OpeningPartRole.Frame);
                     float frameX = sign * (opening.Width * .5f + .20f - .03f - opening.LeafWidth * .5f);
-                    parts.Box(OpeningColour.Black, Local(frameX, toward * .06f, 0f),
-                        LocalSize(.06f, .12f, layout.DoorHeight));
-                    parts.Box(OpeningColour.Black, Local(sign * .015f - sign * opening.LeafWidth * .5f, toward * .06f, 0f),
-                        LocalSize(.03f, .12f, layout.DoorHeight));
+                    parts.Box(OpeningColour.Black, Local(frameX, toward * (frameDepth * .5f), 0f),
+                        LocalSize(.06f, frameDepth, layout.DoorHeight));
+                    parts.Box(OpeningColour.Black, Local(sign * .015f - sign * opening.LeafWidth * .5f, toward * (frameDepth * .5f), 0f),
+                        LocalSize(.03f, frameDepth, layout.DoorHeight));
                     if (!half) {
-                        parts.Box(OpeningColour.Black, Local(0f, toward * .06f, z0 + .03f - layout.LeafMid),
-                            LocalSize(opening.LeafWidth, .12f, .06f));
-                        parts.Box(OpeningColour.Black, Local(0f, toward * .06f, z0 + layout.DoorHeight - .03f - layout.LeafMid),
-                            LocalSize(opening.LeafWidth, .12f, .06f));
+                        parts.Box(OpeningColour.Black, Local(0f, toward * (frameDepth * .5f), z0 + .03f - layout.LeafMid),
+                            LocalSize(opening.LeafWidth, frameDepth, .06f));
+                        parts.Box(OpeningColour.Black, Local(0f, toward * (frameDepth * .5f), z0 + layout.DoorHeight - .03f - layout.LeafMid),
+                            LocalSize(opening.LeafWidth, frameDepth, .06f));
                         // Moving leaf vinyl decals sit proud of the 0.02 m glass box on the platform face
                         // (`-toward * 0.011` / `-0.012`) and are parented to `node` so they slide with the leaf.
                         float leafStart = leafX - opening.LeafWidth * .5f;
@@ -1538,6 +1563,13 @@ namespace Metro.App {
                                 z0 + 1.48f * decalScale, arrowSize, decalFacing, 256, 256, 1f, true, view.Header,
                                 Local(0f, -toward * .012f, arrowLocalZ));
                         }
+                    } else {
+                        parts.Part("half-door-rail", OpeningPartRole.Frame);
+                        parts.Box(OpeningColour.Black, Local(0f, toward * .025f, z0 + halfRailTop - .06f - layout.LeafMid),
+                            LocalSize(opening.LeafWidth, .05f, .12f));
+                        parts.Part("half-door-cap", OpeningPartRole.Frame);
+                        parts.Box(OpeningColour.Black, Local(0f, toward * .03f, z0 + PsdHalfHeight - .025f - layout.LeafMid),
+                            LocalSize(opening.LeafWidth, .06f, .05f));
                     }
                     parts.Finish(request.ModuleId + " leaf");
                     view.leaves.Add(new OpeningLeaf {
@@ -2973,22 +3005,25 @@ namespace Metro.App {
         public const int Concrete = 6;
         public const int Line = 7;
         public const int YellowLine = 8;
-        public const int Count = 9;
+        public const int Indicator = 9;
+        public const int Count = 10;
 
         public static readonly Color[] Values = {
-            new Color(.92f, .92f, .9f),          // white fascia
-            new Color(.08f, .08f, .09f),         // black frame
-            new Color(.72f, .74f, .77f),         // steel
-            new Color(.62f, .72f, .76f, .30f),   // fixed glass
-            new Color(.48f, .58f, .62f, .34f),   // moving glass
-            new Color(.78f, .12f, .10f),         // gate red / threshold
-            new Color(.55f, .57f, .60f),         // concrete foundation
-            new Color(.78f, .02f, .25f),         // line colour band
-            new Color(1f, .773f, .180f),         // platform yellow safety line (#ffc52e)
+            new Color(.92f, .92f, .9f),                      // white fascia
+            new Color(.08f, .08f, .09f),                     // black frame
+            new Color(.72f, .74f, .77f),                     // steel
+            new Color(.62f, .72f, .76f, .30f),               // fixed glass
+            new Color(.48f, .58f, .62f, .34f),               // moving glass
+            new Color(.78f, .12f, .10f),                     // gate red / threshold
+            new Color(.55f, .57f, .60f),                     // concrete foundation
+            new Color(0x1b / 255f, 0x6f / 255f, 0xd6 / 255f),// default line colour band (#1b6fd6)
+            new Color(1f, .773f, .180f),                     // platform yellow safety line (#ffc52e)
+            new Color(1f, 0xd2 / 255f, 0x1c / 255f),         // full-height PSD oval indicator (#ffd21c)
         };
 
         /// <summary>The stable name of one palette slot, for a part's material note or a test.</summary>
         public static string Name(int colour) {
+            if (colour >= Count) return "line";
             switch (colour) {
                 case White: return "white";
                 case Black: return "black";
@@ -2999,6 +3034,7 @@ namespace Metro.App {
                 case Concrete: return "concrete";
                 case Line: return "line";
                 case YellowLine: return "yellow-line";
+                case Indicator: return "psd-indicator";
                 default: return "slot-" + colour.ToString(CultureInfo.InvariantCulture);
             }
         }
@@ -3057,6 +3093,9 @@ namespace Metro.App {
         }
 
         readonly Material[] materials;
+        readonly Shader baseShader;
+        readonly Dictionary<string, int> lineColourSlots = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        readonly List<Material> dynamicMaterials = new List<Material>();
         readonly List<Mesh> meshes = new List<Mesh>();
         readonly Dictionary<Shader, Material> gateCrossByShader = new Dictionary<Shader, Material>();
         readonly Dictionary<CompactedKey, CompactedPart[]> compactedSubtrees = new Dictionary<CompactedKey, CompactedPart[]>();
@@ -3075,6 +3114,7 @@ namespace Metro.App {
         /// </summary>
         public OpeningPalette(Shader shader, Material foundation, string foundationFinish) {
             materials = new Material[OpeningColour.Count];
+            baseShader = shader;
             Foundation = foundation;
             FoundationFinish = foundation ? (foundationFinish ?? "") : "";
             if (shader == null) {
@@ -3089,9 +3129,19 @@ namespace Metro.App {
             // moving); a Lit material would discard it, so both get the transparent surface.
             StationGlass.MakeTransparent(materials[OpeningColour.Glass], OpeningColour.Values[OpeningColour.Glass].a);
             StationGlass.MakeTransparent(materials[OpeningColour.MovingGlass], OpeningColour.Values[OpeningColour.MovingGlass].a);
+            // Full-height PSD oval indicator (`PieceBuilder.ts:mats.psdIndicator`): warm amber
+            // `#ffd21c` with emissive intensity 0.7 and low roughness so it reads as a lit lamp.
+            var indicator = materials[OpeningColour.Indicator];
+            if (indicator != null) {
+                if (indicator.HasProperty("_EmissionColor")) {
+                    indicator.SetColor("_EmissionColor", OpeningColour.Values[OpeningColour.Indicator] * .7f);
+                    indicator.EnableKeyword("_EMISSION");
+                }
+                if (indicator.HasProperty("_Smoothness")) indicator.SetFloat("_Smoothness", .77f);
+            }
             if (foundation) {
                 // The finish material replaces the flat slot; it is the host's, so Release
-                // must not destroy it. `ownsMaterials` stays true for the other seven.
+                // must not destroy it. `ownsMaterials` stays true for the other slots.
                 OpeningModuleViews.SafeDestroy(materials[OpeningColour.Concrete]);
                 materials[OpeningColour.Concrete] = foundation;
             }
@@ -3106,8 +3156,34 @@ namespace Metro.App {
         /// <summary>How many combined meshes the palette currently owns (a report/test figure).</summary>
         public int MeshCount => meshes.Count;
 
-        public Material this[int colour] => materials != null && colour >= 0 && colour < materials.Length
-            ? materials[colour] : null;
+        public Material this[int colour] {
+            get {
+                if (materials != null && colour >= 0 && colour < materials.Length) return materials[colour];
+                int dynamicIndex = colour - OpeningColour.Count;
+                if (dynamicIndex >= 0 && dynamicIndex < dynamicMaterials.Count) return dynamicMaterials[dynamicIndex];
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Resolve a cached material slot for a line's hex colour (`PsdModel.ts` line-colour band:
+        /// `line?.colour ?? '#1b6fd6'`). Preview palettes keep the shared ghost slot.
+        /// </summary>
+        public int LineColourSlot(string hexColour) {
+            if (released || !ownsMaterials || baseShader == null) return OpeningColour.Line;
+            string key = string.IsNullOrWhiteSpace(hexColour) ? "#1b6fd6" : hexColour.Trim();
+            if (!key.StartsWith("#", StringComparison.Ordinal)) key = "#" + key;
+            if (!ColorUtility.TryParseHtmlString(key, out var parsed)) {
+                key = "#1b6fd6";
+                parsed = OpeningColour.Values[OpeningColour.Line];
+            }
+            if (lineColourSlots.TryGetValue(key, out int cached)) return cached;
+            int slot = OpeningColour.Count + dynamicMaterials.Count;
+            var mat = new Material(baseShader) { name = "opening-line-" + key, color = parsed };
+            dynamicMaterials.Add(mat);
+            lineColourSlots[key] = slot;
+            return slot;
+        }
 
         public bool HasMaterials => ownsMaterials && materials != null && materials[0] != null;
 
@@ -3180,6 +3256,9 @@ namespace Metro.App {
             gateCrossDefault = null;
             OpeningModuleViews.SafeDestroy(gateCrossTexture);
             gateCrossTexture = null;
+            foreach (var mat in dynamicMaterials) OpeningModuleViews.SafeDestroy(mat);
+            dynamicMaterials.Clear();
+            lineColourSlots.Clear();
             if (!ownsMaterials) return;
             foreach (var material in materials) {
                 if (!material) continue;
@@ -3212,6 +3291,7 @@ namespace Metro.App {
         Batch current;
 
         static Mesh unitCube;
+        static Mesh unitSphere;
 
         public OpeningBuilder(Transform parent, OpeningPalette palette) {
             root = parent;
@@ -3219,6 +3299,68 @@ namespace Metro.App {
         }
 
         public Transform Root => root;
+
+        /// <summary>
+        /// Shared unit sphere (diameter 1, 16×12 segments matching Three's
+        /// `SphereGeometry(0.5, 16, 12)`) scaled per instance for full-height PSD oval indicators.
+        /// Every triangle is wound outward against its radial normal so backface culling and
+        /// <c>MeshWindingTests</c> agree.
+        /// </summary>
+        public static Mesh UnitSphere {
+            get {
+                if (unitSphere) return unitSphere;
+                const int slices = 16;
+                const int stacks = 12;
+                int stride = slices + 1;
+                int vertCount = (stacks + 1) * stride;
+                var vertices = new Vector3[vertCount];
+                var normals = new Vector3[vertCount];
+                var uvs = new Vector2[vertCount];
+                for (int lat = 0; lat <= stacks; lat++) {
+                    float v = (float)lat / stacks;
+                    float phi = Mathf.PI * v;
+                    float sinPhi = Mathf.Sin(phi);
+                    float cosPhi = Mathf.Cos(phi);
+                    for (int lon = 0; lon <= slices; lon++) {
+                        float u = (float)lon / slices;
+                        float theta = 2f * Mathf.PI * u;
+                        var dir = new Vector3(sinPhi * Mathf.Cos(theta), cosPhi, sinPhi * Mathf.Sin(theta));
+                        int i = lat * stride + lon;
+                        vertices[i] = dir * .5f;
+                        normals[i] = dir;
+                        uvs[i] = new Vector2(u, 1f - v);
+                    }
+                }
+                var tris = new List<int>(slices * stacks * 6);
+                void AddOutward(int a, int b, int c) {
+                    var cross = Vector3.Cross(vertices[b] - vertices[a], vertices[c] - vertices[a]);
+                    if (cross.sqrMagnitude <= 1e-12f) return;
+                    var outward = normals[a] + normals[b] + normals[c];
+                    if (Vector3.Dot(cross, outward) < 0f) {
+                        tris.Add(a); tris.Add(c); tris.Add(b);
+                    } else {
+                        tris.Add(a); tris.Add(b); tris.Add(c);
+                    }
+                }
+                for (int lat = 0; lat < stacks; lat++) {
+                    for (int lon = 0; lon < slices; lon++) {
+                        int i00 = lat * stride + lon;
+                        int i10 = (lat + 1) * stride + lon;
+                        int i01 = i00 + 1;
+                        int i11 = i10 + 1;
+                        if (lat > 0) AddOutward(i00, i10, i01);
+                        if (lat < stacks - 1) AddOutward(i10, i11, i01);
+                    }
+                }
+                unitSphere = new Mesh { name = "opening unit sphere" };
+                unitSphere.vertices = vertices;
+                unitSphere.normals = normals;
+                unitSphere.uv = uvs;
+                unitSphere.triangles = tris.ToArray();
+                unitSphere.RecalculateBounds();
+                return unitSphere;
+            }
+        }
 
         /// <summary>The shared unit cube every box instance scales.</summary>
         public static Mesh UnitCube {
@@ -3315,6 +3457,16 @@ namespace Metro.App {
             if (!batch.Boxes.TryGetValue(colour, out var parts)) batch.Boxes.Add(colour, parts = new List<CombineInstance>());
             parts.Add(new CombineInstance {
                 mesh = UnitCube,
+                transform = Matrix4x4.TRS(centre, Quaternion.identity, size),
+            });
+        }
+
+        /// <summary>Accumulate one ellipsoid (unit sphere scaled to <paramref name="size"/>) into its part's batch.</summary>
+        public void Oval(int colour, Vector3 centre, Vector3 size) {
+            var batch = Current();
+            if (!batch.Boxes.TryGetValue(colour, out var parts)) batch.Boxes.Add(colour, parts = new List<CombineInstance>());
+            parts.Add(new CombineInstance {
+                mesh = UnitSphere,
                 transform = Matrix4x4.TRS(centre, Quaternion.identity, size),
             });
         }
@@ -3484,9 +3636,13 @@ namespace Metro.App {
         }
 
         GameObject EmitCombinedMesh(string goName, Transform parent, int colour, List<CombineInstance> instances) {
+            int totalVerts = 0;
+            for (int i = 0; i < instances.Count; i++) {
+                totalVerts += instances[i].mesh != null ? instances[i].mesh.vertexCount : 24;
+            }
             var mesh = new Mesh {
                 name = goName,
-                indexFormat = instances.Count * 24 > 65534 ? IndexFormat.UInt32 : IndexFormat.UInt16,
+                indexFormat = totalVerts > 65534 ? IndexFormat.UInt32 : IndexFormat.UInt16,
             };
             // `useMatrices` must stay true: every instance carries its own TRS.
             mesh.CombineMeshes(instances.ToArray(), true, true);

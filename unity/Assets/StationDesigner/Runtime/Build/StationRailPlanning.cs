@@ -512,6 +512,7 @@ namespace Metro.Build {
                     if (above != null && above.IsSolid) continue;
                     along.Add(i);
                 }
+                bool sideRemoved = HasRemovedPsdSide(track, sides[s]);
                 foreach (var run in RunsOf(along)) {
                     StationRailRules.RotateLocal(plan.Rotation, run.Start, j, out var ox, out var oy);
                     var edge = new StationEditDraft {
@@ -529,12 +530,105 @@ namespace Metro.Build {
                     edge.Set("line", plan.LineId);
                     edge.Set("dir", dir);
                     edge.Set("side", sides[s]);
-                    edge.Set("psd", psd);
+                    edge.Set("psd", sideRemoved ? "none" : psd);
                     edge.Set("from", track.Id);
                     edges.Add(edge);
                 }
             }
             return edges;
+        }
+
+        /// <summary>True when a `platform-edge` has already had its screen removed (`cfg.psd == "none"`).</summary>
+        public static bool IsBarePlatformEdge(StationModuleRecord module) =>
+            module != null &&
+            string.Equals(module.Type, "platform-edge", StringComparison.Ordinal) &&
+            string.Equals(module.Config.Text("psd"), "none", StringComparison.Ordinal);
+
+        /// <summary>True when <paramref name="track"/> carries <paramref name="side"/> in `cfg.removedPsdSides`.</summary>
+        public static bool HasRemovedPsdSide(StationEditDraft track, string side) {
+            if (track == null || string.IsNullOrEmpty(side)) return false;
+            return ContainsJsonSide(track.Text("removedPsdSides"), side);
+        }
+
+        /// <summary>
+        /// Port of `Equipment.ts:removeModule`'s `platform-edge` branch (§5.9): strip the
+        /// physical screen (`cfg.psd = "none"`) while keeping the platform's boarding edge and
+        /// yellow safety line, and record the stripped side on the parent track's
+        /// `cfg.removedPsdSides` so subsequent floor edits or stock resizes preserve the choice.
+        /// Returns false when the edge already has `psd: "none"`.
+        /// </summary>
+        public static bool PlanRemovePsd(StationIndex index, StationModuleRecord edge, StationCellPatch patch) {
+            if (index == null || edge == null || patch == null) return false;
+            if (!string.Equals(edge.Type, "platform-edge", StringComparison.Ordinal)) return false;
+            if (IsBarePlatformEdge(edge)) return false;
+
+            var edgeDraft = FindReplaceDraft(patch, edge.Id);
+            if (edgeDraft == null) {
+                edgeDraft = StationModulePlacement.DraftOf(edge);
+                patch.ModuleReplaces.Add(edgeDraft);
+            }
+            edgeDraft.Set("psd", "none");
+            patch.Changed++;
+
+            string fromId = edge.Config.Text("from");
+            string side = edge.Config.Text("side");
+            if (fromId.Length > 0 &&
+                (string.Equals(side, "left", StringComparison.Ordinal) ||
+                 string.Equals(side, "right", StringComparison.Ordinal)) &&
+                index.TryGetModule(fromId, out var track) &&
+                track != null &&
+                string.Equals(track.Type, "track", StringComparison.Ordinal)) {
+                var trackDraft = FindReplaceDraft(patch, track.Id);
+                bool addedTrack = false;
+                if (trackDraft == null) {
+                    trackDraft = StationModulePlacement.DraftOf(track);
+                    addedTrack = true;
+                }
+                string before = trackDraft.Text("removedPsdSides");
+                if (!ContainsJsonSide(before, side)) {
+                    trackDraft.SetJson("removedPsdSides", AppendJsonSide(before, side));
+                    if (addedTrack) patch.ModuleReplaces.Add(trackDraft);
+                    patch.Changed++;
+                }
+            }
+            return true;
+        }
+
+        static StationEditDraft FindReplaceDraft(StationCellPatch patch, string id) {
+            for (int i = 0; i < patch.ModuleReplaces.Count; i++) {
+                var existing = patch.ModuleReplaces[i];
+                if (existing != null && string.Equals(existing.Id, id, StringComparison.Ordinal)) return existing;
+            }
+            return null;
+        }
+
+        static bool ContainsJsonSide(string json, string side) {
+            if (string.IsNullOrEmpty(json) || string.IsNullOrEmpty(side)) return false;
+            return json.IndexOf("\"" + side + "\"", StringComparison.Ordinal) >= 0;
+        }
+
+        static string AppendJsonSide(string json, string side) {
+            var sides = new List<string>(2);
+            if (!string.IsNullOrEmpty(json)) {
+                int pos = 0;
+                while (pos < json.Length) {
+                    int q0 = json.IndexOf('"', pos);
+                    if (q0 < 0) break;
+                    int q1 = json.IndexOf('"', q0 + 1);
+                    if (q1 < 0) break;
+                    string item = json.Substring(q0 + 1, q1 - q0 - 1);
+                    if (item.Length > 0 && !sides.Contains(item)) sides.Add(item);
+                    pos = q1 + 1;
+                }
+            }
+            if (!sides.Contains(side)) sides.Add(side);
+            var sb = new System.Text.StringBuilder("[");
+            for (int i = 0; i < sides.Count; i++) {
+                if (i > 0) sb.Append(',');
+                sb.Append('"').Append(sides[i]).Append('"');
+            }
+            sb.Append(']');
+            return sb.ToString();
         }
 
         /// <summary>True when a cell's top finish walks (`floorSpeed &gt; 0`).</summary>

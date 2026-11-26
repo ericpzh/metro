@@ -197,8 +197,16 @@ namespace Metro.Sim {
             if (IsTunnelOrBridge(track)) return depth * .5;
             var direction = track.Dir ?? "";
             if (direction.Length == 0) direction = string.IsNullOrEmpty(lineDirection) ? "up" : lineDirection;
-            if (!TryPlatformEdgeFact(document, track, lineId, direction, out var edge)) return depth * .5;
-            if (string.Equals(edge.Side, "left", StringComparison.Ordinal)) {
+            var selected = new List<StationModuleFact>(2);
+            SelectBerthPlatformEdges(document, track, lineId, direction, selected);
+            if (selected.Count == 0) return depth * .5;
+            bool hasLeft = false, hasRight = false;
+            for (int i = 0; i < selected.Count; i++) {
+                if (string.Equals(selected[i].Side, "left", StringComparison.Ordinal)) hasLeft = true;
+                else hasRight = true;
+            }
+            if (hasLeft && hasRight) return depth * .5;
+            if (hasLeft) {
                 double low = vehicleWidth * .5, high = depth - PlatformGap - vehicleWidth * .5;
                 return low <= high ? Math.Min(high, Math.Max(low, depth * .5)) : low;
             }

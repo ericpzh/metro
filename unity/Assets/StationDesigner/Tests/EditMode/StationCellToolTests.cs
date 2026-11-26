@@ -560,6 +560,91 @@ namespace Metro.EditModeTests {
             Assert.IsNotNull(host.Index.GetModule("bench-2"));
         }
 
+        [Test]
+        public void DeletingPlatformEdgeStripsPsdScreenRecordsRemovedSideAndSupportsUndo() {
+            var save = JObject.Parse(host.SaveDocument());
+            ((JArray)save["static"]["lines"]).Add(new JObject {
+                ["id"] = "1", ["name"] = "1号线", ["nameEn"] = "Line 1", ["colour"] = "#f5bb17",
+                ["stock"] = "A", ["cars"] = 6, ["power"] = "third-rail", ["psd"] = "full",
+                ["direction"] = "up", ["modelScale"] = 0.98,
+                ["headwayProfile"] = new JObject { ["peak"] = 180, ["offpeak"] = 240, ["late"] = 480 },
+            });
+            var modules = (JArray)save["static"]["modules"];
+            modules.Add(new JObject {
+                ["id"] = "track-1", ["type"] = "track", ["x"] = 0, ["y"] = 2, ["z"] = 0, ["rot"] = 0, ["w"] = 6, ["d"] = 3,
+                ["cfg"] = new JObject { ["line"] = "1", ["power"] = "third-rail", ["dir"] = "up" },
+            });
+            modules.Add(new JObject {
+                ["id"] = "edge-track-1-right-0", ["type"] = "platform-edge", ["x"] = 0, ["y"] = 1, ["z"] = 0, ["rot"] = 0, ["w"] = 6,
+                ["cfg"] = new JObject { ["name"] = "站台门", ["line"] = "1", ["dir"] = "up", ["side"] = "right", ["psd"] = "full", ["from"] = "track-1" },
+            });
+            Assert.IsTrue(host.OpenDocument(save.ToString(Newtonsoft.Json.Formatting.None), "file").Accepted);
+
+            var edge = host.Index.GetModule("edge-track-1-right-0");
+            Assert.IsNotNull(edge);
+            Assert.Greater(Metro.View.StationPlatformInsets.For(host.Index.ModulesOfType("platform-edge")).Count, 0,
+                "active PSD must cut platform block insets");
+
+            // Hover with Delete tool highlights the PSD run.
+            StationToolSelection.TrySelect("delete", out _, out _);
+            var hit = StationCellFixture.Hit(2, 1, 0, true);
+            hit.Module = edge;
+            hit.ModuleExact = true;
+            hit.ModuleDistance = 1f;
+            StationCellTool.Aim(host, hit, StationPointerEvent.Synthetic(100, 100, 800, 600, timeMs: 0));
+            Assert.AreEqual("delete", StationCellTool.Preview.Kind);
+            CollectionAssert.Contains(StationCellTool.Preview.ModuleIds, "edge-track-1-right-0");
+
+            // Click with Delete tool strips only the screen (`cfg.psd = "none"`), keeps the
+            // boarding edge, restores the platform floor insets, and persists `removedPsdSides`.
+            int before = host.CurrentRevision;
+            Assert.IsTrue(StationCellTool.Begin(host, hit, "delete", 0,
+                StationPointerEvent.Synthetic(100, 100, 800, 600, timeMs: 0), out var reason), reason);
+            Assert.IsTrue(StationCellTool.Finish(host, hit,
+                StationPointerEvent.Synthetic(100, 100, 800, 600, timeMs: 40), out var code, out reason), code ?? reason);
+            Assert.AreEqual(before + 1, host.CurrentRevision, "PSD removal is one transaction");
+
+            var afterEdge = host.Index.GetModule("edge-track-1-right-0");
+            Assert.IsNotNull(afterEdge, "platform-edge record must stay for yellow safety line and boarding");
+            Assert.AreEqual("none", afterEdge.Config.Text("psd"));
+            var afterTrack = host.Index.GetModule("track-1");
+            Assert.IsNotNull(afterTrack);
+            StringAssert.Contains("\"right\"", afterTrack.Config.Text("removedPsdSides"),
+                "parent track must persist removedPsdSides");
+            Assert.AreEqual(0, Metro.View.StationPlatformInsets.For(host.Index.ModulesOfType("platform-edge")).Count,
+                "removing PSD restores full platform floor inset");
+
+            // Re-deriving edges preserves the user's deleted side.
+            var trackDraft = StationModulePlacement.DraftOf(afterTrack);
+            var derived = StationRailPlanner.DerivePlatformEdges(host.Index, new StationRailPlan {
+                LineId = "1", Direction = "up", Rotation = afterTrack.Rotation,
+                X = afterTrack.X, Y = afterTrack.Y, Z = afterTrack.Z,
+                Width = afterTrack.Width, Depth = afterTrack.Depth, Track = trackDraft,
+            });
+            foreach (var d in derived) {
+                if (d.Text("side") == "right") Assert.AreEqual("none", d.Text("psd"));
+            }
+
+            // Hovering the bare edge (`psd: "none"`) with Delete tool no longer targets the edge as a PSD.
+            var bareHit = StationCellFixture.Hit(2, 1, 0, true);
+            bareHit.Module = afterEdge;
+            bareHit.ModuleExact = true;
+            bareHit.ModuleDistance = 1f;
+            StationCellTool.Aim(host, bareHit, StationPointerEvent.Synthetic(100, 100, 800, 600, timeMs: 80));
+            CollectionAssert.DoesNotContain(StationCellTool.Preview.ModuleIds, "edge-track-1-right-0");
+
+            // Undo restores both the screen and clears `removedPsdSides`.
+            Assert.IsTrue(StationEditSession.TryUndo(host, out _, out code), code);
+            Assert.AreEqual("full", host.Index.GetModule("edge-track-1-right-0").Config.Text("psd"));
+            Assert.AreEqual("", host.Index.GetModule("track-1").Config.Text("removedPsdSides"));
+
+            // Direct `StationModuleEditMode.Remove` (right-click / edit.delete path) follows the same rule.
+            Assert.IsTrue(StationEditSession.TryApply(host, StationModuleEditMode.Remove, null, "edge-track-1-right-0",
+                "delete", null, out _, out code), code);
+            Assert.AreEqual("none", host.Index.GetModule("edge-track-1-right-0").Config.Text("psd"));
+            StringAssert.Contains("\"right\"", host.Index.GetModule("track-1").Config.Text("removedPsdSides"));
+        }
+
         // ----------------------------------------------------------------- runs
 
         [Test]

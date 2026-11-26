@@ -1918,7 +1918,7 @@ namespace Metro.App.Views {
                 if (tracks.Count == 0) continue;
                 string formationKey = TrainFormations.Select(line.Stock, line.Cars, line.Power, trainCatalogue);
                 if (!trainCatalogue.TryGet(formationKey, out var entry) || entry == null || entry.prefab == null) continue;
-                float scale = entry.bakedScale > 0f ? entry.bakedScale : 1f;
+                float scale = TrainConsistViews.ResolveModelScale(line);
 
                 for (int t = 0; t < tracks.Count; t++) {
                     var track = tracks[t];
@@ -1932,7 +1932,7 @@ namespace Metro.App.Views {
                     string trainId = line.Id + "|" + track.Id;
                     var instance = UnityEngine.Object.Instantiate(entry.prefab, trays[trayIdx].LiveRoot, false);
                     instance.name = "exploded-consist " + trainId;
-                    instance.transform.localScale = Vector3.one;
+                    float rigScale = TrainConsistViews.ApplyConsistScale(instance, entry.bakedScale, scale);
                     TrainConsistViews.CompactConsistInstance(
                         instance, formationKey, staticBodyCache, ownedMeshes, ShadowCastingMode.Off);
                     var liveryBinding = TrainLiveryBinder.Capture(instance);
@@ -1964,7 +1964,7 @@ namespace Metro.App.Views {
                     };
                     PlaceConsistInTrayLocalSpace(view);
 
-                    var rig = new TrainDoorRig(instance, TrainDoorRig.ForLine(line.Stock, line.Cars, scale));
+                    var rig = new TrainDoorRig(instance, TrainDoorRig.ForLine(line.Stock, line.Cars, rigScale));
                     view.Rig = rig;
                     int bankMask = berth.DoorBankMask;
                     view.DoorBankMask = bankMask;
@@ -2264,9 +2264,11 @@ namespace Metro.App.Views {
                 double px = sampled.X + plan.Direction.x * packedOff;
                 double py = sampled.Y + plan.Direction.y * packedOff;
 
-                // Port of `filterExplodedPassengers`: keep riding passengers or walkers supported by
+                // Port of `filterExplodedPassengers`: keep riding/train passengers or walkers supported by
                 // retained floor/ramp/lift/track cells in packed coordinates.
                 bool supported = sampled.State == StationPassengerState.Riding ||
+                                 sampled.State == StationPassengerState.Alighting ||
+                                 sampled.State == StationPassengerState.Boarding ||
                                  plan.PassengerSupport.Contains(new StationCellKey(
                                      (int)Math.Floor(px),
                                      (int)Math.Floor(py),
@@ -2293,12 +2295,24 @@ namespace Metro.App.Views {
         }
 
         static bool ArePassengersAdjacentOnSameTray(in StationPassengerFrame prior, in StationPassengerFrame current) {
-            if (prior.Activity != current.Activity || prior.State != current.State) return false;
+            bool priorOnFoot = IsOnFoot(prior.State);
+            bool currentOnFoot = IsOnFoot(current.State);
+            bool trainTransfer =
+                (prior.State == StationPassengerState.Alighting && currentOnFoot) ||
+                (priorOnFoot && current.State == StationPassengerState.Boarding);
+            bool ground = priorOnFoot && currentOnFoot;
+            if (!ground && !trainTransfer && (prior.Activity != current.Activity || prior.State != current.State))
+                return false;
             double dx = current.X - prior.X;
             double dy = current.Y - prior.Y;
             double dz = current.Z - prior.Z;
-            return dz * dz < 0.75 * 0.75 && dx * dx + dy * dy < 3.0 * 3.0;
+            double maxPlanar = trainTransfer ? 4.5 : 3.0;
+            return dz * dz < 0.75 * 0.75 && dx * dx + dy * dy < maxPlanar * maxPlanar;
         }
+
+        static bool IsOnFoot(StationPassengerState state) =>
+            state == StationPassengerState.Walking || state == StationPassengerState.Queuing ||
+            state == StationPassengerState.Buying || state == StationPassengerState.Browsing;
 
         static double LerpDouble(double a, double b, float t) => a + (b - a) * t;
 

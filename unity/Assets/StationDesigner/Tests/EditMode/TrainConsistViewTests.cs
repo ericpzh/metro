@@ -490,10 +490,12 @@ namespace Metro.EditModeTests {
                 new[] {
                     Track("track-1", 0, 0, 0, 10, 3, "5", "up"),
                     Track("track-2", 0, 8, 0, 10, 3, "6", "down"),
+                    Track("track-3", 0, 16, 0, 10, 3, "7", "up"),
                 },
                 new[] {
                     Line("5", "A", 2, "overhead", "up"),
                     Line("6", "L", 6, "third-rail", "down"),
+                    Line("7", "B", 4, "third-rail", "up"),
                 });
             var renderer = new TrainConsistRenderer();
             var probeRoot = new GameObject("two line stocks root");
@@ -501,16 +503,23 @@ namespace Metro.EditModeTests {
                 new IStationViewRenderer[] { renderer }, ZooAssets());
             try {
                 world.Build(read.Document, read.Index);
-                Assert.AreEqual(2, renderer.Consists.Count, "one consist per line");
+                Assert.AreEqual(3, renderer.Consists.Count, "one consist per line");
                 var a = renderer.Consists.First(view => view.LineId == "5");
                 var l = renderer.Consists.First(view => view.LineId == "6");
+                var b = renderer.Consists.First(view => view.LineId == "7");
                 Assert.AreEqual("A.2.overhead", a.FormationKey);
                 Assert.AreEqual(2, a.Cars);
-                Assert.AreEqual(1f, a.Scale, 1e-4f, "a non-Zoo promotion is authored at 1:1");
+                Assert.AreEqual(.98f, a.Scale, 1e-4f, "non-Zoo formations inherit the 5 m storey 0.98 modelScale to align with PSDs");
+                Assert.AreEqual(Vector3.one, a.Root.transform.localScale, "wrapper stays unscaled");
+                Assert.AreEqual(.98f, a.Root.transform.Find("Unity basis/Consist").localScale.x, 1e-4f, "Consist carries the line scale");
                 Assert.AreEqual("L.6.third-rail@zoo", l.FormationKey);
                 Assert.AreEqual(6, l.Cars);
-                Assert.AreEqual(.98f, l.Scale, 1e-4f, "the Zoo livery keeps its baked scale");
+                Assert.AreEqual(.98f, l.Scale, 1e-4f, "the Zoo livery keeps its 0.98 model scale");
                 Assert.AreEqual(-1, l.Berth.DirectionSign, "line 6's track runs down");
+                Assert.AreEqual("B.4.third-rail", b.FormationKey);
+                Assert.AreEqual(4, b.Cars);
+                Assert.AreEqual(.98f, b.Scale, 1e-4f, "B-stock formation also applies 0.98 onto Consist");
+                Assert.AreEqual(.98f, b.Root.transform.Find("Unity basis/Consist").localScale.x, 1e-4f);
             } finally {
                 world.Dispose();
                 UnityEngine.Object.DestroyImmediate(probeRoot);

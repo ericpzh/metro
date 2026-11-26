@@ -120,6 +120,32 @@ namespace Metro.Persistence {
                 case StationModuleEditMode.Remove: {
                     var existing = Find(modules, removeId);
                     if (existing == null) { code = "not-found"; return false; }
+                    if (string.Equals((string)existing["type"], "platform-edge", StringComparison.Ordinal)) {
+                        var cfg = existing["cfg"] as JObject;
+                        if (string.Equals((string)cfg?["psd"], "none", StringComparison.Ordinal)) {
+                            code = "no-change";
+                            return false;
+                        }
+                        if (cfg == null) { cfg = new JObject(); existing["cfg"] = cfg; }
+                        cfg["psd"] = "none";
+                        string fromId = (string)cfg["from"] ?? "";
+                        string side = (string)cfg["side"] ?? "";
+                        if (fromId.Length > 0 && (side == "left" || side == "right")) {
+                            var track = Find(modules, fromId);
+                            if (track != null && string.Equals((string)track["type"], "track", StringComparison.Ordinal)) {
+                                var trackCfg = track["cfg"] as JObject;
+                                if (trackCfg == null) { trackCfg = new JObject(); track["cfg"] = trackCfg; }
+                                var sides = trackCfg["removedPsdSides"] as JArray ?? new JArray();
+                                bool exists = false;
+                                for (int i = 0; i < sides.Count; i++) {
+                                    if (string.Equals((string)sides[i], side, StringComparison.Ordinal)) { exists = true; break; }
+                                }
+                                if (!exists) sides.Add(side);
+                                trackCfg["removedPsdSides"] = sides;
+                            }
+                        }
+                        break;
+                    }
                     existing.Remove();
                     break;
                 }
