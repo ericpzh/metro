@@ -15,10 +15,12 @@
   undoable presentation edit (`StationSlice.setCityStyle`). Existing line colours and
   existing exit identifiers are never rewritten; city defaults apply only to newly
   created lines and newly placed exits.
-- **New-line palettes (`lineColourFor`):** Pass the station's `cityStyle` to
+- **New-line palettes (`lineColourFor`, `cityLineColourPresets`):** Pass the station's `cityStyle` to
   the line factory when the player adds a line. Tables cover
   in-service, planned, branch, suburban, airport, and tram identifiers with both
   English keys and full Chinese aliases where defined in `sim/cityStyles.ts`.
+  `cityLineColourPresets(city)` deduplicates the active city's table (preserving order and
+  grouped aliases) to populate the predefined swatches inside `LineColourPicker`.
 - **New-exit naming (`build/model/Equipment.ts` `nextExitName`):**
   - `shanghai`: numeric `1号口`, `2号口`, ...
   - `chongqing`, `nanjing`: numeric `1口`, `2口`, ...
@@ -127,7 +129,7 @@
 
 | Contract | Owning `game/test/` Suite(s) |
 | --- | --- |
-| Wire `city` / fallback, demo city, undo/redo, preserved custom colours, palettes & aliases, cab textures | `city-style` |
+| Wire `city` / fallback, demo city, undo/redo, preserved custom colours, palettes & aliases, cab textures | `city-style`, `line-colour-picker` |
 | City presentation fast path, entrance badge recolouring, covered/pylon shell invalidation | `city-style`, `nonstructural-updates` |
 | City High/Low triangle budgets, geometry restoration & batching | `model-detail` |
 | Canopy bay counts × 4 rotations, glazing/plinth/column fit, guidepost & virtual-exit geometry | `module-build` |

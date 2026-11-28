@@ -1996,13 +1996,257 @@ html[lang="en"] .depthTag {
   border-color: var(--accent);
 }
 .lineColourInput {
-  width: 28px;
-  height: 22px;
-  padding: 0;
+  flex: none;
+  display: inline-flex;
+  align-items: stretch;
+  justify-content: stretch;
+  box-sizing: border-box;
+  width: 30px;
+  height: 26px;
+  padding: 2px;
   border: 1px solid var(--line);
   border-radius: 3px;
-  background: none;
+  background: var(--ui-081a2c, #081a2c);
   cursor: pointer;
+}
+.lineColourInput:hover,
+.lineColourInput[aria-expanded="true"] {
+  border-color: var(--accent);
+}
+.lineColourSwatch {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+.lineColourPopover {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  width: 272px;
+  max-width: calc(100vw / var(--ui-scale, 1) - 24px / var(--ui-scale, 1));
+  overflow-y: auto;
+  padding: 10px;
+  box-sizing: border-box;
+  color: var(--text);
+  background: var(--ui-081a2c, #081a2c);
+  border: 1px solid var(--bp-line);
+  border-radius: 0;
+  box-shadow: 0 12px 34px #0009;
+  scrollbar-width: thin;
+}
+.lineColourPopover:popover-open {
+  display: grid;
+  gap: 8px;
+}
+.lineColourHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--bp-line);
+  font-size: 12px;
+  color: var(--ui-heading, #eaf5ff);
+  letter-spacing: 0.08em;
+}
+.panel .lineColourPopover .lineColourClose {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1;
+}
+.panel .lineColourPopover .lineColourClose:hover {
+  border-color: var(--accent);
+  color: var(--ui-heading, #eaf5ff);
+  background: var(--ui-173650, #173650);
+}
+.lineColourPad {
+  position: relative;
+  width: 100%;
+  height: 124px;
+  border: 1px solid var(--line);
+  background-image:
+    linear-gradient(to top, #000, transparent),
+    linear-gradient(to right, #fff, transparent);
+  cursor: crosshair;
+  touch-action: none;
+  user-select: none;
+}
+.lineColourPadThumb {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  transform: translate(-50%, -50%);
+  border: 2px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.7), 0 2px 6px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+}
+.lineColourHue {
+  position: relative;
+  width: 100%;
+  height: 14px;
+  border: 1px solid var(--line);
+  background: linear-gradient(
+    to right,
+    #ff0000 0%,
+    #ffff00 17%,
+    #00ff00 33%,
+    #00ffff 50%,
+    #0000ff 67%,
+    #ff00ff 83%,
+    #ff0000 100%
+  );
+  cursor: ew-resize;
+  touch-action: none;
+  user-select: none;
+}
+.lineColourHue:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.lineColourHueThumb {
+  position: absolute;
+  top: 50%;
+  width: 10px;
+  height: 18px;
+  transform: translate(-50%, -50%);
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.7);
+  pointer-events: none;
+}
+.lineColourHexRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.lineColourPreview {
+  flex: none;
+  width: 28px;
+  height: 26px;
+  border: 1px solid var(--line);
+}
+.panel .lineColourPopover .lineColourHexInput {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  padding: 3px 7px;
+  font-family: var(--mono);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.lineColourPresetSection {
+  display: grid;
+  gap: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--bp-line);
+}
+.lineColourPresetTitle {
+  font-size: 11px;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+}
+.lineColourPresets {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 4px;
+}
+.panel .lineColourPopover .lineColourPreset {
+  min-width: 0;
+  height: 24px;
+  padding: 0 2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 0;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  overflow: hidden;
+  transition: transform 90ms ease, box-shadow 90ms ease;
+}
+.panel .lineColourPopover .lineColourPreset > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.panel .lineColourPopover .lineColourPreset:hover {
+  transform: scale(1.06);
+  box-shadow: 0 0 0 1px var(--ui-heading, #eaf5ff);
+  z-index: 1;
+}
+.panel .lineColourPopover .lineColourPreset.on {
+  box-shadow: 0 0 0 2px var(--accent), inset 0 0 0 1px rgba(255, 255, 255, 0.85);
+  z-index: 1;
+}
+:root[data-ui-theme="site"] .lineColourPopover {
+  border-radius: 6px;
+  border-color: var(--line);
+  background: var(--panel);
+  box-shadow: 0 12px 30px #0007;
+}
+:root[data-ui-theme="site"] .lineColourHead,
+:root[data-ui-theme="site"] .lineColourPresetSection {
+  border-color: var(--line);
+  letter-spacing: 0.02em;
+}
+:root[data-ui-theme="site"] .panel .lineColourPopover .lineColourPreset,
+:root[data-ui-theme="site"] .lineColourPad,
+:root[data-ui-theme="site"] .lineColourHue,
+:root[data-ui-theme="site"] .lineColourPreview {
+  border-radius: 3px;
+}
+:root[data-ui-theme="studio"] .lineColourInput {
+  background: #fdfef9;
+  border-radius: 6px;
+}
+:root[data-ui-theme="studio"] .lineColourSwatch {
+  border-color: rgba(48, 58, 48, 0.18);
+  border-radius: 3px;
+}
+:root[data-ui-theme="studio"] .lineColourPopover {
+  border-radius: 12px;
+  background: #fdfef9;
+  border-color: #dfe4d7;
+  box-shadow: 0 14px 40px rgba(46, 55, 38, 0.2);
+}
+:root[data-ui-theme="studio"] .lineColourHead {
+  border-color: #dfe4d7;
+  color: #53634f;
+  letter-spacing: 0;
+}
+:root[data-ui-theme="studio"] .panel .lineColourPopover .lineColourClose {
+  border-color: #dfe4d7;
+  border-radius: 6px;
+  color: #53634f;
+}
+:root[data-ui-theme="studio"] .panel .lineColourPopover .lineColourClose:hover {
+  background: #f2f5eb;
+  border-color: var(--accent);
+  color: #9f3d1e;
+}
+:root[data-ui-theme="studio"] .lineColourPresetSection {
+  border-color: #dfe4d7;
+}
+:root[data-ui-theme="studio"] .lineColourPad,
+:root[data-ui-theme="studio"] .lineColourHue,
+:root[data-ui-theme="studio"] .lineColourPreview,
+:root[data-ui-theme="studio"] .panel .lineColourPopover .lineColourPreset {
+  border-radius: 5px;
+  border-color: rgba(48, 58, 48, 0.16);
+}
+:root[data-ui-theme="studio"] .panel .lineColourPopover .lineColourPreset:hover {
+  box-shadow: 0 0 0 1px #53634f;
 }
 .railStatus {
   padding: 2px 2px 5px;

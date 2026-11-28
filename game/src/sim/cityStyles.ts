@@ -154,3 +154,25 @@ export function cityStyleFor(value?: CityStyle): CityStyleDefinition {
 export function lineColourFor(id: string, city?: CityStyle): string {
   return cityStyleFor(city).lineColours[id] ?? DEFAULT_LINE_COLOUR
 }
+
+export interface CityLineColourPreset {
+  /** Primary key from the city's default line-colour table (e.g. '1', '6B', 'S1'). */
+  id: string
+  /** Normalized lowercase `#rrggbb` hex colour. */
+  colour: string
+  /** All distinct keys sharing this colour in the city's table, in declaration order. */
+  ids: readonly string[]
+}
+
+/** Deduplicated predefined line colours for `city`, preserving table order. */
+export function cityLineColourPresets(city?: CityStyle): readonly CityLineColourPreset[] {
+  const table = cityStyleFor(city).lineColours
+  const byColour = new Map<string, { id: string; colour: string; ids: string[] }>()
+  for (const [id, raw] of Object.entries(table)) {
+    const colour = raw.toLowerCase()
+    const existing = byColour.get(colour)
+    if (existing) existing.ids.push(id)
+    else byColour.set(colour, { id, colour, ids: [id] })
+  }
+  return Array.from(byColour.values())
+}

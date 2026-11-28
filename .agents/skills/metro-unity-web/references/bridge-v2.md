@@ -163,9 +163,10 @@ producing one stylesheet shared by the player and benchmark route.
   `Texture2D(BGRA32)` via `LoadRawTextureData(IntPtr, int)` on a UV-flipped (`(0, 1, 1, -1)`)
   `RawImage` inside `StationDesktopUiCanvas` (`ScreenSpaceOverlay`, `sortingOrder = 32000`,
   `pixelPerfect = true`), streaming host replies via reusable `JsonTextWriter`/`StringBuilder`.
-  Avoid native `<select>` popups in overlay UI — Chromium renders them
-  in a separate OS HWND outside `CoreWebView2CompositionController` capture (use pure-DOM
-  controls instead).
+  Avoid native `<select>` and `<input type="color">` popups in overlay UI — Chromium renders
+  them in a separate OS HWND outside `CoreWebView2CompositionController` capture (use pure-DOM
+  controls such as button toggle groups or `popover="auto"` panels like `LineColourPicker`
+  with `beginPointerDrag` instead).
 - **Virtual origin, feedback links & overlay CSS:** Intercepts `https://app.metro.local/*`
   (`WebResourceRequested`) serving `dist-unity-ui` at `/game/_unity/UI/`,
   `public/module-thumbnails/` at `/game/_unity/UI/module-thumbnails/`, and `public/audio/` at

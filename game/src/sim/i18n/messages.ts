@@ -1988,6 +1988,22 @@ export const messages = {
     "zh": "线路颜色",
     "en": "Line colour"
   },
+  "city_line_colours": {
+    "zh": "{0}预设线路色",
+    "en": "{0} line colours"
+  },
+  "colour_hex": {
+    "zh": "十六进制色值",
+    "en": "Hex colour"
+  },
+  "colour_saturation_brightness": {
+    "zh": "饱和度与亮度",
+    "en": "Saturation and brightness"
+  },
+  "colour_hue": {
+    "zh": "色相",
+    "en": "Hue"
+  },
   "delete_line": {
     "zh": "删除线路",
     "en": "Delete line"

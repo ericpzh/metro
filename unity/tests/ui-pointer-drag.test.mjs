@@ -239,6 +239,16 @@ test('all sliders, curve grips, depth rail, scrollbars and Unity CDP forwarding 
     assert.doesNotMatch(src, /type=["']range["']/, `${rel} must not bypass shared Slider`)
   }
 
+  // Line colour editing uses the pure-DOM popover picker + beginPointerDrag
+  // (never native <input type="color">, whose OS popup HWND is invisible in WebView2).
+  const lineCardSrc = read('game/src/app/windows/inspector/LineCard.tsx')
+  assert.match(lineCardSrc, /<LineColourPicker\b/)
+  assert.doesNotMatch(lineCardSrc, /type=["']color["']/, 'LineCard must not use native <input type="color">')
+  const linePickerSrc = read('game/src/app/windows/inspector/LineColourPicker.tsx')
+  assert.match(linePickerSrc, /popover="auto"/)
+  assert.match(linePickerSrc, /beginPointerDrag/)
+  assert.match(linePickerSrc, /cityLineColourPresets/)
+
   // Unity desktop WebView2 host and presenter send the active held button on mouseMoved.
   const hostSrc = read('tools/unity-editor-ui/Program.cs')
   assert.match(hostSrc, /ResolveCdpMouseButton/)

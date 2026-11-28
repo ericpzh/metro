@@ -52,10 +52,11 @@ double-buffered `MUI2` shared-memory BGRA32 buffer (waiting for `navigationStart
 least one non-transparent pixel before publishing the first frame), which
 `StationDesktopUiPresenter` uploads onto an in-canvas `ScreenSpaceOverlay` `RawImage`
 (`StationDesktopUiCanvas`, `sortingOrder = 32000`) while forwarding Unity `InputSystem`
-pointer/wheel/keyboard events to CDP. Because Chromium renders native `<select>` popups in a
-separate top-level OS HWND invisible to offscreen visual capture, interactive selectors in
-overlay/benchmark UI must use pure-DOM controls (e.g., button toggle groups) rather than
-native `<select>`.
+pointer/wheel/keyboard events to CDP. Because Chromium renders native `<select>` and `<input type="color">` popups in a
+separate top-level OS HWND invisible to offscreen visual capture, interactive selectors and
+pickers in overlay/benchmark UI must use pure-DOM controls (e.g., button toggle groups or
+`popover="auto"` panels such as `LineColourPicker` with `beginPointerDrag`) rather than
+native `<select>` or `<input type="color">`.
 
 ## Commands
 

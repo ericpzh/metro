@@ -258,6 +258,7 @@ Categorized index of every `*.test.mjs` file in `game/test/`, shared helpers, an
 | `fence-preview.test.mjs` [P] | Local fence joint preview, bucket masking, 0 remote work |
 | `frame-preview.test.mjs` [P] | Frame-scheduled latest-target preview, reuse, cancel |
 | `geometry-snap.test.mjs` [P] | Real-slab ceiling contact, off-grid anchors, preview/undo |
+| `line-colour-picker.test.mjs` | City predefined colour presets (`cityLineColourPresets`), HSV/RGB/hex math, contrast labels, pure-DOM `LineColourPicker` wiring |
 | `line-edit.test.mjs` | Line edits, immutable undo/redo, station clear, PSD pick |
 | `menu-thumbnails.test.mjs` | 132×132 PNG thumbnails for all `MODULE_OPTIONS` & URLs |
 | `move.test.mjs` | Lifting, re-aim, course moves, carried landings, verdicts |

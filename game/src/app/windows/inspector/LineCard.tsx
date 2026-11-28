@@ -12,6 +12,7 @@ import { STOCK_CLASSES } from '../../../sim/stock.ts'
 import type { LineDef } from '../../../sim/types.ts'
 import { Disclosure } from '../shared/Disclosure.tsx'
 import { HeadwayInput } from './HeadwayInput.tsx'
+import { LineColourPicker } from './LineColourPicker.tsx'
 
 /**
  * Line name + colour. Edits commit on blur / Enter, not per keystroke: every
@@ -19,10 +20,10 @@ import { HeadwayInput } from './HeadwayInput.tsx'
  */
 function LineFields({ line }: { line: LineDef }): React.ReactElement {
   useLanguage()
+  const cityStyle = useStore((s) => s.station.cityStyle)
   const updateLine = useStore((s) => s.updateLine)
   const removeLine = useStore((s) => s.removeLine)
   const [name, setName] = useState(line.name)
-  const [colour, setColour] = useState(line.colour)
   const [upTerminus, setUpTerminus] = useState(line.upTerminus ?? '')
   const [upTerminusEn, setUpTerminusEn] = useState(line.upTerminusEn ?? '')
   const [downTerminus, setDownTerminus] = useState(line.downTerminus ?? '')
@@ -31,20 +32,16 @@ function LineFields({ line }: { line: LineDef }): React.ReactElement {
   useEffect(() => {
     setAdjacent({ up: line.upNextStation ?? '', upEn: line.upNextStationEn ?? '', down: line.downNextStation ?? '', downEn: line.downNextStationEn ?? '' })
     setName(line.name)
-    setColour(line.colour)
     setUpTerminus(line.upTerminus ?? '')
     setUpTerminusEn(line.upTerminusEn ?? '')
     setDownTerminus(line.downTerminus ?? '')
     setDownTerminusEn(line.downTerminusEn ?? '')
-  }, [line.id, line.name, line.colour, line.upTerminus, line.downTerminus, line.upTerminusEn, line.downTerminusEn, line.upNextStation, line.upNextStationEn, line.downNextStation, line.downNextStationEn])
+  }, [line.id, line.name, line.upTerminus, line.downTerminus, line.upTerminusEn, line.downTerminusEn, line.upNextStation, line.upNextStationEn, line.downNextStation, line.downNextStationEn])
 
   const commitName = (): void => {
     const t = name.trim()
     if (t && t !== line.name) updateLine(line.id, { name: t })
     else setName(line.name)
-  }
-  const commitColour = (): void => {
-    if (colour !== line.colour) updateLine(line.id, { colour })
   }
   // Termini may be cleared to '' (the header then falls back to the direction
   // word), so unlike the name there is no non-empty guard.
@@ -91,13 +88,13 @@ function LineFields({ line }: { line: LineDef }): React.ReactElement {
             }
           }}
         />
-        <input
-          type="color"
-          className="lineColourInput"
-          value={colour}
-          aria-label={t('line_colour')}
-          onChange={(e) => setColour(e.target.value)}
-          onBlur={commitColour}
+        <LineColourPicker
+          id={line.id}
+          value={line.colour}
+          city={cityStyle}
+          onCommit={(next) => {
+            if (next.toLowerCase() !== line.colour.toLowerCase()) updateLine(line.id, { colour: next })
+          }}
         />
         <button
           type="button"
