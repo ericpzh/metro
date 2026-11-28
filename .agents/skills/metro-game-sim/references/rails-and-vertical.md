@@ -29,6 +29,16 @@ encoding (`World.trainRenderState`) and renderer decoding.
   three arrivals purely from active train phase and headway profile without advancing `World`
   or `Rng`.
 
+- **Terminal platforms** use one dispatch schedule per line. Terminal berths take
+  turns in document order at the line headway, and a departure waits for its
+  assigned berth to clear. Through tracks keep independent schedules. Arrival
+  forecasts must use the same terminal rotation as live dispatch.
+- A terminal train enters and exits through the sole connected end when possible,
+  otherwise through the platform's local negative end. Changing platform direction
+  updates linked screen sections in place. Keep web `setPlatformDirection` and
+  Unity's revisioned `edit.rail.direction` aligned. Check `rail.test.mjs`,
+  `trains.test.mjs`, and `StationTrainAndRailParityTests`.
+
 ### Tracks, Power, and Train Choreography (`sim/track.ts`, `sim/trainFlags.ts`, `World.ts`)
 
 - **Track orientation & berth centering** — `rotateLocal(rot, i, j)` turns local `+x` (run) and `+y` (across bed)

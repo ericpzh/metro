@@ -223,6 +223,15 @@ producing one stylesheet shared by the player and benchmark route.
   `editor_ui_exploded_check`, `editor_ui_statistics_check`, `editor_ui_sky_check`, and
   `editor_ui_picker_check`.
 
+### Desktop tooltips
+
+WebView2's native `title` popups are outside the captured surface. The desktop
+overlay mounts one DOM tooltip from `desktopTooltip.ts` and disposes it when the
+shell unmounts. Keep `title` as the text source, including empty titles that block
+ancestor inheritance. Use the manual popover so the tooltip appears over dialogs
+and menus. Run `node --test unity/tests/desktop-tooltip.test.mjs` and check hover in
+the rebuilt Windows player.
+
 ### Windows IME
 
 The standalone player sets `UnityEngine.Input.imeCompositionMode` to `On` before the
