@@ -213,9 +213,18 @@ namespace Metro.App {
         volatile string desiredCursor = "default";
         volatile float desiredCursorScale = 1f;
         volatile bool nativeModalDialogOpen;
+        volatile bool desiredImeEnabled;
+        volatile float desiredImeX;
+        volatile float desiredImeY;
         string appliedCursor = "default";
         int appliedCursorSize = StationDesktopCursors.Size;
         bool cursorHiddenByOverlay;
+        bool systemImeApplied;
+        IntPtr appliedImeHwnd = IntPtr.Zero;
+        Vector2 appliedImeCursorPos = new Vector2(-1f, -1f);
+        string imeCompositionText = "";
+        int lastImeActiveFrame = -100;
+        char pendingHighSurrogate;
 
         public bool IsWorkerRunning => workerProcess != null && !workerProcess.HasExited;
         public bool IsWebReady => webReady;
@@ -230,6 +239,17 @@ namespace Metro.App {
         public int TextureWidth => surfaceTexture != null ? surfaceTexture.width : 0;
         public int TextureHeight => surfaceTexture != null ? surfaceTexture.height : 0;
         public string LastCapturedPreviewPath => lastCapturedPreviewPath;
+
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSplashScreen)]
+        static void EnableSystemImeBeforeSplash() {
+            if (!Application.isPlaying || Application.isBatchMode) return;
+            if (Application.isEditor) return;
+            // The Windows player checks this legacy setting in its window procedure,
+            // independently of the Input System command used for composition events.
+            // Keep the window's IME context attached so Windows can handle mode switching.
+            UnityEngine.Input.imeCompositionMode = IMECompositionMode.On;
+            TryEnableKeyboardIme();
+        }
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         static void Bootstrap() {
@@ -664,6 +684,7 @@ namespace Metro.App {
             }
 
             SyncViewportSize();
+            ApplyOverlayIme();
             if (!IsPhysicalInputBlocked) {
                 ForwardMouseInput();
                 ForwardKeyboardButtons();
@@ -978,6 +999,11 @@ namespace Metro.App {
             heldMouseButtons = 0;
             nativeModalDialogOpen = false;
             desiredCursor = "default";
+            desiredImeEnabled = false;
+            desiredImeX = 0f;
+            desiredImeY = 0f;
+            imeCompositionText = "";
+            pendingHighSurrogate = '\0';
             ResetOverlayCursor();
             Array.Clear(keyRepeatAt, 0, keyRepeatAt.Length);
             RefreshCanvasVisibility();
@@ -1115,6 +1141,8 @@ namespace Metro.App {
 
         void ReleaseHeldInput() {
             heldMouseButtons = 0;
+            imeCompositionText = "";
+            pendingHighSurrogate = '\0';
             ResetOverlayCursor();
             for (int i = 0; i < KeyBindings.Length; i++) {
                 if (keyRepeatAt[i] == 0) continue;
@@ -1283,6 +1311,9 @@ namespace Metro.App {
             if (Keyboard.current != null) {
                 Keyboard.current.onTextInput -= OnTextInput;
                 Keyboard.current.onTextInput += OnTextInput;
+                Keyboard.current.onIMECompositionChange -= OnImeCompositionChanged;
+                Keyboard.current.onIMECompositionChange += OnImeCompositionChanged;
+                systemImeApplied = TryEnableKeyboardIme();
             }
             InputSystem.onDeviceChange += OnInputDeviceChange;
         }
@@ -1291,6 +1322,7 @@ namespace Metro.App {
             InputSystem.onDeviceChange -= OnInputDeviceChange;
             if (Keyboard.current != null) {
                 Keyboard.current.onTextInput -= OnTextInput;
+                Keyboard.current.onIMECompositionChange -= OnImeCompositionChanged;
             }
         }
 
@@ -1299,23 +1331,206 @@ namespace Metro.App {
                 if (change == InputDeviceChange.Added || change == InputDeviceChange.Reconnected) {
                     kb.onTextInput -= OnTextInput;
                     kb.onTextInput += OnTextInput;
+                    kb.onIMECompositionChange -= OnImeCompositionChanged;
+                    kb.onIMECompositionChange += OnImeCompositionChanged;
+                    systemImeApplied = false;
+                    appliedImeCursorPos = new Vector2(-1f, -1f);
                 } else if (change == InputDeviceChange.Removed || change == InputDeviceChange.Disconnected) {
                     kb.onTextInput -= OnTextInput;
+                    kb.onIMECompositionChange -= OnImeCompositionChanged;
                 }
+            }
+        }
+
+        void OnImeCompositionChanged(IMECompositionString composition) {
+            string next = composition.ToString();
+            if (!desiredImeEnabled) {
+                imeCompositionText = "";
+                if (!string.IsNullOrEmpty(next)) {
+                    CancelTransientImeComposition();
+                }
+                return;
+            }
+            bool wasActive = !string.IsNullOrEmpty(imeCompositionText);
+            bool isActive = !string.IsNullOrEmpty(next);
+            imeCompositionText = next;
+            if (isActive || wasActive) {
+                lastImeActiveFrame = Time.frameCount;
+            }
+        }
+
+        [DllImport("user32.dll")]
+        static extern IntPtr GetActiveWindow();
+
+        [DllImport("user32.dll")]
+        static extern IntPtr GetForegroundWindow();
+
+        [DllImport("user32.dll")]
+        static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+
+        [DllImport("imm32.dll", SetLastError = true)]
+        static extern IntPtr ImmGetContext(IntPtr hWnd);
+
+        [DllImport("imm32.dll", SetLastError = true)]
+        static extern bool ImmReleaseContext(IntPtr hWnd, IntPtr hIMC);
+
+        [DllImport("imm32.dll", SetLastError = true)]
+        static extern bool ImmNotifyIME(IntPtr hIMC, uint dwAction, uint dwIndex, uint dwValue);
+
+        [DllImport("imm32.dll", SetLastError = true)]
+        static extern bool ImmSetCompositionWindow(IntPtr hIMC, ref CompositionForm lpCompForm);
+
+        [DllImport("imm32.dll", SetLastError = true)]
+        static extern bool ImmSetCandidateWindow(IntPtr hIMC, ref CandidateForm lpCandidate);
+
+        const uint NiCompositionStr = 0x0015;
+        const uint CpsCancel = 0x0004;
+        const uint CfsPoint = 0x0002;
+        const uint CfsCandidatePos = 0x0040;
+
+        [StructLayout(LayoutKind.Sequential)]
+        struct Win32Point {
+            public int X;
+            public int Y;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        struct Win32Rect {
+            public int Left;
+            public int Top;
+            public int Right;
+            public int Bottom;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        struct CompositionForm {
+            public uint Style;
+            public Win32Point CurrentPos;
+            public Win32Rect Area;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        struct CandidateForm {
+            public uint Index;
+            public uint Style;
+            public Win32Point CurrentPos;
+            public Win32Rect Area;
+        }
+
+        static IntPtr ResolveUnityWindowHwnd() {
+            IntPtr active = GetActiveWindow();
+            if (active != IntPtr.Zero) return active;
+            IntPtr fg = GetForegroundWindow();
+            if (fg != IntPtr.Zero) {
+                GetWindowThreadProcessId(fg, out uint pid);
+                if (pid == (uint)Process.GetCurrentProcess().Id) return fg;
+            }
+            return IntPtr.Zero;
+        }
+
+        static bool TryEnableKeyboardIme() {
+            var kb = Keyboard.current;
+            if (kb == null) return false;
+            var cmd = EnableIMECompositionCommand.Create(true);
+            return kb.ExecuteCommand(ref cmd) >= 0;
+        }
+
+        void CancelTransientImeComposition() {
+            if (Application.isEditor) return;
+            IntPtr hwnd = ResolveUnityWindowHwnd();
+            if (hwnd == IntPtr.Zero) return;
+            IntPtr himc = ImmGetContext(hwnd);
+            if (himc == IntPtr.Zero) return;
+            // Clear only the in-progress composition buffer while the user presses game
+            // hotkeys outside text inputs — never detach HIMC or force English mode.
+            ImmNotifyIME(himc, NiCompositionStr, CpsCancel, 0);
+            ImmReleaseContext(hwnd, himc);
+        }
+
+        internal static bool ShouldSuppressKeyDuringIme(bool textInputFocused, string compositionText, int frameCount, int lastImeFrame) =>
+            textInputFocused && (!string.IsNullOrEmpty(compositionText) || frameCount <= lastImeFrame);
+
+        void PositionWin32Ime(Vector2 cursorPos, bool cursorChanged) {
+            if (Application.isEditor || !Application.isFocused) return;
+            IntPtr hwnd = ResolveUnityWindowHwnd();
+            if (hwnd == IntPtr.Zero) return;
+            if (!cursorChanged && hwnd == appliedImeHwnd) return;
+            IntPtr himc = ImmGetContext(hwnd);
+            if (himc == IntPtr.Zero) {
+                appliedImeHwnd = IntPtr.Zero;
+                return;
+            }
+            try {
+                var pt = new Win32Point {
+                    X = Mathf.RoundToInt(cursorPos.x),
+                    Y = Mathf.RoundToInt(cursorPos.y),
+                };
+                var comp = new CompositionForm { Style = CfsPoint, CurrentPos = pt };
+                ImmSetCompositionWindow(himc, ref comp);
+                var cand = new CandidateForm { Index = 0, Style = CfsCandidatePos, CurrentPos = pt };
+                ImmSetCandidateWindow(himc, ref cand);
+                appliedImeHwnd = hwnd;
+            } finally {
+                ImmReleaseContext(hwnd, himc);
+            }
+        }
+
+        void ApplyOverlayIme() {
+            var kb = Keyboard.current;
+            if (kb == null) return;
+            if (!systemImeApplied) {
+                systemImeApplied = TryEnableKeyboardIme();
+            }
+            bool hasInputCursor = webReady && activeClient != null && !IsPhysicalInputBlocked &&
+                Application.isFocused && desiredImeEnabled;
+            if (hasInputCursor) {
+                float sx = lastSentWidth > 0 ? (Screen.width / (float)lastSentWidth) : 1f;
+                float sy = lastSentHeight > 0 ? (Screen.height / (float)lastSentHeight) : 1f;
+                var pos = new Vector2(
+                    Mathf.Clamp(desiredImeX * sx, 0f, Mathf.Max(0f, Screen.width - 1f)),
+                    Mathf.Clamp(desiredImeY * sy, 0f, Mathf.Max(0f, Screen.height - 1f)));
+                bool cursorChanged = (pos - appliedImeCursorPos).sqrMagnitude >= 1f;
+                if (cursorChanged) {
+                    appliedImeCursorPos = pos;
+                    kb.SetIMECursorPosition(pos);
+                }
+                PositionWin32Ime(pos, cursorChanged);
+            } else {
+                imeCompositionText = "";
+                appliedImeCursorPos = new Vector2(-1f, -1f);
             }
         }
 
         void OnTextInput(char ch) {
             if (!webReady || activeClient == null || IsPhysicalInputBlocked) return;
-            if (ch < ' ' || ch == 127) return;
+            if (char.IsHighSurrogate(ch)) {
+                pendingHighSurrogate = ch;
+                lastImeActiveFrame = Time.frameCount;
+                return;
+            }
+            string text;
+            bool isNonAscii;
+            if (char.IsLowSurrogate(ch) && pendingHighSurrogate != '\0') {
+                text = new string(new[] { pendingHighSurrogate, ch });
+                pendingHighSurrogate = '\0';
+                isNonAscii = true;
+            } else {
+                pendingHighSurrogate = '\0';
+                if (ch < ' ' || ch == 127) return;
+                text = ch.ToString();
+                isNonAscii = ch > 126;
+            }
+            if (isNonAscii) {
+                lastImeActiveFrame = Time.frameCount;
+            }
             var kb = Keyboard.current;
             if (kb != null && (kb.ctrlKey.isPressed || kb.altKey.isPressed || kb.leftMetaKey.isPressed || kb.rightMetaKey.isPressed)) {
                 return;
             }
             EnqueueToWorker(new JObject {
                 ["kind"] = "key",
-                ["ev"] = ch <= 126 ? "char" : "insertText",
-                ["text"] = ch.ToString(),
+                ["ev"] = isNonAscii ? "insertText" : "char",
+                ["text"] = text,
                 ["modifiers"] = CurrentModifiers(),
             }.ToString(Formatting.None));
         }
@@ -1387,6 +1602,9 @@ namespace Metro.App {
         void OnApplicationFocus(bool focused) {
             if (focused) {
                 AllowWorkerForeground();
+                systemImeApplied = false;
+                appliedImeCursorPos = new Vector2(-1f, -1f);
+                ApplyOverlayIme();
                 const uint getKeyboardSpeed = 0x000a;
                 const uint getKeyboardDelay = 0x0016;
                 if (SystemParametersInfo(getKeyboardDelay, 0, out uint delay, 0))
@@ -1404,6 +1622,8 @@ namespace Metro.App {
             var kb = Keyboard.current;
             if (kb == null) return;
 
+            bool imeSuppressesKeys = ShouldSuppressKeyDuringIme(
+                desiredImeEnabled, imeCompositionText, Time.frameCount, lastImeActiveFrame);
             bool shift = kb.shiftKey.isPressed;
             int mods = CurrentModifiers();
             double now = Time.unscaledTimeAsDouble;
@@ -1412,7 +1632,7 @@ namespace Metro.App {
                 KeyControl ctrl = kb[b.Key];
                 if (ctrl == null) continue;
                 string domKey = shift && !string.IsNullOrEmpty(b.ShiftDomKey) ? b.ShiftDomKey : b.DomKey;
-                if (ctrl.wasPressedThisFrame) {
+                if (!imeSuppressesKeys && ctrl.wasPressedThisFrame) {
                     SendKey("down", b.Vk, domKey, b.DomCode, mods);
                     keyRepeatAt[i] = b.Repeats ? now + keyRepeatDelay : double.PositiveInfinity;
                 }
@@ -1420,7 +1640,7 @@ namespace Metro.App {
                 if (ctrl.wasReleasedThisFrame || !ctrl.isPressed) {
                     SendKey("up", b.Vk, domKey, b.DomCode, mods);
                     keyRepeatAt[i] = 0;
-                } else if (now >= keyRepeatAt[i]) {
+                } else if (!imeSuppressesKeys && now >= keyRepeatAt[i]) {
                     SendKey("down", b.Vk, domKey, b.DomCode, mods, repeat: true);
                     keyRepeatAt[i] = now + keyRepeatInterval;
                 }
@@ -1686,6 +1906,12 @@ namespace Metro.App {
                     case "cursor": {
                         desiredCursor = StationDesktopCursors.NormalizeName((string)obj["cursor"]);
                         desiredCursorScale = (float?)obj["scale"] ?? 1f;
+                        break;
+                    }
+                    case "ime": {
+                        desiredImeEnabled = (bool?)obj["enabled"] == true;
+                        desiredImeX = (float?)obj["x"] ?? 0f;
+                        desiredImeY = (float?)obj["y"] ?? 0f;
                         break;
                     }
                     case "modalDialog": {

@@ -222,6 +222,19 @@ producing one stylesheet shared by the player and benchmark route.
   `editor_ui_exploded_check`, `editor_ui_statistics_check`, `editor_ui_sky_check`, and
   `editor_ui_picker_check`.
 
+### Windows IME
+
+The standalone player sets `UnityEngine.Input.imeCompositionMode` to `On` before the
+splash because Unity's Windows message handler uses that setting to keep the native
+IME context attached. The Input System command enables composition callbacks separately.
+Windows owns the selected input mode and the Microsoft Pinyin Shift toggle.
+
+The offscreen WebView2 host reports focused editable fields and their candidate-window
+anchor to Unity. Unity positions the native candidate window and forwards committed text
+to WebView2. Run `node --test unity/tests/desktop-ime.test.mjs` for the bridge contract.
+In the rebuilt Windows player, check focus and refocus, press Shift to toggle between
+中 and 英, then compose and commit Pinyin in a station name field.
+
 ## `#game-loading`, Exploded View & Statistics handoffs
 
 - **`#game-loading` (`unity-ui-pack.mjs`, `main.tsx`, `Program.cs`):** Replaces Unity's

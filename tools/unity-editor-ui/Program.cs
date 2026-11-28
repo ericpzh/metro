@@ -1245,6 +1245,15 @@ internal sealed class OffscreenWebViewHost : NativeWindow, IDisposable {
             return;
         }
 
+        if (msg.StartsWith("__metro_ime__:", StringComparison.Ordinal)) {
+            string[] parts = msg["__metro_ime__:".Length..].Split(':');
+            bool enabled = parts.Length > 0 && parts[0] == "1";
+            double x = parts.Length > 1 && double.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out double px) && double.IsFinite(px) ? px : 0.0;
+            double y = parts.Length > 2 && double.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out double py) && double.IsFinite(py) ? py : 0.0;
+            _ = SendToUnityAsync(new { kind = "ime", enabled, x, y });
+            return;
+        }
+
         if (msg.StartsWith("__metro_js_error__:", StringComparison.Ordinal)) {
             _ = SendToUnityAsync(new { kind = "log", level = "error", message = msg["__metro_js_error__:".Length..] });
             return;
@@ -2057,8 +2066,42 @@ internal sealed class OffscreenWebViewHost : NativeWindow, IDisposable {
         cursorQueued = true;
         requestAnimationFrame(syncCursorNow);
       };
+      let lastSentIme = '0:0:0';
+      let imeQueued = false;
+      const isImeTextInput = (el) => {
+        if (!el || el.nodeType !== 1 || !el.isConnected) return false;
+        if (el.disabled || el.readOnly) return false;
+        const tag = el.tagName;
+        if (tag === 'TEXTAREA') return true;
+        if (tag === 'INPUT') {
+          const type = (el.type || 'text').toLowerCase();
+          return type === 'text' || type === 'search' || type === 'url' || type === 'tel' || type === 'email';
+        }
+        return el.isContentEditable === true;
+      };
+      const syncImeNow = () => {
+        imeQueued = false;
+        const el = document.activeElement;
+        let message = '0:0:0';
+        if (isImeTextInput(el)) {
+          const rect = el.getBoundingClientRect();
+          const x = Math.max(0, Math.round(rect.left + Math.min(rect.width * 0.5, 40)));
+          const y = Math.max(0, Math.round(rect.bottom + 2));
+          message = '1:' + x + ':' + y;
+        }
+        if (message !== lastSentIme) {
+          lastSentIme = message;
+          try { window.chrome.webview.postMessage('__metro_ime__:' + message); } catch {}
+        }
+      };
+      const scheduleImeSync = () => {
+        if (imeQueued) return;
+        imeQueued = true;
+        requestAnimationFrame(syncImeNow);
+      };
       const notifyDirty = () => {
         scheduleCursorSync();
+        scheduleImeSync();
         if (dirtyQueued) return;
         dirtyQueued = true;
         requestAnimationFrame(() => {
@@ -2066,6 +2109,10 @@ internal sealed class OffscreenWebViewHost : NativeWindow, IDisposable {
           try { window.chrome.webview.postMessage('__metro_dirty__'); } catch {}
         });
       };
+      window.addEventListener('focusin', syncImeNow, true);
+      window.addEventListener('focusout', scheduleImeSync, true);
+      window.addEventListener('input', scheduleImeSync, true);
+      document.addEventListener('selectionchange', scheduleImeSync);
       window.addEventListener('pointermove', (ev) => {
         lastCursorX = ev.clientX;
         lastCursorY = ev.clientY;
@@ -2080,6 +2127,7 @@ internal sealed class OffscreenWebViewHost : NativeWindow, IDisposable {
         lastCursorX = ev.clientX;
         lastCursorY = ev.clientY;
         scheduleCursorSync();
+        scheduleImeSync();
       }, true);
       document.addEventListener('mouseleave', () => {
         lastCursorX = -1;

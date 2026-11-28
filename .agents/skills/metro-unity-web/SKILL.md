@@ -16,7 +16,7 @@ suite in `unity/tests/`.
 - [Bridge v2, Dual Transport & UI Shell](references/bridge-v2.md) — `game/src/unity-web/`
   module map, Bridge v2 envelopes & delta adoption, `StationDesktopUiPresenter`,
   `StationEditorReactOverlay`, `MetroEditorWebView.exe`, out-of-band artwork providers,
-  exploded view, statistics paging, audio, and `#game-loading` handoff.
+  Windows IME, exploded view, statistics paging, audio, and `#game-loading` handoff.
 - [Packaging, Deploy, Benchmark & Tests](references/deploy-and-benchmark.md) —
   `tools/unity-web/` script map, `unity/wrangler.jsonc` & Brotli split-stream serving,
   `/game/unity/benchmark` route & graphics controls, portable Windows `.exe` bundler
