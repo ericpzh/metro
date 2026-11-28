@@ -58,3 +58,29 @@ html.metro-overlay body:has(.explodedViewer[open]) .app { visibility: hidden !im
   width: calc(32px * var(--ui-scale, 1));
   height: calc(32px * var(--ui-scale, 1));
 }
+
+/* Pure-DOM hover tooltip for Unity desktop / Editor WebView2 (`html.metro-overlay`), where
+   Chromium's native OS `title` tooltip HWND is invisible to offscreen visual capture. */
+.metro-desktop-tooltip {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  z-index: 20000;
+  overflow: visible;
+  pointer-events: none;
+  user-select: none;
+  max-width: min(320px, calc(100vw - 16px));
+  padding: calc(4px * var(--ui-scale, 1)) calc(8px * var(--ui-scale, 1));
+  border-radius: calc(4px * var(--ui-scale, 1));
+  border: 1px solid var(--bp-line, #2a4d70);
+  background: var(--ui-081a2c, #081a2c);
+  color: var(--ui-heading, #eaf5ff);
+  box-shadow: 0 6px 18px #0008;
+  font: 500 calc(12px * var(--ui-scale, 1))/1.35 system-ui, -apple-system, 'Segoe UI', sans-serif;
+  white-space: pre-line;
+  word-break: break-word;
+}
+
+.metro-desktop-tooltip[hidden] {
+  display: none;
+}

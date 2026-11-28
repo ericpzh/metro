@@ -229,6 +229,7 @@ export function adoptPickedModule(mod: Module, options?: { select?: boolean; not
   if (mod.type === 'track') {
     st.beginPick()
     st.setRailCatenaryStyle(mod.cfg.catenaryStyle ?? 'canopy')
+    if (!mod.cfg.tunnel) st.setRailDir(mod.cfg.dir ?? st.station.lines.find(line => line.id === mod.cfg.line)?.direction ?? 'up')
     st.setTool('rail')
     if (shouldSelect) st.select({ kind: 'module', key: mod.id, label })
     if (shouldNotify) st.setNotice(msg('picked_value', label))

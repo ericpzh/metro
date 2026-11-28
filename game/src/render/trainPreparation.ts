@@ -1,6 +1,6 @@
 import type { StationData, Module } from '../sim/types.ts'
 import { STOCK_CLASSES, trainOriginForScale, trainScaleForStorey } from '../sim/stock.ts'
-import { trackFacing } from '../sim/track.ts'
+import { connectedRailRun, trackFacing, trainApproachSign } from '../sim/track.ts'
 import { trainFlags } from '../sim/trainFlags.ts'
 
 type TrackModule = Extract<Module, { type: 'track' }>
@@ -25,7 +25,8 @@ export function trainPreparationPoses(data: StationData, limit: number): Float32
         else if (!screen.cfg.from && screen.cfg.dir === direction) legacySides |= bit
       }
       const [fx, fy] = trackFacing(track.rot)
-      const sign = track.cfg.dir ? (track.cfg.dir === 'down' ? -1 : 1) : (line.travelSign ?? 1) >= 0 ? 1 : -1
+      const run = track.cfg.dir === 'terminal' ? connectedRailRun(track, tracks) : undefined
+      const sign = trainApproachSign(track, line, run)
       poses.push(track.x, track.y, track.z+trainOriginForScale(trainScaleForStorey(data.storeyHeight)),
         line.cars, STOCK_CLASSES.indexOf(line.stock), 0, parseInt(line.colour.replace('#',''),16) || 0x1f5fd0,
         sign, Math.atan2(fy,fx), trainFlags(ownSides || legacySides,line,data.lines))

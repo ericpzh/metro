@@ -492,6 +492,31 @@ namespace Metro.Persistence {
             }, sourceId, out code);
         }
 
+        public static StationCellPatch PlanPlatformDirection(StationIndex index, string trackId, string direction, out string code) {
+            code = null;
+            if (direction != "up" && direction != "down" && direction != Metro.Sim.StationTrainPose.TerminalDirection) {
+                code = "bad-payload";
+                return null;
+            }
+            if (!index.TryGetModule(trackId, out var track) || track.Type != "track" ||
+                track.Config.Bool("tunnel") || track.Config.Bool("bridge")) {
+                code = "not-found";
+                return null;
+            }
+            var patch = new StationCellPatch();
+            if (track.Config.Text("dir") == direction) return patch;
+            var draft = StationModulePlacement.DraftOf(track);
+            draft.Set("dir", direction);
+            patch.ReplaceModule(draft);
+            foreach (var edge in index.ModulesOfType("platform-edge")) {
+                if (edge.Config.Text("from") != trackId) continue;
+                var edgeDraft = StationModulePlacement.DraftOf(edge);
+                edgeDraft.Set("dir", direction);
+                patch.ReplaceModule(edgeDraft);
+            }
+            return patch;
+        }
+
         public static StationCellPatch PlanBridgeRailing(StationIndex index, string trackId, string railing, out string code) {
             code = null;
             if (railing != "none" && railing != "railing" && railing != "sound-barrier-half" && railing != "sound-barrier") {

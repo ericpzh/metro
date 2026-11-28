@@ -17,8 +17,8 @@ import { STOREY_HEIGHT } from '../sim/constants.ts'
 import { boxesOverlap, blockerLabels, equipmentReason, isCeilingHung, isOutdoorSurface, moduleEnvelope, trackAt, type ModuleBox } from '../sim/placement.ts'
 import { rampBodyBoxes } from '../sim/openings.ts'
 import { STOCK, doorCentres, trainLength, trainScaleForStorey } from '../sim/stock.ts'
-import { rotateLocal, trackCellAt, trackCells, trackHeadroom, type TrackModule } from '../sim/track.ts'
-import type { Cell, LineDef, LineDirection, Module, PsdHeight } from '../sim/types.ts'
+import { railLineDirection, rotateLocal, trackCellAt, trackCells, trackHeadroom, type TrackModule } from '../sim/track.ts'
+import type { Cell, LineDef, LineDirection, Module, PsdHeight, RailDirection } from '../sim/types.ts'
 import { lineColourFor, type CityStyle } from '../sim/cityStyles.ts'
 import { cellKey, nextModuleId, removeModule, type StationState } from './model.ts'
 
@@ -137,7 +137,7 @@ export function trackPieceForLine(line: Pick<LineDef, 'stock' | 'cars' | 'modelS
 export function makeTrack(o: {
   id: string
   lineId: string
-  dir: LineDirection
+  dir: RailDirection
   power: 'third-rail' | 'catenary'
   rot: number
   x: number
@@ -170,7 +170,7 @@ function makeEdge(
   y: number,
   w: number,
   side: 'left' | 'right',
-  dir: LineDirection,
+  dir: RailDirection,
   psd: PsdHeight,
 ): PlatformEdgeModule {
   return {
@@ -196,7 +196,7 @@ function makeEdge(
 export function derivePlatformEdges(state: StationState, track: Module): PlatformEdgeModule[] {
   if (track.type !== 'track' || (track.cfg.tunnel || track.cfg.bridge)) return []
   const line = state.lines.find((l) => l.id === track.cfg.line)
-  const dir: LineDirection = track.cfg.dir ?? line?.direction ?? 'up'
+  const dir = track.cfg.dir ?? line?.direction ?? 'up'
   const psd: PsdHeight = line?.psd ?? 'full'
   const rot = track.rot ?? 0
   const d = track.d ?? 1
@@ -255,6 +255,18 @@ export function regenerateRailEdges(state: StationState, trackId: string, resetS
   }
   const cleaned = dropDerivedEdges(state, trackId)
   return { ...cleaned, modules: [...cleaned.modules, ...derivePlatformEdges(cleaned, track)] }
+}
+
+/** Change service direction while preserving the platform's existing screen sections. */
+export function setPlatformDirection(state: StationState, trackId: string, dir: RailDirection): StationState {
+  const track = state.modules.find((m): m is TrackModule => m.id === trackId && m.type === 'track')
+  if (!track || track.cfg.tunnel || track.cfg.bridge || track.cfg.dir === dir) return state
+  const modules = state.modules.map((m) => {
+    if (m.type === 'track' && m === track) return { ...m, cfg: { ...m.cfg, dir } }
+    if (m.type === 'platform-edge' && m.cfg.from === trackId) return { ...m, cfg: { ...m.cfg, dir } }
+    return m
+  })
+  return { ...state, modules }
 }
 
 /**
@@ -445,7 +457,7 @@ export function commitTrack(state: StationState, track: TrackModule): StationSta
 
 export interface PlaceTrackOptions {
   lineId: string
-  dir: LineDirection
+  dir: RailDirection
   power: 'third-rail' | 'catenary'
   rot: number
   x: number
@@ -465,7 +477,7 @@ export function placeTrack(state: StationState, opts: PlaceTrackOptions): Statio
 
 export interface PlaceRailOptions {
   lineId: string
-  dir: LineDirection
+  dir: RailDirection
   power: 'third-rail' | 'catenary'
 }
 
@@ -567,7 +579,7 @@ export function makeTunnel(src: TrackModule, end: 1 | -1, length: number, id: st
   return makeTrack({
     id,
     lineId: src.cfg.line,
-    dir: src.cfg.dir ?? 'up',
+    dir: railLineDirection(src.cfg.dir),
     power: src.cfg.power,
     rot: src.rot ?? 0,
     x: src.x + dx,

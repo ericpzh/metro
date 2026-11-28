@@ -9,10 +9,14 @@ export function DimensionArt({ vertical = false, selected, count, align = 'start
   </svg>
 }
 
-export function DirectionArt({ direction }: { direction: 'up' | 'down' | 'one-way' | 'two-way' }): React.ReactElement {
+export function DirectionArt({ direction }: { direction: 'up' | 'down' | 'terminal' | 'one-way' | 'two-way' }): React.ReactElement {
   return <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="0.8" strokeLinejoin="round">
-    <path d="M4 3h3v9h3l-4.5 5L1 12h3Z" fill={direction === 'down' || direction === 'two-way' ? 'currentColor' : 'none'} opacity={direction === 'up' || direction === 'one-way' ? 0.45 : 1} />
-    <path d="M13 17h3V8h3l-4.5-5L10 8h3Z" fill={direction !== 'down' ? 'currentColor' : 'none'} opacity={direction === 'down' ? 0.45 : 1} />
+    {direction === 'terminal' ? (
+      <path d="M4 17V8a6 6 0 0 1 12 0v4h3l-4.5 5-4.5-5h3V8a3 3 0 0 0-6 0v9Z" fill="currentColor" />
+    ) : <>
+      <path d="M4 3h3v9h3l-4.5 5L1 12h3Z" fill={direction === 'down' || direction === 'two-way' ? 'currentColor' : 'none'} opacity={direction === 'up' || direction === 'one-way' ? 0.45 : 1} />
+      <path d="M13 17h3V8h3l-4.5-5L10 8h3Z" fill={direction !== 'down' ? 'currentColor' : 'none'} opacity={direction === 'down' ? 0.45 : 1} />
+    </>}
   </svg>
 }
 

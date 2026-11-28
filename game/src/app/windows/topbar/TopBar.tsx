@@ -14,7 +14,7 @@ import { CityStyleSelect } from './CityStyleSelect.tsx'
 import { FileButtons } from './FileButtons.tsx'
 import { ReplaceStationDialog } from './ReplaceStationDialog.tsx'
 import { useStationHost } from '../StationHost.tsx'
-import { stationHostCommit } from '../../stationHostBridge.ts'
+import { canEditStationName, stationHostCommit, subscribeStationHostCommit } from '../../stationHostBridge.ts'
 
 // Speed multipliers: the play/pause toggle and the speeds are one segmented
 // group (暂停 | 1× | 4× | 16× | 64×). Exactly one is highlighted: paused ⇒ the
@@ -74,6 +74,12 @@ export function TopBar({ files }: { files?: { save: () => void; open: (text: str
     host?.subscribeHistory ?? noopSubscribe,
     host?.getHistory ?? (() => EMPTY_HISTORY),
   )
+  const hostCommit = useSyncExternalStore(
+    subscribeStationHostCommit,
+    stationHostCommit,
+    stationHostCommit,
+  )
+  const stationNameEditable = canEditStationName(Boolean(host), Boolean(files), hostCommit)
   const undo = host?.undo ?? storeUndo
   const redo = host?.redo ?? storeRedo
   const canUndo = host?.getHistory ? hostHistory.canUndo : storeCanUndo
@@ -104,7 +110,7 @@ export function TopBar({ files }: { files?: { save: () => void; open: (text: str
     <div className="topbar">
       <div className="brand">
         <span className="logo">{t('metro_station_designer')}</span>
-        <StationName editable={!files && (!host || Boolean(stationHostCommit()?.commitStationName))} />
+        <StationName editable={stationNameEditable} />
       </div>
       <div className="spacer" />
       <NewStationButton />

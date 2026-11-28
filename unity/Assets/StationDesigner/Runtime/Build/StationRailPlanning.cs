@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Metro.Sim;
 
 namespace Metro.Build {
     /// <summary>One stock class's body, as far as rail sizing reads it (`sim/stock.ts`).</summary>
@@ -720,7 +721,7 @@ namespace Metro.Build {
             };
             draft.Set("line", src.Config.Text("line"));
             var dir = src.Config.Text("dir");
-            draft.Set("dir", string.IsNullOrEmpty(dir) ? "up" : dir);
+            draft.Set("dir", StationTrainPose.DestinationDirection(dir));
             var power = src.Config.Text("power");
             draft.Set("power", string.IsNullOrEmpty(power) ? "third-rail" : power);
             draft.Set(true, "tunnel");

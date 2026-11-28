@@ -785,7 +785,11 @@ Track is one module type, drawn as a straight run on the five-metre grid:
 | 信号 rail signal | 1 × 1 | trackside prop |
 | 屏蔽门 screen doors | derived per edge | not a placed module; the line's `psd` draws the screen (§5.3) |
 
-Add a line in the Lines panel before placing the first platform.
+Add a line in the Lines panel before placing the first platform. The platform
+direction tile cycles through 上行 (Up), 下行 (Down), and 尽头
+(Terminal). A terminal train enters and leaves through the same end. It uses the
+sole end with connected rail when there is one. Otherwise it uses the platform's
+local negative end, set by the platform rotation.
 
 **Power is a property of the track**, not a separate segment: `third-rail` or `catenary`.
 A tunnel keeps its own shell; a bridge draws the matching gantry/canopy. Third rail is
@@ -962,15 +966,15 @@ period(t) = peak    if t in the station's two peak windows (default 07:30–09:0
 service   = 06:30–23:30 by default (§9.6C)
 headwayActive(t) = line.headwayProfile[period(t)]        // 60–1200 s
 
-dispatch(track):
-  when headwayActive has elapsed and the track is free:
+dispatch(service):
+  when headwayActive has elapsed and the next track is free:
     spawn one consist → approach → open → 30 s dwell → close → depart → despawn
 ```
 
-* **One consist per track.** There is no ordered-stations run: a train is dispatched on the
-  track's own line, runs the track's length and disappears at the end. `stations[]` is never
-  read, there is no terminus reversal or through-replacement, and a second train cannot enter
-  a track another consist still occupies (the practical headway floor is the ~53 s cycle).
+* **One consist per track.** Through tracks have independent schedules. A line's
+  terminal tracks share one schedule and take turns in document order, one train
+  per line headway. Each platform's arrival forecast follows its place in the
+  rotation. A train waits to dispatch if its berth is still occupied.
 * **Peak vs off-peak is one station clock.** The two peak windows are edited once (§9.6C)
   and apply to every line; each line answers with its own three headways. Scrubbing the clock
   across 09:00 stretches the gap on every platform at once.

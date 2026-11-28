@@ -41,9 +41,9 @@ export function RailFolder({ subMenu, onToggleSubMenu }: { subMenu: SubMenuKey |
   // The 结构 folder is also the rail panel. When a rail is selected it edits that
   // rail; otherwise it sets the defaults the next placement will use.
   const track = findSelectedTrack(selected, stationModules)
-  const railDirNow = track ? (track.cfg.dir ?? 'up') : railDir
   const railLineNow = track ? track.cfg.line : railLineId || stationLines[0]?.id || ''
   const railLine = stationLines.find((l) => l.id === railLineNow)
+  const railDirNow = track ? (track.cfg.dir ?? railLine?.direction ?? 'up') : railDir
   const catenaryStyle = track?.cfg.catenaryStyle ?? railCatenaryDefault
   const showCatenaryStyle = railLine?.power === 'catenary' && (railLine.psd === 'half' || railLine.psd === 'none')
   const trackSummary = track ? railSummary(track, stationLines.find((l) => l.id === track.cfg.line)) : null
@@ -55,10 +55,6 @@ export function RailFolder({ subMenu, onToggleSubMenu }: { subMenu: SubMenuKey |
   // while placing a tunnel. Clicking away closes both with the same shrink.
   const platformOpen = !bridgeOpen && (tool === 'rail' || (track !== undefined && !track.cfg.tunnel && !track.cfg.bridge))
   const tunnelOpen = tool === 'tunnel'
-  const setRailDirNow = (d: 'up' | 'down'): void => {
-    if (track) st().updateRail(track.id, { dir: d })
-    else st().setRailDir(d)
-  }
   const setRailLineNow = (id: string): void => {
     if (track) st().updateRail(track.id, { line: id })
     else st().setRailLine(id)
@@ -120,7 +116,7 @@ export function RailFolder({ subMenu, onToggleSubMenu }: { subMenu: SubMenuKey |
                       {tool !== 'tunnel' && (
                         <RotateTile rotation={railRot} label={t('rotate_value', ((4 - railRot) % 4) * 90)} onClick={() => st().rotateRail()} />
                       )}
-                      {!editingTunnel && <Block label={t(railDirNow)} art={<DirectionArt direction={railDirNow} />} shortcut="Tab" onClick={() => setRailDirNow(railDirNow === 'up' ? 'down' : 'up')} />}
+                      {!editingTunnel && <Block label={t(railDirNow)} art={<DirectionArt direction={railDirNow} />} shortcut="Tab" onClick={() => st().cycleRailDir()} />}
                       {showCatenaryStyle && (
                         <Block
                           label={t('catenary_style_value', t(catenaryStyle === 'gantry' ? 'catenary_gantry' : 'catenary_canopy'))}

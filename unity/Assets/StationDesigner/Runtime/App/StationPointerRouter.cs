@@ -2533,6 +2533,18 @@ namespace Metro.App {
                     }
                     return true;
                 }
+                case "edit.rail.direction": {
+                    if (!host.IsLoaded) { rejectCode = "no-session"; return false; }
+                    var patch = StationHostEdits.PlanPlatformDirection(host.Index, String(payload, "trackId"),
+                        String(payload, "direction"), out rejectCode);
+                    if (patch == null) { rejectReason = rejectCode; return false; }
+                    if (!patch.HasWork) return true;
+                    if (!StationEditSession.TryApplyCells(host, patch, "platform-direction", command.Id, out _, out rejectCode)) {
+                        rejectReason = rejectCode;
+                        return false;
+                    }
+                    return true;
+                }
                 case "edit.rail.railing": {
                     if (!host.IsLoaded) { rejectCode = "no-session"; return false; }
                     var patch = StationHostEdits.PlanBridgeRailing(host.Index, String(payload, "trackId"),

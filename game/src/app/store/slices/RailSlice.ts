@@ -13,6 +13,7 @@ import {
   placeTrack,
   placeTunnel,
   regenerateRailEdges,
+  setPlatformDirection,
   stripTunnelShell,
   trackBlockNotice,
   trackBlockReason,
@@ -20,8 +21,8 @@ import {
   trackPieceForLine,
 } from '../../../build/rail.ts'
 import { blockerLabels } from '../../../sim/placement.ts'
-import { nextTrackRunLength, supportedTrackRunLength, trackOriginForCentre } from '../../../sim/track.ts'
-import type { BridgeRailing, LineDirection } from '../../../sim/types.ts'
+import { nextRailDirection, nextTrackRunLength, supportedTrackRunLength, trackOriginForCentre } from '../../../sim/track.ts'
+import type { BridgeRailing, RailDirection } from '../../../sim/types.ts'
 import type { AppState } from '../Store.ts'
 import { stationHostCommit } from '../../stationHostBridge.ts'
 
@@ -29,7 +30,7 @@ export interface RailSlice {
   /** Rail tool: the line/direction a freshly laid bed binds to. Power is a
    *  line option (edited in the RHS 线路 panel), so it is not stored here. */
   railLineId: string
-  railDir: LineDirection
+  railDir: RailDirection
   /** Quarter-turn applied to the rail piece being placed (R): 0..3. */
   railRot: number
   railCatenaryStyle: 'canopy' | 'gantry'
@@ -37,11 +38,11 @@ export interface RailSlice {
   tunnelLength: number
 
   setRailLine: (id: string) => void
-  setRailDir: (dir: LineDirection) => void
+  setRailDir: (dir: RailDirection) => void
   /** Turn the rail piece being placed 90° (R). */
   rotateRail: () => void
   setRailCatenaryStyle: (style: 'canopy' | 'gantry') => void
-  /** Toggle the platform run's 上行/下行 (Tab): edits a selected platform, else the tool default. */
+  /** Cycle the platform direction (Tab): edits a selected platform, else the tool default. */
   cycleRailDir: () => void
   /** Place the fixed track piece for the bound line at a cell (dig + doors). */
   layTrack: (at: [number, number, number]) => void
@@ -54,8 +55,8 @@ export interface RailSlice {
   regenRail: (trackId: string) => void
   /** Remove a rail and the screen doors derived from it. */
   removeRail: (trackId: string) => void
-  /** Edit a rail's line/direction and re-derive its screen doors. */
-  updateRail: (trackId: string, patch: { line?: string; dir?: LineDirection; bridgeRailing?: BridgeRailing; catenaryStyle?: 'canopy' | 'gantry' }) => void
+  /** Edit a rail and re-derive its screen doors. */
+  updateRail: (trackId: string, patch: { line?: string; bridgeRailing?: BridgeRailing; catenaryStyle?: 'canopy' | 'gantry' }) => void
 }
 
 export const createRailSlice: StateCreator<AppState, [], [], RailSlice> = (set, get) => ({
@@ -73,11 +74,15 @@ export const createRailSlice: StateCreator<AppState, [], [], RailSlice> = (set, 
     const st = get()
     const sel = st.selected
     const track = sel?.kind === 'module' ? st.station.modules.find((m) => m.id === sel.key) : undefined
-    if (track && track.type === 'track' && !track.cfg.tunnel) {
-      get().updateRail(track.id, { dir: (track.cfg.dir ?? 'up') === 'up' ? 'down' : 'up' })
+    if (track?.type === 'track' && !track.cfg.tunnel && !track.cfg.bridge) {
+      const direction = nextRailDirection(track.cfg.dir ?? st.station.lines.find((line) => line.id === track.cfg.line)?.direction ?? 'up')
+      const host = stationHostCommit()
+      if (host?.ownsStation() && host.commitSetPlatformDirection?.(track.id, direction)) return
+      const next = setPlatformDirection(st.station, track.id, direction)
+      if (next !== st.station) st.commit(next)
       return
     }
-    set({ railDir: st.railDir === 'up' ? 'down' : 'up' })
+    set({ railDir: nextRailDirection(st.railDir) })
   },
   layTrack: (at) => {
     const st = get()

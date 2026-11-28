@@ -82,14 +82,16 @@ export function servedPerHour(alightPerTrain: number, headwayS: number): number 
 }
 
 /**
- * How many consists one line runs per dispatch: one per platform rail, or the
- * whole line's single train when it owns no rails yet — the same count
- * `World.serviceTracks` dispatches (§6.5), so the chart and the crowd agree.
+ * How many consists one line runs per headway. Terminal berths share a single
+ * slot. A line with no rails yet still runs one train for the whole line.
  */
 export function serviceTrackCount(modules: readonly Module[], lineId: string): number {
   const bound = modules.filter((m) => m.type === 'track' && m.cfg.line === lineId)
   const platforms = bound.filter((m) => m.type === 'track' && !m.cfg.tunnel && !m.cfg.bridge)
-  const n = platforms.length > 0 ? platforms.length : bound.length
+  const n = platforms.length > 0
+    ? platforms.filter(m => m.type === 'track' && m.cfg.dir !== 'terminal').length
+      + Number(platforms.some(m => m.type === 'track' && m.cfg.dir === 'terminal'))
+    : bound.length
   return n > 0 ? n : 1
 }
 

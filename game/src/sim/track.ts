@@ -14,7 +14,20 @@ import { PSD_WALL_OFFSET } from './constants.ts'
 // offsets are allowed, because a run centre is a half-cell. Pure data — no
 // three, no DOM.
 
-import type { Cell, LineDirection, Module } from './types.ts'
+import type { Cell, LineDef, LineDirection, Module, RailDirection } from './types.ts'
+
+export function nextRailDirection(direction: RailDirection): RailDirection {
+  switch (direction) {
+    case 'up': return 'down'
+    case 'down': return 'terminal'
+    case 'terminal': return 'up'
+  }
+}
+
+/** A terminal platform uses the line's configured direction for destination signage. */
+export function railLineDirection(direction: RailDirection | undefined, fallback: LineDirection = 'up'): LineDirection {
+  return direction === 'up' || direction === 'down' ? direction : fallback
+}
 
 /** Clear courses above the bed, including the overhead support assembly. */
 export function trackHeadroom(track: TrackModule): number {
@@ -41,6 +54,45 @@ export function trackRunLengthLabel(length: number): string {
 
 export type TrackModule = Extract<Module, { type: 'track' }>
 export type PlatformEdgeModule = Extract<Module, { type: 'platform-edge' }>
+
+/** Distances from the berth to either end of the connected rail, in local metres. */
+export function connectedRailRun(track: TrackModule, modules: readonly Module[]): { back: number; fwd: number } {
+  const rot = normRot(track.rot)
+  const [fx, fy] = trackFacing(rot)
+  const [sx, sy] = trackSide(rot)
+  const depth = track.d ?? 1
+  const centre = track.w / 2
+  const spans: Array<[number, number]> = []
+  for (const module of modules) {
+    if (module.type !== 'track' || module.cfg.line !== track.cfg.line || module.z !== track.z || normRot(module.rot) !== rot) continue
+    const dx = module.x - track.x
+    const dy = module.y - track.y
+    const across = dx * sx + dy * sy
+    if (across >= depth || across + (module.d ?? 1) <= 0) continue
+    const along = dx * fx + dy * fy
+    spans.push([along, along + module.w])
+  }
+  spans.sort((a, b) => a[0] - b[0])
+  let lo = 0
+  let hi = track.w
+  // Follow touching spans outward from the platform on each side.
+  for (const [start, end] of spans) {
+    if (start <= hi && end >= 0) hi = Math.max(hi, end)
+  }
+  for (let i = spans.length - 1; i >= 0; i--) {
+    const [start, end] = spans[i]
+    if (end >= lo && start <= track.w) lo = Math.min(lo, start)
+  }
+  return { back: centre - lo, fwd: hi - centre }
+}
+
+export function trainApproachSign(track: TrackModule, line: LineDef, run?: ReturnType<typeof connectedRailRun>): number {
+  if (track.cfg.dir === 'terminal' && run) {
+    return run.back === track.w / 2 && run.fwd > track.w / 2 ? -1 : 1
+  }
+  if (track.cfg.dir) return track.cfg.dir === 'down' ? -1 : 1
+  return (line.travelSign ?? 1) >= 0 ? 1 : -1
+}
 
 /** Normalise a quarter-turn index to 0..3. */
 export function normRot(rot: number | undefined): number {

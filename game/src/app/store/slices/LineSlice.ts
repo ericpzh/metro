@@ -13,6 +13,7 @@ import {
   trackPieceForLine,
 } from '../../../build/rail.ts'
 import { normalizeHeadwayProfile, snapFormation } from '../../../sim/headway.ts'
+import { railLineDirection } from '../../../sim/track.ts'
 import type { LineDef } from '../../../sim/types.ts'
 import type { AppState } from '../Store.ts'
 import { stationHostCommit } from '../../stationHostBridge.ts'
@@ -30,12 +31,13 @@ export const createLineSlice: StateCreator<AppState, [], [], LineSlice> = (set, 
   addLine: () => {
     const st = get()
     const host = stationHostCommit()
-    if (host?.ownsStation() && host.commitAddLine?.(st.railDir)) return
+    const direction = railLineDirection(st.railDir)
+    if (host?.ownsStation() && host.commitAddLine?.(direction)) return
     const used = new Set(st.station.lines.map((l) => l.id))
     let n = st.station.lines.length + 1
     while (used.has(String(n))) n++
     const id = String(n)
-    const line = defaultLine(id, st.railDir, 'third-rail', st.station.storeyHeight, st.station.cityStyle)
+    const line = defaultLine(id, direction, 'third-rail', st.station.storeyHeight, st.station.cityStyle)
     get().commit({ ...st.station, lines: [...st.station.lines, line] })
     set({ railLineId: id, notice: msg('created_value_new_track_will_bind_automatically', line.name) })
   },

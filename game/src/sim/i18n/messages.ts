@@ -736,6 +736,10 @@ export const messages = {
     "zh": "下行",
     "en": "Down"
   },
+  "terminal": {
+    "zh": "尽头",
+    "en": "Terminal"
+  },
   "roof_snap_lower": {
     "zh": "下",
     "en": "Lower"

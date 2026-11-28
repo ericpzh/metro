@@ -5,11 +5,12 @@ import { TRAIN_ORIGIN_Z, CABIN_FLOOR_Z, trainOriginForScale } from '../src/sim/s
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { World } from '../src/sim/world.ts'
-import { defaultLine, placeRail, placeTrack, placeTunnel } from '../src/build/rail.ts'
+import { defaultLine, makeTrack, placeRail, placeTrack, placeTunnel } from '../src/build/rail.ts'
 import { STOCK, doorCentres, doorRunOffsets } from '../src/sim/stock.ts'
 import { rotateLocal, trackCentre } from '../src/sim/track.ts'
 import { scenarioStation } from './support/scenario-station.ts'
-import { TRAIN_DOOR_TRAVEL, TRAIN_DWELL } from '../src/sim/constants.ts'
+import { TRAIN_APPROACH_S, TRAIN_DEPART_S, TRAIN_DOOR_TRAVEL, TRAIN_DWELL } from '../src/sim/constants.ts'
+import { serviceTrackCount } from '../src/sim/headway.ts'
 
 const STRIDE = 10
 
@@ -23,6 +24,59 @@ function floorRow(x0, x1, y, finish = 'floor.granite') {
   for (let x = x0; x <= x1; x++) out.push({ x, y, z: 0, fill: 'solid', finish: { top: finish } })
   return out
 }
+
+test('terminal trains back out through their approach end without turning the consist', () => {
+  const line = { ...defaultLine('1', 'down', 'third-rail'), alightPerTrain: 0 }
+  for (const [spans, run] of [
+    [[], -20],
+    [[[40, 16], [56, 32]], 68],
+    [[[-48, 32], [-16, 16], [-100, 16]], -68],
+    [[[-16, 16], [40, 32]], -36],
+  ]) {
+    const track = makeTrack({ id: 'terminal', lineId: '1', dir: 'terminal', power: 'third-rail', rot: 1, x: 0, y: 0, z: 0, w: 40, d: 3 })
+    const tunnels = spans.map(([y, w], i) => makeTrack({ id: `tunnel-${i}`, lineId: '1', dir: 'up', power: 'third-rail',
+      rot: 1, x: 0, y, z: 0, w, d: 3, tunnel: true }))
+    const world = new World({ ...station([]), lines: [line], modules: [track, ...tunnels] })
+    world.tickOnce()
+    const entry = world.trainRenderState()
+    const [train] = world.trains
+    while (train.state !== 'dwell') world.tickOnce()
+    const berth = world.trainRenderState()
+    while (train.state !== 'depart' || train.t !== TRAIN_DEPART_S - 1) world.tickOnce()
+    const departure = world.trainRenderState()
+    const half = STOCK[line.stock].length * line.cars * line.modelScale / 2
+    assert.ok(Math.abs(entry[1] - berth[1] - run - Math.sign(run) * half) < 1e-5)
+    assert.equal(departure[0], entry[0])
+    assert.equal(departure[1], entry[1])
+    assert.equal(departure[7], entry[7], 'the same cars back out without turning')
+    assert.equal(world.trainServices()[0].direction, 'down', 'the line still supplies the passenger destination')
+  }
+})
+
+test('terminal berths take turns at the line headway and forecast their own arrivals', () => {
+  const headway = 60
+  const line = { ...defaultLine('1', 'up', 'third-rail'), alightPerTrain: 0,
+    headwayProfile: { peak: headway, offpeak: headway, late: headway } }
+  const modules = ['terminal', 'up', 'terminal', 'terminal'].map((dir, i) =>
+    makeTrack({ id: `track-${i}`, lineId: '1', dir, power: 'third-rail', rot: 0, x: 0, y: 8 * i, z: 0, w: 40, d: 3 }))
+  const world = new World({ ...station([]), lines: [line], modules })
+  assert.equal(serviceTrackCount(modules, line.id), 2, 'three terminal berths share one service alongside the through track')
+  const forecasts = world.trainServices().map(service => service.arrivals.map(arrival => arrival.seconds))
+  for (const [index, start, interval] of [[0, 1, 180], [1, 13, 60], [2, 61, 180], [3, 121, 180]]) {
+    assert.deepEqual(forecasts[index], [0, 1, 2].map(n => start + n * interval + TRAIN_APPROACH_S - 1))
+  }
+  const dispatches = []
+  while (world.tick <= 1 + 3 * headway) {
+    world.tickOnce()
+    for (const train of world.trains) if (train.state === 'approach' && train.t === 1) {
+      dispatches.push([world.tick, train.track])
+    }
+  }
+  assert.deepEqual(dispatches, [
+    [1, 'track-0'], [13, 'track-1'], [61, 'track-2'], [73, 'track-1'],
+    [121, 'track-3'], [133, 'track-1'], [181, 'track-0'],
+  ])
+})
 
 test('rotated L and D berths keep every train door centred on its screen opening', () => {
   for (const stock of ['L', 'D']) for (const rot of [0, 1, 2, 3]) for (const dir of ['up', 'down']) {

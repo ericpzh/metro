@@ -22,8 +22,9 @@ namespace Metro.Sim {
         public double X, Y, Z;
         /// <summary>The unit run direction (`trainAt`'s `fx`/`fy`).</summary>
         public double Fx, Fy;
-        /// <summary>+1 for an up service, −1 for a down one.</summary>
+        /// <summary>The consist's orientation as it approaches and berths.</summary>
         public int DirectionSign;
+        public bool Terminal;
         public double HalfLength, ApproachRun, DepartRun;
         public bool HasPlatform;
         /// <summary>Track-local platform sides owned by this berth: bit 0 = left (+y), bit 1 = right (−y).</summary>
@@ -56,6 +57,16 @@ namespace Metro.Sim {
     /// Zoo tracks, so the two owners cannot drift apart.
     /// </summary>
     public static class StationTrainPose {
+        public const string TerminalDirection = "terminal";
+
+        /// <summary>A terminal uses the line's configured direction for destination signage.</summary>
+        public static string DestinationDirection(string direction, string fallback = "up") =>
+            direction == "up" || direction == "down" ? direction : fallback == "down" ? "down" : "up";
+
+        /// <summary>Use the sole connected end. The local negative end wins when both or neither connect.</summary>
+        public static int TerminalApproachSign(double width, double back, double forward) =>
+            back == width * .5 && forward > width * .5 ? -1 : 1;
+
         /// <summary>`trainScaleForStorey`: the promoted car scale (`stock.ts`).</summary>
         public const double DefaultScale = .98;
         /// <summary>`CABIN_FLOOR_Z`: the car floor above the consist origin, metres.</summary>
@@ -242,9 +253,12 @@ namespace Metro.Sim {
             spans.Sort((a, b) => a.lo.CompareTo(b.lo));
             double low = 0, high = track.Width;
             for (int i = 0; i < spans.Count; i++) {
-                if (spans[i].lo > high || spans[i].hi < low) continue;
-                low = Math.Min(low, spans[i].lo);
+                if (spans[i].lo > high || spans[i].hi < 0) continue;
                 high = Math.Max(high, spans[i].hi);
+            }
+            for (int i = spans.Count - 1; i >= 0; i--) {
+                if (spans[i].hi < low || spans[i].lo > track.Width) continue;
+                low = Math.Min(low, spans[i].lo);
             }
             back = centre - low;
             forward = high - centre;
@@ -293,7 +307,9 @@ namespace Metro.Sim {
             SelectBerthPlatformEdges(document, track, line.Id ?? "", direction, selectedEdges);
             bool hasEdge = selectedEdges.Count > 0;
             var edge = hasEdge ? selectedEdges[0] : default;
-            int dirSign = DirectionSign(track, line, haveLine);
+            bool terminal = track.Dir == TerminalDirection;
+            int dirSign = terminal ? TerminalApproachSign(track.Width, back, forward) : DirectionSign(track, line, haveLine);
+            double approachRun = terminal && dirSign < 0 ? forward : back;
             int trackSides = DoorSidesMask(selectedEdges);
             int bankMask = ConsistDoorBankMask(trackSides, dirSign);
             var entry = new StationTrainBerth {
@@ -307,9 +323,10 @@ namespace Metro.Sim {
                 Z = track.Z + TrainOrigin(modelScale),
                 Fx = fx, Fy = fy,
                 DirectionSign = dirSign,
+                Terminal = terminal,
                 HalfLength = stock.Length * Math.Max(0, line.Cars) * modelScale * .5,
-                ApproachRun = back,
-                DepartRun = forward,
+                ApproachRun = approachRun,
+                DepartRun = terminal ? approachRun : forward,
                 HasPlatform = hasEdge,
                 TrackDoorSides = trackSides,
                 DoorBankMask = bankMask,
@@ -354,7 +371,7 @@ namespace Metro.Sim {
                 case TrainPhase.Depart: {
                     double p = Math.Min(1, phaseSeconds / StationSimConstants.TrainDepartSeconds);
                     return p * p * (berth.HalfLength + berth.DepartRun) *
-                        DrawnRunScale(StationSimConstants.TrainDepartSeconds) * berth.DirectionSign;
+                        DrawnRunScale(StationSimConstants.TrainDepartSeconds) * (berth.Terminal ? -berth.DirectionSign : berth.DirectionSign);
                 }
                 default:
                     return 0;

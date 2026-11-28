@@ -746,6 +746,9 @@ namespace Metro.Sim {
         readonly Dictionary<string, double> nextDispatch = new Dictionary<string, double>();
         /// <summary>The (line, track) services the committed document runs, in document order, per line id.</summary>
         readonly Dictionary<string, List<string>> serviceTracks = new Dictionary<string, List<string>>();
+        readonly Dictionary<string, List<string>> dispatchTracks = new Dictionary<string, List<string>>();
+        readonly Dictionary<string, List<string>> terminalTracks = new Dictionary<string, List<string>>();
+        readonly Dictionary<string, string> lastTerminalTrack = new Dictionary<string, string>();
         StationSessionDocument document;
         SimulationRng rng;
         uint seed;
@@ -1203,6 +1206,8 @@ namespace Metro.Sim {
             escalators.Clear();
             lifts.Clear();
             serviceTracks.Clear();
+            dispatchTracks.Clear();
+            terminalTracks.Clear();
             if (document != null) {
                 var bands = document.MovingBandsInOrder();
                 for (int i = 0; i < bands.Count; i++) {
@@ -1237,30 +1242,32 @@ namespace Metro.Sim {
                     var line = document.Lines[i];
                     var tracks = document.ServiceTracks(line.Id);
                     var ids = new List<string>(tracks.Count);
-                    for (int t = 0; t < tracks.Count; t++) ids.Add(tracks[t].Id);
+                    var slots = new List<string>(tracks.Count);
+                    var terminals = new List<string>();
+                    for (int t = 0; t < tracks.Count; t++) {
+                        var track = tracks[t];
+                        ids.Add(track.Id);
+                        if (track.Dir == StationTrainPose.TerminalDirection) {
+                            // The terminal berths share one line headway.
+                            if (terminals.Count == 0) slots.Add("");
+                            terminals.Add(track.Id);
+                        } else {
+                            slots.Add(track.Id);
+                        }
+                    }
+                    if (slots.Count == 0) slots.Add("");
                     serviceTracks[line.Id] = ids;
+                    dispatchTracks[line.Id] = slots;
+                    if (terminals.Count > 0) terminalTracks[line.Id] = terminals;
                 }
             }
             if (!preserveDispatch) {
                 nextDispatch.Clear();
-                if (document == null) return;
-                double stagger = 0;
-                for (int i = 0; i < document.Lines.Count; i++) {
-                    var line = document.Lines[i];
-                    var ids = serviceTracks[line.Id];
-                    if (ids.Count == 0) {
-                        nextDispatch[ServiceKey(line.Id, "")] = Clock.SimTime + stagger;
-                        stagger += 13;
-                        continue;
-                    }
-                    for (int t = 0; t < ids.Count; t++) {
-                        nextDispatch[ServiceKey(line.Id, ids[t])] = Clock.SimTime + stagger;
-                        stagger += 13;
-                    }
-                }
-                return;
+                lastTerminalTrack.Clear();
             }
-
+            foreach (string lineId in new List<string>(lastTerminalTrack.Keys)) {
+                if (!terminalTracks.ContainsKey(lineId)) lastTerminalTrack.Remove(lineId);
+            }
             if (document == null) {
                 nextDispatch.Clear();
                 return;
@@ -1269,14 +1276,7 @@ namespace Metro.Sim {
             double newStagger = 0;
             for (int i = 0; i < document.Lines.Count; i++) {
                 var line = document.Lines[i];
-                var ids = serviceTracks[line.Id];
-                if (ids.Count == 0) {
-                    string key = ServiceKey(line.Id, "");
-                    activeKeys.Add(key);
-                    if (!nextDispatch.ContainsKey(key)) nextDispatch[key] = Clock.SimTime + newStagger;
-                    newStagger += 13;
-                    continue;
-                }
+                var ids = dispatchTracks[line.Id];
                 for (int t = 0; t < ids.Count; t++) {
                     string key = ServiceKey(line.Id, ids[t]);
                     activeKeys.Add(key);
@@ -1297,6 +1297,9 @@ namespace Metro.Sim {
         static List<int> LiftStopLevels(StationModuleFact m) => StationLiftStops.Levels(m);
 
         static string ServiceKey(string lineId, string trackId) => lineId + "|" + trackId;
+
+        int NextTerminalIndex(string lineId, List<string> tracks) =>
+            lastTerminalTrack.TryGetValue(lineId, out var last) ? (tracks.IndexOf(last) + 1) % tracks.Count : 0;
 
         // -------------------------------------------------------------- advance
 
@@ -1395,12 +1398,16 @@ namespace Metro.Sim {
             if (document == null) return;
             for (int i = 0; i < document.Lines.Count; i++) {
                 var line = document.Lines[i];
-                var ids = serviceTracks[line.Id];
-                if (ids.Count == 0) {
-                    MaybeDispatch(line, "", period);
-                    continue;
+                var slots = dispatchTracks[line.Id];
+                for (int t = 0; t < slots.Count; t++) {
+                    string slot = slots[t];
+                    if (slot.Length == 0 && terminalTracks.TryGetValue(line.Id, out var terminals)) {
+                        string terminalId = terminals[NextTerminalIndex(line.Id, terminals)];
+                        if (MaybeDispatch(line, terminalId, slot, period)) lastTerminalTrack[line.Id] = terminalId;
+                    } else {
+                        MaybeDispatch(line, slot, slot, period);
+                    }
                 }
-                for (int t = 0; t < ids.Count; t++) MaybeDispatch(line, ids[t], period);
             }
 
             for (int i = trains.Count - 1; i >= 0; i--) {
@@ -1464,11 +1471,11 @@ namespace Metro.Sim {
             if (transitions.Count > TransitionLimit) transitions.RemoveRange(0, transitions.Count - TransitionLimit);
         }
 
-        void MaybeDispatch(StationLineFact line, string trackId, SimPeriod period) {
-            string key = ServiceKey(line.Id, trackId);
-            if (HasActiveTrain(line.Id, trackId)) return;
+        bool MaybeDispatch(StationLineFact line, string trackId, string slot, SimPeriod period) {
+            string key = ServiceKey(line.Id, slot);
+            if (HasActiveTrain(line.Id, trackId)) return false;
             double next = nextDispatch.TryGetValue(key, out double held) ? held : Clock.SimTime;
-            if (Clock.SimTime < next) return;
+            if (Clock.SimTime < next) return false;
             var run = new TrainRun {
                 LineId = line.Id, TrackId = trackId, Phase = TrainPhase.Approach, T = 0,
                 Sequence = nextTrainSequence++,
@@ -1476,6 +1483,7 @@ namespace Metro.Sim {
             trains.Add(run);
             Record(run, TrainPhase.None, TrainPhase.Approach, true);
             nextDispatch[key] = Clock.SimTime + line.HeadwayFor(period);
+            return true;
         }
 
         bool HasActiveTrain(string lineId, string trackId) {
@@ -1667,7 +1675,12 @@ namespace Metro.Sim {
                         trainFrames.Add(TrainFrame(line, ""));
                         continue;
                     }
-                    for (int t = 0; t < ids.Count; t++) trainFrames.Add(TrainFrame(line, ids[t]));
+                    var terminalForecast = terminalTracks.TryGetValue(line.Id, out var terminals) ? ForecastTerminals(line, terminals) : null;
+                    for (int t = 0; t < ids.Count; t++) {
+                        ArrivalForecast forecast = null;
+                        terminalForecast?.TryGetValue(ids[t], out forecast);
+                        trainFrames.Add(TrainFrame(line, ids[t], forecast));
+                    }
                 }
             }
             var escalatorFrames = new StationEscalatorFrame[escalators.Count];
@@ -1710,13 +1723,12 @@ namespace Metro.Sim {
             return cachedSnapshot;
         }
 
-        StationTrainFrame TrainFrame(StationLineFact line, string trackId) {
+        StationTrainFrame TrainFrame(StationLineFact line, string trackId, ArrivalForecast forecast = null) {
             string key = ServiceKey(line.Id, trackId);
             var active = ActiveTrain(line.Id, trackId);
             double next = nextDispatch.TryGetValue(key, out double held) ? held : Clock.SimTime;
-            var arrivals = new double[3];
-            var atPlatform = new bool[3];
-            ForecastArrivals(Clock.SimTime, next, active, line, arrivals, atPlatform);
+            if (forecast == null) forecast = ForecastArrivals(Clock.SimTime, next, active, line);
+            else next = forecast.NextDispatch;
             return new StationTrainFrame {
                 Id = key,
                 LineId = line.Id,
@@ -1728,45 +1740,86 @@ namespace Metro.Sim {
                 DoorFraction = active.HasValue ? DoorFractionOf(active.Value.Phase, active.Value.T) : 0,
                 DoorBankMask = DoorBankMaskFor(line, trackId),
                 NextDispatchSimTime = next,
-                ArrivalSeconds = arrivals,
-                ArrivalAtPlatform = atPlatform,
+                ArrivalSeconds = forecast.Seconds,
+                ArrivalAtPlatform = forecast.AtPlatform,
                 Capacity = services.CapacityFor(line.Id, trackId),
                 Onboard = services.OnboardFor(line.Id, trackId),
             };
         }
 
-        /// <summary>Port of <c>serviceArrivals</c>: the next three platform arrivals without advancing the world.</summary>
-        void ForecastArrivals(double now, double next, TrainRun? active, StationLineFact line, double[] seconds, bool[] atPlatform) {
+        sealed class ArrivalForecast {
+            public readonly double[] Seconds = new double[3];
+            public readonly bool[] AtPlatform = new bool[3];
+            public int Count;
+            public double FreeAt, NextDispatch;
+        }
+
+        static ArrivalForecast TrainAvailability(double now, TrainRun? active) {
             const double dt = StationSimConstants.SimSecondsPerTick;
-            double freeAt = now + dt;
+            var forecast = new ArrivalForecast { FreeAt = now + dt, NextDispatch = double.NaN };
             var durations = TrainStopDurations;
-            int slot = 0;
             if (active.HasValue) {
                 int phase = (int)active.Value.Phase - 1;
                 if (phase >= 0 && phase < durations.Length) {
-                    freeAt = now + Ticks(durations[phase] - active.Value.T);
-                    for (int i = phase + 1; i < durations.Length; i++) freeAt += Ticks(durations[i]);
-                    freeAt += dt;
+                    forecast.FreeAt = now + Ticks(durations[phase] - active.Value.T) + dt;
+                    for (int i = phase + 1; i < durations.Length; i++) forecast.FreeAt += Ticks(durations[i]);
                     if (active.Value.Phase == TrainPhase.Approach) {
-                        seconds[slot] = Ticks(StationSimConstants.TrainApproachSeconds - active.Value.T);
-                        atPlatform[slot] = false; slot++;
+                        forecast.Seconds[forecast.Count++] = Ticks(StationSimConstants.TrainApproachSeconds - active.Value.T);
                     } else if (active.Value.Phase != TrainPhase.Depart && active.Value.Phase != TrainPhase.None) {
-                        seconds[slot] = 0; atPlatform[slot] = true; slot++;
+                        forecast.AtPlatform[forecast.Count++] = true;
                     }
                 }
             }
-            bool workday = Clock.DayType == SimDayType.Workday;
-            double dispatch = Math.Max(now + Math.Max(dt, Ticks(next - now)), freeAt);
+            return forecast;
+        }
+
+        static double TrainCycle() {
             double cycle = 0;
-            for (int i = 0; i < durations.Length; i++) cycle += Ticks(durations[i]);
-            while (slot < seconds.Length) {
-                seconds[slot] = dispatch + Ticks(StationSimConstants.TrainApproachSeconds) - dt - now;
-                atPlatform[slot] = false;
-                slot++;
-                // Re-read the real period at each forecast dispatch, as the source does.
-                double headway = line.HeadwayFor(StationClock.PeriodOf((long)Math.Floor(dispatch), Clock.Service, Clock.Peaks, workday));
-                dispatch += Math.Max(dt, Math.Max(Ticks(headway), cycle));
+            foreach (double duration in TrainStopDurations) cycle += Ticks(duration);
+            return cycle;
+        }
+
+        double ForecastHeadway(StationLineFact line, double dispatch, bool workday) =>
+            Math.Max(StationSimConstants.SimSecondsPerTick, Ticks(line.HeadwayFor(
+                StationClock.PeriodOf((long)Math.Floor(dispatch), Clock.Service, Clock.Peaks, workday))));
+
+        /// <summary>The next three platform arrivals without advancing the world.</summary>
+        ArrivalForecast ForecastArrivals(double now, double next, TrainRun? active, StationLineFact line) {
+            const double dt = StationSimConstants.SimSecondsPerTick;
+            var forecast = TrainAvailability(now, active);
+            bool workday = Clock.DayType == SimDayType.Workday;
+            double dispatch = Math.Max(now + Math.Max(dt, Ticks(next - now)), forecast.FreeAt);
+            double cycle = TrainCycle();
+            while (forecast.Count < forecast.Seconds.Length) {
+                forecast.Seconds[forecast.Count++] = dispatch + Ticks(StationSimConstants.TrainApproachSeconds) - dt - now;
+                dispatch += Math.Max(ForecastHeadway(line, dispatch, workday), cycle);
             }
+            return forecast;
+        }
+
+        Dictionary<string, ArrivalForecast> ForecastTerminals(StationLineFact line, List<string> tracks) {
+            const double dt = StationSimConstants.SimSecondsPerTick;
+            double now = Clock.SimTime;
+            bool workday = Clock.DayType == SimDayType.Workday;
+            double cycle = TrainCycle();
+            double approachDelay = Ticks(StationSimConstants.TrainApproachSeconds) - dt;
+            var byTrack = new Dictionary<string, ArrivalForecast>(tracks.Count);
+            foreach (string track in tracks) byTrack.Add(track, TrainAvailability(now, ActiveTrain(line.Id, track)));
+            double next = nextDispatch.TryGetValue(ServiceKey(line.Id, ""), out var held) ? held : now;
+            double dispatch = now + Math.Max(dt, Ticks(next - now));
+            int pending = tracks.Count;
+            for (int i = NextTerminalIndex(line.Id, tracks); pending > 0; i = (i + 1) % tracks.Count) {
+                var forecast = byTrack[tracks[i]];
+                dispatch = Math.Max(dispatch, forecast.FreeAt);
+                if (forecast.Count < forecast.Seconds.Length) {
+                    if (double.IsNaN(forecast.NextDispatch)) forecast.NextDispatch = dispatch;
+                    forecast.Seconds[forecast.Count++] = dispatch + approachDelay - now;
+                    if (forecast.Count == forecast.Seconds.Length) pending--;
+                }
+                forecast.FreeAt = dispatch + cycle;
+                dispatch += ForecastHeadway(line, dispatch, workday);
+            }
+            return byTrack;
         }
 
         static double Ticks(double seconds) => Math.Max(0, Math.Ceiling(seconds / StationSimConstants.SimSecondsPerTick)) * StationSimConstants.SimSecondsPerTick;

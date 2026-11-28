@@ -27,8 +27,9 @@ namespace Metro.App.Views {
         public Vector3 DocumentPosition;
         /// <summary>Unit run direction in the plan, from the track's saved rotation.</summary>
         public Vector2 Facing = Vector2.right;
-        /// <summary>`track.cfg.dir`: +1 up, −1 down (the source's `dirSign`).</summary>
+        /// <summary>The consist's orientation as it approaches and berths.</summary>
         public int DirectionSign = 1;
+        public bool Terminal;
         /// <summary>Half the consist length along the run, metres.</summary>
         public float HalfLength;
         /// <summary>Metres of connected rail behind the berth (toward the −facing end).</summary>
@@ -493,9 +494,13 @@ namespace Metro.App.Views {
             float low = 0f, high = track.Width;
             for (int i = 0; i < spans.Count; i++) {
                 var span = spans[i];
-                if (span.x > high || span.y < low) continue;
-                low = Mathf.Min(low, span.x);
+                if (span.x > high || span.y < 0f) continue;
                 high = Mathf.Max(high, span.y);
+            }
+            for (int i = spans.Count - 1; i >= 0; i--) {
+                var span = spans[i];
+                if (span.y < low || span.x > track.Width) continue;
+                low = Mathf.Min(low, span.x);
             }
             back = centre - low;
             forward = high - centre;
@@ -555,7 +560,9 @@ namespace Metro.App.Views {
             if (index != null) SelectBerthPlatformEdges(index, track, line.Id, direction, selectedEdges);
             else StationRailGeometry.SelectBerthPlatformEdges(document, track, line.Id, direction, selectedEdges);
             var edge = selectedEdges.Count > 0 ? selectedEdges[0] : null;
-            int dirSign = DirectionSign(track, line);
+            bool terminal = direction == StationTrainPose.TerminalDirection;
+            int dirSign = terminal ? StationTrainPose.TerminalApproachSign(track.Width, back, forward) : DirectionSign(track, line);
+            float approachRun = terminal && dirSign < 0 ? forward : back;
             List<ModuleFacts> edgeFacts;
             if (index != null) {
                 var edges = index.ModulesOfType("platform-edge");
@@ -584,8 +591,9 @@ namespace Metro.App.Views {
                 LineId = line.Id, TrackId = track.Id, Stock = line.Stock, Cars = line.Cars, Scale = modelScale,
                 DocumentPosition = position, Facing = facing,
                 DirectionSign = dirSign,
+                Terminal = terminal,
                 HalfLength = TrainConsist.Length(line.Stock, line.Cars, modelScale) * .5f,
-                ApproachRun = back, DepartRun = forward,
+                ApproachRun = approachRun, DepartRun = terminal ? approachRun : forward,
                 HasPlatform = edge != null,
                 TrackDoorSides = trackSides,
                 DoorBankMask = StationTrainPose.ConsistDoorBankMask(trackSides, dirSign),
@@ -658,7 +666,7 @@ namespace Metro.App.Views {
                 case TrainPhase.Depart: {
                     float p = Mathf.Min(1f, (float)(phaseSeconds / StationSimConstants.TrainDepartSeconds));
                     return p * p * (berth.HalfLength + berth.DepartRun) *
-                        DrawnRunScale(StationSimConstants.TrainDepartSeconds) * berth.DirectionSign;
+                        DrawnRunScale(StationSimConstants.TrainDepartSeconds) * (berth.Terminal ? -berth.DirectionSign : berth.DirectionSign);
                 }
                 default:
                     // Berth, opening, dwell, closing, hold and a cleared phase all

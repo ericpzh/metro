@@ -160,8 +160,7 @@ namespace Metro.App.Views {
         /// <summary>`cfg.dir` with the line's own direction as the fallback.</summary>
         static string TrackDirection(StationModuleRecord track, StationLineRecord line) {
             var direction = track != null ? track.Config.Text("dir") : "";
-            if (direction.Length > 0) return direction;
-            return line != null && line.Direction.Length > 0 ? line.Direction : "up";
+            return StationTrainPose.DestinationDirection(direction, line?.Direction);
         }
 
         /// <summary>

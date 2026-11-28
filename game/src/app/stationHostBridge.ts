@@ -13,7 +13,7 @@
 
 import type { SignBoards } from '../sim/sign.ts'
 import type { CityStyle } from '../sim/cityStyles.ts'
-import type { BridgeRailing, LiftDoorSide, LineDef, LineDirection } from '../sim/types.ts'
+import type { BridgeRailing, LiftDoorSide, LineDef, LineDirection, RailDirection } from '../sim/types.ts'
 
 /** Exit inspector settings that can be committed directly through a player host. */
 export interface ExitPatch {
@@ -60,6 +60,7 @@ export interface StationHostCommitPort {
   commitSwitchRoadDirection?(moduleId: string): boolean
   /** Regenerate derived platform screen doors for a platform track. */
   commitRegenRail?(trackId: string): boolean
+  commitSetPlatformDirection?(trackId: string, direction: RailDirection): boolean
   commitBridgeRailing?(trackId: string, railing: BridgeRailing): boolean
   /** Start moving a placed module on the host. */
   startMove?(moduleId: string): boolean
@@ -102,6 +103,21 @@ export function subscribeStationHostCommit(listener: () => void): () => void {
 export function registerStationHostCommit(port: StationHostCommitPort | null): void {
   current = port
   portListeners.forEach(listener => listener())
+}
+
+/**
+ * Whether the TopBar station-name button should open the rename form.
+ * - With a `StationHost`, editing is enabled whenever the host's commit port exposes
+ *   `commitStationName` (even when `files` overrides are also provided for desktop/WebGL save dialogs).
+ * - Without a `StationHost`, editing is enabled for the plain TypeScript app (`!hasFiles`)
+ *   and kept read-only for legacy file-only shells (`zooUi`).
+ */
+export function canEditStationName(
+  hasHost: boolean,
+  hasFiles: boolean,
+  port: Pick<StationHostCommitPort, 'commitStationName'> | null = current,
+): boolean {
+  return hasHost ? Boolean(port?.commitStationName) : !hasFiles
 }
 
 /**

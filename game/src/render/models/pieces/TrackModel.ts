@@ -21,7 +21,7 @@ import { buildBridgeRailing } from './BridgeRailing.ts'
 /**
  * A flat arrow lying on the bed, pointing along local +x (or −x when `flip`).
  * Used only by the placement ghost, so the player sees which way the track's
- * 上行/下行 direction runs before committing.
+ * service runs before committing.
  */
 function buildDirectionArrow(mat: THREE.Material, x: number, y: number, z: number, flip: boolean): THREE.Group {
   const g = new THREE.Group()
@@ -104,13 +104,18 @@ function buildTrack(mats: ModelMaterials, mod: Extract<Module, { type: 'track' }
   // (see `thirdRailSide`).
   if (mod.cfg.power === 'catenary') buildTrackCatenary(g, mats, mod, thirdRail, vehicleWidth, ceilingZ)
   else buildThirdRail(hardware, mats, mod.w, cx, cy, thirdRail)
-  // The ghost carries the travel direction (上行/下行) as arrows along the run.
+  // Terminal trains traverse the same rail in both directions.
   if (preview) {
     const flip = mod.cfg.dir === 'down'
     const n = Math.max(1, Math.min(8, Math.round(mod.w / 18)))
     for (let i = 0; i < n; i++) {
       const x = ((i + 0.5) / n) * mod.w - 0.5
-      g.add(buildDirectionArrow(mats.glow, x, cy, 0.82, flip))
+      if (mod.cfg.dir === 'terminal') {
+        g.add(buildDirectionArrow(mats.glow, x, cy - 0.6, 0.82, false))
+        g.add(buildDirectionArrow(mats.glow, x, cy + 0.6, 0.82, true))
+      } else {
+        g.add(buildDirectionArrow(mats.glow, x, cy, 0.82, flip))
+      }
     }
   }
   g.position.set(mod.x + 0.5, mod.y + 0.5, mod.z)

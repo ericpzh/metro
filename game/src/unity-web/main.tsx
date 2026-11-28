@@ -53,6 +53,7 @@ import { registerStationHostCommit } from '../app/stationHostBridge.ts'
 import { beginPointerDrag } from '../app/pointerDrag.ts'
 import { mountUnityAudio } from './unityAudio.ts'
 import { buildSaveFileName, getDesktopFileBridge, openDesktopSaveFile, saveDesktopSaveFile } from './desktopFiles.ts'
+import { attachDesktopTooltip } from './desktopTooltip.ts'
 import '../styles.css'
 import './unity-ui.css'
 
@@ -417,6 +418,9 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
   else delete document.body.dataset.metroBenchmarkActive
   const desktopOverlay = Boolean((window as unknown as { __metroDesktopOverlay?: boolean }).__metroDesktopOverlay) ||
     document.documentElement.classList.contains('metro-overlay')
+  const detachDesktopTooltip = desktopOverlay
+    ? attachDesktopTooltip({ getScale: getUiScale })
+    : () => {}
   const desktopFiles = getDesktopFileBridge()
   initLanguage()
   if (!isBenchmark || desktopOverlay) {
@@ -991,6 +995,7 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
     commitSwitchRunDirection: moduleId => sendRevisionedEdit('edit.run.reverse', { moduleId }),
     commitSwitchRoadDirection: moduleId => sendRevisionedEdit('edit.road.reverse', { moduleId }),
     commitRegenRail: trackId => sendRevisionedEdit('edit.rail.regen', { trackId }),
+    commitSetPlatformDirection: (trackId, direction) => sendRevisionedEdit('edit.rail.direction', { trackId, direction }),
     commitBridgeRailing: (trackId, railing) => sendRevisionedEdit('edit.rail.railing', { trackId, railing }),
     startMove: moduleId => {
       stationBridge.send('edit.move.start', { moduleId })
@@ -1081,6 +1086,7 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
     trainMarks.dispose()
     detachCanvas()
     detachPointer()
+    detachDesktopTooltip()
     canvas.removeEventListener('pointermove', trackPointer)
     measureChip.remove()
     detachKeyboard()

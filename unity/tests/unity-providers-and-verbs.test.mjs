@@ -28,6 +28,7 @@ import {
   unityHostOwnsStation,
 } from '../../game/src/unity-web/signCommitAdapter.ts'
 import {
+  canEditStationName,
   hostOwnsVerb,
   registerStationHostCommit,
   stationHostCommit,
@@ -685,4 +686,47 @@ test('main.tsx and SettingsMenu.tsx preserve paintPick, passenger selection, cur
   assert.match(mainSource, /stationBridge\.request\('graphics\.get'\)/)
   assert.match(mainSource, /stationBridge\.request\('graphics\.set', \{ profile \}\)/)
   assert.match(mainSource, /stationBridge\.request\('graphics\.set', \{ upscaling: mode \}\)/)
+})
+
+test('Unity shell keeps TopBar station name editable when host exposes commitStationName alongside files', () => {
+  const prevPort = stationHostCommit()
+  const prevStation = useStore.getState().station
+  try {
+    // Plain Three.js app (no host, no files): editable.
+    assert.equal(canEditStationName(false, false, null), true)
+    // Legacy file-only zooUi (no host, files provided): read-only.
+    assert.equal(canEditStationName(false, true, null), false)
+    // Unity shell (host + files provided, commitStationName registered): editable.
+    assert.equal(canEditStationName(true, true, { commitStationName: () => true }), true)
+    assert.equal(canEditStationName(true, false, { commitStationName: () => true }), true)
+    // Host without commitStationName: read-only.
+    assert.equal(canEditStationName(true, true, {}), false)
+    assert.equal(canEditStationName(true, true, null), false)
+
+    // Store renameStation delegates to commitStationName when host owns the station.
+    const committed = []
+    registerStationHostCommit({
+      ownsStation: () => true,
+      commitSignBoards: () => false,
+      commitStationName: (name, nameEn) => { committed.push({ name, nameEn }); return true },
+      undo: () => false,
+      redo: () => false,
+      deleteSelection: () => false,
+      cancelGesture: () => false,
+    })
+    assert.equal(canEditStationName(true, true), true)
+    useStore.getState().renameStation('春熙路', 'Chunxi Rd')
+    assert.deepEqual(committed, [{ name: '春熙路', nameEn: 'Chunxi Rd' }])
+
+    // TopBar subscribes to host commit registration and delegates editable logic to canEditStationName.
+    const topBarSource = readFileSync(join(repo, 'game/src/app/windows/topbar/TopBar.tsx'), 'utf8')
+    const mainSource = readFileSync(join(repo, 'game/src/unity-web/main.tsx'), 'utf8')
+    assert.match(topBarSource, /useSyncExternalStore\(\s*subscribeStationHostCommit,\s*stationHostCommit,\s*stationHostCommit/)
+    assert.match(topBarSource, /canEditStationName\(Boolean\(host\), Boolean\(files\), hostCommit\)/)
+    assert.doesNotMatch(topBarSource, /editable=\{!files &&/)
+    assert.match(mainSource, /commitStationName:\s*\(name, nameEn\)\s*=>\s*sendRevisionedEdit\('edit\.rename', \{ name, nameEn \}\)/)
+  } finally {
+    registerStationHostCommit(prevPort)
+    useStore.setState({ station: prevStation })
+  }
 })

@@ -33,7 +33,7 @@ namespace Metro.App {
         /// <summary>The armed line id, empty for "the document's first line".</summary>
         public static string ArmedLine() => StationToolSelection.Setting(LineSetting);
 
-        /// <summary>The armed direction (`up` / `down`), defaulting to the line's own.</summary>
+        /// <summary>The armed platform direction, defaulting to up.</summary>
         public static string ArmedDirection() {
             var dir = StationToolSelection.Setting(DirectionSetting);
             return string.IsNullOrEmpty(dir) ? "up" : dir;

@@ -1240,6 +1240,97 @@ namespace Metro.EditModeTests {
             Assert.IsTrue(runMinus.Power.Vertices.All(v => v.z < bedCentreY), "-1 power mesh sits on -across half");
         }
 
+        [TestCase(false)]
+        [TestCase(true)]
+        public void TerminalTrainReturnsThroughItsApproachEnd(bool forwardConnection) {
+            int sign = forwardConnection ? -1 : 1;
+            int nearY = forwardConnection ? 40 : -16;
+            int farY = forwardConnection ? 56 : -48;
+            JObject Rail(string id, int y, int width, bool tunnel) => new JObject {
+                ["id"] = id, ["type"] = "track", ["x"] = 0, ["y"] = y, ["z"] = 0,
+                ["w"] = width, ["d"] = 3, ["rot"] = 1,
+                ["cfg"] = new JObject {
+                    ["line"] = "1", ["dir"] = tunnel ? "up" : "terminal", ["power"] = "third-rail", ["tunnel"] = tunnel,
+                },
+            };
+            var read = ReadSave("terminal-pose", new JArray(),
+                new JArray { Rail("terminal", 0, 40, false), Rail("near", nearY, 16, true), Rail("far", farY, 32, true) },
+                new JArray { LineJson("1", "B", 2, "third-rail", "down") });
+            Assert.IsTrue(read.Index.TryGetModule("terminal", out var track));
+            Assert.IsTrue(TrainConsistGeometry.TryBerth(read.Document, read.Index, read.Document.Lines[0], track,
+                .98f, out var view, out var error), error);
+            var doc = new StationSessionDocument();
+            doc.Modules.Add(new StationModuleFact { Id = "terminal", Type = "track", Width = 40, Depth = 3, Rot = 1, LineId = "1", Dir = "terminal" });
+            doc.Modules.Add(new StationModuleFact { Id = "near", Type = "track", Y = nearY, Width = 16, Depth = 3, Rot = 1, LineId = "1", Tunnel = true });
+            doc.Modules.Add(new StationModuleFact { Id = "far", Type = "track", Y = farY, Width = 32, Depth = 3, Rot = 1, LineId = "1", Tunnel = true });
+            var line = new StationLineFact { Id = "1", Stock = "B", Cars = 2, Direction = "down" };
+            Assert.IsTrue(StationTrainPose.TryBerth(doc, line, true, "terminal", .98, out var sim, out error), error);
+            Assert.AreEqual(sign, sim.DirectionSign);
+            Assert.AreEqual(sign, view.DirectionSign);
+            Assert.AreEqual(68, sim.ApproachRun);
+            Assert.AreEqual(sim.ApproachRun, sim.DepartRun);
+            var start = StationTrainPose.OffsetMetres(TrainPhase.Approach, 1, sim);
+            var end = StationTrainPose.OffsetMetres(TrainPhase.Depart, StationSimConstants.TrainDepartSeconds - 1, sim);
+            Assert.AreEqual(-sign * (sim.HalfLength + 68), start, 1e-8);
+            Assert.AreEqual(start, end, 1e-8);
+            Assert.AreEqual(start, TrainConsistGeometry.OffsetMetres(TrainPhase.Approach, 1, view), 1e-4);
+            Assert.AreEqual(end, TrainConsistGeometry.OffsetMetres(TrainPhase.Depart, StationSimConstants.TrainDepartSeconds - 1, view), 1e-4);
+        }
+
+        [Test]
+        public void TerminalBerthsShareLineHeadwayAndForecastInDispatchOrder() {
+            var doc = new StationSessionDocument();
+            doc.Lines.Add(new StationLineFact {
+                Id = "1", Stock = "B", Cars = 2, Direction = "up", AuthoredAlight = true,
+                HeadwayPeak = 60, HeadwayOffpeak = 60, HeadwayLate = 60,
+            });
+            for (int i = 0; i < 4; i++) {
+                doc.Modules.Add(new StationModuleFact {
+                    Id = "track-" + i, Type = "track", Y = i * 8, Width = 40, Depth = 3, LineId = "1",
+                    Dir = i == 1 ? "up" : "terminal",
+                });
+            }
+            var session = new StationSimulationSession(new StationSessionSetup {
+                Document = doc, Day = StationDayData.Default, Seed = 7,
+                StartSimTime = StationClock.ReferenceBootSeconds, StartPlaying = true,
+                Services = new StationServiceOptions { Spawn = false },
+            });
+            var frames = session.Snapshot().Trains;
+            CollectionAssert.AreEqual(new double[] { 6, 186, 366 }, frames[0].ArrivalSeconds);
+            CollectionAssert.AreEqual(new double[] { 18, 78, 138 }, frames[1].ArrivalSeconds);
+            CollectionAssert.AreEqual(new double[] { 66, 246, 426 }, frames[2].ArrivalSeconds);
+            CollectionAssert.AreEqual(new double[] { 126, 306, 486 }, frames[3].ArrivalSeconds);
+            for (int i = 0; i < 181; i++) session.Advance(1);
+            var dispatches = session.TrainTransitions.Where(t => t.Dispatch).ToArray();
+            CollectionAssert.AreEqual(new long[] { 1, 13, 61, 73, 121, 133, 181 }, dispatches.Select(t => t.Tick));
+            CollectionAssert.AreEqual(new[] { "track-0", "track-1", "track-2", "track-1", "track-3", "track-1", "track-0" },
+                dispatches.Select(t => t.TrackId));
+        }
+
+        [Test]
+        public void TerminalDirectionEditPreservesExistingPlatformScreenRecords() {
+            var edges = new JObject {
+                ["id"] = "screen", ["type"] = "platform-edge", ["x"] = 0, ["y"] = 3, ["z"] = 0, ["w"] = 40,
+                ["cfg"] = new JObject { ["line"] = "1", ["dir"] = "down", ["from"] = "rail", ["side"] = "left", ["psd"] = "none" },
+            };
+            var track = new JObject {
+                ["id"] = "rail", ["type"] = "track", ["x"] = 0, ["y"] = 0, ["z"] = 0, ["w"] = 40, ["d"] = 3,
+                ["cfg"] = new JObject { ["line"] = "1", ["dir"] = "down", ["power"] = "third-rail" },
+            };
+            var before = ReadSave("terminal-edit", new JArray(), new JArray { track, edges },
+                new JArray { LineJson("1", "B", 2, "third-rail") });
+            var patch = StationHostEdits.PlanPlatformDirection(before.Index, "rail", "terminal", out var error);
+            Assert.IsNotNull(patch, error);
+            var after = StationLocalEdit.TryApplyCells(before, patch, "terminal-edit", out error);
+            Assert.IsNotNull(after, error);
+            Assert.IsTrue(after.Index.TryGetModule("rail", out var rail));
+            Assert.AreEqual("terminal", rail.Config.Text("dir"));
+            Assert.IsTrue(after.Index.TryGetModule("screen", out var screen));
+            Assert.AreEqual("terminal", screen.Config.Text("dir"));
+            Assert.AreEqual("none", screen.Config.Text("psd"));
+            Assert.AreEqual("up", after.Document.Lines[0].Direction);
+        }
+
         [Test]
         public void RailPlannerResizeCollisionRefusalDeepBedAndQuarterTurns() {
             var slab = new JArray();

@@ -101,6 +101,7 @@ export interface LineAnchor {
   /** Yaw (radians) that turns the consist's local +x onto the run axis. */
   yaw: number
   dirSign: number
+  terminal: boolean
   cars: number
   stock: StockClass
   colour: number

@@ -5,11 +5,12 @@ import { TRAIN_ORIGIN_Z } from '../src/sim/stock.ts'
 // contiguous run of platform floor beside the bed.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { defaultLine, derivePlatformEdges, dropDerivedEdges, isPlatformCell, makeBridge, placeRail, placeTrack, placeTunnel, railModuleAt, railModuleAtPlatform, regenerateRailEdges, removeLineAndTracks, resizeTrack, setLinePower, stripTunnelShell, TUNNEL_SHELL, trackBlockReason, trackClearanceBlocked, trackFloorMissing, trackPieceForLine } from '../src/build/rail.ts'
-import { trackCellAt, trackCells, trackOriginForCentre } from '../src/sim/track.ts'
+import { defaultLine, derivePlatformEdges, dropDerivedEdges, isPlatformCell, makeBridge, placeRail, placeTrack, placeTunnel, railModuleAt, railModuleAtPlatform, regenerateRailEdges, removeLineAndTracks, resizeTrack, setLinePower, setPlatformDirection, stripTunnelShell, TUNNEL_SHELL, trackBlockReason, trackClearanceBlocked, trackFloorMissing, trackPieceForLine } from '../src/build/rail.ts'
+import { nextRailDirection, trackCellAt, trackCells, trackOriginForCentre } from '../src/sim/track.ts'
 import { moduleEnvelope, placementOnTrack, trackBedKeys, trackAt } from '../src/sim/placement.ts'
 import { removeModule, toState, toData } from '../src/build/model.ts'
 import { World } from '../src/sim/world.ts'
+import { parse, serialize } from '../src/persistence/save.ts'
 
 function station(cells) {
   return { name: '测试', seed: 1, cells, modules: [], lines: [defaultLine('1', 'up', 'third-rail')] }
@@ -20,6 +21,21 @@ function floorRow(x0, x1, y, finish = 'floor.granite') {
   for (let x = x0; x <= x1; x++) out.push({ x, y, z: 0, fill: 'solid', finish: { top: finish } })
   return out
 }
+
+test('platform direction cycles through terminal and survives saving with existing screen sections', () => {
+  assert.deepEqual(['up', 'down', 'terminal'].map(nextRailDirection), ['down', 'terminal', 'up'])
+  const state = toState(station([...floorRow(0, 5, 0), ...floorRow(0, 5, 1)]))
+  const placed = placeTrack(state, { lineId: '1', dir: 'down', power: 'third-rail', rot: 0, x: 0, y: 1, z: 0, w: 6, d: 1 })
+  const track = placed.modules.find(m => m.type === 'track')
+  const edge = placed.modules.find(m => m.type === 'platform-edge')
+  const terminal = setPlatformDirection(placed, track.id, 'terminal')
+  assert.deepEqual(terminal.modules.find(m => m.id === edge.id), { ...edge, cfg: { ...edge.cfg, dir: 'terminal' } })
+  assert.equal(placed.modules.find(m => m.id === track.id).cfg.dir, 'down')
+  assert.equal(terminal.lines[0].direction, 'up')
+  const loaded = parse(serialize(terminal))
+  assert.equal(loaded.ok, true)
+  assert.deepEqual(loaded.state.modules, terminal.modules)
+})
 
 test('placing a rail digs the bed, lays the track and derives the screen doors', () => {
   const cells = [...floorRow(0, 5, 0), ...floorRow(0, 5, 1)]

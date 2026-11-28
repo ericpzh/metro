@@ -1,6 +1,7 @@
 import { drawModelText } from '../../modelLabels.ts'
 import { t } from '../../../sim/i18n.ts'
 import type { LineDef } from '../../../sim/types.ts'
+import { railLineDirection } from '../../../sim/track.ts'
 import type { PlatformEdgeModule } from '../../../sim/track.ts'
 
 /** Full-height fascia, with its space taken from the glazed doorway below. */
@@ -8,7 +9,7 @@ export const PSD_HEADER_HEIGHT = 0.53
 export const PSD_HEADER_PIXELS = 256
 
 export function psdHeaderInfo(line: LineDef | undefined, mod: PlatformEdgeModule, name: string) {
-  const down = mod.cfg.dir === 'down'
+  const down = railLineDirection(mod.cfg.dir, line?.direction) === 'down'
   const destination = (down ? line?.downTerminus : line?.upTerminus)?.trim() ?? ''
   return {
     destination: destination || t(down ? 'down' : 'up'),

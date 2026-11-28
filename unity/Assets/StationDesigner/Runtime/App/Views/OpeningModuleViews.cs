@@ -1156,6 +1156,9 @@ namespace Metro.App {
                 // RCA 15 §5: the printed header carries the line's ink, its terminus and the
                 // next station for the edge's own direction; `PsdHeader.ts:psdHeaderInfo`.
                 request.LineColour = line.Colour;
+                if (request.Dir == Metro.Sim.StationTrainPose.TerminalDirection) {
+                    request.Dir = Metro.Sim.StationTrainPose.DestinationDirection(request.Dir, line.Direction);
+                }
                 request.UpTerminus = line.UpTerminus;
                 request.DownTerminus = line.DownTerminus;
                 request.UpTerminusEn = LineText(line, "upTerminusEn");

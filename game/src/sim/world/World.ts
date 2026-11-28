@@ -9,7 +9,7 @@ import { AgentPool, type Agent } from '../agents.ts'
 import { trainFlags } from '../trainFlags.ts'
 import { activityChoice, dwellTimeline, packActivity, railTimeline } from '../activities.ts'
 import { applyPopulationEdit, type PopulationEdit } from '../populationEdit.ts'
-import { serviceArrivals, type TrainService } from '../trainSchedule.ts'
+import { serviceArrivals, terminalServiceArrivals, type TrainService } from '../trainSchedule.ts'
 import {
   CONGESTION_CAP,
   CONGESTION_S,
@@ -72,7 +72,7 @@ import { liftDoorDir, liftDoorSideMask, liftLandingSide } from '../lifts.ts'
 import { crossingDir, isUnpaidZone } from '../zones.ts'
 import { STOCK, STOCK_CLASSES, CABIN_ALIGHT_MAX_S, CABIN_ALIGHT_PAIR_S, CABIN_FLOOR_Z, trainOriginForScale, trainScaleForStorey, CABIN_MAX_ROWS, CABIN_PAIR_HALF, cabinSlot, trainRatedCapacity } from '../stock.ts'
 import { History } from '../history.ts'
-import { normRot, rotateLocal, trackFacing, trackSide, trackTrainCentreV, type TrackModule } from '../track.ts'
+import { connectedRailRun, railLineDirection, rotateLocal, trackFacing, trackTrainCentreV, trainApproachSign, type TrackModule } from '../track.ts'
 import { AgentRenderState, ZONES, type LineDef, type StationData, type Trip } from '../types.ts'
 import type { DynamicSnapshot, LineAnchor, Metrics, Train, TrainAt, TrainState } from './types.ts'
 
@@ -189,6 +189,7 @@ export class World {
   lineById = new Map<string, LineDef>()
   lineAnchors = new Map<string, LineAnchor>()
   nextDispatch = new Map<string, number>()
+  private lastTerminalTrack = new Map<string, string>()
   /** Per-node live population, for the LOS overlay. */
   nodePop: Int32Array
   metrics: Metrics
@@ -339,6 +340,7 @@ export class World {
     this.pool = new AgentPool(this.rng)
     this.trains = []
     this.nextTrainId = 1
+    this.lastTerminalTrack.clear()
     this.metrics = freshMetrics(startSeconds)
     this.selectedAgent = -1
     this.routeTails.clear()
@@ -358,6 +360,7 @@ export class World {
     this.pool = new AgentPool(this.rng)
     this.trains = []
     this.nextTrainId = 1
+    this.lastTerminalTrack.clear()
     this.metrics = freshMetrics(this.simTime)
     // Nobody survives a restart, so the previewed passenger goes with the crowd.
     this.selectedAgent = -1
@@ -407,7 +410,7 @@ export class World {
       const delta = line.headwayProfile[period] - (oldHeadways.get(line.id) ?? line.headwayProfile[period])
       if (delta === 0) continue
       const tracks = this.serviceTracks(line.id)
-      for (const track of tracks.length ? tracks : [undefined]) {
+      for (const track of this.dispatchSlots(tracks)) {
         const key = trainKey(line.id, track?.id ?? '')
         const next = this.nextDispatch.get(key)
         if (next !== undefined && next > this.simTime) this.nextDispatch.set(key, Math.max(this.simTime, next + delta))
@@ -675,19 +678,21 @@ export class World {
       this.nearStamp = 0; this.crowdNearStamp.fill(0)
       this.pricedNodesCount = 0
     }
-    this.nextDispatch.clear()
+    const previousDispatch = this.nextDispatch
+    this.nextDispatch = new Map()
     let stagger = 0
     for (const l of this.data.lines) {
       const tracks = this.serviceTracks(l.id)
-      if (tracks.length === 0) {
-        this.nextDispatch.set(trainKey(l.id, ''), this.simTime + stagger)
-        stagger += 13
-        continue
-      }
-      for (const t of tracks) {
-        this.nextDispatch.set(trainKey(l.id, t.id), this.simTime + stagger)
+      if (!tracks.some(track => track.cfg.dir === 'terminal')) this.lastTerminalTrack.delete(l.id)
+      for (const track of this.dispatchSlots(tracks)) {
+        const key = trainKey(l.id, track?.id ?? '')
+        const held = !track && this.lastTerminalTrack.has(l.id) ? previousDispatch.get(key) : undefined
+        this.nextDispatch.set(key, held ?? this.simTime + stagger)
         stagger += 13
       }
+    }
+    for (const lineId of this.lastTerminalTrack.keys()) {
+      if (!this.lineById.has(lineId)) this.lastTerminalTrack.delete(lineId)
     }
   }
 
@@ -701,6 +706,20 @@ export class World {
     const bound = this.data.modules.filter((m): m is TrackModule => m.type === 'track' && m.cfg.line === lineId)
     const platforms = bound.filter((t) => !t.cfg.tunnel && !t.cfg.bridge)
     return platforms.length > 0 ? platforms : bound
+  }
+
+  /** The terminal pool shares the empty-track schedule key used by lines with no tracks. */
+  private dispatchSlots(tracks: TrackModule[]): Array<TrackModule | undefined> {
+    if (tracks.length === 0) return [undefined]
+    const firstTerminal = tracks.find(track => track.cfg.dir === 'terminal')
+    if (!firstTerminal) return tracks
+    return tracks.filter(track => track.cfg.dir !== 'terminal' || track === firstTerminal)
+      .map(track => track === firstTerminal ? undefined : track)
+  }
+
+  private nextTerminalIndex(lineId: string, ids: readonly string[]): number {
+    const last = this.lastTerminalTrack.get(lineId)
+    return last === undefined ? 0 : (ids.indexOf(last) + 1) % ids.length
   }
 
   private setupGrid(): void {
@@ -951,8 +970,13 @@ export class World {
   /** The same per-track dispatch schedule that runs the trains, for platform TVs (§6.5). */
   trainServices(): TrainService[] {
     const services: TrainService[] = []
+    const workday = this.dayType() === 'workday'
     for (const line of this.data.lines) {
       const tracks = this.serviceTracks(line.id)
+      const terminalIds = tracks.filter(track => track.cfg.dir === 'terminal').map(track => track.id)
+      const sharedNext = this.nextDispatch.get(trainKey(line.id, '')) ?? this.simTime
+      const terminalArrivals = terminalIds.length ? terminalServiceArrivals(this.simTime, sharedNext, terminalIds,
+        this.nextTerminalIndex(line.id, terminalIds), this.trains, line, this.day.service, this.day.peaks, workday) : undefined
       for (const track of tracks.length ? tracks : [undefined]) {
         const trackId = track?.id ?? ''
         const key = trainKey(line.id, trackId)
@@ -960,10 +984,11 @@ export class World {
         if (!anchor) continue
         const active = this.trains.find((t) => t.line === line.id && t.track === trackId)
         services.push({
-          lineId: line.id, trackId, trainState: active?.state, direction: track?.cfg.dir ?? line.direction,
+          lineId: line.id, trackId, trainState: active?.state, direction: railLineDirection(track?.cfg.dir, line.direction),
           x: anchor.x, y: anchor.y, z: anchor.z, fx: anchor.fx, fy: anchor.fy,
           halfLength: track ? track.w / 2 : 0,
-          arrivals: serviceArrivals(this.simTime, this.nextDispatch.get(key) ?? this.simTime, active, line, this.day.service, this.day.peaks, this.dayType() === 'workday'),
+          arrivals: terminalArrivals?.get(trackId) ?? serviceArrivals(this.simTime, this.nextDispatch.get(key) ?? this.simTime,
+            active, line, this.day.service, this.day.peaks, workday),
         })
       }
     }
@@ -979,9 +1004,18 @@ export class World {
         this.maybeDispatch(line, '', period, trainKey(line.id, ''), this.doorsByLine.get(line.id) ?? [], line.direction)
         continue
       }
-      for (const track of tracks) {
-        const key = trainKey(line.id, track.id)
-        this.maybeDispatch(line, track.id, period, key, this.doorsByTrack.get(key) ?? [], track.cfg.dir ?? line.direction)
+      for (const slot of this.dispatchSlots(tracks)) {
+        if (slot) {
+          const key = trainKey(line.id, slot.id)
+          this.maybeDispatch(line, slot.id, period, key, this.doorsByTrack.get(key) ?? [], slot.cfg.dir ?? line.direction)
+        } else {
+          const ids = tracks.filter(track => track.cfg.dir === 'terminal').map(track => track.id)
+          const trackId = ids[this.nextTerminalIndex(line.id, ids)]
+          const doors = this.doorsByTrack.get(trainKey(line.id, trackId)) ?? []
+          if (this.maybeDispatch(line, trackId, period, trainKey(line.id, ''), doors, 'terminal')) {
+            this.lastTerminalTrack.set(line.id, trackId)
+          }
+        }
       }
     }
 
@@ -1039,7 +1073,7 @@ export class World {
   }
 
   /** Dispatch one service unless its consist is already running. */
-  private maybeDispatch(line: LineDef, trackId: string, period: 'peak' | 'offpeak' | 'late', key: string, doors: number[], dir: string): void {
+  private maybeDispatch(line: LineDef, trackId: string, period: 'peak' | 'offpeak' | 'late', key: string, doors: number[], dir: string): boolean {
     const active = this.trains.find((t) => t.line === line.id && t.track === trackId)
     const next = this.nextDispatch.get(key) ?? this.simTime
     if (!active && this.simTime >= next) {
@@ -1068,7 +1102,9 @@ export class World {
       // Cabin passengers are created at berth, before opening (§1.13, §5.9).
       this.trains.push(train)
       this.nextDispatch.set(key, this.simTime + this.headwayFor(line, period))
+      return true
     }
+    return false
   }
 
   /** Move a train to the head of `state`, resetting its phase clock. */
@@ -1444,10 +1480,9 @@ export class World {
         // A train rides the rail surface: the recessed bed slab sits half a metre
         // below the platform, so the consist drops with it.
         const z = track.z + trainOriginForScale(trainScaleForStorey(this.data.storeyHeight))
-        // The track's own 上行/下行 picks which way along the run the train moves;
-        // an unset track falls back to the line's travel sign. This is what the
-        // placement preview's direction arrows show.
-        const dirSign = track.cfg.dir ? (track.cfg.dir === 'down' ? -1 : 1) : (line.travelSign ?? 1) >= 0 ? 1 : -1
+        const run = connectedRailRun(track, this.data.modules)
+        const dirSign = trainApproachSign(track, line, run)
+        const terminal = track.cfg.dir === 'terminal'
         const colour = parseInt(line.colour.replace('#', ''), 16) || 0x1f5fd0
         // Screen doors decide which door banks may open (§1.13): a side with no
         // platform-edge run has no screen, so its doors stay shut. Only the
@@ -1463,61 +1498,11 @@ export class World {
           else if (!m.cfg.from && m.cfg.dir === trackDir) dirSides |= bit
         }
         if (doorSides === 0) doorSides = dirSides
-        // The consist runs the whole connected rail: it comes in from beyond the
-        // entrance end and leaves through the far one, so a built tunnel / bridge
-        // is traversed end to end.
-        const run = this.connectedRun(track)
         const approachRun = dirSign >= 0 ? run.back : run.fwd
-        const departRun = dirSign >= 0 ? run.fwd : run.back
-        this.lineAnchors.set(trainKey(line.id, track.id), { x, y, z, fx, fy, yaw: Math.atan2(fy, fx), dirSign, cars: line.cars, stock: line.stock, colour, doorSides, approachRun, departRun })
+        const departRun = terminal ? approachRun : dirSign >= 0 ? run.fwd : run.back
+        this.lineAnchors.set(trainKey(line.id, track.id), { x, y, z, fx, fy, yaw: Math.atan2(fy, fx), dirSign, terminal, cars: line.cars, stock: line.stock, colour, doorSides, approachRun, departRun })
       }
     }
-  }
-
-  /**
-   * How far the berth sits from each end of the rail the consist can actually
-   * run on: the collinear, bed-sharing runs of the same line — the platform
-   * track and every 隧道 / 轨道桥 grown off it — merged into one chain. The old
-   * choreography ran only `consist + 25 m`, so a consist vanished beside the
-   * platform however long the connected tunnel or bridge was; these ends let
-   * `trainAt` run it in from beyond the entrance portal and out through the
-   * far one.
-   *
-   * `back`/`fwd` are metres along the track's local +x, both measured from the
-   * berth (the bed centre, which sits half a cell in from the origin corner).
-   */
-  private connectedRun(track: TrackModule): { back: number; fwd: number } {
-    const rot = normRot(track.rot)
-    const [fx, fy] = trackFacing(rot)
-    const [sx, sy] = trackSide(rot)
-    const d0 = track.d ?? 1
-    const centre = track.w / 2
-    // The run-axis spans (cell units from this track's origin) of every rail that
-    // shares the bed: same line, storey and axis, with an across-span that
-    // overlaps this one's. Its own span is the seed of the chain.
-    const spans: Array<[number, number]> = []
-    for (const m of this.data.modules) {
-      if (m.type !== 'track' || m.cfg.line !== track.cfg.line || m.z !== track.z) continue
-      if (normRot(m.rot) !== rot) continue
-      const dx = m.x - track.x
-      const dy = m.y - track.y
-      const across = dx * sx + dy * sy
-      if (across >= d0 || across + (m.d ?? 1) <= 0) continue
-      const u = dx * fx + dy * fy
-      spans.push([u, u + m.w])
-    }
-    spans.sort((a, b) => a[0] - b[0])
-    // Grow the chain over every span that touches it; sorted by start, a run that
-    // only meets the far end after the chain grew is reached on its own turn. A
-    // gap (a separate track with no rail between) is left out.
-    let lo = 0
-    let hi = track.w
-    for (const [u0, u1] of spans) {
-      if (u0 > hi || u1 < lo) continue
-      lo = Math.min(lo, u0)
-      hi = Math.max(hi, u1)
-    }
-    return { back: centre - lo, fwd: hi - centre }
   }
 
   /**
@@ -1554,9 +1539,10 @@ export class World {
       offset = -(1 - q) * (1 - q) * (half + a.approachRun) * a.dirSign
     } else if (train.state === 'depart') {
       // Ease in: pull away gently, then run up to speed, only leaving the world
-      // once the tail is out through the far end of the connected rail.
+      // once the whole consist has cleared the connected rail.
       const p = Math.min(1, train.t / TRAIN_DEPART_S)
-      offset = p * p * (half + a.departRun) * drawnRunScale(TRAIN_DEPART_S) * a.dirSign
+      const departSign = a.terminal ? -a.dirSign : a.dirSign
+      offset = p * p * (half + a.departRun) * drawnRunScale(TRAIN_DEPART_S) * departSign
     }
     out.x = a.x + offset * a.fx
     out.y = a.y + offset * a.fy
